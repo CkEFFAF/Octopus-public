@@ -136,6 +136,8 @@ function PageShell({
         display: "flex",
         flexDirection: "column",
         height: "100%",
+        width: "100%",
+        minWidth: 0,
         padding: `${outerPadTop}px ${outerPad}px ${outerPadBottom}`,
         boxSizing: "border-box",
         overflow: "hidden",
@@ -145,6 +147,7 @@ function PageShell({
       <div
         style={{
           display: "flex",
+          flexWrap: "wrap",
           alignItems: "flex-start",
           justifyContent: "space-between",
           gap: 12,
@@ -153,7 +156,7 @@ function PageShell({
           paddingRight: titleRowEndPadding(outerPad),
         }}
       >
-        <div>
+        <div style={{ flex: "1 1 260px", minWidth: 0 }}>
           <Title
             level={4}
             style={{
@@ -161,6 +164,8 @@ function PageShell({
               lineHeight: "28px",
               fontSize: 20,
               fontWeight: 600,
+              wordBreak: "normal",
+              overflowWrap: "break-word",
             }}
           >
             {title}
@@ -175,7 +180,9 @@ function PageShell({
           )}
         </div>
         {titleActions && (
-          <div style={{ flexShrink: 0, paddingTop: 2 }}>{titleActions}</div>
+          <div style={{ maxWidth: "100%", overflowX: "auto", paddingTop: 2 }}>
+            {titleActions}
+          </div>
         )}
       </div>
 

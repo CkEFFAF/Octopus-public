@@ -62,6 +62,7 @@ from octop.infra.backend.docker_spec import (
     enrich_docker_backend_spec,
     inject_docker_global_environment,
 )
+from octop.infra.backend.ephemeral import EphemeralWorkspaces, has_ephemeral_workspace
 from octop.infra.backend.resolver import (
     default_agent_backend_spec,
     resolve_agent_backend_spec,
@@ -381,6 +382,8 @@ class AgentManager:
         self._config = config or _OctopConfig()
         self._expert_catalog = expert_catalog
         self._plugin_manager = plugin_manager
+        self._task_board: Any | None = None
+        self._device_service: Any | None = None
         self._cron_manager: CronManager | None = None
         self._proactive_scheduler: ProactiveCareScheduler | None = None
         self._team_processor: Any | None = None
@@ -441,6 +444,7 @@ class AgentManager:
         self._mcp_tool_cache_guard = asyncio.Lock()
         # Sanitized plugin tool name → original label (per agent, rebuilt on reload).
         self._plugin_tool_labels: dict[str, dict[str, str]] = {}
+        self._ephemeral_workspaces = EphemeralWorkspaces()
 
     def replace_persistence(self, repos: RepoBundle, config: OctopConfig) -> None:
         """Retarget repos/config and rebuild settings stores after control-plane rebind."""
@@ -466,6 +470,12 @@ class AgentManager:
             settings_repo=repos.settings_repo,
             config=self._config,
         )
+
+    def set_task_board(self, service: Any) -> None:
+        self._task_board = service
+
+    def set_device_service(self, service: Any) -> None:
+        self._device_service = service
 
     def set_cron_manager(self, cron_manager: CronManager) -> None:
         """Attach the process-wide CronManager (must be set before boot())."""
@@ -771,6 +781,7 @@ class AgentManager:
 
     async def _abort_incomplete_create(self, agent_id: str) -> None:
         """Best-effort rollback after a failed create. Caller holds ``_lock``."""
+        self._ephemeral_workspaces.discard(agent_id)
         try:
             if self._harness_manager is not None:
                 await self._harness_manager.aremove_agent(agent_id)
@@ -920,6 +931,7 @@ class AgentManager:
             await asyncio.to_thread(self._quiesce_octop_memory, agent_id)
             await self._harness_manager.aremove_agent(agent_id)  # type: ignore[union-attr]
         self._plugin_tool_labels.pop(agent_id, None)
+        self._ephemeral_workspaces.discard(agent_id)
         try:
             if await asyncio.to_thread(workspace_dir.exists):
                 await asyncio.to_thread(shutil.rmtree, workspace_dir)
@@ -2803,7 +2815,12 @@ class AgentManager:
         from octop.infra.backend.compat import adapt_backend_protocol  # noqa: PLC0415
 
         return BackendWorkspace(
-            adapt_backend_protocol(resolve_backend(backend, workspace_dir=workspace_dir)),
+            adapt_backend_protocol(
+                resolve_backend(
+                    self._ephemeral_workspaces.resolve(row.agent_id, backend),
+                    workspace_dir=workspace_dir,
+                )
+            ),
             workspace_dir,
             system_files_path=system_files_path_from_config(cfg),
         )
@@ -3116,6 +3133,18 @@ class AgentManager:
 
         team_host = is_team_agent(row)
 
+        from octop.infra.task_board.tools import build_task_board_tools
+
+        board_tools = (
+            build_task_board_tools(self._task_board) if self._task_board is not None else []
+        )
+        from octop.infra.devices.tools import build_device_tools
+
+        device_tools = (
+            build_device_tools(self._device_service, row.agent_id)
+            if self._device_service is not None and not team_host
+            else []
+        )
         cron_tools: list[Any] | None = None
         if not team_host and self._cron_manager is not None:
             from octop.infra.cron.tools import build_cronjob_tools  # noqa: PLC0415
@@ -3190,7 +3219,13 @@ class AgentManager:
             plugin_tools,
             reserved={
                 str(getattr(t, "name", ""))
-                for t in [*(cron_tools or []), *knowledge_tools, *mobile_tools]
+                for t in [
+                    *board_tools,
+                    *device_tools,
+                    *(cron_tools or []),
+                    *knowledge_tools,
+                    *mobile_tools,
+                ]
             },
         )
         self._plugin_tool_labels[row.agent_id] = {
@@ -3242,7 +3277,19 @@ class AgentManager:
             OctopUiOffloadMiddleware(),
         ]
 
-        merged_tools: list[Any] = []
+        merged_tools: list[Any] = [*board_tools, *device_tools]
+        if team_host:
+            from octop.infra.agents.teams.attachments import build_room_attachment_tool
+            from octop.infra.utils.locale import resolve_user_locale
+
+            merged_tools.append(
+                build_room_attachment_tool(
+                    ws,
+                    locale=resolve_user_locale(
+                        user_repo=self._repos.user_repo, user_id=row.user_id or 0
+                    ),
+                )
+            )
         if cron_tools:
             merged_tools.extend(cron_tools)
         merged_tools.extend(knowledge_tools)
@@ -3353,6 +3400,7 @@ class AgentManager:
                 self._spec_is_opensandbox(backend)
                 or is_adapted_backend(ws.backend)
                 or is_remote_backend_spec(backend)
+                or has_ephemeral_workspace(backend)
             )
             else backend
         )
@@ -3474,7 +3522,12 @@ class AgentManager:
         return replace(cfg, interrupt_on={**(cfg.interrupt_on or {}), **extra})
 
     def _apply_team_host_config(self, cfg: HarnessAgentConfig, row: Any) -> HarnessAgentConfig:
-        from octop.infra.agents.teams import host_system_prompt, host_tools_disabled, is_team_agent
+        from octop.infra.agents.teams import (
+            HOST_TOOLS_ALLOWED,
+            host_system_prompt,
+            host_tools_disabled,
+            is_team_agent,
+        )
 
         if not is_team_agent(row):
             if "peer_invoke_mode" in _HARNESS_AGENT_CONFIG_FIELDS:
@@ -3494,7 +3547,11 @@ class AgentManager:
         if "skills_dir" in _HARNESS_AGENT_CONFIG_FIELDS:
             updates["skills_dir"] = None
         if "tools" in _HARNESS_AGENT_CONFIG_FIELDS:
-            updates["tools"] = None
+            updates["tools"] = [
+                tool
+                for tool in (cfg.tools or [])
+                if getattr(tool, "name", "") in HOST_TOOLS_ALLOWED
+            ] or None
         if "subagents_auto_load" in _HARNESS_AGENT_CONFIG_FIELDS:
             updates["subagents_auto_load"] = False
         if "bootstrap_enabled" in _HARNESS_AGENT_CONFIG_FIELDS:

@@ -1,19 +1,21 @@
-/* Active agent card + session row highlights */
-/* ── Session sidebar: bordered active agent block + session row highlights ─ */
+/* Active agent and sessions share one flat navigation level. */
 .agentCardActive {
-  margin: 0 0 10px;
-  padding: 6px 6px 8px;
-  border-radius: 14px;
-  border: 1px solid transparent;
+  margin: 0 0 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
 }
 
 .agentCardProfile {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 4px;
-  padding: 4px 4px 2px;
+  margin-bottom: 0;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--fn-color-brand) 6%, transparent);
 }
 
 .agentCardAvatar {
@@ -200,7 +202,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 4px 2px 2px;
+  padding: 2px 0 4px 28px;
   border-top: none;
 }
 
@@ -395,11 +397,11 @@
 
 .agentRow {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   flex: 1;
   min-width: 0;
-  padding: 7px 8px;
+  padding: 8px 10px;
   border: 1px solid transparent;
   border-radius: 10px;
   background: transparent;

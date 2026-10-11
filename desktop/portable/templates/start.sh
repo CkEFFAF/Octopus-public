@@ -9,8 +9,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export OCTOP_HOME="${OCTOP_HOME:-${ROOT}/data}"
 
-HOST="127.0.0.1"
-PORT="8088"
+HOST=""
+PORT=""
 EXTRA=()
 
 while [[ $# -gt 0 ]]; do
@@ -71,9 +71,10 @@ export PYTHONNOUSERSITE=1
 unset PYTHONPATH || true
 
 echo "[octop] home=${OCTOP_HOME}"
-echo "[octop] http://${HOST}:${PORT}"
+[[ -z "$HOST" ]] || EXTRA+=(--host "$HOST")
+[[ -z "$PORT" ]] || EXTRA+=(--port "$PORT")
 if [[ ${#EXTRA[@]} -gt 0 ]]; then
-  exec "$PY" "${ROOT}/launch.py" run --host "$HOST" --port "$PORT" "${EXTRA[@]}"
+  exec "$PY" "${ROOT}/portable-start.py" "${EXTRA[@]}"
 else
-  exec "$PY" "${ROOT}/launch.py" run --host "$HOST" --port "$PORT"
+  exec "$PY" "${ROOT}/portable-start.py"
 fi

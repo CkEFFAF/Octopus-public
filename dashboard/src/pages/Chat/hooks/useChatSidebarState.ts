@@ -7,7 +7,7 @@ export const SIDEBAR_WIDTH_MIN = 200;
 export const SIDEBAR_WIDTH_MAX = 360;
 export const SIDEBAR_WIDTH_DEFAULT = 248;
 /** Viewport width at/above which the chat history rail defaults open. */
-export const CHAT_SIDEBAR_WIDE_BREAKPOINT = 1200;
+export const CHAT_SIDEBAR_WIDE_BREAKPOINT = 768;
 
 /**
  * Resolve initial open state: explicit localStorage preference wins;

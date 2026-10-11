@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+import time
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from octop.api.common.client_ip import resolve_client_ip
-from octop.api.deps import current_user, get_server, sign_token
+from octop.api.deps import _decode, current_user, extract_raw_token, get_server, sign_token
+from octop.infra.auth.access_keys import AccessKeyService
 from octop.infra.auth.captcha import current_env, ensure_captcha, load_effective, public_config
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.users.email import normalize_email
@@ -64,6 +66,118 @@ class LoginBody(BaseModel):
     username: str
     password: str
     captcha_token: str | None = Field(default=None, max_length=4096)
+
+
+class KeyLoginBody(BaseModel):
+    access_key: str = Field(min_length=1, max_length=120, repr=False)
+
+
+class CreateKeyBody(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    days: int = Field(default=30, ge=1, le=365)
+    allow_browser: bool = True
+    allow_devices: bool = True
+
+
+class AccessKeyInfo(BaseModel):
+    key_id: str
+    owner_user_id: int
+    name: str
+    allow_browser: int
+    allow_devices: int
+    expires_at: float
+    revoked_at: float | None = None
+    last_used_at: float | None = None
+    created_at: float
+
+
+class AccessKeyCreated(BaseModel):
+    key: AccessKeyInfo
+    secret: str = Field(
+        description="Shown only on creation; never stored as plaintext.", repr=False
+    )
+
+
+class AccessKeyList(BaseModel):
+    keys: list[AccessKeyInfo]
+
+
+def _keys(server: Any) -> AccessKeyService:
+    return cast(AccessKeyService, server.app_runtime.devices.access_keys)
+
+
+@router.post("/key-login", summary="Sign in with a revocable account access key")
+async def key_login(
+    body: KeyLoginBody, request: Request, server: Any = Depends(get_server)
+) -> dict[str, Any]:
+    row = _keys(server).authenticate(body.access_key, "browser", _client_ip(request))
+    user = server.user_manager.get_by_id(int(row["owner_user_id"]))
+    if user is None:
+        raise OctopError(ErrorCode.AUTH_FAILED, "invalid access key")
+    ttl = min(
+        server.services.config.access_token_ttl_seconds,
+        max(1, int(row["expires_at"] - time.time())),
+    )
+    token = sign_token(
+        server.services.secret_repo.get("jwt"),
+        sub=user.id,
+        uname=user.username,
+        role=user.role,
+        ttl_seconds=ttl,
+        auth_key_id=row["key_id"],
+    )
+    return {
+        "access_token": token,
+        "token_type": "Bearer",
+        "expires_in": ttl,
+        "user": _user_json(user, locale=user.locale),
+    }
+
+
+@router.get(
+    "/access-keys",
+    summary="List your login and device enrollment keys",
+    response_model=AccessKeyList,
+)
+async def list_access_keys(
+    user: Any = Depends(current_user), server: Any = Depends(get_server)
+) -> dict[str, Any]:
+    return {"keys": _keys(server).list_keys(int(user.id))}
+
+
+@router.post(
+    "/access-keys",
+    status_code=201,
+    summary="Create an access key; secret is returned once",
+    response_model=AccessKeyCreated,
+)
+async def create_access_key(
+    body: CreateKeyBody,
+    request: Request,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    raw = extract_raw_token(
+        authorization=request.headers.get("authorization"),
+        access_token=request.query_params.get("access_token"),
+    )
+    if raw is None or _decode(server, raw).get("auth_key_id") is not None:
+        raise OctopError(ErrorCode.FORBIDDEN, "sign in with password or SSO to create keys")
+    return _keys(server).create(
+        int(user.id), body.name, body.days, body.allow_browser, body.allow_devices
+    )
+
+
+@router.post(
+    "/access-keys/{key_id}/revoke",
+    status_code=204,
+    summary="Revoke an access key and its browser sessions",
+)
+async def revoke_access_key(
+    key_id: str, user: Any = Depends(current_user), server: Any = Depends(get_server)
+) -> Response:
+    _keys(server).revoke(int(user.id), key_id)
+    return Response(status_code=204)
 
 
 class CaptchaPublicResponse(BaseModel):

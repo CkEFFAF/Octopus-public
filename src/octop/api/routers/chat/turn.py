@@ -55,6 +55,7 @@ class PreparedDashboardTurn:
     inbound_content: list[ContentPart]
     composer_context: dict[str, Any] | None
     inbound_attachments: list[dict[str, str]]
+    device_target: dict[str, Any] | None = None
 
 
 async def resolve_thread_id(
@@ -232,6 +233,10 @@ async def prepare_dashboard_turn(
 ) -> PreparedDashboardTurn:
     """Validate MCP/skills, resolve thread, return data for gateway enqueue."""
     row = require_agent_row(agent_id, user=user, as_user=None, server=server)
+    device_target = None
+    if turn.device_id:
+        device = server.app_runtime.devices.owned(int(user.id), turn.device_id)
+        device_target = {"device_id": device.device_id, "grant_version": device.grant_version}
     default_model = (row.default_model or "").strip() or None
 
     mcp_servers = await validate_chat_mcp_servers(server, user_id=user.id, names=turn.mcp_servers)
@@ -300,6 +305,7 @@ async def prepare_dashboard_turn(
         inbound_content=inbound_content,
         composer_context=composer_ctx,
         inbound_attachments=inbound_attachments,
+        device_target=device_target,
     )
 
 
@@ -328,6 +334,8 @@ def build_dashboard_inbound(
         metadata["skills"] = prepared.skills
     if prepared.model_ref:
         metadata["model"] = prepared.model_ref
+    if prepared.device_target:
+        metadata["octop_device_target"] = prepared.device_target
     if turn.reasoning_mode is not None:
         metadata["reasoning_mode"] = turn.reasoning_mode
     if turn.reasoning_effort:

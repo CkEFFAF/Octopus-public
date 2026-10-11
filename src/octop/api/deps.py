@@ -37,8 +37,10 @@ _JWT_EXEMPT_PREFIXES = (
     "/api/internal/mcp/",
 )
 _JWT_EXEMPT_EXACT = (
+    "/api/devices/enroll",
     "/api/health",
     "/api/auth/login",
+    "/api/auth/key-login",
     "/api/auth/captcha",
     "/api/auth/oidc/status",
     "/api/auth/oidc/start",
@@ -99,11 +101,21 @@ def _decode(server: OctopServer, token: str) -> dict[str, Any]:
     if secret is None:
         raise OctopError(ErrorCode.INTERNAL_ERROR, "jwt secret missing")
     try:
-        return decode_token(secret, token)
+        payload = decode_token(secret, token)
     except TokenExpired as exc:
         raise OctopError(ErrorCode.TOKEN_EXPIRED, "token expired") from exc
     except InvalidToken as exc:
         raise OctopError(ErrorCode.AUTH_FAILED, "invalid token") from exc
+    key_id = payload.get("auth_key_id")
+    if key_id is not None:
+        if (
+            not isinstance(key_id, str)
+            or server.app_runtime is None
+            or server.app_runtime.devices is None
+        ):
+            raise OctopError(ErrorCode.AUTH_FAILED, "invalid access key session")
+        server.app_runtime.devices.access_keys.validate_session(int(payload["sub"]), key_id)
+    return payload
 
 
 def resolve_user_from_token(server: OctopServer, token: str) -> User:
@@ -137,6 +149,7 @@ def maybe_sliding_renew_token(server: OctopServer, token: str, user: User) -> st
         uname=user.username,
         role=user.role,
         ttl_seconds=ttl,
+        auth_key_id=payload.get("auth_key_id"),
     )
 
 

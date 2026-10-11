@@ -13,6 +13,7 @@ import {
 import PageShell, { pageShellStyles } from "../../../layouts/PageShell";
 import { useAgent } from "../../../context/AgentContext";
 import { useIsMobile } from "../../../hooks/useIsMobile";
+import { useLayoutMode } from "../../../context/LayoutModeContext";
 import { usePathTabs } from "../../../hooks/usePathTabs";
 import { useCurrentUser } from "../../../hooks/useCurrentUser";
 import { userCan } from "../../../utils/permissions";
@@ -58,6 +59,7 @@ const TAB_ICONS = {
 export default function PersonalizationPage() {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
+  const { layoutMode } = useLayoutMode();
   const user = useCurrentUser();
   const { activeAgentId, agents } = useAgent();
   const activeAgent = agents.find((a) => a.agent_id === activeAgentId);
@@ -95,9 +97,7 @@ export default function PersonalizationPage() {
     [activeTab, handleTabChange, isAllowed, t],
   );
 
-  const pageTitle = `${t("personalization.title")} / ${t(
-    `personalization.tabs.${activeTab}`,
-  )}`;
+  const pageTitle = t(`personalization.tabs.${activeTab}`);
   const showTeams = activeTab === "memory" || activeTab === "channels";
   const expertOnlyBlocked = isTeamAgent(activeAgent) && !showTeams;
   const teamNeedsExpert = t("agentSelector.teamNeedsExpert", {
@@ -118,7 +118,7 @@ export default function PersonalizationPage() {
       agentScoped
       showTeams={showTeams}
       fill={!isMobile}
-      pathTabs={pathTabs}
+      pathTabs={isMobile || layoutMode === "minimal" ? pathTabs : undefined}
     >
       {activeAgent?.bridge ? (
         <Alert

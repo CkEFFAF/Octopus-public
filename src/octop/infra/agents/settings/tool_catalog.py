@@ -60,6 +60,19 @@ BUILTIN_TOOL_CATALOG: tuple[BuiltinToolEntry, ...] = (
     BuiltinToolEntry("execute", "filesystem"),
     BuiltinToolEntry("write_todos", "orchestration"),
     BuiltinToolEntry("task", "orchestration"),
+    BuiltinToolEntry("task_board_create", "orchestration"),
+    BuiltinToolEntry("task_board_list", "orchestration"),
+    BuiltinToolEntry("task_board_get", "orchestration"),
+    BuiltinToolEntry("task_board_update", "orchestration"),
+    BuiltinToolEntry("task_board_manage", "orchestration"),
+    BuiltinToolEntry("task_board_run", "orchestration"),
+    BuiltinToolEntry("task_board_set_parent", "orchestration"),
+    BuiltinToolEntry("task_board_schedule", "orchestration"),
+    BuiltinToolEntry("device_list", "orchestration"),
+    BuiltinToolEntry("device_call", "orchestration"),
+    BuiltinToolEntry("device_run", "orchestration"),
+    BuiltinToolEntry("device_operation_get", "orchestration"),
+    BuiltinToolEntry("device_transfer", "orchestration"),
     # harness builtins
     BuiltinToolEntry("current_time", "misc"),
     BuiltinToolEntry("web_fetch", "web"),
@@ -95,6 +108,7 @@ BUILTIN_TOOL_CATALOG: tuple[BuiltinToolEntry, ...] = (
     BuiltinToolEntry("mobile_handoff_to_user", "mobile"),
     BuiltinToolEntry("agent_list", "teams"),
     BuiltinToolEntry("ask_agent", "teams"),
+    BuiltinToolEntry("read_group_attachment", "teams"),
 )
 
 

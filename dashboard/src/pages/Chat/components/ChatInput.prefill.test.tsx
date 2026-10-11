@@ -132,6 +132,26 @@ beforeEach(() => {
 });
 
 describe("ChatInput prefill clear-on-send", () => {
+  it("appends a member mention without losing the unsent draft", () => {
+    const inputRef = createRef<ChatInputHandle>();
+    render(
+      <ChatInput
+        ref={inputRef}
+        onSend={vi.fn()}
+        onCancel={vi.fn()}
+        onNewChat={vi.fn()}
+        isStreaming={false}
+        isTeam
+        agentId="agent-1"
+        threadId="thread-1"
+        initialText="请检查这个任务"
+      />,
+    );
+    act(() => inputRef.current?.mentionExpert("Review Helper"));
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(
+      "请检查这个任务 @Review-Helper ",
+    );
+  });
   it("does not restore stale initialText after send (skill-card prefill path)", async () => {
     // Mirrors welcome skill/quick-card flow:
     // 1) setPrefillText fills the composer imperatively while parent initialText

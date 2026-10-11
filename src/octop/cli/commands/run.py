@@ -13,6 +13,7 @@ from octop.infra.utils.json_file import (
     write_json_atomic,
 )
 from octop.infra.utils.paths import PathLayout
+from octop.infra.utils.process_lock import ProcessAlreadyRunning, ProcessLock
 
 
 def _run_uvicorn(**kwargs: object) -> None:
@@ -175,6 +176,28 @@ def run(
     that override is persisted to ``config.json`` immediately before uvicorn
     starts.
     """
+    # A second host using the same database splits in-memory device sessions
+    # and recovery state even if it binds a different interface or port.
+    try:
+        with ProcessLock(PathLayout.from_env().root / ".host.lock"):
+            _run_locked(host, port, reload, workers, log_level, ssl, ssl_certfile, ssl_keyfile)
+    except ProcessAlreadyRunning as exc:
+        raise click.ClickException(
+            "This Octop data directory is already running. Open the existing UI "
+            "or use a separate --home directory."
+        ) from exc
+
+
+def _run_locked(
+    host: str | None,
+    port: int | None,
+    reload: bool,
+    workers: int,
+    log_level: str | None,
+    ssl: bool,
+    ssl_certfile: str | None,
+    ssl_keyfile: str | None,
+) -> None:
     cli_host, cli_port = host, port
     try:
         host, port = resolve_bind(host, port)

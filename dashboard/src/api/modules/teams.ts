@@ -7,6 +7,7 @@ export interface TeamMemberSummary {
   icon_name?: string | null;
   icon_url?: string | null;
   state?: string;
+  busy?: boolean;
   is_shared?: boolean;
   user_id?: number | null;
 }

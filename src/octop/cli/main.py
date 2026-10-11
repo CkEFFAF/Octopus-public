@@ -57,7 +57,10 @@ def _print_version(ctx: click.Context, _param: click.Parameter, value: bool) -> 
 class _LazyCLI(click.Group):
     """Click group that imports command modules only when invoked."""
 
-    _registry: ClassVar[dict[str, tuple[str, str, str]]] = COMMANDS
+    _registry: ClassVar[dict[str, tuple[str, str, str]]] = {
+        **COMMANDS,
+        "device": (".device_cmd", "device", "Enroll or reconnect a native device."),
+    }
 
     def list_commands(self, ctx: click.Context) -> list[str]:
         return sorted(self._registry)

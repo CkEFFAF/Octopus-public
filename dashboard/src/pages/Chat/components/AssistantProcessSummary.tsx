@@ -17,7 +17,7 @@ interface AssistantProcessSummaryProps {
    */
   statsSplit?: AssistantTurnSplit;
   isStreaming?: boolean;
-  /** Team rooms default to collapsed thinking; solo stays expanded. */
+  /** Both team rooms and solo chats default to a compact process summary. */
   isTeam?: boolean;
   onAcpPermissionSelect?: (message: string) => void;
   hideToolMedia?: boolean;

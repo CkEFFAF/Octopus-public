@@ -30,11 +30,11 @@ describe("resolveChatSidebarDefaultOpen", () => {
     expect(
       resolveChatSidebarDefaultOpen(null, CHAT_SIDEBAR_WIDE_BREAKPOINT - 1),
     ).toBe(false);
-    expect(resolveChatSidebarDefaultOpen(null, 768)).toBe(false);
+    expect(resolveChatSidebarDefaultOpen(null, 600)).toBe(false);
   });
 
   it("treats empty string like missing preference", () => {
     expect(resolveChatSidebarDefaultOpen("", 1400)).toBe(true);
-    expect(resolveChatSidebarDefaultOpen("", 900)).toBe(false);
+    expect(resolveChatSidebarDefaultOpen("", 600)).toBe(false);
   });
 });

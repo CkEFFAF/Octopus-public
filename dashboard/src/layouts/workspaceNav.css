@@ -1,0 +1,145 @@
+.octopus-workspace-nav {
+  box-sizing: border-box;
+  display: flex;
+  flex-shrink: 0;
+  height: 100%;
+  min-height: 0;
+  color: var(--fn-text-primary);
+  background: var(--fn-bg-elevated, #fff);
+}
+.octopus-icon-rail {
+  width: 64px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  padding: 20px 5px 12px;
+  gap: 14px;
+  border-right: 1px solid var(--fn-border-color, #e8e9ed);
+}
+.octopus-icon-rail button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 54px;
+  min-height: 48px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--fn-text-secondary);
+  cursor: pointer;
+  font: inherit;
+}
+.octopus-icon-rail button.active {
+  background: #7772d812;
+  color: #7872cf;
+}
+.octopus-icon-rail button > span {
+  font-size: 10px;
+}
+.octopus-icon-rail button.octopus-brand {
+  position: relative;
+  color: var(--fn-text-primary);
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -3px;
+  min-height: 42px;
+  margin-bottom: 18px;
+}
+.octopus-brand span {
+  width: 7px;
+  height: 7px;
+  background: #72b5a5;
+  border-radius: 50%;
+  position: absolute;
+  right: 12px;
+  top: 7px;
+}
+.octopus-rail-account {
+  margin-top: auto;
+}
+.octopus-context-nav {
+  width: 232px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  overflow: auto;
+  padding: 26px 14px;
+  background: var(--fn-bg-elevated, #fff);
+  border-right: 1px solid var(--fn-border-color, #e8e9ed);
+}
+.octopus-context-nav header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding: 0 10px;
+}
+.octopus-context-nav header strong {
+  display: block;
+  font-size: 20px;
+}
+.octopus-context-nav header small {
+  display: block;
+  font-size: 11px;
+  color: var(--fn-text-secondary);
+  margin-top: 7px;
+}
+.octopus-context-nav > button,
+.octopus-context-subnav > button {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 12px 13px;
+  margin: 4px 0;
+  border: 0;
+  border-radius: 9px;
+  color: var(--fn-text-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+.octopus-context-nav button:hover {
+  background: var(--fn-bg-secondary, #eee);
+}
+.octopus-context-nav button.active {
+  background: #7772d812;
+  color: #7872cf;
+  font-weight: 600;
+}
+.octopus-context-nav > p {
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--fn-text-secondary);
+  padding: 20px 12px;
+}
+.octopus-context-subnav {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--fn-border-color, #e8e9ed);
+}
+.octopus-context-subnav > small {
+  display: block;
+  margin: 0 12px 10px;
+  color: var(--fn-text-secondary);
+  font-size: 11px;
+}
+.octopus-context-subnav > button {
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.octopus-workspace-nav.mobile {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 100;
+}
+.octopus-workspace-nav.mobile.closed {
+  display: none;
+}

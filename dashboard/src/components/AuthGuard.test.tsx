@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
@@ -69,33 +69,45 @@ describe("AuthGuard offline boot", () => {
       locale: "zh",
     } as never);
 
-    function NavProbe() {
+    const mounted = vi.fn();
+    const unmounted = vi.fn();
+    const user = userEvent.setup();
+
+    function ProtectedShell() {
       const navigate = useNavigate();
       useEffect(() => {
-        navigate("/b");
-      }, [navigate]);
-      return <div>protected-shell</div>;
+        mounted();
+        return unmounted;
+      }, []);
+      return (
+        <>
+          <div>protected-shell</div>
+          <button onClick={() => navigate("/b")}>Go to B</button>
+          <Routes>
+            <Route path="/a" element={<div>page-a</div>} />
+            <Route path="/b" element={<div>page-b</div>} />
+          </Routes>
+        </>
+      );
     }
 
     render(
       <MemoryRouter initialEntries={["/a"]}>
         <AuthGuard>
-          <Routes>
-            <Route path="/a" element={<NavProbe />} />
-            <Route path="/b" element={<div>protected-shell</div>} />
-          </Routes>
+          <ProtectedShell />
         </AuthGuard>
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText("protected-shell")).toBeInTheDocument();
-    await waitFor(() => {
-      expect(authApi.getAuthStatus).toHaveBeenCalledTimes(1);
-    });
-    // Give route-driven navigate identity churn a tick; gate must not re-run.
-    await waitFor(() => {
-      expect(screen.getByText("protected-shell")).toBeInTheDocument();
-    });
+    const shell = await screen.findByText("protected-shell");
+    expect(screen.getByText("page-a")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Go to B" }));
+
+    expect(await screen.findByText("page-b")).toBeInTheDocument();
+    expect(screen.getByText("protected-shell")).toBe(shell);
+    expect(shell).toBeInTheDocument();
+    expect(mounted).toHaveBeenCalledTimes(1);
+    expect(unmounted).not.toHaveBeenCalled();
     expect(authApi.getAuthStatus).toHaveBeenCalledTimes(1);
     expect(authApi.me).toHaveBeenCalledTimes(1);
   });

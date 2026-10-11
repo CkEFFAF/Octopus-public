@@ -21,6 +21,7 @@ def sign_token(
     uname: str,
     role: str,
     ttl_seconds: int = 86400,
+    auth_key_id: str | None = None,
 ) -> str:
     now = int(time.time())
     payload = {
@@ -30,6 +31,8 @@ def sign_token(
         "iat": now,
         "exp": now + ttl_seconds,
     }
+    if auth_key_id is not None:
+        payload["auth_key_id"] = auth_key_id
     return jwt.encode(payload, secret, algorithm="HS256")
 
 

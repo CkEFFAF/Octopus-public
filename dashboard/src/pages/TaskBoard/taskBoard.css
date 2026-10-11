@@ -1,0 +1,155 @@
+.octopus-board-filters,
+.octopus-board-tags {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 18px;
+}
+.octopus-board-tags {
+  gap: 7px;
+  min-height: 28px;
+}
+.octopus-board-tags > button {
+  padding: 3px 11px;
+  border: 1px solid;
+  border-radius: 16px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.octopus-board-tags > button.selected {
+  box-shadow: inset 0 0 0 1px currentColor;
+  background: var(--fn-bg-secondary);
+}
+.octopus-board-columns {
+  display: flex;
+  gap: 14px;
+  overflow: auto;
+  min-height: 460px;
+  padding-bottom: 16px;
+}
+.octopus-board-column {
+  flex: 1;
+  min-width: 230px;
+  border-radius: 12px;
+  background: var(--fn-bg-layout, #f6f7fa);
+  padding: 12px;
+}
+.octopus-board-column > header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 2px 14px;
+}
+.octopus-board-column > header > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.octopus-board-column > header small {
+  margin-left: auto;
+  color: var(--fn-text-secondary);
+}
+.octopus-task {
+  margin-bottom: 10px;
+  padding: 14px;
+  border: 1px solid var(--fn-border-color, #e8e9ed);
+  border-radius: 9px;
+  background: var(--fn-bg-elevated, #fff);
+  box-shadow: 0 2px 5px #00000003;
+}
+.octopus-task.running {
+  border-color: #d2953260;
+}
+.octopus-task[draggable="true"] {
+  cursor: grab;
+}
+.octopus-task-open {
+  display: block;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+.octopus-task-open strong {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.octopus-task-open p {
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--fn-text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 8px 0 12px;
+}
+.octopus-task-tags {
+  margin-top: 8px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.octopus-task-tags .ant-tag {
+  font-size: 10px;
+  margin: 0;
+  line-height: 18px;
+}
+.octopus-task footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--fn-text-secondary);
+}
+.octopus-task > small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  margin-top: 8px;
+  color: var(--fn-text-secondary);
+}
+.octopus-column-empty {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--fn-text-secondary);
+  font-size: 12px;
+}
+.octopus-task-prompt,
+.octopus-run pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  font-size: 12px;
+  background: var(--fn-bg-layout, #f6f7fa);
+  padding: 14px;
+  border-radius: 8px;
+  max-height: 300px;
+  overflow: auto;
+}
+.octopus-run {
+  padding: 15px 0;
+  border-bottom: 1px solid var(--fn-border-color, #e8e9ed);
+}
+.octopus-ai-draft {
+  padding: 14px;
+  background: var(--fn-bg-layout, #f6f7fa);
+  border-radius: 8px;
+  margin-bottom: 18px;
+}
+.octopus-ai-draft strong {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.octopus-ai-draft .ant-btn {
+  margin-top: 10px;
+}

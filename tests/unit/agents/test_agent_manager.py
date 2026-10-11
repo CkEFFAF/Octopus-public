@@ -164,7 +164,21 @@ def test_apply_team_host_config_forces_async_ask_agent(manager: AgentManager) ->
     from octop_harness.config import HarnessAgentConfig
 
     manager._teams.member_ids = MagicMock(return_value=["mem-a", "mem-b"])  # type: ignore[method-assign]
-    cfg = HarnessAgentConfig(workspace_dir=manager.paths.ensure_agent_workspace("host"))
+    from langchain_core.tools import StructuredTool
+
+    board_tool = StructuredTool.from_function(
+        lambda: "[]", name="task_board_list", description="List tasks"
+    )
+    attachment_tool = StructuredTool.from_function(
+        lambda: "text", name="read_group_attachment", description="Read attachment"
+    )
+    unrelated_tool = StructuredTool.from_function(
+        lambda: "unsafe", name="unrelated_plugin", description="Plugin"
+    )
+    cfg = HarnessAgentConfig(
+        workspace_dir=manager.paths.ensure_agent_workspace("host"),
+        tools=[board_tool, attachment_tool, unrelated_tool],
+    )
     out = manager._apply_team_host_config(cfg, dc_replace(_row(agent_id="host"), kind="team"))
     assert out.team_peers == ("mem-a", "mem-b")
     if hasattr(out, "peer_invoke_mode"):
@@ -174,6 +188,7 @@ def test_apply_team_host_config_forces_async_ask_agent(manager: AgentManager) ->
     assert "ask_agent" not in disabled
     assert "agent_list" not in disabled
     assert out.bootstrap_enabled is False
+    assert {tool.name for tool in out.tools or []} == {"task_board_list", "read_group_attachment"}
     assert "Host dispatch" in (out.system_prompt or "") or "主持人调度" in (out.system_prompt or "")
 
 

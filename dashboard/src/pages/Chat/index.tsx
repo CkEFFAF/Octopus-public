@@ -89,7 +89,9 @@ import {
 import ChatSidebarPanel from "./components/ChatSidebarPanel";
 import ChatTitleBar from "./components/ChatTitleBar";
 import TeamChatBadge from "./components/TeamChatBadge";
+import ProjectRoomBar from "./components/ProjectRoomBar";
 import ChatComposerChrome from "./components/ChatComposerChrome";
+import DeviceTargetSelect from "./components/DeviceTargetSelect";
 import AskQuestionCard from "./components/AskQuestionCard";
 import {
   findAutoResumableApproval,
@@ -671,7 +673,7 @@ function ChatPageInner() {
   const teamExpertOptions = useMemo(() => {
     if (!isTeamChat) return chatAgentOptionsPickable;
     const ids = new Set(activeAgent?.member_ids ?? []);
-    return chatAgentOptions.filter((item) => ids.has(item.agent_id));
+    return chatAgentOptionsPickable.filter((item) => ids.has(item.agent_id));
   }, [
     isTeamChat,
     activeAgent?.member_ids,
@@ -1243,6 +1245,18 @@ function ChatPageInner() {
               ? styles.chatPageWithBottomDock
               : ""
           }`}
+          onDragOver={(event) => {
+            if (event.dataTransfer.types.includes("Files"))
+              event.preventDefault();
+          }}
+          onDrop={(event) => {
+            if (event.dataTransfer.files.length) {
+              event.preventDefault();
+              chatInputRef.current?.attachFiles(
+                Array.from(event.dataTransfer.files),
+              );
+            }
+          }}
         >
           {/* Main chat area */}
           <div
@@ -1343,6 +1357,13 @@ function ChatPageInner() {
                 forkDisabled={sessionForkDisabled}
                 forkDisabledHint={sessionForkDisabledHint}
                 isTeam={isTeamChat}
+              />
+            )}
+
+            {isTeamChat && resolvedAgentId && (
+              <ProjectRoomBar
+                teamId={resolvedAgentId}
+                onMention={(name) => chatInputRef.current?.mentionExpert(name)}
               />
             )}
 
@@ -1616,7 +1637,10 @@ function ChatPageInner() {
                 </div>
               )}
 
-            <ChatComposerChrome sessionUsageLabel={sessionUsageLabel} />
+            <div className={styles.composerContextBar}>
+              <DeviceTargetSelect />
+              <ChatComposerChrome sessionUsageLabel={sessionUsageLabel} />
+            </div>
             {pendingAsk ? (
               <div className={styles.askQuestionDock}>
                 <div className={styles.askQuestionDockInner}>

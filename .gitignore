@@ -114,3 +114,22 @@ fnos/native/app/site-packages/
 docs/superpowers/
 scripts/lh_image_install_octop_tencentos.sh
 .worktrees/
+
+# Local product development and isolated QA
+.cache/
+.runtime/
+
+# Private device identities, migration backups and local acceptance evidence
+device-state/
+.octop-device/
+/data/
+*.octopmove
+migration-password.txt
+device-key.txt
+pytest-cache-files-*/
+docs/octopus/evidence/
+docs/octopus/workstation-rollout.md
+docs/octopus/workstation-move-steps.md
+docs/octopus/verification.md
+docs/octopus/deploy-other-devices.md
+docs/octopus/implementation-plan.md

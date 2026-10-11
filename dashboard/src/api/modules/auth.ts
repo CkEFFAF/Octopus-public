@@ -76,6 +76,16 @@ export interface LoginResponse {
   token: string;
 }
 
+export interface AccountAccessKey {
+  key_id: string;
+  name: string;
+  allow_browser: number;
+  allow_devices: number;
+  expires_at: number;
+  revoked_at: number | null;
+  last_used_at: number | null;
+}
+
 export interface PublicCaptcha {
   provider: string;
   site_key?: string;
@@ -188,6 +198,28 @@ export const authApi = {
   getCaptcha: () => request<PublicCaptcha>("/auth/captcha"),
 
   /** Login — octop uses username + password. */
+  accessKeys: () => request<{ keys: AccountAccessKey[] }>("/auth/access-keys"),
+  createAccessKey: (body: {
+    name: string;
+    days: number;
+    allow_browser: boolean;
+    allow_devices: boolean;
+  }) =>
+    request<{ key: AccountAccessKey; secret: string }>("/auth/access-keys", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  revokeAccessKey: (keyId: string) =>
+    request<void>(`/auth/access-keys/${encodeURIComponent(keyId)}/revoke`, {
+      method: "POST",
+    }),
+  keyLogin: async (accessKey: string): Promise<LoginResponse> => {
+    const raw = await request<RawLoginResponse>("/auth/key-login", {
+      method: "POST",
+      body: JSON.stringify({ access_key: accessKey }),
+    });
+    return { ...raw, token: raw.access_token };
+  },
   login: async (
     username: string,
     password: string,

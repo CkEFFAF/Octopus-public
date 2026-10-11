@@ -144,6 +144,10 @@ async def run_foreground(
         )
         servers.append(uvicorn.Server(single_config))
 
+    from octop.infra.utils.log_redaction import install_query_secret_redaction
+
+    install_query_secret_redaction()
+
     from octop.infra.agents.memory.slim_control import MemorySlimControl
 
     memory_control = MemorySlimControl(srv)

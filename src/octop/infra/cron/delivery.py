@@ -44,6 +44,9 @@ class CronDeliveryCommand:
     task_type: CronTaskType
     model: str | None
     mcp_servers: tuple[str, ...]
+    device_id: str = ""
+    device_grant_version: int = 0
+    task_run_id: str = ""
 
 
 class CronDeliveryService:
@@ -64,10 +67,13 @@ class CronDeliveryService:
         """Retarget projection and locale lookups after a control-plane swap."""
         self._repos = repos
 
-    async def deliver(self, command: CronDeliveryCommand) -> None:
+    async def deliver(self, command: CronDeliveryCommand) -> str:
         """Run one delivery under the target channel session lock."""
 
+        output = ""
+
         async def _locked() -> None:
+            nonlocal output
             if command.fresh_thread:
                 await self._gateway.thread_registry.reset_by_session_key(command.session_key)
             session = self._gateway.require_session(command.agent_id, command.session_key)
@@ -77,14 +83,16 @@ class CronDeliveryService:
                 )
             if command.task_type == "text":
                 await self._deliver_text(command, session)
+                output = command.prompt
             else:
-                await self._deliver_agent(command, session)
+                output = await self._deliver_agent(command, session)
 
         await self._gateway.run_in_session(
             command.agent_id,
             command.session_key,
             _locked,
         )
+        return output
 
     async def _deliver_text(
         self,
@@ -133,7 +141,7 @@ class CronDeliveryService:
         self,
         command: CronDeliveryCommand,
         session: SessionRow,
-    ) -> None:
+    ) -> str:
         request = await self._build_agent_request(command, session)
         tracker = TurnHistoryTracker.from_request(request)
         usage = UsageTracker()
@@ -174,6 +182,7 @@ class CronDeliveryService:
             title_source=command.prompt,
         )
         await self._notify_best_effort(session, command.agent_id, outbound)
+        return outbound
 
     async def _build_agent_request(
         self,
@@ -238,6 +247,13 @@ class CronDeliveryService:
         )
         if servers:
             request["mcp_servers"] = servers
+        if command.device_id:
+            request.setdefault("configurable", {})["octop_device_target"] = {
+                "device_id": command.device_id,
+                "grant_version": command.device_grant_version,
+            }
+        if command.task_run_id:
+            request.setdefault("configurable", {})["octop_task_run_id"] = command.task_run_id
         self._attach_turn_knowledge_config(request, command, session)
         return request
 

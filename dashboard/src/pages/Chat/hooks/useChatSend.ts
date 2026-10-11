@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from "react";
 import type { TFunction } from "i18next";
 import { useNavigate } from "react-router-dom";
+import { getSelectedDeviceId } from "./deviceTarget";
 import type { ChatAttachment, UserComposerContext } from "./useChat";
 import {
   isPendingThread,
@@ -49,6 +50,7 @@ interface UseChatSendParams {
     reasoningEffort?: string | null,
     conversationMode?: "ask" | "plan" | "craft" | null,
     hitlPolicy?: HitlSessionPolicy | null,
+    deviceId?: string | null,
   ) => void;
   createSession: () => { session: Session; resolvedId: Promise<string> };
   renameSession: (id: string, name: string) => void;
@@ -113,6 +115,7 @@ export function useChatSend({
       }
 
       const trimmed = text.trim();
+      const deviceId = getSelectedDeviceId();
       if (!trimmed && !(attachments && attachments.length > 0)) return false;
 
       const maybeRenameNewThread = (tid: string, hadMessages: boolean) => {
@@ -174,6 +177,7 @@ export function useChatSend({
           composerContext?.reasoningEffort ?? reasoningEffort,
           mode,
           policy,
+          deviceId,
         );
       };
 
@@ -236,6 +240,7 @@ export function useChatSend({
           composerContext?.reasoningEffort ?? reasoningEffort,
           mode,
           policy,
+          deviceId,
         );
         navigate(`/chat/${agent}/${tid}`, { replace: true });
       });

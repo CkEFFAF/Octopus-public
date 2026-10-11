@@ -2,6 +2,7 @@ import { Layout } from "antd";
 import { lazy, Suspense, useEffect, useState, useCallback } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
 import Sidebar from "../Sidebar";
+import WorkspaceNav from "../WorkspaceNav";
 import Header from "../Header";
 import RailEdgeControl from "../../components/RailEdgeControl";
 import PageLoading from "../../components/PageLoading";
@@ -218,13 +219,22 @@ export default function MainLayout() {
               minHeight: 0,
             }}
           >
-            <Sidebar
-              selectedKey={selectedKey}
-              collapsed={collapsed}
-              onToggle={toggleCollapsed}
-              isMobile={isMobile}
-            />
-            {!isMobile && (
+            {isMinimalLayout ? (
+              <Sidebar
+                selectedKey={selectedKey}
+                collapsed={collapsed}
+                onToggle={toggleCollapsed}
+                isMobile={isMobile}
+              />
+            ) : (
+              <WorkspaceNav
+                selectedKey={selectedKey}
+                collapsed={collapsed}
+                onToggle={toggleCollapsed}
+                isMobile={isMobile}
+              />
+            )}
+            {!isMobile && isMinimalLayout && (
               <RailEdgeControl
                 expanded={!collapsed}
                 onToggle={handleNavRailToggle}

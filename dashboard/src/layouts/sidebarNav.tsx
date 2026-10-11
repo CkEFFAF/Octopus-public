@@ -61,6 +61,7 @@ export const SIDEBAR_NAV_KEYS = [
   "bridge",
   "workbench",
   "remote-desktop",
+  "devices",
   "acp",
   "admin-users",
   "models",
@@ -115,6 +116,7 @@ export const SIDEBAR_GROUPED_NAV_KEYS = [
   "bridge",
   "workbench",
   "remote-desktop",
+  "devices",
   "acp",
   "admin-users",
   "models",
@@ -222,7 +224,14 @@ export function buildNavSections(
     });
   }
 
-  const controlItems: NavItem[] = [];
+  const controlItems: NavItem[] = [
+    {
+      key: "devices",
+      path: "/devices",
+      icon: <Monitor size={iconSize} strokeWidth={iconStroke} />,
+      labelKey: "nav.devices",
+    },
+  ];
   if (navAllowed(user, "workbench")) {
     controlItems.push({
       key: "workbench",

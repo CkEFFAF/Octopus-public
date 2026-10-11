@@ -65,12 +65,12 @@ function TitleBar({ isTeam = false }: { isTeam?: boolean }) {
 describe("thinking display preference", () => {
   beforeEach(() => localStorage.clear());
 
-  it("keeps the existing default: expand while streaming, collapse on completion", () => {
+  it("keeps thinking collapsed by default during streaming and after completion", () => {
     const split = thinkingSplit();
     const { rerender } = render(
       <AssistantProcessSummary split={split} isStreaming />,
     );
-    expect(screen.getByText("Thinking content")).toBeInTheDocument();
+    expect(screen.queryByText("Thinking content")).not.toBeInTheDocument();
     rerender(<AssistantProcessSummary split={split} isStreaming={false} />);
     expect(screen.queryByText("Thinking content")).not.toBeInTheDocument();
   });
@@ -124,12 +124,12 @@ describe("thinking display preference", () => {
     const preference = await screen.findByRole("switch", {
       name: "chat.collapseThinking",
     });
-    expect(preference).not.toBeChecked();
+    expect(preference).toBeChecked();
     fireEvent.click(
       screen.getByRole("menuitem", { name: /chat.collapseThinking/ }),
     );
-    expect(localStorage.getItem(COLLAPSE_THINKING_SOLO_KEY)).toBe("true");
-    expect(screen.queryByText("Thinking content")).not.toBeInTheDocument();
+    expect(localStorage.getItem(COLLAPSE_THINKING_SOLO_KEY)).toBe("false");
+    expect(screen.getByText("Thinking content")).toBeInTheDocument();
     unmount();
     render(
       <>
@@ -137,11 +137,11 @@ describe("thinking display preference", () => {
         <AssistantProcessSummary split={thinkingSplit()} isStreaming />
       </>,
     );
-    expect(screen.queryByText("Thinking content")).not.toBeInTheDocument();
+    expect(screen.getByText("Thinking content")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "更多" }));
     expect(
       await screen.findByRole("switch", { name: "chat.collapseThinking" }),
-    ).toBeChecked();
+    ).not.toBeChecked();
   });
 
   it("defaults team menu switch on and stores team preference separately", async () => {

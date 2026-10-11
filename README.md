@@ -1,3 +1,21 @@
+# Octopus
+
+基于 [TencentCloud/Octop](https://github.com/TencentCloud/Octop) 的办公设备网与
+智能体协作版本。保留上游许可证与项目说明；新增三栏导航、项目群聊与成员提及、
+任务看板，以及 Windows / Linux 设备接入、文件传输和远程操作。
+
+- [快速部署与设备接入](docs/octopus/quick-start.md)
+- [开发与构建](docs/octopus/run-and-build.md)
+- [私有源码仓库](https://github.com/CkEFFAF/Octopus)
+
+设备首次运行 `start-device.bat` 或 `./start-device.sh`，按向导输入管理端地址、
+确认权限并隐藏输入配对码，成功后管理端自动显示设备。再次运行直接重连。
+Android / iOS 使用浏览器管理已接入设备；手机原生客户端尚未交付。
+
+以下保留上游 Octop 说明。上游下载与文档链接指向上游产品，不包含本仓库新增能力。
+
+---
+
 <p align="center">
   <img src="docs/assets/readme-banner.png" alt="Octop Banner" width="600" />
 </p>

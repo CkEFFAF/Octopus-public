@@ -1,4 +1,12 @@
-import { memo, useCallback, useMemo, useState, useRef, useEffect } from "react";
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useMemo,
+  useState,
+  useRef,
+  useEffect,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { Dropdown } from "antd";
@@ -276,14 +284,11 @@ function ActiveAgentCard({
   const sessionsEnabled = isAgentChatReady(agent.state);
 
   return (
-    <div
-      className={styles.agentCardActive}
-      style={{
-        background: `${accent}08`,
-        borderColor: `${accent}18`,
-      }}
-    >
-      <div className={styles.agentCardProfile}>
+    <div className={styles.agentCardActive}>
+      <div
+        className={styles.agentCardProfile}
+        title={agent.description || undefined}
+      >
         <div
           className={styles.agentCardAvatar}
           style={{
@@ -334,13 +339,6 @@ function ActiveAgentCard({
               </button>
             ) : null}
           </div>
-          {agent.description ? (
-            <div className={styles.agentCardDesc}>{agent.description}</div>
-          ) : (
-            <div className={styles.agentCardDescMuted}>
-              {t("chat.agentNoDescription", "暂无描述")}
-            </div>
-          )}
         </div>
       </div>
 
@@ -418,6 +416,7 @@ function InactiveAgentRow({
     <div className={styles.agentRowWrap}>
       <div
         className={styles.agentRow}
+        title={agent.description || undefined}
         onClick={onSelect}
         role="button"
         tabIndex={0}
@@ -462,7 +461,6 @@ function InactiveAgentRow({
               </button>
             ) : null}
           </div>
-          <div className={styles.agentRowDesc}>{agent.description || "—"}</div>
         </div>
       </div>
       {onHide ? (
@@ -546,12 +544,21 @@ export default function SessionList({
     const visible = filterVisible(agents, {
       keepAgentIds: activeAgentId ? [activeAgentId] : [],
     });
-    return [...visible].sort((a, b) => b.id - a.id);
+    return [...visible].sort(
+      (a, b) =>
+        Number(b.kind === "team") - Number(a.kind === "team") || b.id - a.id,
+    );
   }, [agents, filterVisible, activeAgentId]);
 
   // Leave the hidden-only view once nothing remains hidden.
   const viewingHidden = showingHidden && hiddenAgents.length > 0;
-  const agentsToRender = viewingHidden ? hiddenAgents : sortedAgents;
+  const matchesAgent = (agent: OctopAgent) =>
+    `${agent.name} ${agent.description || ""}`
+      .toLowerCase()
+      .includes(searchQuery.trim().toLowerCase());
+  const agentsToRender = (viewingHidden ? hiddenAgents : sortedAgents).filter(
+    (agent) => agent.agent_id === activeAgentId || matchesAgent(agent),
+  );
 
   const expandedAgentId = useMemo(
     () =>
@@ -566,6 +573,23 @@ export default function SessionList({
 
   return (
     <div className={styles.sessionList}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "12px 14px 18px",
+        }}
+      >
+        <strong style={{ fontSize: 20 }}>{t("octopus.chat")}</strong>
+        <button
+          type="button"
+          className={styles.sessionEmptyAgentsLink}
+          onClick={() => navigate("/projects?new=1")}
+        >
+          {t("octopus.newGroupChat")}
+        </button>
+      </div>
       {showSessions ? (
         <div className={styles.sessionSearchWrap}>
           <Search
@@ -612,35 +636,32 @@ export default function SessionList({
                   onUnhide={() => unhide(agent.agent_id)}
                 />
               ))
-            : agentsToRender.map((agent) => {
+            : agentsToRender.map((agent, index) => {
                 const expanded = agent.agent_id === expandedAgentId;
-                if (expanded) {
-                  return (
-                    <ActiveAgentCard
-                      key={agent.agent_id}
-                      agent={agent}
-                      sessions={sessions}
-                      activeId={activeId}
-                      searchQuery={searchQuery}
-                      hasMore={hasMore}
-                      loadingMore={loadingMore}
-                      onLoadMore={onLoadMore}
-                      onFetchAllSessions={onFetchAllSessions}
-                      onSelect={onSelect}
-                      onNewChat={onNewChat}
-                      onDelete={onDelete}
-                      onRename={onRename}
-                      onPin={onPin}
-                      onFork={onFork}
-                      activeForkDisabled={activeForkDisabled}
-                      activeForkDisabledHint={activeForkDisabledHint}
-                      onHide={
-                        canHide(agent) ? () => hide(agent.agent_id) : undefined
-                      }
-                    />
-                  );
-                }
-                return (
+                const row = expanded ? (
+                  <ActiveAgentCard
+                    key={agent.agent_id}
+                    agent={agent}
+                    sessions={sessions}
+                    activeId={activeId}
+                    searchQuery={matchesAgent(agent) ? "" : searchQuery}
+                    hasMore={hasMore}
+                    loadingMore={loadingMore}
+                    onLoadMore={onLoadMore}
+                    onFetchAllSessions={onFetchAllSessions}
+                    onSelect={onSelect}
+                    onNewChat={onNewChat}
+                    onDelete={onDelete}
+                    onRename={onRename}
+                    onPin={onPin}
+                    onFork={onFork}
+                    activeForkDisabled={activeForkDisabled}
+                    activeForkDisabledHint={activeForkDisabledHint}
+                    onHide={
+                      canHide(agent) ? () => hide(agent.agent_id) : undefined
+                    }
+                  />
+                ) : (
                   <InactiveAgentRow
                     key={agent.agent_id}
                     agent={agent}
@@ -650,6 +671,30 @@ export default function SessionList({
                       canHide(agent) ? () => hide(agent.agent_id) : undefined
                     }
                   />
+                );
+                const sectionStart =
+                  index === 0 ||
+                  (agent.kind === "team") !==
+                    (agentsToRender[index - 1].kind === "team");
+                return (
+                  <Fragment key={agent.agent_id}>
+                    {sectionStart && (
+                      <div
+                        style={{
+                          padding: "14px 10px 8px",
+                          fontSize: 11,
+                          color: "var(--fn-text-secondary)",
+                        }}
+                      >
+                        {t(
+                          agent.kind === "team"
+                            ? "octopus.groupChats"
+                            : "octopus.privateChats",
+                        )}
+                      </div>
+                    )}
+                    {row}
+                  </Fragment>
                 );
               })}
           {hiddenAgents.length > 0 ? (

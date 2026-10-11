@@ -2,6 +2,9 @@ import { lazy } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
 // Lazy-loaded pages — Common
+const ProjectsPage = lazy(() => import("../pages/Projects"));
+const TaskBoardPage = lazy(() => import("../pages/TaskBoard"));
+const DevicesPage = lazy(() => import("../pages/Devices"));
 const ExpertsPage = lazy(() => import("../pages/Experts"));
 const CronJobsPage = lazy(() => import("../pages/Control/CronJobs"));
 const ConnectorsPage = lazy(() => import("../pages/Agent/Connectors"));
@@ -47,6 +50,9 @@ export interface RouteConfig {
 }
 
 export const pathToKey: Record<string, string> = {
+  "/projects": "projects",
+  "/task-board": "task-board",
+  "/devices": "devices",
   "/chat": "chat",
   // Common
   "/experts": "experts",
@@ -150,6 +156,9 @@ export const routeConfigs: RouteConfig[] = [
   { path: "/chat/:agentId/:threadId", element: null, useWrapper: true },
 
   // Common
+  { path: "/projects", element: <ProjectsPage /> },
+  { path: "/task-board", element: <TaskBoardPage /> },
+  { path: "/devices", element: <DevicesPage /> },
   { path: "/experts", element: <ExpertsPage /> },
   { path: "/tasks", element: <CronJobsPage /> },
   { path: "/connectors", element: <ConnectorsPage /> },

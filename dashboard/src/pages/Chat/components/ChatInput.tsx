@@ -36,6 +36,7 @@ import { stripThinkingTags } from "../utils/chatAttachments";
 import { isSlashCommandText } from "../utils/slashText";
 import {
   ensureExpertMentions,
+  expertMentionToken,
   toggleExpertMention,
 } from "../utils/expertMention";
 import {
@@ -66,6 +67,8 @@ export interface ChatInputHandle {
   setPrefillText: (text: string) => void;
   setPrefillComposer: (text: string, attachments?: ChatAttachment[]) => void;
   focusComposer: () => void;
+  mentionExpert: (name: string) => void;
+  attachFiles: (files: File[]) => void;
 }
 
 interface ChatInputProps {
@@ -243,6 +246,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       handleDragLeave,
       handleDragOver,
       handleDrop,
+      processFiles,
     } = useChatAttachments(agentId);
 
     // Expose an imperative handle so the parent can push a new prefill without
@@ -250,6 +254,19 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     useImperativeHandle(
       ref,
       () => ({
+        attachFiles: (files: File[]) => {
+          void processFiles(files);
+        },
+        mentionExpert: (name: string) => {
+          userHasEditedRef.current = true;
+          setText(
+            (previous) =>
+              `${previous.trimEnd()}${
+                previous.trim() ? " " : ""
+              }${expertMentionToken(name)} `,
+          );
+          textareaRef.current?.focus();
+        },
         setPrefillText: (newText: string) => {
           userHasEditedRef.current = false;
           ignoreInitialTextRef.current = null;
@@ -293,7 +310,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
           el.setSelectionRange(el.value.length, el.value.length);
         },
       }),
-      [clearAttachments, restoreAttachments],
+      [clearAttachments, restoreAttachments, processFiles],
     );
 
     // When the parent passes a non-empty initialText after mount (e.g. navigated

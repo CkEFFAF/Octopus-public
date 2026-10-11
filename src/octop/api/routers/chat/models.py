@@ -70,6 +70,7 @@ class ChatTurnBody(BaseModel):
         description="Deprecated — locale is read from the user profile. Ignored when set.",
     )
     text: str | None = Field(default=None, description="Plain-text user message (WS shorthand).")
+    device_id: str | None = Field(default=None, max_length=120)
 
     @classmethod
     def from_ws_payload(cls, payload: dict[str, Any]) -> ChatTurnBody:
@@ -80,6 +81,9 @@ class ChatTurnBody(BaseModel):
             messages = [{"role": "user", "content": text}] if text else []
         model = payload.get("model") or payload.get("default_model")
         return cls(
+            device_id=payload.get("device_id")
+            if isinstance(payload.get("device_id"), str)
+            else None,
             messages=messages,
             thread_id=str(payload["thread_id"]) if payload.get("thread_id") else None,
             session_key=str(payload["session_key"]) if payload.get("session_key") else None,

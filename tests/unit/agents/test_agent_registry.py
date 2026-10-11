@@ -1287,3 +1287,33 @@ def test_workspace_for_agent_falls_back_when_not_running(tmp_path: Path, monkeyp
 
     assert workspace is not None
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_state_workspace_seeds_before_graph_and_survives_reload(tmp_path: Path) -> None:
+    """Templates and uploads must work without a graph, with agent isolation."""
+    services = _make_services(tmp_path)
+    registry = _make_registry(services)
+    for agent_id in ("state-one", "state-two"):
+        services.repos.agent_repo.create(
+            agent_id=agent_id,
+            user_id=None,
+            name=agent_id,
+            config_json=json.dumps({"backend": {"type": "state"}}),
+        )
+    row = services.repos.agent_repo.get("state-one")
+    assert row is not None
+    workspace = registry.workspace_for_agent(row.agent_id)
+    await workspace.amkdir("skills/octop-assistant")
+    await workspace.aupload_many([("SOUL.md", b"template soul")])
+    workspace.init_workspace(include_skills=False, include_agents=False)
+    assert "template soul" in (await workspace.aread_text("SOUL.md"))
+    # The same workspace must be handed to the graph; a new StateBackend would
+    # lose the seeded files and still fail dashboard I/O outside graph context.
+    config = registry._build_harness_config(row)
+    assert config.backend is workspace.backend
+    reloaded = registry._backend_workspace_for_row(row)
+    assert "template soul" in (await reloaded.aread_text("SOUL.md"))
+    assert not await registry.workspace_for_agent("state-two").aexists("SOUL.md")
+    fresh_process = _make_registry(services)
+    assert not await fresh_process.workspace_for_agent("state-one").aexists("SOUL.md")

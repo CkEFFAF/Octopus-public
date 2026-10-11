@@ -23,6 +23,7 @@ from octop.api.deps import (
     is_jwt_exempt_request,
     maybe_sliding_renew_token,
 )
+from octop.api.middleware.key_sessions import AccessKeyWebSocketMiddleware
 from octop.infra.errors import OctopError
 
 _INSTALL_ATTR = "_octop_jwt_auth_installed"
@@ -33,6 +34,7 @@ def install(app: Any, server: Any) -> None:
     if getattr(app, _INSTALL_ATTR, False):
         return
     setattr(app, _INSTALL_ATTR, True)
+    app.add_middleware(AccessKeyWebSocketMiddleware, server=server)
 
     @app.middleware("http")  # type: ignore[untyped-decorator]
     async def _jwt_auth(

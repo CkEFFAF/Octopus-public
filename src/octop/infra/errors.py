@@ -11,6 +11,11 @@ from octop.infra.utils.locale import Locale, normalize_locale
 
 
 class ErrorCode(StrEnum):
+    DEVICE_INVALID = "DEVICE_INVALID"
+    DEVICE_OFFLINE = "DEVICE_OFFLINE"
+    TASK_BOARD_INVALID = "TASK_BOARD_INVALID"
+    TASK_BOARD_CONFLICT = "TASK_BOARD_CONFLICT"
+    TASK_BOARD_PIN_REQUIRED = "TASK_BOARD_PIN_REQUIRED"
     AUTH_FAILED = "AUTH_FAILED"
     TOKEN_EXPIRED = "TOKEN_EXPIRED"
     SETUP_REQUIRED = "SETUP_REQUIRED"
@@ -141,6 +146,11 @@ class ErrorCode(StrEnum):
 
 
 _DEFAULT_STATUS: dict[ErrorCode, int] = {
+    ErrorCode.DEVICE_INVALID: 400,
+    ErrorCode.DEVICE_OFFLINE: 503,
+    ErrorCode.TASK_BOARD_INVALID: 400,
+    ErrorCode.TASK_BOARD_CONFLICT: 409,
+    ErrorCode.TASK_BOARD_PIN_REQUIRED: 409,
     ErrorCode.AUTH_FAILED: 401,
     ErrorCode.TOKEN_EXPIRED: 401,
     ErrorCode.SETUP_REQUIRED: 409,

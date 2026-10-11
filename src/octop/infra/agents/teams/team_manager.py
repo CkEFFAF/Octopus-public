@@ -30,6 +30,7 @@ from octop_harness.teams.util import (
 )
 
 from octop.i18n import tr
+from octop.infra.agents.teams.device_context import PeerTaskTracker, restore_peer_context
 from octop.infra.agents.teams.service import is_team_agent
 from octop.infra.agents.threads.artifact import artifact_path_allowed, extract_artifact_paths
 from octop.infra.gateway.media.tool_media import tool_name_base
@@ -116,6 +117,7 @@ class TeamManager:
         self._gateway = gateway
         self._peer_prompts: dict[tuple[str, str], tuple[str, str]] = {}
         self._live_host_replies: set[str] = set()
+        self._peer_tasks: PeerTaskTracker | None = None
 
     def replace_thread_message_repo(self, repo: Any) -> None:
         self._thread_message_repo = repo
@@ -545,6 +547,19 @@ class TeamManager:
             stream_host=self.stream_host_followup_to_room,
             take_prompt=self.take_peer_prompt,
         )
+        tracker = getattr(harness_team, "_octop_peer_tasks", None)
+        if not isinstance(tracker, PeerTaskTracker):
+            tracker = PeerTaskTracker(getattr(self._agent_manager, "_device_service", None))
+            tracker.install(harness_team)
+        self._peer_tasks = tracker
+
+    async def wait_for_task_run(self, owner: int, run_id: str) -> None:
+        if self._peer_tasks is not None:
+            await self._peer_tasks.wait_for_task_run(owner, run_id)
+
+    async def cancel_task_run(self, owner: int, run_id: str) -> None:
+        if self._peer_tasks is not None:
+            await self._peer_tasks.cancel_task_run(owner, run_id)
 
     # -- jobs / runtime -------------------------------------------------------
 
@@ -1224,7 +1239,7 @@ def _chat_request_payload(request: Any, speaker_id: str) -> dict[str, Any]:
             payload["messages"] = ""
     if not payload.get("agent_id"):
         payload["agent_id"] = speaker_id
-    return payload
+    return restore_peer_context(payload)
 
 
 def _octop_user_id(user_id: str | int) -> int | None:

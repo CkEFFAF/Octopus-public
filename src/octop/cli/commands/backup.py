@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 from pathlib import Path
 
 import click
 
 from octop.config import load_config
+from octop.i18n import tr
 from octop.infra.backup.auto import create_and_store_auto_backup
+from octop.infra.backup.move import (
+    MigrationError,
+    create_migration_archive,
+    restore_migration_archive,
+)
 from octop.infra.backup.store import place_backup_file
 from octop.infra.backup.system_archive import create_system_backup, restore_system_backup
 from octop.infra.db.factory import open_database
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.services import build_shared_services
 from octop.infra.utils.paths import PathLayout
+from octop.infra.utils.process_lock import ProcessAlreadyRunning
 
 
 def _paths(home: Path | None = None) -> PathLayout:
@@ -24,6 +32,78 @@ def _paths(home: Path | None = None) -> PathLayout:
 @click.group()
 def backup() -> None:
     """Backup and restore database + local agent workspaces."""
+
+
+def _move_password(password_file: Path | None, *, exporting: bool, locale: str) -> str:
+    if password_file is not None:
+        try:
+            with password_file.open("rb") as stream:
+                data = stream.read(4097)
+            if len(data) > 4096:
+                raise ValueError
+            return data.decode("utf-8-sig").rstrip("\r\n")
+        except (OSError, ValueError):
+            raise click.ClickException(tr("migration.password_file_error", locale)) from None
+    return str(
+        click.prompt(
+            tr("migration.password", locale), hide_input=True, confirmation_prompt=exporting
+        )
+    )
+
+
+def _move_run(
+    home: Path, archive: Path, password_file: Path | None, *, exporting: bool, locale: str
+) -> None:
+    password = _move_password(password_file, exporting=exporting, locale=locale)
+    try:
+        report = (
+            create_migration_archive(home, archive, password)
+            if exporting
+            else restore_migration_archive(archive, home, password)
+        )
+    except ProcessAlreadyRunning:
+        raise click.ClickException(tr("migration.manager_running", locale)) from None
+    except MigrationError as exc:
+        raise click.ClickException(tr("migration.errors." + exc.code, locale)) from None
+    except (OSError, ValueError, sqlite3.Error):
+        raise click.ClickException(tr("migration.failed", locale)) from None
+    click.echo(tr("migration.exported" if exporting else "migration.restored", locale, **report))
+    click.echo(tr("migration.keep_separate" if exporting else "migration.restore_notes", locale))
+
+
+@backup.command("move-export")
+@click.option(
+    "--home", type=click.Path(exists=True, file_okay=False, path_type=Path), required=True
+)
+@click.option("-o", "--output", type=click.Path(dir_okay=False, path_type=Path), required=True)
+@click.option("--password-file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--locale", type=click.Choice(["zh", "en"]), default="zh")
+def move_export(home: Path, output: Path, password_file: Path | None, locale: str) -> None:
+    """Encrypt a stopped manager's complete SQLite home for relocation."""
+    _move_run(home, output, password_file, exporting=True, locale=locale)
+
+
+@backup.command("move-import")
+@click.argument("archive", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--home", type=click.Path(file_okay=False, path_type=Path), required=True)
+@click.option("--password-file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--locale", type=click.Choice(["zh", "en"]), default="zh")
+def move_import(archive: Path, home: Path, password_file: Path | None, locale: str) -> None:
+    """Restore the same instance into a NEW home; does not start services."""
+    _move_run(home, archive, password_file, exporting=False, locale=locale)
+
+
+@backup.command("move")
+@click.option("--locale", type=click.Choice(["zh", "en"]), default="zh")
+def move_wizard(locale: str) -> None:
+    """Guided export/import with a hidden password prompt."""
+    click.echo(tr("migration.intro", locale))
+    action = click.prompt(tr("migration.action", locale), type=click.Choice(["1", "2"]))
+    home = Path(click.prompt(tr("migration.home", locale), default=str(Path.cwd() / "data")))
+    archive = Path(click.prompt(tr("migration.archive", locale)))
+    click.echo(tr("migration.plan", locale, home=home, archive=archive))
+    click.confirm(tr("migration.confirm", locale), abort=True)
+    _move_run(home, archive, None, exporting=action == "1", locale=locale)
 
 
 @backup.command("create")

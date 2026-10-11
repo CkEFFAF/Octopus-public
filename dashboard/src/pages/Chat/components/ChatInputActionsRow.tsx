@@ -25,6 +25,7 @@ import {
   ChevronRight,
   Route,
   Info,
+  AtSign,
 } from "lucide-react";
 import { Tooltip, Popover } from "antd";
 import { message } from "@/utils/antdMessage";
@@ -63,7 +64,7 @@ import {
 } from "../utils/expertMention";
 import styles from "../index.module.less";
 
-/** Picker opened from the composer plus menu. */
+/** The same picker panels are used by desktop buttons and compact overflow. */
 type CompactPickerKey =
   | "mode"
   | "model"
@@ -71,7 +72,8 @@ type CompactPickerKey =
   | "knowledge"
   | "skill"
   | "expert"
-  | "subagent";
+  | "subagent"
+  | "shortcut";
 
 function resolveModelLogo(model: {
   provider_name: string;
@@ -215,7 +217,7 @@ export default function ChatInputActionsRow({
   const [plusMenuEl, setPlusMenuEl] = useState<HTMLDivElement | null>(null);
   const [plusMenuHeight, setPlusMenuHeight] = useState<number | null>(null);
   const [isCompact, setIsCompact] = useState(false);
-  const [shortcutOpen, setShortcutOpen] = useState(false);
+  const [memberPickerOpen, setMemberPickerOpen] = useState(false);
   const [reasoningModelRef, setReasoningModelRef] = useState<string | null>(
     null,
   );
@@ -227,6 +229,12 @@ export default function ChatInputActionsRow({
   );
 
   const useCompactControls = isMobile || isCompact;
+
+  useEffect(() => {
+    setOverflowPopoverOpen(false);
+    setCompactPicker(null);
+    setReasoningModelRef(null);
+  }, [useCompactControls]);
 
   useLayoutEffect(() => {
     if (!plusMenuEl || isMobile) {
@@ -251,7 +259,9 @@ export default function ChatInputActionsRow({
     }
     const row = actionsRowRef.current;
     if (!row) return;
-    const update = (width: number) => setIsCompact(width <= 560);
+    const update = (width: number) => {
+      if (width > 0) setIsCompact(width <= 560);
+    };
     update(row.getBoundingClientRect().width);
     const observer = new ResizeObserver(([entry]) => {
       if (entry) update(entry.contentRect.width);
@@ -308,7 +318,8 @@ export default function ChatInputActionsRow({
     showKnowledgePicker ||
     showSkillPicker ||
     showExpertPicker ||
-    showSubagentPicker;
+    showSubagentPicker ||
+    slashMenuItems.length > 0;
 
   const overflowBadgeCount =
     selectedConnectors.length +
@@ -350,6 +361,7 @@ export default function ChatInputActionsRow({
     skill: t("chat.skillPicker"),
     expert: t("chat.expertPicker"),
     subagent: t("chat.subagentPicker"),
+    shortcut: t("shortcut.title", "快捷指令"),
   };
 
   const reasoningModel = availableModels?.find(
@@ -595,7 +607,7 @@ export default function ChatInputActionsRow({
             }`
           }
           onSelect={(command) => {
-            setShortcutOpen(false);
+            closePlusMenu();
             onSlashShortcutSelect(command);
           }}
           onHover={() => undefined}
@@ -762,11 +774,26 @@ export default function ChatInputActionsRow({
           </span>
         </button>
       )}
+      {slashMenuItems.length > 0 && (
+        <button
+          type="button"
+          className={`${styles.mobileOverflowItem} ${
+            compactPicker === "shortcut" ? styles.mobileOverflowItemActive : ""
+          }`}
+          onClick={() => openCompactPicker("shortcut")}
+        >
+          <span className={styles.mobileOverflowItemMain}>
+            <Zap size={16} />
+            <span>{t("shortcut.title", "快捷指令")}</span>
+          </span>
+          <ChevronRight size={16} />
+        </button>
+      )}
     </div>
   );
 
-  const renderCompactPickerContent = () => {
-    switch (compactPicker) {
+  const renderCompactPickerContent = (key = compactPicker) => {
+    switch (key) {
       case "mode":
         return (
           <ConversationModeMenu
@@ -831,15 +858,108 @@ export default function ChatInputActionsRow({
             remoteManaged={remoteManaged}
           />
         );
+      case "shortcut":
+        return shortcutMenu;
       default:
         return null;
     }
   };
 
+  const desktopPickers = [
+    { key: "mode", show: showModePicker, Icon: ModeIcon, count: 0 },
+    { key: "model", show: showModelPicker, Icon: Cpu, count: 0 },
+    {
+      key: "connector",
+      show: showConnectorPicker,
+      Icon: Link2,
+      count: selectedConnectors.length,
+    },
+    {
+      key: "knowledge",
+      show: showKnowledgePicker,
+      Icon: BookOpen,
+      count: selectedKnowledgeBaseIds.length,
+    },
+    {
+      key: "skill",
+      show: showSkillPicker,
+      Icon: Sparkles,
+      count: activeSkillSlugs.length,
+    },
+    {
+      key: "expert",
+      show: showExpertPicker,
+      Icon: GraduationCap,
+      count: mentionedExperts.length,
+    },
+    {
+      key: "subagent",
+      show: showSubagentPicker,
+      Icon: Bot,
+      count: mentionedSubagents.length,
+    },
+    { key: "shortcut", show: slashMenuItems.length > 0, Icon: Zap, count: 0 },
+  ] as const;
+
+  const renderDesktopPickers = () =>
+    desktopPickers.map(({ key, show, Icon, count }) => {
+      if (!show) return null;
+      const selected =
+        count > 0 ||
+        (key === "model" && Boolean(selectedModel)) ||
+        (key === "mode" && conversationMode !== "craft");
+      const summary =
+        key === "model"
+          ? selectedModelTriggerLabel
+          : key === "mode"
+          ? t(`chat.conversationMode.${conversationMode}`)
+          : null;
+      return (
+        <Popover
+          key={key}
+          trigger="click"
+          placement="topLeft"
+          arrow={false}
+          open={compactPicker === key}
+          overlayClassName={styles.modelPopover}
+          content={renderCompactPickerContent(key)}
+          onOpenChange={(open) => {
+            setReasoningModelRef(null);
+            setCompactPicker(open ? key : null);
+          }}
+        >
+          <Tooltip
+            title={
+              summary
+                ? `${compactPickerTitle[key]}: ${summary}`
+                : compactPickerTitle[key]
+            }
+            mouseEnterDelay={0.4}
+          >
+            <button
+              type="button"
+              className={`${styles.secondaryBtn} ${
+                styles.composerPickerTrigger
+              } ${selected ? styles.secondaryBtnActive : ""}`}
+              aria-label={compactPickerTitle[key]}
+              aria-expanded={compactPicker === key}
+              data-testid={`composer-${key}`}
+            >
+              <Icon size={15} aria-hidden />
+              <span>{compactPickerTitle[key]}</span>
+              {count > 0 && (
+                <span className={styles.composerPickerCount}>{count}</span>
+              )}
+            </button>
+          </Tooltip>
+        </Popover>
+      );
+    });
+
   const renderSecondaryActions = () => {
     const plusButton = (
       <button
-        className={`${styles.secondaryBtn} ${
+        className={`${styles.secondaryBtn} ${styles.toolMenuTrigger} ${
           overflowBadgeCount > 0 ? styles.secondaryBtnActive : ""
         }`}
         type="button"
@@ -847,6 +967,9 @@ export default function ChatInputActionsRow({
         data-testid="composer-plus"
       >
         <Plus size={16} />
+        <span className={styles.toolMenuLabel}>
+          {t("chat.composerMore", "更多工具")}
+        </span>
         {overflowBadgeCount > 0 && (
           <span className={styles.toolbarBadge}>{overflowBadgeCount}</span>
         )}
@@ -855,7 +978,36 @@ export default function ChatInputActionsRow({
 
     return (
       <>
-        {showOverflowMenu && (
+        {isTeam && onInsertExpertMention && (
+          <Popover
+            trigger="click"
+            placement="topLeft"
+            open={memberPickerOpen}
+            onOpenChange={setMemberPickerOpen}
+            content={
+              <ExpertPickerPopover
+                agents={availableExperts ?? []}
+                selectedAgentIds={mentionedExperts}
+                onSelect={(agent) => {
+                  onInsertExpertMention(agent);
+                  setMemberPickerOpen(false);
+                }}
+                remoteManaged={remoteManaged}
+              />
+            }
+          >
+            <button
+              type="button"
+              className={styles.secondaryBtn}
+              aria-label={t("octopus.mentionMember")}
+              data-testid="composer-mention"
+            >
+              <AtSign size={17} />
+            </button>
+          </Popover>
+        )}
+        {!useCompactControls && renderDesktopPickers()}
+        {useCompactControls && showOverflowMenu && (
           <Popover
             trigger="click"
             placement="topLeft"
@@ -919,27 +1071,6 @@ export default function ChatInputActionsRow({
             onChange={onHitlPolicyChange}
           />
         )}
-        <Popover
-          trigger="click"
-          placement="topLeft"
-          open={shortcutOpen}
-          onOpenChange={setShortcutOpen}
-          overlayClassName={styles.skillPickerPopover}
-          content={shortcutMenu}
-        >
-          <Tooltip
-            title={t("shortcut.title", "快捷指令")}
-            mouseEnterDelay={0.4}
-          >
-            <button
-              className={styles.secondaryBtn}
-              type="button"
-              aria-label={t("shortcut.title", "快捷指令")}
-            >
-              <Zap size={16} />
-            </button>
-          </Tooltip>
-        </Popover>
         <Tooltip
           title={t("upload.fileTooltip", "Upload attachment")}
           mouseEnterDelay={0.4}
@@ -959,7 +1090,11 @@ export default function ChatInputActionsRow({
   };
 
   return (
-    <div ref={actionsRowRef} className={styles.actionsRow}>
+    <div
+      ref={actionsRowRef}
+      className={styles.actionsRow}
+      data-layout={useCompactControls ? "compact" : "expanded"}
+    >
       <div className={styles.secondaryActions}>{renderSecondaryActions()}</div>
       <div className={styles.inputActions}>
         <ContextWindowRing
@@ -970,72 +1105,71 @@ export default function ChatInputActionsRow({
           selectedConnectors={selectedConnectors}
           isMobile={isMobile}
         />
-        {/* Desktop: dedicated newChatBtn; mobile: replace polish with new-chat */}
+        {/* Mobile keeps new chat close to the composer when the sidebar is hidden. */}
         {useCompactControls ? (
           <Tooltip title={t("chatWelcome.newChat")} mouseEnterDelay={0.4}>
             <button
               className={styles.newChatBtn}
               onClick={onNewChat}
               type="button"
+              aria-label={t("chatWelcome.newChat")}
             >
               <MessageSquarePlus size={16} strokeWidth={1.75} />
             </button>
           </Tooltip>
-        ) : (
-          <>
-            <Tooltip title={t("chatWelcome.newChat")} mouseEnterDelay={0.4}>
-              <button
-                className={styles.newChatBtn}
-                onClick={onNewChat}
-                type="button"
-              >
-                <MessageSquarePlus size={16} strokeWidth={1.75} />
-              </button>
-            </Tooltip>
-            <Tooltip title={t("chat.polish.tooltip")} mouseEnterDelay={0.4}>
-              <button
-                className={styles.secondaryBtn}
-                onClick={onPolish}
-                type="button"
-                disabled={
-                  !text.trim() ||
-                  polishing ||
-                  isStreaming ||
-                  disabled ||
-                  !agentId
-                }
-              >
-                <Wand2
-                  size={16}
-                  className={polishing ? styles.spinIcon : undefined}
-                />
-              </button>
-            </Tooltip>
-          </>
-        )}
-        <Tooltip
-          title={
-            !_sttAvailable
-              ? t("voice.sttNotAvailable", "此设备不支持语音输入（需要 HTTPS）")
-              : recording
-              ? t("voice.stopRecording", "停止录音")
-              : transcribing
-              ? t("voice.transcribing", "识别中…")
-              : t("voice.startRecording", "语音输入")
-          }
-          mouseEnterDelay={0.4}
-        >
-          <button
-            className={`${styles.secondaryBtn} ${
-              recording || transcribing ? styles.secondaryBtnActive : ""
-            }`}
-            type="button"
-            disabled={disabled || isStreaming || transcribing || !_sttAvailable}
-            onClick={onToggleVoice}
+        ) : text.trim() && !isStreaming ? (
+          <Tooltip title={t("chat.polish.tooltip")} mouseEnterDelay={0.4}>
+            <button
+              className={styles.secondaryBtn}
+              onClick={onPolish}
+              type="button"
+              aria-label={t("chat.polish.tooltip")}
+              disabled={
+                !text.trim() || polishing || isStreaming || disabled || !agentId
+              }
+            >
+              <Wand2
+                size={16}
+                className={polishing ? styles.spinIcon : undefined}
+              />
+            </button>
+          </Tooltip>
+        ) : null}
+        {_sttAvailable && (
+          <Tooltip
+            title={
+              !_sttAvailable
+                ? t(
+                    "voice.sttNotAvailable",
+                    "此设备不支持语音输入（需要 HTTPS）",
+                  )
+                : recording
+                ? t("voice.stopRecording", "停止录音")
+                : transcribing
+                ? t("voice.transcribing", "识别中…")
+                : t("voice.startRecording", "语音输入")
+            }
+            mouseEnterDelay={0.4}
           >
-            <Mic size={16} />
-          </button>
-        </Tooltip>
+            <button
+              className={`${styles.secondaryBtn} ${
+                recording || transcribing ? styles.secondaryBtnActive : ""
+              }`}
+              type="button"
+              disabled={
+                disabled || isStreaming || transcribing || !_sttAvailable
+              }
+              onClick={onToggleVoice}
+              aria-label={
+                recording
+                  ? t("voice.stopRecording", "停止录音")
+                  : t("voice.startRecording", "语音输入")
+              }
+            >
+              <Mic size={16} />
+            </button>
+          </Tooltip>
+        )}
         {(onStartBrowserRecording || onStopBrowserRecording) && (
           <Tooltip
             title={

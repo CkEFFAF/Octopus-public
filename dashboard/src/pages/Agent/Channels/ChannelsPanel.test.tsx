@@ -24,10 +24,12 @@ import { request } from "../../../api/request";
 import ChannelsPanel from "./ChannelsPanel";
 
 const api = vi.mocked(request, true);
+let user: ReturnType<typeof userEvent.setup>;
 
 beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
+  user = userEvent.setup();
   // GET list -> empty; POST create -> server-echoed row with enabled=1
   api.mockImplementation(async (_url: string, init?: RequestInit) => {
     if (init?.method === "POST") {
@@ -37,15 +39,18 @@ beforeEach(() => {
   });
 });
 
+async function pasteField(label: string | RegExp, value: string) {
+  await user.click(await screen.findByLabelText(label));
+  await user.paste(value);
+}
+
 describe("<ChannelsPanel /> create-flow default", () => {
   it("defaults Discord to all channels and saves without channel IDs", async () => {
     render(<ChannelsPanel agentId="ag1" />);
-    await userEvent.click(
+    await user.click(
       await screen.findByRole("button", { name: /channels\.showMoreChannels/ }),
     );
-    await userEvent.click(
-      (await screen.findAllByText("channels.label_discord"))[0],
-    );
+    await user.click((await screen.findAllByText("channels.label_discord"))[0]);
     expect(
       await screen.findByLabelText("channels.discordAllowAllChannels"),
     ).toBeChecked();
@@ -53,11 +58,8 @@ describe("<ChannelsPanel /> create-flow default", () => {
       screen.getByLabelText("channels.discordAllowedChannels"),
     ).toBeDisabled();
     expect(screen.getByLabelText("channels.discordAllowedUsers")).toBeEnabled();
-    await userEvent.type(
-      screen.getByLabelText(/Bot Token/i),
-      "fake-discord-token",
-    );
-    await userEvent.click(screen.getByRole("button", { name: "common.save" }));
+    await pasteField(/Bot Token/i, "fake-discord-token");
+    await user.click(screen.getByRole("button", { name: "common.save" }));
     await waitFor(() => {
       const post = api.mock.calls.find(([, init]) => init?.method === "POST");
       expect(post).toBeDefined();
@@ -88,7 +90,7 @@ describe("<ChannelsPanel /> create-flow default", () => {
         return [row];
       });
       render(<ChannelsPanel agentId="ag1" />);
-      await userEvent.click(
+      await user.click(
         (await screen.findAllByText("channels.label_discord"))[0],
       );
       const toggle = await screen.findByLabelText(
@@ -101,9 +103,7 @@ describe("<ChannelsPanel /> create-flow default", () => {
       expect(ids).toHaveValue("1234567890123456789");
       if (allowAll === false) expect(ids).toBeEnabled();
       else expect(ids).toBeDisabled();
-      await userEvent.click(
-        screen.getByRole("button", { name: "common.save" }),
-      );
+      await user.click(screen.getByRole("button", { name: "common.save" }));
       await waitFor(() => {
         const patch = api.mock.calls.find(
           ([, init]) => init?.method === "PATCH",
@@ -119,34 +119,24 @@ describe("<ChannelsPanel /> create-flow default", () => {
 
   it("opens Discord and saves the token with exact channel/user IDs", async () => {
     render(<ChannelsPanel agentId="ag1" />);
-    await userEvent.click(
+    await user.click(
       await screen.findByRole("button", { name: /channels\.showMoreChannels/ }),
     );
-    await userEvent.click(
-      (await screen.findAllByText("channels.label_discord"))[0],
-    );
+    await user.click((await screen.findAllByText("channels.label_discord"))[0]);
     expect(
       await screen.findByText("channels.discordSetupHelp"),
     ).toBeInTheDocument();
-    await userEvent.click(
-      screen.getByLabelText("channels.discordAllowAllChannels"),
-    );
+    await user.click(screen.getByLabelText("channels.discordAllowAllChannels"));
     expect(
       screen.getByLabelText("channels.discordAllowedChannels"),
     ).toBeEnabled();
-    await userEvent.type(
-      await screen.findByLabelText(/Bot Token/i),
-      "fake-discord-token",
-    );
-    await userEvent.type(
-      screen.getByLabelText("channels.discordAllowedChannels"),
+    await pasteField(/Bot Token/i, "fake-discord-token");
+    await pasteField(
+      "channels.discordAllowedChannels",
       "1234567890123456789,2345678901234567890",
     );
-    await userEvent.type(
-      screen.getByLabelText("channels.discordAllowedUsers"),
-      "3456789012345678901",
-    );
-    await userEvent.click(screen.getByRole("button", { name: "common.save" }));
+    await pasteField("channels.discordAllowedUsers", "3456789012345678901");
+    await user.click(screen.getByRole("button", { name: "common.save" }));
     await waitFor(() => {
       const post = api.mock.calls.find(([, init]) => init?.method === "POST");
       expect(post).toBeDefined();
@@ -165,7 +155,7 @@ describe("<ChannelsPanel /> create-flow default", () => {
   async function openTelegramCreateDrawer() {
     render(<ChannelsPanel agentId="ag1" />);
     // Telegram is collapsed behind "更多通道" until expanded.
-    await userEvent.click(
+    await user.click(
       await screen.findByRole("button", {
         name: /channels\.showMoreChannels/,
       }),
@@ -173,7 +163,7 @@ describe("<ChannelsPanel /> create-flow default", () => {
     // telegram has no quick-config path -> clicking its card opens the
     // manual create drawer directly.
     const card = (await screen.findAllByText("channels.label_telegram"))[0];
-    await userEvent.click(card);
+    await user.click(card);
   }
 
   it("opens the create drawer with the enable switch ON", async () => {
@@ -187,11 +177,8 @@ describe("<ChannelsPanel /> create-flow default", () => {
   it("saves a new channel with a single POST and no follow-up PATCH", async () => {
     await openTelegramCreateDrawer();
 
-    await userEvent.type(
-      await screen.findByLabelText(/Bot Token/i),
-      "123456:ABC-token",
-    );
-    await userEvent.click(screen.getByRole("button", { name: "common.save" }));
+    await pasteField(/Bot Token/i, "123456:ABC-token");
+    await user.click(screen.getByRole("button", { name: "common.save" }));
 
     await waitFor(() => {
       const post = api.mock.calls.find(
@@ -220,13 +207,10 @@ describe("<ChannelsPanel /> create-flow default", () => {
   it("still honors a deliberate opt-out: unchecking fires the alignment PATCH", async () => {
     await openTelegramCreateDrawer();
 
-    await userEvent.type(
-      await screen.findByLabelText(/Bot Token/i),
-      "123456:ABC-token",
-    );
+    await pasteField(/Bot Token/i, "123456:ABC-token");
     // user explicitly turns the switch off before saving
-    await userEvent.click(screen.getByLabelText("channels.enableChannel"));
-    await userEvent.click(screen.getByRole("button", { name: "common.save" }));
+    await user.click(screen.getByLabelText("channels.enableChannel"));
+    await user.click(screen.getByRole("button", { name: "common.save" }));
 
     await waitFor(() => {
       const patch = api.mock.calls.find(

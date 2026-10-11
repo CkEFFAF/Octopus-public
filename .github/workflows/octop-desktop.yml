@@ -11,6 +11,10 @@ on:
   pull_request:
     paths:
       - "desktop/**"
+      - "src/**"
+      - "dashboard/**"
+      - "pyproject.toml"
+      - "uv.lock"
       - ".github/workflows/octop-desktop.yml"
   workflow_dispatch:
     inputs:
@@ -79,7 +83,7 @@ jobs:
           retention-days: 7
 
   # Job-level `if` cannot read `matrix.*` (GitHub 422). Filter here so only
-  # selected runners start — PRs → darwin-* + windows-*; dispatch honors `platforms`.
+  # selected runners start — PRs → Linux + Windows amd64; dispatch honors `platforms`.
   select-platforms:
     name: Select platforms
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.attach_from_run == ''
@@ -106,7 +110,7 @@ jobs:
               {"plat": "windows-arm64", "arch": "arm64", "os": "windows-11-arm"},
           ]
           if os.environ["EVENT_NAME"] == "pull_request":
-              sel = "darwin-arm64,darwin-amd64,windows-amd64,windows-arm64"
+              sel = "linux-amd64,windows-amd64"
           else:
               sel = os.environ.get("PLATFORMS", "all").lower().replace(" ", "")
           known = {row["plat"] for row in all_plats}

@@ -671,6 +671,77 @@
   box-sizing: border-box;
 }
 
+.composerContextBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 16px;
+  width: calc(100% - 2 * var(--chat-column-pad-x, 32px));
+  max-width: var(--chat-column-max, 960px);
+  min-width: 0;
+  margin: 4px auto 0;
+
+  &:empty {
+    display: none;
+  }
+}
+
+/* The turn rail's standalone usage gutter must not apply inside this row. */
+.chatMain .composerContextBar .runUsageBar {
+  display: block;
+  flex: 1 1 320px;
+  min-width: 0;
+  max-width: 100%;
+  width: auto;
+  padding: 0;
+  margin: 0 0 0 auto;
+  text-align: right;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  color: var(--fn-text-tertiary);
+}
+
+.deviceTargetSelect {
+  display: flex;
+  align-items: center;
+  flex: 0 1 290px;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--fn-text-tertiary);
+  font-size: 12px;
+}
+
+.deviceTargetPicker {
+  flex: 1 1 190px;
+  min-width: 0;
+  width: 190px;
+  max-width: 190px;
+}
+
+.deviceTargetManage {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+@container chat-main (max-width: 560px) {
+  .composerContextBar {
+    width: calc(100% - 2 * var(--chat-column-pad-x-narrow, 12px));
+  }
+
+  .deviceTargetPicker {
+    flex-basis: 150px;
+    max-width: 190px;
+  }
+
+  .chatMain .composerContextBar .runUsageBar {
+    flex-basis: 100%;
+    text-align: left;
+  }
+}
+
 .inputWrapper {
   max-width: 960px;
   min-width: 280px;
@@ -697,7 +768,7 @@
 }
 
 .textarea {
-  min-height: 64px;
+  min-height: 52px;
   font-size: 14px;
   line-height: 1.6;
 
@@ -709,7 +780,7 @@
 .actionsRow {
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid var(--fn-color-brand-glow);
+  border-top: 1px solid var(--fn-border-secondary);
 
   @media (max-width: 767px) {
     margin-top: 4px;
@@ -717,17 +788,66 @@
   }
 }
 
-.secondaryBtn,
-.newChatBtn {
-  width: 36px;
-  height: 36px;
-  border: 1px solid var(--fn-color-brand-glow);
-  background: var(--fn-bg-secondary);
+.secondaryActions {
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
-.secondaryBtn:hover,
-.newChatBtn:hover {
+.actionsRow[data-layout="compact"] .secondaryActions {
+  flex-wrap: nowrap;
+}
+
+.actionsRow .secondaryBtn,
+.actionsRow .newChatBtn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+.actionsRow .secondaryBtn:hover,
+.actionsRow .newChatBtn:hover {
   background: var(--fn-color-brand-bg);
+}
+
+.actionsRow .toolMenuTrigger {
+  width: auto;
+  padding: 0 10px;
+  gap: 5px;
+  border-color: var(--fn-border-secondary);
+  border-radius: 10px;
+  background: var(--fn-bg-secondary);
+  color: var(--fn-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.actionsRow .composerPickerTrigger {
+  width: auto;
+  padding: 0 8px;
+  gap: 5px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  color: var(--fn-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.composerPickerCount {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+@container chat-main (max-width: 560px) {
+  .actionsRow .toolMenuTrigger {
+    width: 28px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .toolMenuLabel {
+    display: none;
+  }
 }
 
 .sendBtn {

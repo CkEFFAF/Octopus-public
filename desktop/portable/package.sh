@@ -232,7 +232,16 @@ assemble_one() {
   cp "${TEMPLATES}/start.sh" "${staging}/start.sh"
   cp "${TEMPLATES}/start.bat" "${staging}/start.bat"
   cp "${TEMPLATES}/launch.py" "${staging}/launch.py"
+  cp "${TEMPLATES}/portable-start.py" "${staging}/portable-start.py"
+  cp "${TEMPLATES}/open.bat" "${staging}/open.bat"
+  cp "${TEMPLATES}/move-manager.bat" "${staging}/move-manager.bat"
   cp "${TEMPLATES}/README.txt" "${staging}/README.txt"
+  cp "${REPO_ROOT}/desktop/portable/start-device.bat" "${staging}/start-device.bat"
+  cp "${REPO_ROOT}/desktop/portable/start-device.sh" "${staging}/start-device.sh"
+  cp "${REPO_ROOT}/desktop/portable/setup-device.bat" "${staging}/setup-device.bat"
+  cp "${REPO_ROOT}/desktop/portable/setup-device.sh" "${staging}/setup-device.sh"
+  chmod +x "${staging}/setup-device.sh"
+  chmod +x "${staging}/start-device.sh"
   chmod +x "${staging}/start.sh"
 
   # Windows: pywin32 DLLs must be findable next to python.exe (or on PATH).
@@ -245,6 +254,14 @@ assemble_one() {
 
   # macOS: reject Homebrew-linked native extensions before zipping.
   verify_no_homebrew_dylibs "${staging}/packages" "$plat"
+
+  if [[ "$plat" == "$host" ]]; then
+    local smoke_args=( --packages "${staging}/packages" --requirements "$req_file" )
+    if [[ -n "$override_file" ]]; then
+      smoke_args+=( --overrides "$override_file" )
+    fi
+    "$(runtime_python "${staging}/runtime")" "${GREEN_ROOT}/verify_imports.py" "${smoke_args[@]}"
+  fi
 
   {
     echo "platform=${plat}"
@@ -261,7 +278,7 @@ assemble_one() {
   zip_stem="${zip_name%.zip}"
   (
     cd "$GREEN_RELEASE"
-    if command -v zip >/dev/null 2>&1; then
+    if [[ "$host" != windows-* ]] && command -v zip >/dev/null 2>&1; then
       zip -qry "$zip_name" "Octop-${plat}"
     else
       # Windows runners often have `python` but not `python3` / `zip`.

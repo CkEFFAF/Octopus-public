@@ -43,6 +43,11 @@ describe("publishedExpertsApi", () => {
       "/experts/published/expert%2F1/refresh",
       {
         method: "POST",
+        body: JSON.stringify({
+          name: "Updated",
+          description: "New description",
+          welcome_message: { zh: "欢迎", en: "Welcome" },
+        }),
       },
     );
     expect(request).toHaveBeenNthCalledWith(
@@ -51,6 +56,15 @@ describe("publishedExpertsApi", () => {
       {
         method: "DELETE",
       },
+    );
+  });
+
+  it("refreshes from the source agent without metadata overrides", () => {
+    publishedExpertsApi.refresh("expert/1");
+
+    expect(request).toHaveBeenCalledWith(
+      "/experts/published/expert%2F1/refresh",
+      { method: "POST", body: undefined },
     );
   });
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Input, Button, Checkbox } from "antd";
+import { Input, Button, Checkbox, Segmented } from "antd";
 import { message } from "@/utils/antdMessage";
 
 import { KeyRound, Lock, User } from "lucide-react";
@@ -79,6 +79,8 @@ export default function LoginPage() {
   const [searchParams] = useSearchParams();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [loginMode, setLoginMode] = useState<"password" | "key">("password");
+  const [accessKey, setAccessKey] = useState("");
   const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
   const [providers, setProviders] = useState<OauthProviderStatus[]>([]);
@@ -218,11 +220,23 @@ export default function LoginPage() {
   };
 
   const handleLogin = async () => {
-    if (!username || !password || !captchaReady) return;
+    if (
+      loginMode === "key"
+        ? !accessKey.trim()
+        : !username || !password || !captchaReady
+    )
+      return;
     setLoading(true);
     try {
-      const token = await captchaRef.current?.getToken();
-      const res = await authApi.login(username, password, token);
+      const res =
+        loginMode === "key"
+          ? await authApi.keyLogin(accessKey.trim())
+          : await authApi.login(
+              username,
+              password,
+              await captchaRef.current?.getToken(),
+            );
+      setAccessKey("");
       setAuthToken(res.access_token, remember);
       await applyUserLocale(res.user.locale);
       void refreshServerLabels(res.user.locale);
@@ -295,71 +309,110 @@ export default function LoginPage() {
           {t("login.title")}
         </h2>
 
-        <div style={{ width: "100%" }}>
-          <Input
-            prefix={
-              <User size={16} style={{ color: "var(--fn-text-quaternary)" }} />
-            }
-            placeholder={t("login.username")}
-            size="large"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoFocus
-            aria-describedby="login-username-hint"
-            style={{ borderRadius: 10 }}
-          />
-          <div
-            id="login-username-hint"
-            style={{
-              marginTop: 6,
-              fontSize: 12,
-              color: "var(--fn-text-tertiary)",
-              lineHeight: 1.4,
-            }}
-          >
-            {t("login.usernameHint")}
+        <Segmented
+          block
+          value={loginMode}
+          onChange={(value) => {
+            setLoginMode(value as "password" | "key");
+            setAccessKey("");
+            resetCaptcha();
+          }}
+          options={[
+            { value: "password", label: t("login.passwordMode") },
+            { value: "key", label: t("login.keyMode") },
+          ]}
+        />
+        {loginMode === "key" ? (
+          <div style={{ width: "100%" }}>
+            <Input.Password
+              size="large"
+              aria-label={t("login.accessKey")}
+              placeholder={t("login.accessKey")}
+              value={accessKey}
+              maxLength={120}
+              onChange={(event) => setAccessKey(event.target.value)}
+              onPressEnter={handleLogin}
+              autoComplete="off"
+            />
+            <p style={{ fontSize: 12, color: "var(--fn-text-tertiary)" }}>
+              {t("login.keyHint")}
+            </p>
           </div>
-        </div>
+        ) : (
+          <>
+            <div style={{ width: "100%" }}>
+              <Input
+                prefix={
+                  <User
+                    size={16}
+                    style={{ color: "var(--fn-text-quaternary)" }}
+                  />
+                }
+                placeholder={t("login.username")}
+                size="large"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoFocus
+                aria-describedby="login-username-hint"
+                style={{ borderRadius: 10 }}
+              />
+              <div
+                id="login-username-hint"
+                style={{
+                  marginTop: 6,
+                  fontSize: 12,
+                  color: "var(--fn-text-tertiary)",
+                  lineHeight: 1.4,
+                }}
+              >
+                {t("login.usernameHint")}
+              </div>
+            </div>
 
-        <Input.Password
-          prefix={
-            <Lock size={16} style={{ color: "var(--fn-text-quaternary)" }} />
-          }
-          placeholder={t("login.password")}
-          size="large"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          onPressEnter={handleLogin}
-          style={{ borderRadius: 10 }}
-        />
+            <Input.Password
+              prefix={
+                <Lock
+                  size={16}
+                  style={{ color: "var(--fn-text-quaternary)" }}
+                />
+              }
+              placeholder={t("login.password")}
+              size="large"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onPressEnter={handleLogin}
+              style={{ borderRadius: 10 }}
+            />
 
-        {ldap?.enabled && (
-          <p
-            style={{
-              margin: 0,
-              marginTop: -8,
-              width: "100%",
-              fontSize: 12,
-              lineHeight: 1.5,
-              color: "var(--fn-text-tertiary)",
-              textAlign: "center",
-            }}
-          >
-            {t("login.ldapHint", {
-              name: ldap.display_name.trim() || t("adminSso.ldap.kind"),
-            })}
-          </p>
+            {ldap?.enabled && (
+              <p
+                style={{
+                  margin: 0,
+                  marginTop: -8,
+                  width: "100%",
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                  color: "var(--fn-text-tertiary)",
+                  textAlign: "center",
+                }}
+              >
+                {t("login.ldapHint", {
+                  name: ldap.display_name.trim() || t("adminSso.ldap.kind"),
+                })}
+              </p>
+            )}
+
+            <CaptchaField
+              ref={captchaRef}
+              config={captcha}
+              resetKey={captchaResetKey}
+              slideHint={t("login.slideHint")}
+              slideVerifiedLabel={t("login.slideVerified")}
+              unsupportedLabel={t("login.unsupportedCaptcha")}
+              onReadyChange={setCaptchaReady}
+            />
+          </>
         )}
-
-        <CaptchaField
-          ref={captchaRef}
-          config={captcha}
-          resetKey={captchaResetKey}
-          slideHint={t("login.slideHint")}
-          slideVerifiedLabel={t("login.slideVerified")}
-          unsupportedLabel={t("login.unsupportedCaptcha")}
-          onReadyChange={setCaptchaReady}
-        />
 
         <Button
           type="primary"
@@ -367,7 +420,11 @@ export default function LoginPage() {
           block
           loading={loading}
           onClick={handleLogin}
-          disabled={!username || !password || !captchaReady}
+          disabled={
+            loginMode === "key"
+              ? !accessKey.trim()
+              : !username || !password || !captchaReady
+          }
           style={{ borderRadius: 10, height: 44, fontWeight: 500 }}
         >
           {t("login.submit")}

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from octop.config import OctopConfig
 from octop.infra.db.pool import DatabasePool
+from octop.infra.db.repos.access_keys import AccessKeyRepo
 from octop.infra.db.repos.agents import AgentRepo
 from octop.infra.db.repos.audit import AuditRepo
 from octop.infra.db.repos.backends import BackendRepo
@@ -14,6 +15,7 @@ from octop.infra.db.repos.care_push import CarePushRepo
 from octop.infra.db.repos.channels import ChannelRepo
 from octop.infra.db.repos.connectors import ConnectorRepo
 from octop.infra.db.repos.cron import CronJobRepo
+from octop.infra.db.repos.devices import DeviceRepo
 from octop.infra.db.repos.invites import InviteRepo
 from octop.infra.db.repos.knowledge import KnowledgeRepo
 from octop.infra.db.repos.proactive_care_config import ProactiveCareConfigRepo
@@ -24,6 +26,7 @@ from octop.infra.db.repos.sessions import SessionRepo
 from octop.infra.db.repos.settings import SettingsRepo
 from octop.infra.db.repos.skill_packages import SkillPackageRepo
 from octop.infra.db.repos.sso import SsoRepo
+from octop.infra.db.repos.task_boards import TaskBoardRepo
 from octop.infra.db.repos.thread_messages import ThreadMessageRepo
 from octop.infra.db.repos.threads import ThreadRepo
 from octop.infra.db.repos.trajectory_events import TrajectoryEventRepo
@@ -52,9 +55,12 @@ class RepoBundle:
     secret_repo: SecretRepo
     audit_repo: AuditRepo
     usage_repo: UsageRepo
+    task_board_repo: TaskBoardRepo
     settings_repo: SettingsRepo
     storage_backend_repo: BackendRepo
     bridge_connection_repo: BridgeConnectionRepo
+    device_repo: DeviceRepo
+    access_key_repo: AccessKeyRepo
     connector_repo: ConnectorRepo
     skill_package_repo: SkillPackageRepo
     published_expert_repo: PublishedExpertRepo
@@ -82,9 +88,12 @@ class RepoBundle:
             secret_repo=SecretRepo(db),
             audit_repo=AuditRepo(db),
             usage_repo=UsageRepo(db),
+            task_board_repo=TaskBoardRepo(db),
             settings_repo=SettingsRepo(db),
             storage_backend_repo=BackendRepo(db),
             bridge_connection_repo=BridgeConnectionRepo(db),
+            device_repo=DeviceRepo(db),
+            access_key_repo=AccessKeyRepo(db),
             connector_repo=ConnectorRepo(db),
             skill_package_repo=SkillPackageRepo(db),
             published_expert_repo=PublishedExpertRepo(db),
@@ -173,6 +182,10 @@ class SharedServices:
     @property
     def bridge_connection_repo(self) -> BridgeConnectionRepo:
         return self.repos.bridge_connection_repo
+
+    @property
+    def device_repo(self) -> DeviceRepo:
+        return self.repos.device_repo
 
     @property
     def connector_repo(self) -> ConnectorRepo:

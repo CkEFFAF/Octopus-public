@@ -221,6 +221,8 @@ class AppRuntime:
     trajectory_service: TrajectoryService | None = None
     history_archive: Any | None = None
     bridge_manager: Any | None = None
+    task_board: Any | None = None
+    devices: Any | None = None
 
     def replace_services(self, services: SharedServices, config: OctopConfig) -> None:
         """Retarget all runtime singletons onto a new SharedServices / config.
@@ -233,6 +235,10 @@ class AppRuntime:
         self.agent_registry.replace_persistence(services.repos, config)
         self.gateway.replace_repos(services.repos)
         self.cron_manager.replace_repos(services.repos)
+        if self.task_board is not None:
+            self.task_board.replace_repos(services.repos)
+        if self.devices is not None:
+            self.devices.replace_repos(services.repos)
         self.proactive_scheduler.replace_persistence(
             config_repo=services.repos.proactive_care_config_repo,
             session_repo=services.repos.session_repo,
@@ -497,6 +503,23 @@ class OctopServer:
 
         install_auto_backup_job(cron_mgr, server=self)
 
+        from octop.infra.task_board.service import TaskBoardService
+
+        task_board = TaskBoardService(
+            repos=self.services.repos,
+            timezone=config.default_timezone,
+            registry=registry,
+            gateway=gateway,
+            delivery=cron_delivery,
+        )
+        task_board.recover()
+        from octop.infra.devices.service import DeviceService
+
+        devices = DeviceService(self.services.repos)
+        registry.set_device_service(devices)
+        task_board.set_device_service(devices)
+        task_board.set_peer_service(gateway.processor.teams)
+        registry.set_task_board(task_board)
         registry.set_cron_manager(cron_mgr)
         registry.set_team_processor(gateway.processor.teams)
         hitl_session_store = gateway.processor.hitl_coordinator.session_policies
@@ -520,6 +543,7 @@ class OctopServer:
         registry.set_proactive_scheduler(proactive_scheduler)
 
         await registry.boot()
+        cron_mgr.schedule_system_job("task-board-tick", trigger="interval:15", func=task_board.tick)
         await gateway.refresh_media_backends()
 
         user_mgr = UserManager(self.services)
@@ -564,6 +588,8 @@ class OctopServer:
             trajectory_service=trajectory_service,
             history_archive=history_archive,
             bridge_manager=bridge_mgr,
+            task_board=task_board,
+            devices=devices,
         )
         from octop.infra.knowledge.jobs import resume_pending_index_jobs  # noqa: PLC0415
 
@@ -615,6 +641,10 @@ class OctopServer:
             await agently_auth.close()
             if self.app_runtime is not None:
                 rt = self.app_runtime
+                if rt.devices is not None:
+                    await rt.devices.shutdown()
+                if rt.task_board is not None:
+                    await rt.task_board.shutdown()
                 await rt.proactive_scheduler.shutdown()
                 await rt.cron_manager.shutdown()
                 await rt.gateway.shutdown()

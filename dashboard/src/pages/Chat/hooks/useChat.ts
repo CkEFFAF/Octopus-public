@@ -886,6 +886,7 @@ export function useChat(
       reasoningEffort?: string | null,
       conversationMode?: "ask" | "plan" | "craft" | null,
       hitlPolicy?: HitlSessionPolicy | null,
+      deviceId?: string | null,
     ) => {
       const key = storeKey || stableSessionId;
 
@@ -920,6 +921,7 @@ export function useChat(
         reasoningEffort,
         conversationMode,
         hitlPolicy,
+        deviceId,
       );
     },
     [stableSessionId],

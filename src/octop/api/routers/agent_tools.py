@@ -182,7 +182,7 @@ async def get_tool_settings(
     catalog = (
         tuple(entry for entry in BUILTIN_TOOL_CATALOG if entry.name in HOST_TOOLS_ALLOWED)
         if team_host
-        else BUILTIN_TOOL_CATALOG
+        else tuple(entry for entry in BUILTIN_TOOL_CATALOG if entry.name != "read_group_attachment")
     )
     for entry in catalog:
         allowed = not team_host or entry.name in HOST_TOOLS_ALLOWED

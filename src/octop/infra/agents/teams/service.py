@@ -26,9 +26,18 @@ HOST_TOOLS_ALLOWED: frozenset[str] = frozenset(
     {
         "agent_list",
         "ask_agent",
+        "read_group_attachment",
         "memory_search",
         "memory_get",
         "current_time",
+        "task_board_create",
+        "task_board_list",
+        "task_board_get",
+        "task_board_update",
+        "task_board_manage",
+        "task_board_run",
+        "task_board_set_parent",
+        "task_board_schedule",
     }
 )
 
@@ -292,6 +301,7 @@ class TeamService:
                     "icon_name": member.icon_name,
                     "icon_url": member.icon_url,
                     "state": member.last_state or "unknown",
+                    "busy": self.jobs.is_busy(row.agent_id, member.agent_id),
                     "is_shared": bool(int(member.is_shared or 0)),
                     "user_id": member.user_id,
                 }

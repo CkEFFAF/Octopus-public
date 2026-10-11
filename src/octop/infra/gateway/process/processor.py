@@ -1386,6 +1386,10 @@ class GlobalProcessor:
             message_kwargs=message_kwargs or None,
             reasoning_overrides=reasoning_overrides,
         )
+        if isinstance(meta.get("octop_device_target"), dict):
+            request.setdefault("configurable", {})["octop_device_target"] = meta[
+                "octop_device_target"
+            ]
         self.teams.stamp_host_runtime(request, agent_id)
         self._attach_turn_knowledge_config(
             request,

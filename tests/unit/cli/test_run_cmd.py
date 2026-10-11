@@ -30,6 +30,22 @@ def test_run_help_lists_finnie_aligned_flags() -> None:
         assert flag in result.output, f"missing {flag} in --help"
 
 
+def test_second_host_rejected_before_changing_saved_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from octop.infra.utils.process_lock import ProcessLock
+
+    monkeypatch.setenv("OCTOP_HOME", str(tmp_path))
+    config = tmp_path / "config.json"
+    config.write_text('{"bind_host":"0.0.0.0","port":8188}', encoding="utf-8")
+    with ProcessLock(tmp_path / ".host.lock"):
+        result = CliRunner().invoke(cli, ["run", "--host", "127.0.0.1", "--port", "9000"])
+    assert result.exit_code != 0
+    assert "already running" in result.output
+    assert json.loads(config.read_text())["port"] == 8188
+
+
 def test_run_dispatches_to_uvicorn(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
