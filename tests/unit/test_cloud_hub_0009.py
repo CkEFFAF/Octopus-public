@@ -80,10 +80,11 @@ def test_spec_accepted_and_octop_home() -> None:
 
 
 def test_portable_default_server_is_not_cloud_ip() -> None:
-    """AC-008 soft check: open-device defaults stay on domain (0007)."""
+    """Default documented server is HTTPS filing domain; transition IP is opt-in only."""
     readme = (REPO / "desktop/portable/templates/README.txt").read_text(encoding="utf-8")
     assert "https://octop.effaf.me" in readme
-    assert "111.228.42.228" not in readme
+    # 0010: README may document transition HTTP IP via open-device-transition / OCTOP_DEVICE_SERVER
+    assert "open-device-transition" in readme or "OCTOP_DEVICE_SERVER" in readme
 
 
 def test_tunnel_doc_mentions_cloud_origin() -> None:

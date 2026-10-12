@@ -8,8 +8,8 @@ import pytest
 from click.testing import CliRunner
 
 from octop.cli.main import cli
-from octop.infra.devices.network import DeviceNetwork
 from octop.infra.devices.first_run import enroll_with_account, resolve_server_url
+from octop.infra.devices.network import DeviceNetwork
 from octop.infra.devices.protocol import DEFAULT_DEVICE_SERVER, resolve_default_device_server
 
 

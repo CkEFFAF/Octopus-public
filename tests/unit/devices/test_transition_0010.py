@@ -13,7 +13,6 @@ from octop.infra.devices.network import DeviceNetwork
 from octop.infra.devices.protocol import (
     DEFAULT_DEVICE_SERVER,
     is_transition_insecure_allowed,
-    resolve_default_device_server,
 )
 
 TRANSITION = "http://111.228.42.228:8188"
