@@ -9,7 +9,7 @@ from pathlib import Path
 
 import click
 
-from octop.infra.devices.client import DeviceClient
+from octop.infra.devices.client import DeviceClient, account_login
 from octop.infra.devices.executor import DeviceExecutionError, DeviceExecutor
 from octop.infra.devices.network import DeviceNetwork, validate_relocation_url
 
@@ -31,6 +31,21 @@ def device() -> None:
     "--key-file",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help="Read an account access key from a private UTF-8 file.",
+)
+@click.option(
+    "--username",
+    help="Account username for same-account auto-enroll (password prompted if omitted with --password).",
+)
+@click.option(
+    "--password",
+    prompt=False,
+    hide_input=True,
+    help="Account password for same-account auto-enroll (prefer interactive prompt).",
+)
+@click.option(
+    "--account-token",
+    prompt=False,
+    help="Short-lived Bearer JWT from password login; never stored in device-state.",
 )
 @click.option("--name", help="Name shown in your account's device list.")
 @click.option(
@@ -72,6 +87,9 @@ def connect(
     pair_code: str | None,
     access_key: str | None,
     key_file: Path | None,
+    username: str | None,
+    password: str | None,
+    account_token: str | None,
     name: str | None,
     share: tuple[Path, ...],
     read_only: bool,
@@ -84,7 +102,7 @@ def connect(
 ) -> None:
     """Keep an outbound authenticated device connection running until interrupted.
 
-    First connect: --server URL --pair-code CODE [--share DIR].
+    First connect: --server URL with one of --pair-code / --key-file / --username.
     Later: --state DIR reuses the device identity and enrollment policy.
     Browser login and device enrollment do not require an OS account password.
     """
@@ -94,8 +112,17 @@ def connect(
         raise click.UsageError("--control requires --desktop")
     if allow_acp and (not share or read_only):
         raise click.UsageError("--allow-acp requires a writable --share directory")
-    if sum(bool(value) for value in (pair_code, access_key, key_file)) > 1:
-        raise click.UsageError("choose --pair-code, --access-key or --key-file")
+    account_mode = bool(username or password or account_token)
+    if sum(bool(value) for value in (pair_code, access_key, key_file, account_mode)) > 1:
+        raise click.UsageError(
+            "choose one of --pair-code, --access-key/--key-file, or --username/--account-token"
+        )
+    if bool(username) != bool(password) and not account_token:
+        # Allow password prompt when only --username is set.
+        if username and not password:
+            password = click.prompt("Account password", hide_input=True)
+        elif password and not username:
+            raise click.UsageError("--password requires --username")
     state_dir = state or Path.home() / ".octop-device"
 
     async def run() -> None:
@@ -108,6 +135,9 @@ def connect(
                     pair_code,
                     access_key,
                     key_file,
+                    username,
+                    password,
+                    account_token,
                     name,
                     share,
                     read_only,
@@ -125,13 +155,22 @@ def connect(
             device_id = saved["device_id"]
         else:
             credential = access_key
+            session_token = account_token
             if key_file is not None:
                 if key_file.stat().st_size > 120:
                     raise DeviceExecutionError("invalid access key file")
                 credential = key_file.read_text(encoding="utf-8-sig").strip()
-            if not server or not (pair_code or credential):
+            if username and not session_token:
+                if not server:
+                    raise DeviceExecutionError(
+                        "first connect with --username requires --server"
+                    )
+                session_token = account_login(
+                    server, username, password or "", allow_insecure=allow_insecure
+                )
+            if not server or not (pair_code or credential or session_token):
                 raise DeviceExecutionError(
-                    "first connect requires --server and --pair-code or --key-file from your account"
+                    "first connect requires --server and --pair-code, --key-file, or --username"
                 )
             roots = [
                 {
@@ -148,6 +187,8 @@ def connect(
                 permissions.append("files_read")
                 if not read_only:
                     permissions.append("files_write")
+            # Account auto-enroll defaults to the local consent flags only
+            # (minimal when none set); pair/key paths behave the same.
             executor = DeviceExecutor(
                 permissions,
                 roots,
@@ -164,6 +205,7 @@ def connect(
                 executor,
                 allow_insecure=allow_insecure,
                 access_key=credential,
+                account_token=session_token,
             )
             device_id = enrolled["device_id"]
         click.echo(f"Device {device_id}: connecting; keep this client running. Ctrl+C stops it.")
@@ -191,6 +233,9 @@ def connect(
 @click.option("--pair-code", help="Single-use code from that host's Devices page.")
 @click.option("--access-key", help="Prefer --key-file or the hidden interactive prompt.")
 @click.option("--key-file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--username", help="Account username for same-account auto-enroll.")
+@click.option("--password", prompt=False, hide_input=True, help="Account password.")
+@click.option("--account-token", prompt=False, help="Short-lived Bearer JWT; never stored.")
 @click.option("--name", help="Current device's name shown on that management host.")
 @click.option(
     "--share", multiple=True, type=click.Path(exists=True, file_okay=False, path_type=Path)
@@ -209,6 +254,9 @@ def add_controller(
     pair_code: str | None,
     access_key: str | None,
     key_file: Path | None,
+    username: str | None,
+    password: str | None,
+    account_token: str | None,
     name: str | None,
     share: tuple[Path, ...],
     read_only: bool,
@@ -224,13 +272,21 @@ def add_controller(
         raise click.ClickException("Native device connections are supported on Windows and Linux.")
     if control and not desktop:
         raise click.UsageError("--control requires --desktop")
-    if sum(bool(value) for value in (pair_code, access_key, key_file)) > 1:
-        raise click.UsageError("choose --pair-code, --access-key or --key-file")
+    account_mode = bool(username or password or account_token)
+    if sum(bool(value) for value in (pair_code, access_key, key_file, account_mode)) > 1:
+        raise click.UsageError(
+            "choose one of --pair-code, --access-key/--key-file, or --username/--account-token"
+        )
+    if username and not password and not account_token:
+        password = click.prompt("Account password", hide_input=True)
+    if password and not username and not account_token:
+        raise click.UsageError("--password requires --username")
     if allow_command and not share:
         raise click.UsageError("--allow-command requires a shared working directory")
     if allow_acp and (not share or read_only):
         raise click.UsageError("--allow-acp requires a writable shared directory")
     credential = access_key
+    session_token = account_token
     try:
         if key_file is not None:
             if key_file.stat().st_size > 120:
@@ -238,7 +294,11 @@ def add_controller(
             credential = key_file.read_text(encoding="utf-8-sig").strip()
             if not credential:
                 raise DeviceExecutionError("empty access key file")
-        if not pair_code and not credential:
+        if username and not session_token:
+            session_token = account_login(
+                server, username, password or "", allow_insecure=allow_insecure
+            )
+        if not pair_code and not credential and not session_token:
             credential = click.prompt("Device enrollment key", hide_input=True).strip()
         roots = [
             {
@@ -265,6 +325,7 @@ def add_controller(
                 acp_enabled=allow_acp,
                 allow_insecure=allow_insecure,
                 access_key=credential,
+                account_token=session_token,
             )
         )
         click.echo(f"Controller {added['id']} saved. Run device run to connect all saved hosts.")

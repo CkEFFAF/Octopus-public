@@ -22,6 +22,53 @@ from octop.infra.devices.executor import (
     save_private_json,
 )
 
+
+def account_login(
+    server_url: str,
+    username: str,
+    password: str,
+    *,
+    allow_insecure: bool = False,
+    captcha_token: str | None = None,
+) -> str:
+    """Exchange account password for a short-lived JWT used only for enrollment.
+
+    The JWT must never be written to device-state; only the returned odv_ token is.
+    """
+    url = validate_server_url(server_url, allow_insecure=allow_insecure)
+    body: dict[str, Any] = {"username": username, "password": password}
+    if captcha_token:
+        body["captcha_token"] = captcha_token
+    request = urllib.request.Request(
+        f"{url}/api/auth/login",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(
+            self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str
+        ) -> None:
+            return None
+
+    opener = urllib.request.build_opener(NoRedirect())
+    try:
+        with opener.open(request, timeout=20) as response:
+            raw = response.read(1024 * 1024 + 1)
+        if len(raw) > 1024 * 1024:
+            raise DeviceExecutionError("invalid account login response")
+        result = json.loads(raw)
+    except urllib.error.HTTPError as exc:
+        raise DeviceExecutionError(f"account login rejected (HTTP {exc.code})") from None
+    except (OSError, ValueError) as exc:
+        raise DeviceExecutionError("control center login unavailable") from exc
+    token = result.get("access_token") if isinstance(result, dict) else None
+    if not isinstance(token, str) or not token:
+        raise DeviceExecutionError("invalid account login response")
+    return token
+
+
 HEARTBEAT_INTERVAL = 20
 HEARTBEAT_TIMEOUT = 60
 
@@ -49,11 +96,16 @@ def validate_server_url(server_url: str, *, allow_insecure: bool = False) -> str
     return server_url.rstrip("/")
 
 
-def _enroll_http(url: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _enroll_http(
+    url: str, payload: dict[str, Any], *, authorization: str | None = None
+) -> dict[str, Any]:
+    headers = {"Content-Type": "application/json"}
+    if authorization:
+        headers["Authorization"] = authorization
     request = urllib.request.Request(
         f"{url}/api/devices/enroll",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
 
@@ -119,13 +171,15 @@ class DeviceClient:
         *,
         allow_insecure: bool = False,
         access_key: str | None = None,
+        account_token: str | None = None,
     ) -> dict[str, Any]:
         if self.load_state() is not None:
             raise DeviceExecutionError(
                 "device is already enrolled; reconnect using its saved state"
             )
         url = validate_server_url(server_url, allow_insecure=allow_insecure)
-        if bool(pairing_code) == bool(access_key) or not name.strip():
+        provided = sum(bool(value) for value in (pairing_code, access_key, account_token))
+        if provided != 1 or not name.strip():
             raise DeviceExecutionError("provide one pairing credential and a device name")
         status = await executor.execute(
             "enrollment-status",
@@ -135,20 +189,27 @@ class DeviceClient:
             permissions=list(executor.permissions),
         )
         allowed = sorted(executor.local_permissions & set(executor.capabilities))
-        payload = {
-            "pairing_code": pairing_code,
+        payload: dict[str, Any] = {
             "name": name.strip(),
             "platform": status["platform"],
             "capabilities": executor.capabilities,
             "permissions": allowed,
             "roots": list(executor.local_roots.values()),
         }
+        authorization: str | None = None
         if access_key:
-            payload.pop("pairing_code")
             payload["access_key"] = access_key
-        response = await asyncio.get_running_loop().run_in_executor(
-            None, _enroll_http, url, payload
-        )
+        elif account_token:
+            authorization = f"Bearer {account_token}"
+        else:
+            payload["pairing_code"] = pairing_code
+        loop = asyncio.get_running_loop()
+        if authorization:
+            response = await loop.run_in_executor(
+                None, lambda: _enroll_http(url, payload, authorization=authorization)
+            )
+        else:
+            response = await loop.run_in_executor(None, _enroll_http, url, payload)
         device = response.get("device")
         token = response.get("device_token")
         if (

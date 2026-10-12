@@ -166,3 +166,99 @@ async def test_same_account_outbound_clients_http_auth_and_revoke(tmp_path: Path
             await asyncio.wait_for(serve, 5)
         listener.close()
         pool.close()
+
+
+
+@pytest.mark.asyncio
+async def test_account_bearer_enroll_lists_under_owner(tmp_path: Path) -> None:
+    """0004 AE-01/AE-02: password-session JWT enrolls; browser JWT alone is not enough without enroll call."""
+    pool = SqlitePool(tmp_path / "api-account.db")
+    run_migrations(pool)
+    repos = RepoBundle.from_pool(pool)
+    owner = repos.user_repo.create(username="owner", role="admin", password_hash="unused")
+    other = repos.user_repo.create(username="other", role="user", password_hash="unused")
+    service = DeviceService(repos)
+    secret = b"isolated-test-jwt-secret-account-enroll"
+    server = SimpleNamespace(
+        _started=True,
+        app_runtime=SimpleNamespace(devices=service),
+        services=SimpleNamespace(
+            secret_repo=SimpleNamespace(get=lambda key: secret),
+            config=SimpleNamespace(access_token_ttl_seconds=86400),
+        ),
+        user_manager=SimpleNamespace(get_by_id=repos.user_repo.get),
+    )
+    app = FastAPI()
+    app.state.octop_server = server
+    app.include_router(router, prefix="/api")
+    install(app, server)
+
+    @app.exception_handler(OctopError)
+    async def error_handler(request: Request, exc: OctopError) -> JSONResponse:
+        return JSONResponse(status_code=exc.status, content=exc.to_envelope())
+
+    transport = httpx.ASGITransport(app=app)
+    token = sign_token(secret, sub=owner, uname="owner", role="admin")
+    other_token = sign_token(secret, sub=other, uname="other", role="user")
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+        # AE-02: listing with JWT does not create a device.
+        listed = await http.get("/api/devices", headers={"Authorization": f"Bearer {token}"})
+        assert listed.status_code == 200
+        assert listed.json()["devices"] == []
+        # AE-01: explicit enroll with Bearer creates under owner.
+        enrolled = await http.post(
+            "/api/devices/enroll",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "name": "Laptop",
+                "platform": "windows",
+                "capabilities": [],
+                "permissions": [],
+                "roots": [],
+            },
+        )
+        assert enrolled.status_code == 201, enrolled.text
+        body = enrolled.json()
+        assert body["device_token"].startswith("odv_")
+        assert "token_hash" not in str(body)
+        devices = (await http.get("/api/devices", headers={"Authorization": f"Bearer {token}"})).json()[
+            "devices"
+        ]
+        assert len(devices) == 1 and devices[0]["name"] == "Laptop"
+        other_list = (
+            await http.get("/api/devices", headers={"Authorization": f"Bearer {other_token}"})
+        ).json()["devices"]
+        assert other_list == []
+        # Mixing Bearer with pairing_code is rejected.
+        pairing = (await http.post("/api/devices/pairing", headers={"Authorization": f"Bearer {token}"})).json()
+        mixed = await http.post(
+            "/api/devices/enroll",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "pairing_code": pairing["pairing_code"],
+                "name": "Mixed",
+                "platform": "windows",
+                "capabilities": [],
+                "permissions": [],
+                "roots": [],
+            },
+        )
+        assert mixed.status_code == 401
+        # Key-session JWT cannot enroll (use access_key instead).
+        key = service.access_keys.create(owner, "browser", 30, True, True)
+        key_token = sign_token(
+            secret, sub=owner, uname="owner", role="admin", auth_key_id=key["key"]["key_id"]
+        )
+        rejected = await http.post(
+            "/api/devices/enroll",
+            headers={"Authorization": f"Bearer {key_token}"},
+            json={
+                "name": "FromKeySession",
+                "platform": "windows",
+                "capabilities": [],
+                "permissions": [],
+                "roots": [],
+            },
+        )
+        assert rejected.status_code == 403
+    pool.close()

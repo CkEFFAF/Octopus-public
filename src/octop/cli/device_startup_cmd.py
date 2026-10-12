@@ -95,18 +95,40 @@ def join(ctx: click.Context, server: str | None, state: Path) -> None:
         if allow_command:
             click.echo("共享目录限制文件传输；命令以当前用户权限执行，不是系统沙箱。")
         click.confirm("信任该管理端并按以上权限接入？", default=False, abort=True)
-        credential = click.prompt(
-            "配对码或设备接入密钥（在管理端「设备」页生成，隐藏输入）", hide_input=True
-        ).strip()
-        if not credential:
-            raise click.ClickException("配对码或设备接入密钥不能为空。")
+        auth_mode = click.prompt(
+            "登记方式：1 账号密码登录  2 设备接入密钥/配对码",
+            type=click.Choice(["1", "2"]),
+            default="1",
+        )
+        username = None
+        password = None
+        pair_code = None
+        access_key = None
+        if auth_mode == "1":
+            username = click.prompt("管理端账号用户名").strip()
+            password = click.prompt("管理端账号密码", hide_input=True)
+            if not username or not password:
+                raise click.ClickException("账号用户名和密码不能为空。")
+        else:
+            credential = click.prompt(
+                "粘贴管理端设备接入密钥或配对码（输入时隐藏）", hide_input=True
+            ).strip()
+            if not credential:
+                raise click.ClickException("设备接入密钥或配对码不能为空。")
+            if credential.startswith("oak_"):
+                access_key = credential
+            else:
+                pair_code = credential
         shared.mkdir(parents=True, exist_ok=True)
         ctx.invoke(
             enroll,
             server=server,
-            pair_code=None if credential.startswith("oak_") else credential,
-            access_key=credential if credential.startswith("oak_") else None,
+            pair_code=pair_code,
+            access_key=access_key,
             key_file=None,
+            username=username,
+            password=password,
+            account_token=None,
             name=name,
             share=(shared,),
             read_only=read_only,
@@ -209,7 +231,23 @@ def setup(ctx: click.Context, state: Path) -> None:
             )
             if not allow_insecure:
                 raise click.Abort() from None
-    access_key = click.prompt("粘贴管理端生成的设备接入密钥（隐藏输入）", hide_input=True).strip()
+    auth_mode = click.prompt(
+        "登记方式：1 账号密码登录  2 设备接入密钥",
+        type=click.Choice(["1", "2"]),
+        default="1",
+    )
+    username = None
+    password = None
+    access_key = None
+    if auth_mode == "1":
+        username = click.prompt("管理端账号用户名").strip()
+        password = click.prompt("管理端账号密码", hide_input=True)
+        if not username or not password:
+            raise click.ClickException("账号用户名和密码不能为空。")
+    else:
+        access_key = click.prompt("粘贴管理端生成的设备接入密钥（输入时隐藏）", hide_input=True).strip()
+        if not access_key:
+            raise click.ClickException("设备接入密钥不能为空。")
     name = click.prompt("当前设备名字", default=platform.node())
     shared = click.prompt("共享目录（留空不共享）", default="", show_default=False)
     share: tuple[Path, ...] = ()
@@ -248,6 +286,9 @@ def setup(ctx: click.Context, state: Path) -> None:
         pair_code=None,
         access_key=access_key,
         key_file=None,
+        username=username,
+        password=password,
+        account_token=None,
         name=name,
         share=share,
         read_only=read_only,

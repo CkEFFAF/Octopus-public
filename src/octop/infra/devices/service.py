@@ -78,6 +78,7 @@ class DeviceService:
         *,
         pairing_code: str | None = None,
         access_key: str | None = None,
+        owner_user_id: int | None = None,
         client_ip: str = "unknown",
         name: str,
         platform: str,
@@ -85,7 +86,9 @@ class DeviceService:
         permissions: list[str],
         roots: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        if bool(pairing_code) == bool(access_key):
+        # Exactly one enrollment credential: pairing code, access key, or account session.
+        provided = sum(bool(value) for value in (pairing_code, access_key, owner_user_id is not None))
+        if provided != 1:
             raise OctopError(ErrorCode.AUTH_FAILED, "provide one enrollment credential")
         digest = hashlib.sha256((pairing_code or "").encode()).hexdigest()
         pair = self._pairings.get(digest)
@@ -93,6 +96,8 @@ class DeviceService:
             owner = int(
                 self.access_keys.authenticate(access_key, "devices", client_ip)["owner_user_id"]
             )
+        elif owner_user_id is not None:
+            owner = int(owner_user_id)
         elif pair is None or pair[1] <= time.time():
             raise OctopError(ErrorCode.AUTH_FAILED, "invalid or expired device pairing")
         else:

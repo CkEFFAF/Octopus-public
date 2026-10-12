@@ -158,6 +158,7 @@ class DeviceNetwork:
         acp_enabled: bool = False,
         allow_insecure: bool = False,
         access_key: str | None = None,
+        account_token: str | None = None,
     ) -> dict[str, Any]:
         url = validate_server_url(server_url, allow_insecure=allow_insecure)
         with self.locked():
@@ -189,6 +190,7 @@ class DeviceNetwork:
                     executor,
                     allow_insecure=allow_insecure,
                     access_key=access_key,
+                    account_token=account_token,
                 )
                 catalog["controllers"].append({"id": profile_id})
                 save_private_json(self.catalog_path, catalog)
