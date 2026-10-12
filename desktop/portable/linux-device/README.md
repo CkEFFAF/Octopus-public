@@ -98,3 +98,16 @@ journalctl --user -u octop-device-实际服务名.service -n 80 --no-pager
 至少在目标 Linux 验证：CPU/runtime 匹配、向导加入、Windows 设备页在线、共享文件读取、经确认的命令执行、停掉一个管理端后另一端仍可操作、重启自动连接、授权撤销和日志无明文密钥。原生导入冒烟不能替代这些实机行为。
 
 当前命令属于派工管理端；该连接断开会取消其命令并保留未确认状态，不会转移到另一个管理端。文件上传中断需重新开始，未提供断点续传。无界面 Linux 不提供桌面捕获或键鼠操作。
+
+## Filing-period transition (0010)
+
+Default remains https://octop.effaf.me. Before domain filing:
+
+`ash
+export OCTOP_DEVICE_SERVER=http://111.228.42.228:8188
+./open-device.sh
+# or: ./open-device-transition.sh
+`
+
+Unset OCTOP_DEVICE_SERVER to return to the HTTPS product default.
+

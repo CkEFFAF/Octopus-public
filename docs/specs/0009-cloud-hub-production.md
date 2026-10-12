@@ -2,14 +2,15 @@
 
 - Spec ID: `0009-cloud-hub-production`
 - Status: **Accepted**（OQ-001..004 已关闭；Coder 已派）
-- Revision: `2026-10-12.3`
+- Revision: `2026-10-12.4`
 - Date: 2026-10-12
 - Authoritative path: `docs/specs/0009-cloud-hub-production.md`
 - Relates:
   - `docs/octopus/cloud-hub-ops.md`（短运维清单；本规格定验收与边界，ops 定可执行命令）
   - `docs/octopus/cloudflare-tunnel-entry.md`（稳定入口 / Tunnel）
-  - `0005` REQ-008 / `0006` 默认 `https://octop.effaf.me` / `0007` 开箱包默认 server
+  - `0005` REQ-008 / `0006` 默认 `https://octop.effaf.me` / `0007` 开箱包默认 server；设备过渡见 `0010-transition-default-server.md`
   - `0003-workstation-migration.md`（迁云只改入口指向）
+- Transition（0010 `2026-10-12.2`）: 执行端开箱默认仍为域名；过渡用 `OCTOP_DEVICE_SERVER` 连中枢 HTTP IP；「勿把 IP 写入开箱默认」**继续成立**。
 - Non-overwrite: **不修改** Accepted `0004`；不改 enroll 协议；不改开箱包默认把公网 IP 写死。本任务定规格 + ops 脚本/单元；业务代码不改。S1+S2 由 Coder 规范提交（总管派工）。
 
 ## Problem
@@ -143,3 +144,5 @@
 - 2026-10-12.1: 初稿 Draft；对齐新建/补齐的 `cloud-hub-ops.md`；可独立派运维/Coder。
 - 2026-10-12.2: OQ-001..004 全部关闭（用户/总管转达）：先 HTTP IP；systemd 系统单元；`~/OctopData`；只管理端。Status → **Accepted**；写入 DEC-005..008。轻触 `cloud-hub-ops.md` 对齐。REQ/AC ID 未改号。未改业务代码、未 git commit。
 - 2026-10-12.3: Coder S1+S2：`ops/cloud-hub/` 系统单元模板 + install/smoke；ops/规格对齐 `OCTOP_HOME`（纠正 `--home`）；Tunnel 文档增补云机源站；静态测试。未做 S3/S4；未在云机执行破坏性操作；未 push/PR。
+- 2026-10-12.transition: 对齐 0010 双路径（包内 HTTPS 不变；过渡靠 env）。
+- 2026-10-12.4: 交叉引用 0010 **双路径**——开箱/包默认仍域名 HTTPS；设备过渡连 HTTP IP 用 `OCTOP_DEVICE_SERVER`，与 DEC-001/005 一致。

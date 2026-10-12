@@ -9,7 +9,11 @@ import click
 
 from octop.infra.devices import autostart as startup
 from octop.infra.devices.executor import DeviceExecutionError
-from octop.infra.devices.protocol import DEFAULT_DEVICE_SERVER, resolve_default_device_server
+from octop.infra.devices.protocol import (
+    DEFAULT_DEVICE_SERVER,
+    is_transition_insecure_allowed,
+    resolve_default_device_server,
+)
 
 def _device_group(ctx: click.Context) -> tuple[click.Context, click.Group]:
     """Resolve the ``device`` Click group even when nested via ctx.invoke."""
@@ -23,7 +27,7 @@ def _device_group(ctx: click.Context) -> tuple[click.Context, click.Group]:
 
 
 def _prompt_server(server: str | None) -> tuple[str, bool]:
-    """Return (url, allow_insecure) with env/product default prefilled (0006)."""
+    """Return (url, allow_insecure) with env/product default prefilled (0006/0010)."""
     from octop.infra.devices.client import validate_server_url
     from octop.infra.devices.network import validate_relocation_url
 
@@ -34,6 +38,10 @@ def _prompt_server(server: str | None) -> tuple[str, bool]:
         type=str,
     ).strip()
     url = validate_relocation_url(raw)
+    # 0010 DEC-T06: filing-period whitelist skips insecure confirm.
+    if is_transition_insecure_allowed(url):
+        validate_server_url(url, allow_insecure=True)
+        return url, True
     allow_insecure = False
     try:
         validate_server_url(url)

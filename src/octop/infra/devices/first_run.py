@@ -10,15 +10,26 @@ from typing import Any, Callable
 from octop.infra.devices.client import account_login, validate_server_url
 from octop.infra.devices.executor import DeviceExecutionError
 from octop.infra.devices.network import DeviceNetwork, validate_relocation_url
-from octop.infra.devices.protocol import resolve_default_device_server
+from octop.infra.devices.protocol import (
+    is_transition_insecure_allowed,
+    resolve_default_device_server,
+)
 
 
 def resolve_server_url(server: str | None, *, allow_insecure: bool = False) -> str:
     """Normalize server URL; empty/None uses env override or product default."""
+    return resolve_server_and_insecure(server, allow_insecure=allow_insecure)[0]
+
+
+def resolve_server_and_insecure(
+    server: str | None, *, allow_insecure: bool = False
+) -> tuple[str, bool]:
+    """Return (url, allow_insecure); whitelist hub auto-opts insecure (0010)."""
     raw = (server or "").strip() or resolve_default_device_server()
     url = validate_relocation_url(raw)
-    validate_server_url(url, allow_insecure=allow_insecure)
-    return url
+    insecure = bool(allow_insecure) or is_transition_insecure_allowed(url)
+    validate_server_url(url, allow_insecure=insecure)
+    return url, insecure
 
 
 def has_configured_controller(state: Path) -> bool:
@@ -64,18 +75,18 @@ def enroll_with_account(
     account_token: str | None = None,
 ) -> dict[str, Any]:
     """Register-first enroll via 0004 Bearer JWT; password never written to device-state."""
-    url = resolve_server_url(server, allow_insecure=allow_insecure)
+    url, insecure = resolve_server_and_insecure(server, allow_insecure=allow_insecure)
     token = account_token
     if not token:
         if not username or not password:
             raise DeviceExecutionError("account username and password are required")
-        token = account_login(url, username, password, allow_insecure=allow_insecure)
+        token = account_login(url, username, password, allow_insecure=insecure)
     return asyncio.run(
         _add_default_controller(
             state,
             server=url,
             name=name or platform.node(),
-            allow_insecure=allow_insecure,
+            allow_insecure=insecure,
             account_token=token,
         )
     )
@@ -95,12 +106,13 @@ def enroll_with_credential(
         raise DeviceExecutionError("pairing code or access key is required")
     access_key = credential if credential.startswith("oak_") else None
     pair_code = "" if access_key else credential
+    url, insecure = resolve_server_and_insecure(server, allow_insecure=allow_insecure)
     return asyncio.run(
         _add_default_controller(
             state,
-            server=server,
+            server=url,
             name=name or platform.node(),
-            allow_insecure=allow_insecure,
+            allow_insecure=insecure,
             access_key=access_key,
             pairing_code=pair_code,
         )
@@ -164,12 +176,15 @@ def run_tk_first_run(
         try:
             status_var.set("Signing in and enrolling...")
             root.update_idletasks()
+            server_url = server_var.get()
+            _, insecure = resolve_server_and_insecure(server_url)
             added = enroll_with_account(
                 state,
-                server=server_var.get(),
+                server=server_url,
                 username=user_var.get().strip(),
                 password=pass_var.get(),
                 name=name_var.get().strip() or platform.node(),
+                allow_insecure=insecure,
             )
             result["controller"] = added
             result["cancelled"] = False

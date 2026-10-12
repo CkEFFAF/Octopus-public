@@ -18,6 +18,26 @@ DEFAULT_REMOTE_GRANT_MODE = "owner_auto"
 DEFAULT_DEVICE_SERVER = "https://octop.effaf.me"
 # Env override key for first-run / join when --server is omitted (0006 AC / DEC-001).
 DEVICE_SERVER_ENV = "OCTOP_DEVICE_SERVER"
+# 0010 DEC-T05: filing-period hub only — never widen to arbitrary remote HTTP.
+TRANSITION_INSECURE_HOST = "111.228.42.228"
+TRANSITION_INSECURE_PORT = 8188
+
+
+def is_transition_insecure_allowed(url: str) -> bool:
+    """True only for http://111.228.42.228:8188 (0010 scoped allow-insecure)."""
+    import urllib.parse
+
+    try:
+        parsed = urllib.parse.urlsplit((url or "").strip())
+    except ValueError:
+        return False
+    if parsed.scheme != "http" or not parsed.hostname:
+        return False
+    host = parsed.hostname.lower()
+    if host != TRANSITION_INSECURE_HOST:
+        return False
+    port = parsed.port if parsed.port is not None else 80
+    return port == TRANSITION_INSECURE_PORT
 
 
 def resolve_default_device_server() -> str:
