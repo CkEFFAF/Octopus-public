@@ -31,6 +31,19 @@ octop device connect --server https://octop.effaf.me --username <账号>
 
 换机器或上云时：**只改 Tunnel 源站指向**新控制中心；执行端 `--server` 域名与账号不变（对齐 0003）。
 
+
+## 源站 = 云机（0009）
+
+正式生产时 Tunnel 源站指向云中枢，而不是工位本机：
+
+```text
+执行端 --HTTPS--> https://octop.effaf.me  --CF Tunnel-->  云机 loopback :8188
+```
+
+- 云机管理端可听 `127.0.0.1:8188`（拓扑 A）或本周冒烟听 `0.0.0.0:8188`（拓扑 B，见 `cloud-hub-ops.md`）
+- 换机 / 迁云：只改 Tunnel 源站到新云机；设备 `--server https://octop.effaf.me` 不变
+- 本里程碑 S1+S2 **不要求** 已配好 Tunnel；HTTP IP 冒烟足够验收管理端常驻
+
 ## 非目标 / 附录
 
 - 全自动 Tunnel 安装器：非本里程碑必须
