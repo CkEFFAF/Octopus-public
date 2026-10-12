@@ -221,3 +221,4 @@
 - 2026-10-12.3: 追加「稳定入口 / Cloudflare Tunnel」；新增 REQ-008（AC-020…023）与 DEC-008（resolved=CF Tunnel+自定义域名）；Non-goals 明确不自研穿透/不强制自签/不把 CF 账号写入产品密钥库；MVP 接受文档+配置先于安装器；Coder/便携 README 默认示例改域名。
 - Completion: 实现与验证分离；未跑通 AC 前不得称 Verified。
 - 2026-10-12 Coder: feature/octopus-device-permissions 落地权限主路径 + Tunnel 文档/占位示例（revision .3）。
+- 2026-10-12.3a: Cross-ref `0007-portable-release-packages.md` — Linux ready-to-run Release hard gate (device tar) supersedes DEC-006 soft deferral for out-of-box packages; permissions/Tunnel rules unchanged.

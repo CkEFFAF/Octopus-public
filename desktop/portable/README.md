@@ -106,6 +106,9 @@ OCTOP_GREEN_OFFLINE=1 bash desktop/portable/package.sh
 
 ## CI
 
+0007: same `v*` Release also attaches `Octop-device-linux-amd64-<ver>.tar.gz` via the `package-device-linux` job (hard gate). Device unpack path: `open-device.sh` / `open-device.bat`, default `https://octop.effaf.me`.
+
+
 [`.github/workflows/octop-desktop.yml`](../../.github/workflows/octop-desktop.yml) 在 6 个 runner 上出 zip：
 
 `linux-amd64` `linux-arm64` `darwin-arm64` `darwin-amd64` `windows-amd64` `windows-arm64`
