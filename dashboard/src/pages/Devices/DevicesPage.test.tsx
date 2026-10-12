@@ -4,13 +4,17 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Device } from "../../api/modules/devices";
 
-const { list, operations, user } = vi.hoisted(() => ({
-  list: vi.fn(),
-  operations: vi.fn(),
-  user: { role: "user", permissions: ["terminal"] },
-}));
+const { list, operations, update, call, switchDesktopTarget, user } =
+  vi.hoisted(() => ({
+    list: vi.fn(),
+    operations: vi.fn(),
+    update: vi.fn(),
+    call: vi.fn(),
+    switchDesktopTarget: vi.fn(),
+    user: { role: "user", permissions: ["terminal"] },
+  }));
 vi.mock("../../api/modules/devices", () => ({
-  devicesApi: { list, operations },
+  devicesApi: { list, operations, update, call, switchDesktopTarget },
 }));
 vi.mock("../../api/config", () => ({
   getApiUrl: (path: string) => `/api${path}`,
@@ -98,8 +102,19 @@ function show(path = "/devices") {
 
 describe("device management and operator workspace", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     list.mockResolvedValue({ devices: [windows, linux] });
     operations.mockResolvedValue({ operations: [] });
+    switchDesktopTarget.mockResolvedValue({
+      status: "accepted",
+      request_id: null,
+    });
+    call.mockResolvedValue({
+      hostname: "office-host",
+      platform: "windows",
+      capabilities: windows.capabilities,
+      system: { cpu: "Ryzen 9", mainboard: "ASUS G513QM" },
+    });
     Object.defineProperty(document, "hidden", {
       configurable: true,
       value: false,
@@ -159,6 +174,70 @@ describe("device management and operator workspace", () => {
     await waitFor(() =>
       expect(screen.getByText("devices.ledgerHint")).toBeVisible(),
     );
+  });
+
+  it("renames an enrolled device from its card", async () => {
+    update.mockImplementation(async () => {
+      const renamed = { ...windows, name: "Desk PC" };
+      list.mockResolvedValue({ devices: [renamed, linux] });
+      return renamed;
+    });
+    show();
+    await screen.findByText("Office Windows");
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "devices.deviceActions" })[0],
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "devices.rename" }),
+    );
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "devices.deviceName" }),
+      { target: { value: "Desk PC" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "devices.rename" }));
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("windows-office", {
+        name: "Desk PC",
+      }),
+    );
+    expect(await screen.findByText("Desk PC")).toBeInTheDocument();
+  });
+
+  it("shows enrollment and live hardware details on demand", async () => {
+    show();
+    await screen.findByText("Office Windows");
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "devices.deviceActions" })[0],
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "devices.details" }),
+    );
+    expect(await screen.findByText("office-host")).toBeInTheDocument();
+    expect(screen.getByText("Ryzen 9")).toBeInTheDocument();
+    expect(screen.getByText("ASUS G513QM")).toBeInTheDocument();
+    expect(call).toHaveBeenCalledWith(
+      "windows-office",
+      "status",
+      {},
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("keeps enrollment details available when a device is offline", async () => {
+    list.mockResolvedValue({
+      devices: [{ ...windows, online: false }, linux],
+    });
+    show();
+    await screen.findByText("Office Windows");
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "devices.deviceActions" })[0],
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "devices.details" }),
+    );
+    expect(await screen.findByText("windows-office")).toBeInTheDocument();
+    expect(screen.getByText("devices.detailsOffline")).toBeInTheDocument();
+    expect(call).not.toHaveBeenCalled();
   });
 
   it("releases the middle navigation pane for the operator workspace", () => {

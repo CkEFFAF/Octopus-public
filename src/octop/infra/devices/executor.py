@@ -38,6 +38,70 @@ CAPABILITIES = frozenset(
 )
 
 
+def _registry_text(path: str, name: str) -> str:
+    with contextlib.suppress(Exception):
+        registry = importlib.import_module("winreg")
+        with registry.OpenKey(registry.HKEY_LOCAL_MACHINE, path) as key:
+            value, _ = registry.QueryValueEx(key, name)
+        if isinstance(value, str):
+            return value.strip()[:200]
+    return ""
+
+
+def _system_file_text(path: Path) -> str:
+    with contextlib.suppress(OSError):
+        return path.read_text(encoding="utf-8").strip()[:100]
+    return ""
+
+
+def _system_details() -> dict[str, str]:
+    """Small on-demand system snapshot without secrets or process data."""
+    system = platform.system()
+    details = {
+        "os_version": platform.platform(aliased=True, terse=True)[:200],
+        "architecture": platform.machine()[:80],
+    }
+    cpu = platform.processor().strip()
+    board = ""
+    if system == "Windows":
+        cpu = (
+            _registry_text(r"HARDWARE\DESCRIPTION\System\CentralProcessor\0", "ProcessorNameString")
+            or cpu
+        )
+        bios = r"HARDWARE\DESCRIPTION\System\BIOS"
+        board = " ".join(
+            part
+            for part in (
+                _registry_text(bios, "BaseBoardManufacturer"),
+                _registry_text(bios, "BaseBoardProduct"),
+            )
+            if part
+        )
+    elif system == "Linux":
+        with contextlib.suppress(OSError):
+            for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+                if line.startswith(("model name\t:", "Hardware\t:")):
+                    cpu = line.partition(":")[2].strip()
+                    break
+        board = " ".join(
+            part
+            for path in (
+                Path("/sys/devices/virtual/dmi/id/board_vendor"),
+                Path("/sys/devices/virtual/dmi/id/board_name"),
+            )
+            if (part := _system_file_text(path))
+        )
+        with contextlib.suppress(OSError):
+            details["os_version"] = platform.freedesktop_os_release().get(
+                "PRETTY_NAME", details["os_version"]
+            )[:200]
+    if cpu:
+        details["cpu"] = cpu[:200]
+    if board:
+        details["mainboard"] = board[:200]
+    return details
+
+
 class DeviceExecutionError(ValueError):
     """A denied, invalid, unsupported or failed local operation."""
 
@@ -403,9 +467,7 @@ class DeviceExecutor:
         self.permissions = incoming
         self.roots = effective
 
-    def apply_grant_proposal(
-        self, permissions: list[str], roots: list[dict[str, Any]]
-    ) -> None:
+    def apply_grant_proposal(self, permissions: list[str], roots: list[dict[str, Any]]) -> None:
         """Local confirm path: accept desired grants within capabilities."""
         caps = set(self.capabilities)
         if not set(permissions) <= caps:
@@ -769,6 +831,7 @@ class DeviceExecutor:
                 "platform": platform.system().lower(),
                 "hostname": platform.node(),
                 "capabilities": self.capabilities,
+                **({"system": _system_details()} if action == "status" else {}),
             }
         if action in {"files.list", "files.stat", "files.read", "files.write_begin"}:
             root_id = str(params.get("root_id", ""))

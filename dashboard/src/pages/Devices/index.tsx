@@ -9,6 +9,7 @@ import {
   InputNumber,
   Modal,
   Drawer,
+  Dropdown,
   Progress,
   Select,
   Segmented,
@@ -19,6 +20,8 @@ import {
   Copy,
   Globe,
   History,
+  Info,
+  MoreHorizontal,
   Smartphone,
   File,
   Laptop,
@@ -47,6 +50,7 @@ import { apiErrorMessage } from "../../utils/apiError";
 import { copyText } from "../../utils/copyText";
 import DeviceDesktop from "./DeviceDesktop";
 import DeviceFiles from "./DeviceFiles";
+import DeviceDetails from "./DeviceDetails";
 import AccessKeys from "./AccessKeys";
 import {
   canUse,
@@ -86,13 +90,11 @@ function DeviceSettings({
         />
       </label>
       <h3>{t("devices.permissionsTitle")}</h3>
-      <p className="devices-muted">{t("devices.grantHint", t("devices.reduceHint"))}</p>
+      <p className="devices-muted">
+        {t("devices.grantHint", t("devices.reduceHint"))}
+      </p>
       {device.pending_proposal && (
-        <Alert
-          type="info"
-          showIcon
-          message={t("devices.pendingGrant")}
-        />
+        <Alert type="info" showIcon message={t("devices.pendingGrant")} />
       )}
       {device.permissions.includes("acp_run") && (
         <Alert type="warning" showIcon message={t("devices.acpRunHint")} />
@@ -289,6 +291,10 @@ export default function DevicesPage() {
   const [loaded, setLoaded] = useState(false);
   const [pairingOpen, setPairingOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [detailsId, setDetailsId] = useState("");
+  const [renameId, setRenameId] = useState("");
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [pairing, setPairing] = useState<{
     pairing_code: string;
@@ -302,6 +308,8 @@ export default function DevicesPage() {
   const device = devices.find(
     (item) => item.device_id === (inWorkspace ? requestedId : selected),
   );
+  const detailsDevice = devices.find((item) => item.device_id === detailsId);
+  const renamingDevice = devices.find((item) => item.device_id === renameId);
   const onError = useCallback(
     (err: unknown) =>
       setError(apiErrorMessage(err, t("devices.requestFailed"), t)),
@@ -391,7 +399,9 @@ export default function DevicesPage() {
       const deadline = Date.now() + 65000;
       while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 800));
-        const next = await devicesApi.desktopTakeoverRequest(started.request_id);
+        const next = await devicesApi.desktopTakeoverRequest(
+          started.request_id,
+        );
         if (next.status === "accepted") {
           openWorkspace(id, "desktop");
           message.success(t("devices.takeoverAccepted", { name: target.name }));
@@ -427,6 +437,23 @@ export default function DevicesPage() {
       current.map((item) => (item.device_id === next.device_id ? next : item)),
     );
     setError("");
+  }
+  function confirmRevoke(target: Device) {
+    modal.confirm({
+      title: t("devices.revokeTitle", { name: target.name }),
+      content: t("devices.revokeHint"),
+      okText: t("devices.revoke"),
+      cancelText: t("common.cancel"),
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          onChanged(await devicesApi.revoke(target.device_id));
+        } catch (err) {
+          onError(err);
+          throw err;
+        }
+      },
+    });
   }
   function onOperation(next: DeviceOperation) {
     setOperations((current) =>
@@ -602,6 +629,12 @@ export default function DevicesPage() {
                     {device.platform}
                   </span>
                   <Button
+                    icon={<Info size={16} />}
+                    onClick={() => setDetailsId(device.device_id)}
+                  >
+                    {t("devices.details")}
+                  </Button>
+                  <Button
                     icon={<Shield size={16} />}
                     onClick={() => setSettingsOpen(true)}
                   >
@@ -738,6 +771,52 @@ export default function DevicesPage() {
                     >
                       {status(item)}
                     </Tag>
+                    <Dropdown
+                      trigger={["click"]}
+                      menu={{
+                        items: [
+                          {
+                            key: "details",
+                            label: t("devices.details"),
+                            icon: <Info size={16} />,
+                          },
+                          {
+                            key: "rename",
+                            label: t("devices.rename"),
+                            disabled: item.revoked_at !== null,
+                          },
+                          {
+                            key: "refresh",
+                            label: t("devices.refresh"),
+                            icon: <RefreshCw size={16} />,
+                          },
+                          { type: "divider" },
+                          {
+                            key: "revoke",
+                            label: t("devices.revoke"),
+                            danger: true,
+                            disabled: item.revoked_at !== null,
+                          },
+                        ],
+                        onClick: ({ key }) => {
+                          if (key === "details") setDetailsId(item.device_id);
+                          if (key === "rename") {
+                            setRenameId(item.device_id);
+                            setRenameDraft(item.name);
+                          }
+                          if (key === "refresh") void refresh();
+                          if (key === "revoke") confirmRevoke(item);
+                        },
+                      }}
+                    >
+                      <Button
+                        type="text"
+                        icon={<MoreHorizontal size={20} />}
+                        aria-label={t("devices.deviceActions", {
+                          name: item.name,
+                        })}
+                      />
+                    </Dropdown>
                   </div>
                   <p className="devices-path">
                     {t("devices.lastSeen")}:{" "}
@@ -814,6 +893,60 @@ export default function DevicesPage() {
           </>
         )}
       </div>
+      <Drawer
+        title={
+          detailsDevice
+            ? `${detailsDevice.name} · ${t("devices.details")}`
+            : t("devices.details")
+        }
+        open={Boolean(detailsId)}
+        onClose={() => setDetailsId("")}
+        width={560}
+        rootClassName="devices-drawer"
+      >
+        {detailsDevice && (
+          <DeviceDetails key={detailsDevice.device_id} device={detailsDevice} />
+        )}
+      </Drawer>
+      <Modal
+        title={t("devices.renameTitle", { name: renamingDevice?.name ?? "" })}
+        open={Boolean(renameId)}
+        onCancel={() => setRenameId("")}
+        okText={t("devices.rename")}
+        okButtonProps={{
+          disabled:
+            !renameDraft.trim() ||
+            renameDraft.trim().length > 120 ||
+            renamingDevice?.revoked_at !== null,
+        }}
+        confirmLoading={renameBusy}
+        onOk={async () => {
+          if (!renamingDevice || !renameDraft.trim()) return;
+          setRenameBusy(true);
+          try {
+            onChanged(
+              await devicesApi.update(renamingDevice.device_id, {
+                name: renameDraft.trim(),
+              }),
+            );
+            setRenameId("");
+          } catch (err) {
+            onError(err);
+          } finally {
+            setRenameBusy(false);
+          }
+        }}
+      >
+        <label className="devices-field">
+          <span>{t("devices.deviceName")}</span>
+          <Input
+            value={renameDraft}
+            maxLength={120}
+            autoFocus
+            onChange={(event) => setRenameDraft(event.target.value)}
+          />
+        </label>
+      </Modal>
       <Drawer
         title={
           device
