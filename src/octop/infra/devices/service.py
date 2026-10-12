@@ -574,6 +574,20 @@ class DeviceService:
         if not accept:
             proposal["status"] = "rejected"
             return {"proposal_id": proposal_id, "status": "rejected"}
+        # DEC-005: owner HTTP resolve must not silently land high-risk grants.
+        # Only the device (token or bound wire) may accept command_exec/acp_run.
+        owner_http = owner is not None and token is None
+        if owner_http:
+            row = self.repos.device_repo.get(device_id)
+            if row is None:
+                raise OctopError(ErrorCode.NOT_FOUND, "device not found")
+            added = set(proposal["permissions"]) - set(row.permissions)
+            if added & HIGH_RISK_PERMISSIONS:
+                raise OctopError(
+                    ErrorCode.FORBIDDEN,
+                    "DEVICE_CONFIRM_REQUIRED: command_exec/acp_run require "
+                    "device-side confirm (DEC-005)",
+                )
         updated = self.repos.device_repo.update(
             device_id,
             name=proposal.get("name"),

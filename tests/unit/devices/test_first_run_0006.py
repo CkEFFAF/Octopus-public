@@ -9,7 +9,8 @@ from click.testing import CliRunner
 
 from octop.cli.main import cli
 from octop.infra.devices.network import DeviceNetwork
-from octop.infra.devices.protocol import DEFAULT_DEVICE_SERVER
+from octop.infra.devices.first_run import enroll_with_account, resolve_server_url
+from octop.infra.devices.protocol import DEFAULT_DEVICE_SERVER, resolve_default_device_server
 
 
 @pytest.fixture
@@ -139,3 +140,94 @@ def test_first_run_cli_flag_delegates_to_join(tmp_path, monkeypatch, enrollment)
     )
     assert result.exit_code == 0, result.output
     assert enrollment["logins"][0][0] == "https://manager.test"
+
+
+def test_env_overrides_default_server(monkeypatch):
+    """0006 DEC-001 / REQ-001: OCTOP_DEVICE_SERVER overrides product default."""
+    monkeypatch.delenv("OCTOP_DEVICE_SERVER", raising=False)
+    assert resolve_default_device_server() == DEFAULT_DEVICE_SERVER
+    monkeypatch.setenv("OCTOP_DEVICE_SERVER", "https://staging.example.test")
+    assert resolve_default_device_server() == "https://staging.example.test"
+    assert resolve_server_url(None) == "https://staging.example.test"
+    # Explicit --server still wins over env.
+    assert resolve_server_url("https://explicit.example.test") == "https://explicit.example.test"
+    monkeypatch.setenv("OCTOP_DEVICE_SERVER", "   ")
+    assert resolve_default_device_server() == DEFAULT_DEVICE_SERVER
+
+
+def test_join_uses_env_default_when_server_omitted(tmp_path, monkeypatch, enrollment):
+    monkeypatch.setattr("octop.cli.device_startup_cmd.platform.system", lambda: "Linux")
+    monkeypatch.setenv("OCTOP_DEVICE_SERVER", "https://env-manager.test")
+    state = tmp_path / "state"
+    result = CliRunner().invoke(
+        cli,
+        ["device", "join", "--state", str(state)],
+        input="\nBox\nowner\nsecret\ny\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert enrollment["logins"][0][0] == "https://env-manager.test"
+    assert enrollment["requests"][0][0] == "https://env-manager.test"
+
+
+def test_account_token_skips_password_even_with_username_flag(tmp_path, monkeypatch, enrollment):
+    """AC-005 boundary: --account-token alone is enough; password prompt is skipped."""
+    monkeypatch.setattr("octop.cli.device_startup_cmd.platform.system", lambda: "Linux")
+    state = tmp_path / "state"
+    result = CliRunner().invoke(
+        cli,
+        [
+            "device",
+            "join",
+            "--server",
+            "https://manager.test",
+            "--account-token",
+            "jwt-already",
+            "--username",
+            "ignored-when-token",
+            "--name",
+            "GPU",
+            "--state",
+            str(state),
+        ],
+        input="y\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert enrollment["logins"] == []
+    assert enrollment["requests"][0][2] == "Bearer jwt-already"
+
+
+def test_enroll_with_account_token_skips_login(tmp_path, monkeypatch, enrollment):
+    """AC-005 helper: account_token path never calls account_login."""
+    calls = []
+
+    def boom(*_a, **_k):
+        calls.append(1)
+        raise AssertionError("login must not run when account_token is set")
+
+    monkeypatch.setattr("octop.infra.devices.first_run.account_login", boom)
+    added = enroll_with_account(
+        tmp_path / "state",
+        server="https://manager.test",
+        username="",
+        password="",
+        name="GPU",
+        account_token="jwt-helper",
+    )
+    assert added["device_id"] == "joined-device"
+    assert calls == []
+    assert enrollment["requests"][0][2] == "Bearer jwt-helper"
+
+
+def test_enroll_with_account_requires_password_without_token(tmp_path, monkeypatch):
+    """AC-005 boundary: without token, empty password fails before network."""
+    from octop.infra.devices.executor import DeviceExecutionError
+
+    with pytest.raises(DeviceExecutionError, match="username and password"):
+        enroll_with_account(
+            tmp_path / "state",
+            server="https://manager.test",
+            username="owner",
+            password="",
+            name="PC",
+        )
+

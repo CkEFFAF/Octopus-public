@@ -9,7 +9,7 @@ import click
 
 from octop.infra.devices import autostart as startup
 from octop.infra.devices.executor import DeviceExecutionError
-from octop.infra.devices.protocol import DEFAULT_DEVICE_SERVER
+from octop.infra.devices.protocol import DEFAULT_DEVICE_SERVER, resolve_default_device_server
 
 def _device_group(ctx: click.Context) -> tuple[click.Context, click.Group]:
     """Resolve the ``device`` Click group even when nested via ctx.invoke."""
@@ -23,13 +23,14 @@ def _device_group(ctx: click.Context) -> tuple[click.Context, click.Group]:
 
 
 def _prompt_server(server: str | None) -> tuple[str, bool]:
-    """Return (url, allow_insecure) with product default prefilled (0006)."""
+    """Return (url, allow_insecure) with env/product default prefilled (0006)."""
     from octop.infra.devices.client import validate_server_url
     from octop.infra.devices.network import validate_relocation_url
 
+    default_url = resolve_default_device_server()
     raw = server or click.prompt(
         "管理端地址",
-        default=DEFAULT_DEVICE_SERVER,
+        default=default_url,
         type=str,
     ).strip()
     url = validate_relocation_url(raw)
@@ -50,7 +51,7 @@ def _prompt_server(server: str | None) -> tuple[str, bool]:
 @click.command("join")
 @click.option(
     "--server",
-    help=f"Management host URL (default: {DEFAULT_DEVICE_SERVER}).",
+    help=f"Management host URL (default: {DEFAULT_DEVICE_SERVER}; override with OCTOP_DEVICE_SERVER).",
 )
 @click.option(
     "--username",
@@ -254,7 +255,7 @@ def _join_advanced(
 @click.command("first-run")
 @click.option(
     "--server",
-    help=f"Management host URL (default: {DEFAULT_DEVICE_SERVER}).",
+    help=f"Management host URL (default: {DEFAULT_DEVICE_SERVER}; override with OCTOP_DEVICE_SERVER).",
 )
 @click.option(
     "--cli",

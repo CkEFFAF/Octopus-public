@@ -10,12 +10,12 @@ from typing import Any, Callable
 from octop.infra.devices.client import account_login, validate_server_url
 from octop.infra.devices.executor import DeviceExecutionError
 from octop.infra.devices.network import DeviceNetwork, validate_relocation_url
-from octop.infra.devices.protocol import DEFAULT_DEVICE_SERVER
+from octop.infra.devices.protocol import resolve_default_device_server
 
 
 def resolve_server_url(server: str | None, *, allow_insecure: bool = False) -> str:
-    """Normalize server URL; empty/None uses the product default."""
-    raw = (server or "").strip() or DEFAULT_DEVICE_SERVER
+    """Normalize server URL; empty/None uses env override or product default."""
+    raw = (server or "").strip() or resolve_default_device_server()
     url = validate_relocation_url(raw)
     validate_server_url(url, allow_insecure=allow_insecure)
     return url
@@ -135,7 +135,7 @@ def run_tk_first_run(
 
     ttk.Label(frm, text="Server URL").grid(row=0, column=0, sticky="w")
     server_var = tk.StringVar(
-        value=(server or DEFAULT_DEVICE_SERVER).strip() or DEFAULT_DEVICE_SERVER
+        value=(server or "").strip() or resolve_default_device_server()
     )
     ttk.Entry(frm, textvariable=server_var, width=42).grid(row=0, column=1, sticky="ew", pady=4)
 

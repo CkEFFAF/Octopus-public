@@ -101,7 +101,8 @@ MODULES=(
   infra/utils/httpx_proxy.py infra/utils/process_lock.py cli/__init__.py
   cli/device_cmd.py cli/device_startup_cmd.py infra/devices/client.py
   infra/devices/executor.py infra/devices/network.py infra/devices/autostart.py
-  infra/devices/acp_process.py
+  infra/devices/acp_process.py infra/devices/protocol.py
+  infra/devices/first_run.py
 )
 for module in "${MODULES[@]}"; do
   cp "${REPO_ROOT}/src/octop/${module}" "${PAYLOAD}/packages/octop/${module}"

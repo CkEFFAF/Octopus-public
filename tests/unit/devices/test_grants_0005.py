@@ -258,3 +258,132 @@ async def test_legacy_client_outdated_on_high_risk(rig: Any) -> None:
             permissions=["desktop_view", "desktop_control", "files_read", "command_exec"],
         )
     assert "CLIENT_OUTDATED" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_owner_http_resolve_cannot_silently_accept_high_risk(rig: Any) -> None:
+    """DEC-005: owner HTTP accept must not land command_exec/acp_run without device confirm."""
+    service, owner, _, tmp = rig
+    share = tmp / "share"
+    share.mkdir()
+    root = {
+        "id": "shared",
+        "name": "Shared",
+        "path": str(share),
+        "read": True,
+        "write": True,
+    }
+    item = enroll(service, owner, permissions=[], roots=[root])
+    device_id = item["device"]["device_id"]
+    # Create a pending high-risk proposal without auto-resolving on the wire.
+    public = await service.create_grant_proposal(
+        owner,
+        device_id,
+        permissions=[
+            "desktop_view",
+            "desktop_control",
+            "files_read",
+            "command_exec",
+        ],
+        roots=[root],
+    )
+    assert "command_exec" not in public["permissions"]
+    pending = [
+        p
+        for p in service._proposals.values()
+        if p.get("device_id") == device_id and p.get("status") == "pending"
+    ]
+    assert len(pending) == 1
+    proposal_id = pending[0]["proposal_id"]
+    with pytest.raises(OctopError) as exc:
+        await service.resolve_grant_proposal(
+            device_id, proposal_id, accept=True, owner=owner
+        )
+    assert exc.value.code == ErrorCode.FORBIDDEN
+    assert "DEVICE_CONFIRM_REQUIRED" in str(exc.value)
+    assert "DEC-005" in str(exc.value)
+    fresh = service.repos.device_repo.get(device_id)
+    assert fresh is not None
+    assert "command_exec" not in fresh.permissions
+    # Proposal stays pending so the device can still confirm.
+    assert service._proposals[proposal_id]["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_owner_http_resolve_can_reject_high_risk(rig: Any) -> None:
+    """Owner may reject a high-risk proposal via HTTP; only accept is blocked."""
+    service, owner, _, tmp = rig
+    share = tmp / "share"
+    share.mkdir()
+    root = {
+        "id": "shared",
+        "name": "Shared",
+        "path": str(share),
+        "read": True,
+        "write": True,
+    }
+    item = enroll(service, owner, permissions=[], roots=[root])
+    device_id = item["device"]["device_id"]
+    await service.create_grant_proposal(
+        owner,
+        device_id,
+        permissions=[
+            "desktop_view",
+            "desktop_control",
+            "files_read",
+            "acp_run",
+        ],
+        roots=[root],
+    )
+    pending = [
+        p
+        for p in service._proposals.values()
+        if p.get("device_id") == device_id and p.get("status") == "pending"
+    ]
+    assert len(pending) == 1
+    proposal_id = pending[0]["proposal_id"]
+    result = await service.resolve_grant_proposal(
+        device_id, proposal_id, accept=False, owner=owner
+    )
+    assert result["status"] == "rejected"
+    fresh = service.repos.device_repo.get(device_id)
+    assert fresh is not None
+    assert "acp_run" not in fresh.permissions
+
+
+@pytest.mark.asyncio
+async def test_owner_http_resolve_may_accept_non_high_risk(rig: Any) -> None:
+    """Non-high-risk pending proposals may still be accepted by owner HTTP."""
+    service, owner, _, tmp = rig
+    share = tmp / "share"
+    share.mkdir()
+    root = {
+        "id": "shared",
+        "name": "Shared",
+        "path": str(share),
+        "read": True,
+        "write": True,
+    }
+    item = enroll(service, owner, permissions=[], roots=[root])
+    device_id = item["device"]["device_id"]
+    # Force confirm mode so files_write goes through a proposal.
+    service.repos.device_repo.update(device_id, remote_grant_mode="confirm")
+    await service.create_grant_proposal(
+        owner,
+        device_id,
+        permissions=["desktop_view", "desktop_control", "files_read", "files_write"],
+        roots=[root],
+    )
+    pending = [
+        p
+        for p in service._proposals.values()
+        if p.get("device_id") == device_id and p.get("status") == "pending"
+    ]
+    assert len(pending) == 1
+    proposal_id = pending[0]["proposal_id"]
+    updated = await service.resolve_grant_proposal(
+        device_id, proposal_id, accept=True, owner=owner
+    )
+    assert "files_write" in updated["permissions"]
+    assert "command_exec" not in updated["permissions"]
+

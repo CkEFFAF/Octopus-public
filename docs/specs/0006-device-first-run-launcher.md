@@ -1,8 +1,8 @@
 # 0006 执行端首次启动向导（UU 式开箱接入）
 
 - Spec ID: `0006-device-first-run-launcher`
-- Status: **Draft**（待总管/用户确认后可升 Proposed/Accepted）
-- Revision: `2026-10-12.1`
+- Status: **Draft**（实现已落地于 `feature/octopus-device-permissions`；待总管/用户确认后升 Proposed/Accepted。非 Accepted 前勿按生产最终稿解读；与 0004 Accepted / 0005 冲突时以 Accepted 为准。）
+- Revision: `2026-10-12.2`
 - Date: 2026-10-12
 - Authoritative path: `docs/specs/0006-device-first-run-launcher.md`
 - Relates: `0004-same-account-auto-enroll.md`（Accepted，先登记后配置）、`0005-device-permission-management.md`（尤其 REQ-006 便携 Release、REQ-008 稳定入口）、`REQ-008`、`docs/octopus/same-account-enroll-ops.md`、`desktop/portable/*`
@@ -40,7 +40,7 @@
 
 ### REQ-001 — 默认 server 与可覆盖
 
-- Requirement: 首次向导与便携包默认 `server_url = https://octop.effaf.me`。允许用户在向导「高级/改 server」中覆盖；允许环境变量 / CLI `--server` 覆盖同一配置键。
+- Requirement: 首次向导与便携包默认 `server_url = https://octop.effaf.me`。允许用户在向导「高级/改 server」中覆盖；允许环境变量 / 环境变量 `OCTOP_DEVICE_SERVER` / CLI `--server` 覆盖同一配置键。
 - 落盘：与现有约定一致——成功后写入设备本地状态（便携包常用包内 `device-state/`；非便携默认 `~/.octop-device` 或 `--state` / `OCTOP_HOME` 所指路径）。**只持久化 server URL + `odv_` 等设备凭证字段**；账号密码 / JWT **不**写入 device-state（沿用 0004）。
 - AC-001: 干净环境首次打开，向导预填 `https://octop.effaf.me`，用户不改即可继续。
 - AC-002: 用户改为其他 `https://…` 并成功登记后，再次启动复用已存 server，不再回退错域名。
@@ -58,6 +58,7 @@
 
 - AC-004: Given 未 enroll 且无登录态，When 输入正确账号密码，Then 自动 enroll 成功并进入主界面，Dashboard 同账号可见新设备。
 - AC-005: Given 已有有效登录态且未 enroll，When 打开客户端，Then 不展示密码框，直接 enroll（失败则回登录/错误页）。
+- AC-005a: Given `--account-token`（或等价短 JWT）且未 enroll，When 打开/join，Then 不提示密码即可 enroll；token 无效则回登录/错误页。无 token 时必须交互输入账号密码（密码不落盘）。
 - AC-006: Given 本地已有有效 `device-state`（已 enroll），When 打开，Then **跳过向导**，直接连接/主界面（等价现有 `start-device` 无参恢复）。
 - AC-007: 浏览器管理页登录 **不得** 静默把本机登记为执行设备（保持 0004 AE-02 / AC-02 精神）。
 
@@ -130,3 +131,4 @@
 
 - 2026-10-12.1: 初稿。对照 0004/0005 缺口补齐 UU 式启动器/首次向导；默认域名 `https://octop.effaf.me`；向导优先、CLI 保留；衔接便携 Release 与 REQ-008。
 - 2026-10-12.1-impl: Coder MVP — DEFAULT_DEVICE_SERVER=https://octop.effaf.me; `device join` UU path; `device first-run` + `open-device.bat/.sh`; CLI retained; advanced join/setup kept.
+- 2026-10-12.2: Review 修补说明——明确 Draft 未升 Accepted；默认 server 支持 `OCTOP_DEVICE_SERVER` / CLI `--server` 覆盖；AC-005 边界（`--account-token` 跳过密码、无 token 须密码）写清。实现与规格同步，仍为 Draft。
