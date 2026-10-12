@@ -1,0 +1,33 @@
+# Octopus cloud hub — systemd system unit (0009 S2)
+# Generated/installed by ops/cloud-hub/install-hub.sh
+# Do not put Deploy Keys, tokens, or passwords in this file.
+#
+# Placeholders replaced by install-hub.sh:
+#   @USER@  @REPO_DIR@  @OCTOP_HOME@  @UV_BIN@  @BIND_HOST@  @PORT@
+#
+# Data directory is OCTOP_HOME (not a --home CLI flag).
+# MVP smoke topology B binds 0.0.0.0:8188 (HTTP IP).
+
+[Unit]
+Description=Octopus cloud hub (octop)
+Documentation=file:docs/octopus/cloud-hub-ops.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+@USER_LINE@WorkingDirectory=@REPO_DIR@
+Environment="HOME=@ACCOUNT_HOME@"
+Environment=OCTOP_HOME=@OCTOP_HOME@
+Environment=OCTOP_BIND_HOST=@BIND_HOST@
+Environment=OCTOP_PORT=@PORT@
+Environment=OCTOP_SERVICE_MODE=systemd
+Environment=PATH=@UV_DIR@:/usr/bin:/bin
+ExecStart=@UV_BIN@ run octop run
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

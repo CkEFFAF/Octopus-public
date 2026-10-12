@@ -1,0 +1,27 @@
+# Example unit for User=ubuntu (repo /home/ubuntu/octopus).
+# Prefer: sudo ./ops/cloud-hub/install-hub.sh --user ubuntu --repo /home/ubuntu/octopus --home /home/ubuntu/OctopData
+
+[Unit]
+Description=Octopus cloud hub (octop)
+Documentation=file:docs/octopus/cloud-hub-ops.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/octopus
+Environment="HOME=/home/ubuntu"
+Environment=OCTOP_HOME=/home/ubuntu/OctopData
+Environment=OCTOP_BIND_HOST=0.0.0.0
+Environment=OCTOP_PORT=8188
+Environment=OCTOP_SERVICE_MODE=systemd
+Environment=PATH=/home/ubuntu/.local/bin:/usr/bin:/bin
+ExecStart=/home/ubuntu/.local/bin/uv run octop run
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
