@@ -4,8 +4,22 @@ Octop green portable package
 Extract this zip anywhere. It includes a portable CPython runtime and Octop
 dependencies. No system Python install is required.
 
-Start
------
+Device first-run (primary, 0006 / 0007)
+--------------------------------------
+  Windows: double-click open-device.bat
+  Linux:   ./open-device.sh
+
+Default server is https://octop.effaf.me (editable in the wizard or via
+OCTOP_DEVICE_SERVER / --server). Enter account username and password; the
+client auto-enrolls (0004) and stays connected. Name / shared folders / fine
+permissions are configured later on the manager (0005). Later launches
+reconnect without login.
+
+No system Python, uv, or Node is required. Keep this folder writable so
+device-state can be created beside the launchers.
+
+Manager UI (secondary)
+----------------------
   macOS / Linux:  ./start.sh
   Windows UI:     open.bat (starts in background and opens your browser)
   Windows logs:   start.bat (foreground)
@@ -24,18 +38,8 @@ Windows manager login startup (explicit opt-in):
   open.bat --remove-startup
 These use the current data dir; add --home DATA_DIR if you use another profile.
 
-Join an existing control center (primary, 0006)
-----------------------------------------------
-  Windows: double-click open-device.bat
-  Linux:   ./open-device.sh
-Default server is https://octop.effaf.me (editable in the wizard).
-Enter account username and password; the client auto-enrolls (0004) and stays
-connected. Name / shared folders / fine permissions are configured later on the
-manager (0005). Later launches reconnect without login.
-CLI / scripted paths below remain available.
-
-Join an existing control center (no new account)
-----------------------------------------------
+Join with pairing code / access key (advanced CLI)
+--------------------------------------------------
 On the signed-in control center open Devices -> Pair device. Then run:
   Windows: start-device.bat
   Linux:   ./start-device.sh
@@ -115,14 +119,17 @@ Layout
   runtime/     portable CPython
   packages/    Octop + locked dependencies (site-packages)
   launch.py    entry bootstrap (loads packages/ + Windows pywin32 DLLs)
-  start.sh / start.bat
+  open-device.bat / open-device.sh   device first-run (primary)
+  start-device.bat / start-device.sh
+  setup-device.bat / setup-device.sh
+  start.sh / start.bat / open.bat   manager UI (secondary)
   README.txt
   VERSION.txt
 
 Notes
 -----
-  Do not set PYTHONPATH=packages. Always start via start.sh / start.bat /
-  launch.py so .pth files (pywin32) are processed.
+  Do not set PYTHONPATH=packages. Always start via open-device / start-device /
+  start.sh / start.bat / launch.py so .pth files (pywin32) are processed.
 
   macOS: if Gatekeeper quarantines the unzipped folder:
 

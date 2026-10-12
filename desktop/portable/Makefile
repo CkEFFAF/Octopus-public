@@ -18,7 +18,7 @@ help:
 	@echo "Green portable (offline zip)"
 	@echo "  make -f desktop/portable/Makefile green              # host plat zip"
 	@echo "  make -f desktop/portable/Makefile green GREEN_PLAT=…"
-	@echo "  make -f desktop/portable/Makefile bootstrap|wheels|package|green-linux|clean"
+	@echo "  make -f desktop/portable/Makefile bootstrap|wheels|package|device-linux|green-linux|clean"
 
 .PHONY: bootstrap
 bootstrap:
@@ -43,6 +43,11 @@ green:
 green-linux:
 	$(MAKE) -C $(REPO_ROOT) build-frontend
 	bash $(REPO_ROOT)/desktop/portable/package-linux-docker.sh $(if $(GREEN_PLAT),$(GREEN_PLAT),linux-amd64)
+
+.PHONY: device-linux
+device-linux:
+	bash $(REPO_ROOT)/desktop/portable/package-device-linux.sh $(if $(GREEN_PLAT),$(GREEN_PLAT),linux-amd64)
+	@echo "[device-linux] archives under $(REPO_ROOT)/desktop/portable/release/"
 
 .PHONY: clean
 clean:

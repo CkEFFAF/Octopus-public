@@ -54,16 +54,22 @@ bash desktop/portable/package.sh windows-amd64
 
 输出默认位于 `desktop/portable/release`。运行时和依赖下载按项目打包脚本
 校验，包内只包含程序，不包含账号、密钥或部署数据。管理端使用 `open.bat`
-/ `start.bat`；设备端使用 `start-device.bat`。当前便携管理界面由浏览器打开，
+/ `start.bat`；设备端使用 `open-device.bat (primary) / start-device.bat`。当前便携管理界面由浏览器打开，
 不能把它表述为已经交付新的 Windows 原生登录窗口。
 
 ## Linux 无界面设备包
 
-```bash
+```
+
+Unpackaging primary path (0007): double-click `open-device.bat`; wizard default server is `https://octop.effaf.me`. Manager UI remains `open.bat` / `start.bat`.
+bash
 bash desktop/portable/package-device-linux.sh linux-amd64
 # 在对应架构的构建/验证环境使用：
 bash desktop/portable/package-device-linux.sh linux-arm64
 ```
+
+Release hard gate (0007 DEC-001): each `v*` must attach `Octop-device-linux-amd64-<ver>.tar.gz` (octop-desktop.yml device-linux job). After extract run `./open-device.sh` (default `https://octop.effaf.me`).
+
 
 这个包只包含设备连接依赖，无需 Web UI、账号库、X11 或完整 LLM 运行环境。
 Windows Git Bash 可组装 Linux 包，脚本保留 tar 中 Linux 权限与符号链接；

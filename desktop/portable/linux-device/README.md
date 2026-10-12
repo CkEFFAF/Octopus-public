@@ -31,15 +31,19 @@ Ubuntu 20.04 的 glibc 2.31 高于 Python portable GNU/Linux baseline 2.17，预
 
 ## 第一次连接
 
+**open-device primary path (0007)**: after extract run `./open-device.sh`. Wizard default server is `https://octop.effaf.me` (override with `OCTOP_DEVICE_SERVER` or `--server`). Account password auto-enrolls same-account device (0004); name/share/fine permissions later on manager (0005). Headless fallback: `./start-device.sh` / `./setup-device.sh` (pair-code / access-key path).
+
+
 将匹配架构的包传到 Linux，使用普通 OS 用户解压到固定目录。示例：
 
 ```bash
 mkdir -p "$HOME/apps"
 tar -xzf Octop-device-linux-amd64-1.0.2b6.tar.gz -C "$HOME/apps"
 cd "$HOME/apps/Octop-device-linux-amd64"
-chmod +x setup-device.sh start-device.sh
+chmod +x open-device.sh setup-device.sh start-device.sh
 ./runtime/bin/python3 -c 'import platform, ssl; print(platform.machine(), ssl.OPENSSL_VERSION)'
-./start-device.sh
+# Primary (0006/0007): first-run wizard, default https://octop.effaf.me
+./open-device.sh
 ```
 
 首次运行直接进入向导：填写管理端地址、设备名字，选择文件和终端或只读等权限方案，确认共享目录与权限，然后隐藏输入管理端生成的配对码或接入密钥。共享目录不存在时会在确认后创建。接入成功立即连接，以后仍使用同一个 `start-device.sh`，无需重复配对。命令以当前 Linux 用户执行，共享目录限制不构成 OS 命令沙箱。

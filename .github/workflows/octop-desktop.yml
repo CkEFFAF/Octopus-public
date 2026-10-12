@@ -312,14 +312,82 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+
+  # 0007 S2: Linux headless device tar must land on the same v* Release as
+  # Octop-portable-* (DEC-001). Independent of Wails / full green zip.
+  package-device-linux:
+    name: device-linux-amd64
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.attach_from_run == ''
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Read package version
+        run: |
+          set -euo pipefail
+          VER=$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' pyproject.toml | head -1)
+          echo "OCTOP_VERSION=${VER}" >> "$GITHUB_ENV"
+          echo "version=${VER}"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Cache python-build-standalone downloads
+        continue-on-error: true
+        uses: actions/cache@v5
+        with:
+          path: desktop/portable/.cache
+          key: pbs-device-${{ env.PBS_TAG }}-${{ env.PBS_PY }}-linux-amd64
+
+      - name: Build Octop-device-linux-amd64 archive
+        env:
+          GREEN_HOST_PLAT: linux-amd64
+          PBS_BASE_URL: ${{ env.PBS_BASE_URL }}
+          PBS_TAG: ${{ env.PBS_TAG }}
+          PBS_PY: ${{ env.PBS_PY }}
+        run: |
+          set -euo pipefail
+          bash desktop/portable/package-device-linux.sh linux-amd64
+          ls -lh desktop/portable/release/Octop-device-linux-amd64-*.tar.gz*
+          test -f "desktop/portable/release/Octop-device-linux-amd64-${OCTOP_VERSION}.tar.gz"
+          # Hard checks for 0007 layout
+          tar -tzf "desktop/portable/release/Octop-device-linux-amd64-${OCTOP_VERSION}.tar.gz" \
+            | grep -E '/open-device\.sh$' >/dev/null
+          tar -xOf "desktop/portable/release/Octop-device-linux-amd64-${OCTOP_VERSION}.tar.gz" \
+            "Octop-device-linux-amd64/VERSION.txt" | tee /tmp/device-version.txt
+          grep -q 'kind=headless-device-client' /tmp/device-version.txt
+          grep -q "octop_version=${OCTOP_VERSION}" /tmp/device-version.txt
+
+      - uses: actions/upload-artifact@v7
+        with:
+          path: desktop/portable/release/Octop-device-linux-amd64-${{ env.OCTOP_VERSION }}.tar.gz
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload device sha256 if present
+        if: hashFiles('desktop/portable/release/Octop-device-linux-amd64-*.sha256') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          path: desktop/portable/release/Octop-device-linux-amd64-${{ env.OCTOP_VERSION }}.tar.gz.sha256
+          archive: false
+          if-no-files-found: warn
+          retention-days: 14
+
   release:
     name: Attach zips to GitHub Release
-    needs: package
+    needs: [package, package-device-linux]
     # always(): still run when package was skipped (attach_from_run rebuild skip).
     if: >-
       always() &&
       !cancelled() &&
       (needs.package.result == 'success' || needs.package.result == 'skipped') &&
+      (needs.package-device-linux.result == 'success' || needs.package-device-linux.result == 'skipped') &&
       (
         (github.event_name == 'workflow_dispatch' &&
          github.event.inputs.attach_from_run != '') ||
