@@ -63,6 +63,8 @@ def test_join_hidden_credential_and_confirmed_windows_desktop(
 
 def test_linux_join_commands_require_final_consent(tmp_path, monkeypatch, enrollment):
     monkeypatch.setattr("octop.cli.device_startup_cmd.platform.system", lambda: "Linux")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setattr("octop.infra.devices.executor.platform.system", lambda: "Linux")
     result = CliRunner().invoke(
         cli,
         ["device", "join", "--advanced", "--server", "https://manager.test", "--state", str(tmp_path / "state")],

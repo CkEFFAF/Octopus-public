@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import platform
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from octop.infra.devices.client import account_login, validate_server_url
 from octop.infra.devices.executor import DeviceExecutionError

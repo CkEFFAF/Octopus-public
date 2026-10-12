@@ -15,6 +15,7 @@ from octop.infra.devices.protocol import (
     resolve_default_device_server,
 )
 
+
 def _device_group(ctx: click.Context) -> tuple[click.Context, click.Group]:
     """Resolve the ``device`` Click group even when nested via ctx.invoke."""
     current = ctx
@@ -106,10 +107,8 @@ def join(
     """
     from octop.infra.devices.first_run import (
         enroll_with_account,
-        enroll_with_credential,
         has_configured_controller,
     )
-    from octop.infra.devices.network import DeviceNetwork
 
     system = platform.system()
     if system not in {"Windows", "Linux"}:
@@ -284,7 +283,11 @@ def first_run(
     state: Path,
 ) -> None:
     """0006 entry: GUI first-run when possible, else UU text join; reconnect if enrolled."""
-    from octop.infra.devices.first_run import gui_available, has_configured_controller, run_tk_first_run
+    from octop.infra.devices.first_run import (
+        gui_available,
+        has_configured_controller,
+        run_tk_first_run,
+    )
 
     if platform.system() not in {"Windows", "Linux"}:
         raise click.ClickException("Native device connections are supported on Windows and Linux.")
