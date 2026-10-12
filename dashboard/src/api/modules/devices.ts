@@ -37,6 +37,17 @@ export interface Device {
   revoked_at: number | null;
 }
 
+export interface DeviceStatus {
+  platform: string;
+  hostname: string;
+  capabilities: string[];
+  system?: {
+    os_version?: string;
+    architecture?: string;
+    cpu?: string;
+    mainboard?: string;
+  };
+}
 
 export type DesktopTakeoverMode = "view" | "view_control";
 export type DesktopTakeoverStatus =
@@ -111,6 +122,7 @@ export interface DeviceInput {
 }
 
 interface DeviceCalls {
+  status: { params: Record<string, never>; result: DeviceStatus };
   "files.list": {
     params: { root_id: string; path: string };
     result: { entries: DeviceFileEntry[]; root_id: string; path: string };
@@ -171,9 +183,11 @@ async function boundedCall<T>(
 }
 
 export const devicesApi = {
-  desktopTarget: () =>
-    request<DesktopTargetState>("/devices/desktop-target"),
-  switchDesktopTarget: (device_id: string, mode: DesktopTakeoverMode = "view") =>
+  desktopTarget: () => request<DesktopTargetState>("/devices/desktop-target"),
+  switchDesktopTarget: (
+    device_id: string,
+    mode: DesktopTakeoverMode = "view",
+  ) =>
     post<DesktopTakeoverRequest>("/devices/desktop-target/switch", {
       device_id,
       mode,

@@ -57,6 +57,16 @@ async def begin(executor, data, path="received.bin"):
     )["upload_id"]
 
 
+async def test_status_exposes_on_demand_system_snapshot(tmp_path):
+    executor, _ = make_executor(tmp_path)
+    result = await call(executor, "status", {})
+    assert result["hostname"]
+    assert result["system"]["os_version"]
+    assert result["system"]["architecture"]
+    assert "device_token" not in result
+    assert "system" not in await call(executor, "ping", {})
+
+
 async def test_ordered_verified_atomic_file_round_trip(tmp_path):
     executor, root = make_executor(tmp_path, state=True)
     data = b"a" * CHUNK_SIZE + b"last chunk"
