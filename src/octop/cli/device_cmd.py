@@ -20,7 +20,7 @@ def device() -> None:
 
 
 @device.command("connect")
-@click.option("--server", help="Control center URL, e.g. https://<your-domain> (HTTP allowed on loopback only).")
+@click.option("--server", help="Control center URL, e.g. https://octop.effaf.me (HTTP allowed on loopback only).")
 @click.option("--pair-code", help="Single-use code from your account's Devices page.")
 @click.option(
     "--access-key",
@@ -233,7 +233,7 @@ def connect(
 
 
 @device.command("add-controller")
-@click.option("--server", required=True, help="Trusted management host URL, e.g. https://<your-domain>.")
+@click.option("--server", required=True, help="Trusted management host URL, e.g. https://octop.effaf.me.")
 @click.option("--pair-code", help="Single-use code from that host's Devices page.")
 @click.option("--access-key", help="Prefer --key-file or the hidden interactive prompt.")
 @click.option("--key-file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
@@ -449,8 +449,9 @@ def relocate_controller(
         ) from None
 
 
-from octop.cli.device_startup_cmd import autostart, join, setup  # noqa: E402
+from octop.cli.device_startup_cmd import autostart, first_run, join, setup  # noqa: E402
 
 device.add_command(autostart)
 device.add_command(setup)
 device.add_command(join)
+device.add_command(first_run)

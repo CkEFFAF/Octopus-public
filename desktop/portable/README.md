@@ -125,7 +125,9 @@ Actions 使用 GitHub 上游 PBS（`PBS_BASE_URL`），本机构建默认 npmmir
 执行端只配置：
 
 ```text
---server https://<your-domain>
+--server https://octop.effaf.me
+
+执行端开箱主路径：双击 `open-device.bat`（或 `./open-device.sh`）→ 默认域名 + 账号密码 → 自动登记。
 ```
 
 加上账号密码（或接入密钥）。**不要**把 `http://192.168.x.x` 写成唯一开箱路径；内网 IP / `--allow-insecure` 仅作局域网调试附录。

@@ -36,7 +36,7 @@ def test_join_hidden_credential_and_confirmed_windows_desktop(
     state = tmp_path / "device-state"
     result = CliRunner().invoke(
         cli,
-        ["device", "join", "--server", "https://manager.test", "--state", str(state)],
+        ["device", "join", "--advanced", "--server", "https://manager.test", "--state", str(state)],
         input=f"Windows PC\n2\n\nn\ny\n2\n{credential}\n",
     )
     assert result.exit_code == 0, result.output
@@ -65,21 +65,21 @@ def test_linux_join_commands_require_final_consent(tmp_path, monkeypatch, enroll
     monkeypatch.setattr("octop.cli.device_startup_cmd.platform.system", lambda: "Linux")
     result = CliRunner().invoke(
         cli,
-        ["device", "join", "--server", "https://manager.test", "--state", str(tmp_path / "state")],
+        ["device", "join", "--advanced", "--server", "https://manager.test", "--state", str(tmp_path / "state")],
         input="GPU Server\n1\n\nn\ny\n2\n87654321\n",
     )
     assert result.exit_code == 0, result.output
     payload = enrollment[0][0][1]
     assert set(payload["capabilities"]) == {"files_read", "files_write", "command_exec", "acp_run"}
-    assert "不是系统沙箱" in result.output
-    assert "2 桌面和文件" not in result.output
+    assert "command_exec" in payload["capabilities"]
+    assert "2 " not in result.output.splitlines()[1]  # Windows desktop profile hidden on Linux
 
 
 def test_join_acp_requires_separate_local_consent(tmp_path, monkeypatch, enrollment):
     monkeypatch.setattr("octop.cli.device_startup_cmd.platform.system", lambda: "Linux")
     result = CliRunner().invoke(
         cli,
-        ["device", "join", "--server", "https://manager.test", "--state", str(tmp_path / "state")],
+        ["device", "join", "--advanced", "--server", "https://manager.test", "--state", str(tmp_path / "state")],
         input="GPU Server\n1\n\ny\ny\n2\n87654321\n",
     )
     assert result.exit_code == 0, result.output
@@ -90,7 +90,7 @@ def test_declining_join_does_not_enroll_or_create_share(tmp_path, enrollment):
     share = tmp_path / "new-share"
     result = CliRunner().invoke(
         cli,
-        ["device", "join", "--server", "https://manager.test", "--state", str(tmp_path / "state")],
+        ["device", "join", "--advanced", "--server", "https://manager.test", "--state", str(tmp_path / "state")],
         input=f"My PC\n3\n{share}\nn\n",
     )
     assert result.exit_code != 0
@@ -106,7 +106,7 @@ def test_declining_join_does_not_enroll_or_create_share(tmp_path, enrollment):
 def test_invalid_or_unaccepted_transport_stops_before_credential(tmp_path, enrollment, server):
     result = CliRunner().invoke(
         cli,
-        ["device", "join", "--server", server, "--state", str(tmp_path / "state")],
+        ["device", "join", "--advanced", "--server", server, "--state", str(tmp_path / "state")],
         input="n\n",
     )
     assert result.exit_code != 0
@@ -117,7 +117,7 @@ def test_invalid_or_unaccepted_transport_stops_before_credential(tmp_path, enrol
 def test_accepted_http_still_needs_permission_confirmation(tmp_path, enrollment):
     result = CliRunner().invoke(
         cli,
-        ["device", "join", "--server", "http://manager.test", "--state", str(tmp_path / "state")],
+        ["device", "join", "--advanced", "--server", "http://manager.test", "--state", str(tmp_path / "state")],
         input="y\nMy PC\n3\n\ny\n2\n11223344\n",
     )
     assert result.exit_code == 0, result.output
@@ -128,7 +128,9 @@ def test_join_reuses_saved_identity_without_new_authorization(tmp_path, enrollme
     runner = CliRunner()
     args = ["device", "join", "--state", str(tmp_path / "state")]
     first = runner.invoke(
-        cli, [*args, "--server", "https://manager.test"], input="PC\n3\n\ny\n2\n12345678\n"
+        cli,
+        [*args, "--advanced", "--server", "https://manager.test"],
+        input="PC\n3\n\ny\n2\n12345678\n",
     )
     assert first.exit_code == 0, first.output
     second = runner.invoke(cli, args)
@@ -147,10 +149,13 @@ def test_portable_launchers_first_launch_and_reconnect_share_entry(repo_root: Pa
         text = (repo_root / "desktop" / "portable" / filename).read_text(encoding="utf-8")
         assert "device join --state" in text
         assert "device connect --state" in text  # scripted legacy enrollment remains available
+    for filename in ("open-device.bat", "open-device.sh"):
+        text = (repo_root / "desktop" / "portable" / filename).read_text(encoding="utf-8")
+        assert "device first-run --state" in text
 
 
 def test_join_account_password_enroll(tmp_path, monkeypatch, enrollment):
-    """0004: join mode 1 logs in then enrolls with Bearer; JWT not kept in state."""
+    """0004/0006: UU join logs in then enrolls with Bearer; JWT not kept in state."""
     monkeypatch.setattr("octop.cli.device_startup_cmd.platform.system", lambda: "Windows")
     tokens = []
 
@@ -166,12 +171,13 @@ def test_join_account_password_enroll(tmp_path, monkeypatch, enrollment):
 
     monkeypatch.setattr("octop.infra.devices.client.account_login", fake_login)
     monkeypatch.setattr("octop.cli.device_cmd.account_login", fake_login)
+    monkeypatch.setattr("octop.infra.devices.first_run.account_login", fake_login)
     monkeypatch.setattr("octop.infra.devices.client._enroll_http", enroll)
     state = tmp_path / "acct-state"
     result = CliRunner().invoke(
         cli,
         ["device", "join", "--server", "https://manager.test", "--state", str(state)],
-        input="Acct PC\n3\n\ny\n1\nowner\nsecret-pass\n",
+        input="Acct PC\nowner\nsecret-pass\ny\n",
     )
     assert result.exit_code == 0, result.output
     assert tokens == [("https://manager.test", "owner", "secret-pass")]

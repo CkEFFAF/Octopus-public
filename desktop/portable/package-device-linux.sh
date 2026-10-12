@@ -107,10 +107,12 @@ for module in "${MODULES[@]}"; do
   cp "${REPO_ROOT}/src/octop/${module}" "${PAYLOAD}/packages/octop/${module}"
 done
 cp "${REPO_ROOT}/desktop/portable/start-device.sh" "${PAYLOAD}/start-device.sh"
+cp "${REPO_ROOT}/desktop/portable/open-device.sh" "${PAYLOAD}/open-device.sh"
+chmod +x "${PAYLOAD}/open-device.sh"
 cp "${REPO_ROOT}/desktop/portable/setup-device.sh" "${PAYLOAD}/setup-device.sh"
 cp "${REPO_ROOT}/desktop/portable/linux-device/README.md" "${PAYLOAD}/README.md"
 cp "${REPO_ROOT}/LICENSE" "${PAYLOAD}/LICENSE"
-chmod +x "${PAYLOAD}/start-device.sh" "${PAYLOAD}/setup-device.sh"
+chmod +x "${PAYLOAD}/start-device.sh" "${PAYLOAD}/setup-device.sh" "${PAYLOAD}/open-device.sh"
 
 cat > "${PAYLOAD}/launch.py" <<'PYTHON'
 """Device-only portable entry; no Web UI or Octop account server is started."""
@@ -191,7 +193,7 @@ def distributable(info):
         return None
     info.uid = info.gid = 0
     info.uname = info.gname = ""
-    if info.name.endswith(("/setup-device.sh", "/start-device.sh")):
+    if info.name.endswith(("/setup-device.sh", "/start-device.sh", "/open-device.sh")):
         info.mode = 0o755
     return info
 

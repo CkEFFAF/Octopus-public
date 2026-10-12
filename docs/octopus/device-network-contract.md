@@ -135,4 +135,4 @@ no-follow fd，使用 dir_fd 提交并复核 inode；Windows 复核已重现的 
 HTTP仅loopback默认允许；远程HTTP必须显式 --allow-insecure。
 不触碰用户现有账号/数据库，不登录 Windows 账号，不自动改防火墙。
 
-扩权：见 0005；正式 `--server` 示例为 `https://<your-domain>`（CF Tunnel），非内网 IP。
+扩权：见 0005；正式 `--server` 示例为 `https://octop.effaf.me`（CF Tunnel），非内网 IP。

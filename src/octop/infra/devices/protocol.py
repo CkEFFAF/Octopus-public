@@ -16,6 +16,8 @@ DEFAULT_ENROLL_PERMISSIONS = frozenset({"desktop_view", "desktop_control", "file
 HIGH_RISK_PERMISSIONS = frozenset({"command_exec", "acp_run"})
 REMOTE_GRANT_MODES = frozenset({"confirm", "owner_auto"})
 DEFAULT_REMOTE_GRANT_MODE = "owner_auto"
+# 0006 DEC-001: product default control-center URL (overridable).
+DEFAULT_DEVICE_SERVER = "https://octop.effaf.me"
 # Wire protocol: v1 = legacy reduce-only clients; v2 = grant proposals / expand.
 DEVICE_PROTOCOL_VERSION = 1
 CLIENT_PROTOCOL_VERSION = 2

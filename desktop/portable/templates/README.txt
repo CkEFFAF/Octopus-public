@@ -24,6 +24,16 @@ Windows manager login startup (explicit opt-in):
   open.bat --remove-startup
 These use the current data dir; add --home DATA_DIR if you use another profile.
 
+Join an existing control center (primary, 0006)
+----------------------------------------------
+  Windows: double-click open-device.bat
+  Linux:   ./open-device.sh
+Default server is https://octop.effaf.me (editable in the wizard).
+Enter account username and password; the client auto-enrolls (0004) and stays
+connected. Name / shared folders / fine permissions are configured later on the
+manager (0005). Later launches reconnect without login.
+CLI / scripted paths below remain available.
+
 Join an existing control center (no new account)
 ----------------------------------------------
 On the signed-in control center open Devices -> Pair device. Then run:

@@ -5,7 +5,7 @@
 ## 目标拓扑
 
 ```text
-执行端 --HTTPS--> https://<your-domain>  --CF Tunnel-->  工位本机控制中心
+执行端 --HTTPS--> https://octop.effaf.me  --CF Tunnel-->  工位本机控制中心
 ```
 
 - `/api/` REST 与 `/api/devices/connect/ws` 经同一域名可达
@@ -15,7 +15,7 @@
 ## 开箱配置（执行端）
 
 ```text
-octop device connect --server https://<your-domain> --username <账号>
+octop device connect --server https://octop.effaf.me --username <账号>
 ```
 
 密码优先交互输入。占位符 `<your-domain>` 替换为你的自定义域名；用户暂无域名时可先保留占位，配好 Tunnel 后再填。
@@ -25,7 +25,7 @@ octop device connect --server https://<your-domain> --username <账号>
 1. 本机控制中心正常监听（默认本机端口）
 2. 安装并登录 `cloudflared`（宿主机运维，非产品内置安装器）
 3. 创建 Tunnel，将公网域名（含 `/api/` 与设备 WS 路径）指到本机控制中心
-4. 验证：浏览器打开 `https://<your-domain>`；设备用域名 + 账号完成登记/重连（无需 `--allow-insecure`）
+4. 验证：浏览器打开 `https://octop.effaf.me`；设备用域名 + 账号完成登记/重连（无需 `--allow-insecure`）
 
 ## 迁云
 
