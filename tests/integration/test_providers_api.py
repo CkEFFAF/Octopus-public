@@ -29,7 +29,7 @@ async def test_admin_creates_provider(env):
     assert r.status_code == 201
     body = r.json()
     assert body["name"] == "openai"
-    assert "user_id" not in body
+    assert body["user_id"] == 1
 
 
 async def test_regular_user_cannot_create_provider(env):

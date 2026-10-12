@@ -7,6 +7,7 @@ Each file is ``NNN_description.sql`` (SQLite) or ``NNN_description.pg.sql``
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from collections.abc import Mapping
@@ -72,6 +73,97 @@ def _current_version(db: DatabasePool) -> int:
             return int(version)
         except Exception:
             return 0
+
+
+def _migrate_provider_ownership(db: DatabasePool) -> None:
+    """Preserve old provider IDs without guessing ownership on multi-user hubs."""
+    if "user_id" in _table_columns(db, "providers"):
+        if not _provider_ownership_schema_complete(db):
+            raise RuntimeError(
+                "Incomplete providers account-ownership schema: user_id must be NOT NULL, "
+                "reference users(id), and names must be UNIQUE(user_id, name). "
+                "Restore a consistent backup or complete the schema before restarting."
+            )
+        with db.connect() as conn:
+            conn.execute("UPDATE _schema_version SET version = ?", (25,))
+        return
+    with db.connect() as conn:
+        providers_count = conn.execute("SELECT COUNT(*) AS n FROM providers").fetchone()["n"]
+        users = conn.execute("SELECT id FROM users ORDER BY id").fetchall()
+    raw_owner = os.environ.get("PRIMARY_OWNER_USER_ID", "").strip()
+    owner: int | None = None
+    if raw_owner:
+        try:
+            owner = int(raw_owner)
+        except ValueError as exc:
+            raise RuntimeError("PRIMARY_OWNER_USER_ID must be an existing integer user ID") from exc
+        if owner not in {row["id"] for row in users}:
+            raise RuntimeError("PRIMARY_OWNER_USER_ID must identify an existing user")
+    elif len(users) == 1:
+        owner = int(users[0]["id"])
+    elif providers_count:
+        raise RuntimeError(
+            "Cannot infer historical provider ownership. Set PRIMARY_OWNER_USER_ID "
+            "to the existing account that owns the legacy providers before restarting."
+        )
+    # Empty fresh DBs need no owner; no provider rows are inserted with NULL.
+    owner_sql = str(owner) if owner is not None else "NULL"
+    suffix = ".pg.sql" if db.dialect == "postgresql" else ".sql"
+    sql = (_MIGRATIONS_DIR / f"025_provider_account_ownership{suffix}").read_text(encoding="utf-8")
+    sql = sql.replace("{owner_user_id}", owner_sql)
+    if db.dialect == "postgresql":
+        with db.connect() as conn, conn.transaction():
+            _apply_postgresql_migration(conn, sql)
+    else:
+        with db.connect() as conn:
+            conn.executescript(sql)
+
+
+def _provider_ownership_schema_complete(db: DatabasePool) -> bool:
+    """A pre-added nullable column alone must never count as a completed migration."""
+    with db.connect() as conn:
+        if db.dialect == "postgresql":
+            column = conn.execute(
+                "SELECT is_nullable FROM information_schema.columns "
+                "WHERE table_schema = current_schema() AND table_name = 'providers' "
+                "AND column_name = 'user_id'"
+            ).fetchone()
+            constraints = conn.execute(
+                "SELECT pg_get_constraintdef(c.oid) AS definition FROM pg_constraint c "
+                "JOIN pg_class t ON c.conrelid = t.oid "
+                "JOIN pg_namespace n ON n.oid = t.relnamespace "
+                "WHERE n.nspname = current_schema() AND t.relname = 'providers'"
+            ).fetchall()
+            definitions = {str(row["definition"]).replace('"', "") for row in constraints}
+            return bool(
+                column
+                and column["is_nullable"] == "NO"
+                and any("FOREIGN KEY (user_id) REFERENCES users(id)" in d for d in definitions)
+                and "UNIQUE (user_id, name)" in definitions
+                and "UNIQUE (name)" not in definitions
+            )
+        columns = conn.execute("PRAGMA table_info(providers)").fetchall()
+        not_null = any(r["name"] == "user_id" and r["notnull"] for r in columns)
+        foreign_keys = conn.execute("PRAGMA foreign_key_list(providers)").fetchall()
+        owner_fk = any(
+            r["from"] == "user_id" and r["table"] == "users" and r["to"] == "id"
+            for r in foreign_keys
+        )
+        unique_columns = set()
+        for index in conn.execute("PRAGMA index_list(providers)").fetchall():
+            if index["unique"]:
+                name = str(index["name"]).replace('"', '""')
+                unique_columns.add(
+                    tuple(
+                        r["name"] for r in conn.execute(f'PRAGMA index_info("{name}")').fetchall()
+                    )
+                )
+        return bool(
+            not_null
+            and owner_fk
+            and ("user_id", "name") in unique_columns
+            and ("name",) not in unique_columns
+        )
 
 
 def _table_columns(db: DatabasePool, table: str) -> set[str]:
@@ -1903,6 +1995,12 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
         with db.connect() as conn:
             conn.execute("UPDATE _schema_version SET version = ?", (version,))
         return
+    if version == 24:
+        if _table_exists(db, "devices"):
+            _ensure_column(db, "devices", "remote_grant_mode", "TEXT NOT NULL DEFAULT 'owner_auto'")
+        with db.connect() as conn:
+            conn.execute("UPDATE _schema_version SET version = ?", (version,))
+        return
     sql = path.read_text(encoding="utf-8")
     with db.connect() as conn:
         conn.executescript(sql)
@@ -1913,6 +2011,9 @@ def run_migrations(db: DatabasePool) -> None:
         _repair_legacy_schema(db)
     for version, path in _discover(db.dialect):
         if version <= _current_version(db):
+            continue
+        if version == 25:
+            _migrate_provider_ownership(db)
             continue
         # v18 touches optional ``user_invites``; use the idempotent helper for both
         # dialects so restores from pre-invite physical schemas do not fail.

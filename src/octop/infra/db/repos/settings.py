@@ -28,11 +28,11 @@ class SettingsRepo:
         with self._db.transaction() as conn:
             conn.execute("DELETE FROM settings WHERE key = ?", (key,))
 
-    def get_active_model(self) -> tuple[str, str]:
+    def get_active_model(self, user_id: int) -> tuple[str, str]:
         """Return (provider_name, model_id); empty strings if not set."""
-        raw = self.get(self._KEY_ACTIVE_MODEL) or ""
+        raw = self.get(f"{self._KEY_ACTIVE_MODEL}.user.{user_id}") or ""
         name, _, model = raw.partition("/")
         return name, model
 
-    def set_active_model(self, provider_name: str, model_id: str) -> None:
-        self.set(self._KEY_ACTIVE_MODEL, f"{provider_name}/{model_id}")
+    def set_active_model(self, user_id: int, provider_name: str, model_id: str) -> None:
+        self.set(f"{self._KEY_ACTIVE_MODEL}.user.{user_id}", f"{provider_name}/{model_id}")

@@ -27,10 +27,14 @@ async def test_im_call_merges_default_open_mcp_servers() -> None:
     agent_manager.default_knowledge_base_ids = MagicMock(return_value=[])
     agent_manager.prepare_chat_mcp = AsyncMock(return_value=[])
     agent_manager.get_row = MagicMock(return_value=None)
-    agent_manager.providers = MagicMock()
-    agent_manager.providers.is_model_ref_usable = MagicMock(return_value=False)
-    agent_manager.providers.resolve_explicit_default_model = MagicMock(return_value=None)
-    agent_manager.providers.resolve_model_for_multimodal_turn = MagicMock(
+    agent_manager.providers_for_agent.return_value = MagicMock()
+    agent_manager.providers_for_agent.return_value.is_model_ref_usable = MagicMock(
+        return_value=False
+    )
+    agent_manager.providers_for_agent.return_value.resolve_explicit_default_model = MagicMock(
+        return_value=None
+    )
+    agent_manager.providers_for_agent.return_value.resolve_model_for_multimodal_turn = MagicMock(
         side_effect=lambda ref, **_k: ref
     )
     agent_manager.get_thread_model = MagicMock(return_value=None)
@@ -91,10 +95,14 @@ async def test_im_call_skips_default_open_mcp_for_team_host() -> None:
     agent_manager.default_knowledge_base_ids = MagicMock(return_value=[])
     agent_manager.prepare_chat_mcp = AsyncMock(return_value=[])
     agent_manager.get_row = MagicMock(return_value=MagicMock(kind="team"))
-    agent_manager.providers = MagicMock()
-    agent_manager.providers.is_model_ref_usable = MagicMock(return_value=False)
-    agent_manager.providers.resolve_explicit_default_model = MagicMock(return_value=None)
-    agent_manager.providers.resolve_model_for_multimodal_turn = MagicMock(
+    agent_manager.providers_for_agent.return_value = MagicMock()
+    agent_manager.providers_for_agent.return_value.is_model_ref_usable = MagicMock(
+        return_value=False
+    )
+    agent_manager.providers_for_agent.return_value.resolve_explicit_default_model = MagicMock(
+        return_value=None
+    )
+    agent_manager.providers_for_agent.return_value.resolve_model_for_multimodal_turn = MagicMock(
         side_effect=lambda ref, **_k: ref
     )
     agent_manager.get_thread_model = MagicMock(return_value=None)
@@ -145,10 +153,14 @@ async def test_dashboard_request_ignores_explicit_mcp_for_team_host() -> None:
     agent_manager.get_row = MagicMock(return_value=MagicMock(kind="team"))
     agent_manager.default_mcp_servers = MagicMock(return_value=["docs__1"])
     agent_manager.default_knowledge_base_ids = MagicMock(return_value=[])
-    agent_manager.providers = MagicMock()
-    agent_manager.providers.is_model_ref_usable = MagicMock(return_value=False)
-    agent_manager.providers.resolve_explicit_default_model = MagicMock(return_value=None)
-    agent_manager.providers.resolve_model_for_multimodal_turn = MagicMock(
+    agent_manager.providers_for_agent.return_value = MagicMock()
+    agent_manager.providers_for_agent.return_value.is_model_ref_usable = MagicMock(
+        return_value=False
+    )
+    agent_manager.providers_for_agent.return_value.resolve_explicit_default_model = MagicMock(
+        return_value=None
+    )
+    agent_manager.providers_for_agent.return_value.resolve_model_for_multimodal_turn = MagicMock(
         side_effect=lambda ref, **_k: ref
     )
     agent_manager.get_thread_model = MagicMock(return_value=None)
@@ -195,10 +207,14 @@ async def test_dashboard_request_trusts_explicit_opt_out() -> None:
     agent_manager.get_row = MagicMock(return_value=None)
     agent_manager.default_mcp_servers = MagicMock(return_value=[])
     agent_manager.default_knowledge_base_ids = MagicMock(return_value=[])
-    agent_manager.providers = MagicMock()
-    agent_manager.providers.is_model_ref_usable = MagicMock(return_value=False)
-    agent_manager.providers.resolve_explicit_default_model = MagicMock(return_value=None)
-    agent_manager.providers.resolve_model_for_multimodal_turn = MagicMock(
+    agent_manager.providers_for_agent.return_value = MagicMock()
+    agent_manager.providers_for_agent.return_value.is_model_ref_usable = MagicMock(
+        return_value=False
+    )
+    agent_manager.providers_for_agent.return_value.resolve_explicit_default_model = MagicMock(
+        return_value=None
+    )
+    agent_manager.providers_for_agent.return_value.resolve_model_for_multimodal_turn = MagicMock(
         side_effect=lambda ref, **_k: ref
     )
     agent_manager.get_thread_model = MagicMock(return_value=None)
@@ -244,10 +260,14 @@ async def test_dashboard_request_attaches_knowledge_base_ids_without_prepending(
     agent_manager.get_row = MagicMock(return_value=None)
     agent_manager.default_mcp_servers = MagicMock(return_value=[])
     agent_manager.default_knowledge_base_ids = MagicMock(return_value=[])
-    agent_manager.providers = MagicMock()
-    agent_manager.providers.is_model_ref_usable = MagicMock(return_value=False)
-    agent_manager.providers.resolve_explicit_default_model = MagicMock(return_value=None)
-    agent_manager.providers.resolve_model_for_multimodal_turn = MagicMock(
+    agent_manager.providers_for_agent.return_value = MagicMock()
+    agent_manager.providers_for_agent.return_value.is_model_ref_usable = MagicMock(
+        return_value=False
+    )
+    agent_manager.providers_for_agent.return_value.resolve_explicit_default_model = MagicMock(
+        return_value=None
+    )
+    agent_manager.providers_for_agent.return_value.resolve_model_for_multimodal_turn = MagicMock(
         side_effect=lambda ref, **_k: ref
     )
     agent_manager.get_thread_model = MagicMock(return_value=None)

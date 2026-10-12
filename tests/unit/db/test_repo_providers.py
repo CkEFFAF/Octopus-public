@@ -26,50 +26,50 @@ def user_id(db: SqlitePool) -> int:
 
 
 @pytest.fixture
-def repo(db: SqlitePool) -> ProviderRepo:
+def repo(db: SqlitePool, user_id: int) -> ProviderRepo:
     return ProviderRepo(db)
 
 
 def test_create_and_get(repo: ProviderRepo):
-    pid = repo.create(name="openai", kind="openai")
-    row = repo.get(pid)
+    pid = repo.create(user_id=1, name="openai", kind="openai")
+    row = repo.get(1, pid)
     assert isinstance(row, ProviderRow)
     assert row.name == "openai"
     assert row.kind == "openai"
 
 
 def test_unique_name(repo: ProviderRepo):
-    repo.create(name="openai", kind="openai")
+    repo.create(user_id=1, name="openai", kind="openai")
     with pytest.raises(sqlite3.IntegrityError):
-        repo.create(name="openai", kind="openai")
+        repo.create(user_id=1, name="openai", kind="openai")
 
 
 def test_list_all(repo: ProviderRepo):
-    repo.create(name="openai", kind="openai")
-    repo.create(name="anthropic", kind="anthropic")
-    names = {r.name for r in repo.list_all()}
+    repo.create(user_id=1, name="openai", kind="openai")
+    repo.create(user_id=1, name="anthropic", kind="anthropic")
+    names = {r.name for r in repo.list_all(1)}
     assert "openai" in names
     assert "anthropic" in names
 
 
 def test_get_by_name(repo: ProviderRepo):
-    repo.create(name="openai", kind="openai")
-    assert repo.get_by_name("openai").name == "openai"
-    assert repo.get_by_name("missing") is None
+    repo.create(user_id=1, name="openai", kind="openai")
+    assert repo.get_by_name(1, "openai").name == "openai"
+    assert repo.get_by_name(1, "missing") is None
 
 
 def test_update(repo: ProviderRepo):
-    pid = repo.create(name="openai", kind="openai")
-    repo.update(pid, note="updated")
-    row = repo.get(pid)
+    pid = repo.create(user_id=1, name="openai", kind="openai")
+    repo.update(1, pid, note="updated")
+    row = repo.get(1, pid)
     assert row.note == "updated"
     assert row.kind == "openai"  # unchanged
 
 
 def test_delete(repo: ProviderRepo):
-    pid = repo.create(name="openai", kind="openai")
-    repo.delete(pid)
-    assert repo.get(pid) is None
+    pid = repo.create(user_id=1, name="openai", kind="openai")
+    repo.delete(1, pid)
+    assert repo.get(1, pid) is None
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ def test_find_referencing_agent_ids_returns_agents_that_use_provider(db: SqliteP
         config_json='{"providers": ["anthropic"]}',
     )
 
-    refs = repo.find_referencing_agent_ids(agent_repo, "openai")
+    refs = repo.find_referencing_agent_ids(agent_repo, user_id, "openai")
     assert refs == ["a1"]
 
 
@@ -116,7 +116,7 @@ def test_find_referencing_agent_ids_returns_empty_when_no_references(db: SqliteP
         config_json='{"providers": ["anthropic"]}',
     )
 
-    refs = repo.find_referencing_agent_ids(agent_repo, "openai")
+    refs = repo.find_referencing_agent_ids(agent_repo, user_id, "openai")
     assert refs == []
 
 
@@ -136,9 +136,9 @@ def test_find_referencing_agent_ids_handles_multiple_providers_per_agent(
         config_json='{"providers": ["openai", "anthropic"]}',
     )
 
-    assert repo.find_referencing_agent_ids(agent_repo, "openai") == ["a1"]
-    assert repo.find_referencing_agent_ids(agent_repo, "anthropic") == ["a1"]
-    assert repo.find_referencing_agent_ids(agent_repo, "bedrock") == []
+    assert repo.find_referencing_agent_ids(agent_repo, user_id, "openai") == ["a1"]
+    assert repo.find_referencing_agent_ids(agent_repo, user_id, "anthropic") == ["a1"]
+    assert repo.find_referencing_agent_ids(agent_repo, user_id, "bedrock") == []
 
 
 def test_find_referencing_agent_ids_handles_null_config_json(db: SqlitePool, user_id: int):
@@ -156,4 +156,4 @@ def test_find_referencing_agent_ids_handles_null_config_json(db: SqlitePool, use
     )
 
     # Must not raise, must return empty
-    assert repo.find_referencing_agent_ids(agent_repo, "openai") == []
+    assert repo.find_referencing_agent_ids(agent_repo, user_id, "openai") == []

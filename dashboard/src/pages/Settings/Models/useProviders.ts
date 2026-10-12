@@ -1,7 +1,7 @@
 /**
- * useProviders — admin model management hook.
+ * useProviders — account model management hook.
  *
- * Fetches all providers and presets via the admin endpoints.
+ * Fetches the current account’s providers and shared public presets.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -110,7 +110,7 @@ export function useProviders(): UseProvidersResult {
     setError(null);
     try {
       const settled = await Promise.allSettled([
-        request<ProviderRow[]>("/admin/providers"),
+        request<ProviderRow[]>("/providers"),
         request<ProviderPreset[]>("/providers/presets"),
         providerApi.listResolvedModels(),
         request<{ provider_name: string; model: string }>(

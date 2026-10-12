@@ -57,11 +57,13 @@ def manager(tmp_path: Path) -> AgentManager:
     db = SqlitePool(paths.db)
     run_migrations(db)
     services = build_shared_services(db=db, paths=paths, config=OctopConfig())
+    services.repos.user_repo.create(username="test-owner", password_hash="h", role="admin")
     return AgentManager(repos=services.repos, paths=services.paths)
 
 
 def _seed_test_provider(manager: AgentManager) -> None:
     manager._repos.provider_repo.create(
+        user_id=1,
         name="test-openai",
         kind="openai",
         base_url="https://api.example.com/v1",
@@ -731,7 +733,7 @@ async def test_shutdown_drains_sqlite_worker_before_returning(manager: AgentMana
     _seed_test_provider(manager)
     await manager.boot()
     agent_id = manager._repos.agent_repo.create(
-        agent_id="CLOSE1", user_id=None, name="close-test", config_json=json.dumps(_MEMORY_OFF)
+        agent_id="CLOSE1", user_id=1, name="close-test", config_json=json.dumps(_MEMORY_OFF)
     )
     row = manager._repos.agent_repo.get(agent_id)
     assert row is not None
@@ -1337,15 +1339,18 @@ def test_build_harness_config_auto_expert_falls_back_to_first_model(
     _seed_test_provider(manager)
     cfg = manager._build_harness_config(_row(default_model=None))
     assert cfg.default_model == "test-openai/gpt-4o-mini"
-    assert cfg.providers == []
+    assert len(cfg.providers) == 1
+    assert cfg.providers[0].id == "test-openai"
+    assert cfg.providers[0].api_key == "sk-test"
 
 
 def test_build_harness_config_uses_active_model_before_first(
     manager: AgentManager,
 ) -> None:
-    """AUTO expert default_model follows the global active model when usable."""
+    """AUTO expert default_model follows its owner's active model when usable."""
     _seed_test_provider(manager)
     manager._repos.provider_repo.create(
+        user_id=1,
         name="second-openai",
         kind="openai",
         base_url="https://api.example.com/v1",
@@ -1354,7 +1359,7 @@ def test_build_harness_config_uses_active_model_before_first(
             [{"id": "gpt-5", "name": "gpt-5", "enabled": True}],
         ),
     )
-    manager._repos.settings_repo.set_active_model("second-openai", "gpt-5")
+    manager._repos.settings_repo.set_active_model(1, "second-openai", "gpt-5")
     cfg = manager._build_harness_config(_row(default_model=None))
     assert cfg.default_model == "second-openai/gpt-5"
 
@@ -1364,7 +1369,7 @@ def test_build_harness_config_active_model_ignored_when_unusable(
 ) -> None:
     """Active model pointing at a disabled/removed provider falls back to first."""
     _seed_test_provider(manager)
-    manager._repos.settings_repo.set_active_model("deleted-provider", "gone")
+    manager._repos.settings_repo.set_active_model(1, "deleted-provider", "gone")
     cfg = manager._build_harness_config(_row(default_model=None))
     assert cfg.default_model == "test-openai/gpt-4o-mini"
 
@@ -1372,9 +1377,9 @@ def test_build_harness_config_active_model_ignored_when_unusable(
 def test_build_harness_config_explicit_default_wins_over_active(
     manager: AgentManager,
 ) -> None:
-    """Pinned expert default takes precedence over the global active model."""
+    """Pinned expert default takes precedence over its owner's active model."""
     _seed_test_provider(manager)
-    manager._repos.settings_repo.set_active_model("test-openai", "gpt-4o-mini")
+    manager._repos.settings_repo.set_active_model(1, "test-openai", "gpt-4o-mini")
     cfg = manager._build_harness_config(
         _row(config_json=json.dumps({"default_model": "test-openai/gpt-4o-mini"})),
     )
@@ -1406,26 +1411,32 @@ def test_build_harness_config_ignores_stale_aux_model(manager: AgentManager) -> 
     assert cfg.memory_aux_heavy_model is None
 
 
-@pytest.mark.skip(
-    reason="HarnessAgentConfig monkeypatch incompatible with SecurityPolicy.apply_to_config"
-)
-def test_build_harness_config_passes_default_model_without_embedded_providers(
-    manager: AgentManager,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """default_model is forwarded; providers stay on HarnessAgentManager, not per-agent config."""
-    from octop.infra.agents import manager as mgr_mod
+def test_build_harness_config_embeds_only_owner_providers(manager: AgentManager) -> None:
+    """Equal provider names across accounts never mix credentials in an agent."""
+    from dataclasses import replace
 
-    captured: list[dict] = []
+    _seed_test_provider(manager)
+    other_owner = manager._repos.user_repo.create(username="other", password_hash="h", role="user")
+    manager._repos.provider_repo.create(
+        user_id=other_owner,
+        name="test-openai",
+        kind="openai",
+        base_url="https://api.other.example/v1",
+        api_key="sk-other",
+        models_json=json.dumps([{"id": "other-model", "enabled": True}]),
+    )
+    cfg = manager._build_harness_config(_row(default_model="test-openai/gpt-4o-mini"))
+    assert cfg.default_model == "test-openai/gpt-4o-mini"
+    assert len(cfg.providers) == 1
+    assert cfg.providers[0].api_key == "sk-test"
+    assert {model.id for model in cfg.providers[0].models} == {"gpt-4o-mini"}
 
-    class _FakeCfg:
-        def __init__(self, **kwargs: object) -> None:
-            captured.append(kwargs)
-
-    monkeypatch.setattr(mgr_mod, "HarnessAgentConfig", _FakeCfg)
-    manager._build_harness_config(_row(default_model="openai-live/MiniMax-M2.7"))
-    assert captured[0]["default_model"] == "openai-live/MiniMax-M2.7"
-    assert "providers" not in captured[0]
+    other_cfg = manager._build_harness_config(replace(_row(), user_id=other_owner))
+    assert other_cfg.default_model == "test-openai/other-model"
+    assert other_cfg.providers[0].api_key == "sk-other"
+    ownerless_cfg = manager._build_harness_config(replace(_row(), user_id=None))
+    assert ownerless_cfg.providers == []
+    assert ownerless_cfg.default_model is None
 
 
 def test_build_harness_config_tolerates_bad_config_json(manager: AgentManager) -> None:
@@ -1440,12 +1451,12 @@ async def test_start_agent_real_harness_seeds_agents_md(manager: AgentManager) -
 
     _seed_test_provider(manager)
     manager._harness_manager = HarnessAgentManager(
-        providers=manager.providers.build_harness_configs(),
+        providers=[],
         log_dir=str(manager.paths.logs_dir),
     )
     row = manager._repos.agent_repo.create(
         agent_id="REAL01",
-        user_id=None,
+        user_id=1,
         name="real",
         config_json=json.dumps(_MEMORY_OFF),
     )
@@ -1471,12 +1482,12 @@ async def test_stop_and_start_round_trip(manager: AgentManager) -> None:
 
     _seed_test_provider(manager)
     manager._harness_manager = HarnessAgentManager(
-        providers=manager.providers.build_harness_configs(),
+        providers=[],
         log_dir=str(manager.paths.logs_dir),
     )
     manager._repos.agent_repo.create(
         agent_id="STOP01",
-        user_id=None,
+        user_id=1,
         name="stop-me",
         config_json=json.dumps(_MEMORY_OFF),
     )
@@ -1507,12 +1518,12 @@ async def test_save_security_rebuilds_running_octop_harness(manager: AgentManage
 
     _seed_test_provider(manager)
     manager._harness_manager = HarnessAgentManager(
-        providers=manager.providers.build_harness_configs(),
+        providers=[],
         log_dir=str(manager.paths.logs_dir),
     )
     manager._repos.agent_repo.create(
         agent_id="SEC01",
-        user_id=None,
+        user_id=1,
         name="sec",
         config_json=json.dumps(_MEMORY_OFF),
     )
@@ -1536,12 +1547,12 @@ async def test_reload_skips_stopped_agent(manager: AgentManager) -> None:
 
     _seed_test_provider(manager)
     manager._harness_manager = HarnessAgentManager(
-        providers=manager.providers.build_harness_configs(),
+        providers=[],
         log_dir=str(manager.paths.logs_dir),
     )
     manager._repos.agent_repo.create(
         agent_id="SKIP01",
-        user_id=None,
+        user_id=1,
         name="skip",
         config_json=json.dumps(_MEMORY_OFF),
     )
@@ -1569,10 +1580,10 @@ async def test_create_seeds_bootstrap_files(manager: AgentManager) -> None:
 
     _seed_test_provider(manager)
     manager._harness_manager = HarnessAgentManager(
-        providers=manager.providers.build_harness_configs(),
+        providers=[],
         log_dir=str(manager.paths.logs_dir),
     )
-    row = await manager.create(AgentCreateSpec(name="seeded", config=dict(_MEMORY_OFF)))
+    row = await manager.create(AgentCreateSpec(user_id=1, name="seeded", config=dict(_MEMORY_OFF)))
     agent = manager.get_agent(row.agent_id)
     assert agent.workspace.exists("BOOTSTRAP.md")
     assert agent.workspace.exists("AGENTS.md")
@@ -1598,12 +1609,12 @@ async def test_start_team_host_does_not_copy_builtin_skills(manager: AgentManage
 
     _seed_test_provider(manager)
     manager._harness_manager = HarnessAgentManager(
-        providers=manager.providers.build_harness_configs(),
+        providers=[],
         log_dir=str(manager.paths.logs_dir),
     )
     manager._repos.agent_repo.create(
         agent_id="TEAM01",
-        user_id=None,
+        user_id=1,
         name="team-host",
         kind="team",
         config_json=json.dumps(_MEMORY_OFF),
@@ -1632,13 +1643,14 @@ async def test_create_keeps_user_workspace_dir(
 
     _seed_test_provider(manager)
     manager._harness_manager = HarnessAgentManager(
-        providers=manager.providers.build_harness_configs(),
+        providers=[],
         log_dir=str(manager.paths.logs_dir),
     )
     custom = tmp_path / "custom-user-ws"
     try:
         row = await manager.create(
             AgentCreateSpec(
+                user_id=1,
                 name="user-ws",
                 config={
                     **_MEMORY_OFF,
@@ -1671,7 +1683,7 @@ async def test_create_persists_rootfs_workspace_under_scoped_root(
 
     _seed_test_provider(manager)
     manager._harness_manager = HarnessAgentManager(
-        providers=manager.providers.build_harness_configs(),
+        providers=[],
         log_dir=str(manager.paths.logs_dir),
     )
     try:
@@ -1679,6 +1691,7 @@ async def test_create_persists_rootfs_workspace_under_scoped_root(
         # root_dir to tmp_path places the default workspace inside the rootfs.
         row = await manager.create(
             AgentCreateSpec(
+                user_id=1,
                 name="scoped-ws",
                 config={
                     **_MEMORY_OFF,
@@ -1713,7 +1726,7 @@ def test_resolve_workspace_dir_uses_persisted_path(manager: AgentManager, tmp_pa
     custom.mkdir()
     manager._repos.agent_repo.create(
         agent_id="WSDIR1",
-        user_id=None,
+        user_id=1,
         name="ws",
         config_json=json.dumps({"workspace_dir": str(custom)}),
     )
@@ -1728,7 +1741,7 @@ def test_resolve_workspace_dir_remaps_unwritable_host_path(
     stale = blocker / "YZQ7X4"
     manager._repos.agent_repo.create(
         agent_id="YZQ7X4",
-        user_id=None,
+        user_id=1,
         name="stale-root",
         config_json=json.dumps(
             {
@@ -1750,7 +1763,7 @@ def test_build_harness_config_remaps_unwritable_workspace(
     stale = blocker / "YZQ7X4"
     manager._repos.agent_repo.create(
         agent_id="YZQ7X4",
-        user_id=None,
+        user_id=1,
         name="stale-root",
         config_json=json.dumps({"workspace_dir": str(stale), **_MEMORY_OFF}),
     )
@@ -1769,7 +1782,7 @@ def test_resolve_workspace_dir_remaps_unwritable_scoped_root(
     blocker.write_text("x", encoding="utf-8")
     manager._repos.agent_repo.create(
         agent_id="F46T8Y",
-        user_id=None,
+        user_id=1,
         name="stale-jail",
         config_json=json.dumps(
             {
@@ -1792,7 +1805,7 @@ def test_resolve_workspace_dir_remaps_unwritable_scoped_root(
 def test_resolve_workspace_dir_backfills_legacy_row(manager: AgentManager) -> None:
     manager._repos.agent_repo.create(
         agent_id="WSDIR2",
-        user_id=None,
+        user_id=1,
         name="legacy",
         config_json="{}",
     )
@@ -1817,11 +1830,12 @@ async def test_templated_agent_keeps_expert_soul_on_reload(manager: AgentManager
     manager._expert_catalog = catalog
     _seed_test_provider(manager)
     manager._harness_manager = HarnessAgentManager(
-        providers=manager.providers.build_harness_configs(),
+        providers=[],
         log_dir=str(manager.paths.logs_dir),
     )
     row = await manager.create(
         AgentCreateSpec(
+            user_id=1,
             name="tpl-bot",
             template_name="general-assistant",
             config=dict(_MEMORY_OFF),
@@ -1899,14 +1913,15 @@ async def test_persist_skills_disabled_does_not_schedule_reload(
     """skills_disabled is hot-synced; must not tear down the running agent."""
     from octop.infra.agents.manager import AgentCreateSpec
 
+    _seed_test_provider(manager)
     fake_agent = MagicMock()
     fake_hm = MagicMock()
     fake_hm.get_agent.return_value = MagicMock(agent=fake_agent)
     fake_hm.acreate_agent = AsyncMock(return_value=MagicMock(agent=fake_agent))
-    fake_hm.shared_factory = object()
+    fake_hm.shared_factory = None
     manager._harness_manager = fake_hm
 
-    row = await manager.create(AgentCreateSpec(name="skills-hot"))
+    row = await manager.create(AgentCreateSpec(user_id=1, name="skills-hot"))
     scheduled: list[str] = []
     monkeypatch.setattr(manager, "_schedule_reload", lambda aid: scheduled.append(aid))
 
@@ -1925,14 +1940,15 @@ async def test_persist_tools_disabled_strips_critical_and_hot_syncs(
     """tools_disabled is hot-synced; critical names are dropped."""
     from octop.infra.agents.manager import AgentCreateSpec
 
+    _seed_test_provider(manager)
     fake_agent = MagicMock()
     fake_hm = MagicMock()
     fake_hm.get_agent.return_value = MagicMock(agent=fake_agent)
     fake_hm.acreate_agent = AsyncMock(return_value=MagicMock(agent=fake_agent))
-    fake_hm.shared_factory = object()
+    fake_hm.shared_factory = None
     manager._harness_manager = fake_hm
 
-    row = await manager.create(AgentCreateSpec(name="tools-hot"))
+    row = await manager.create(AgentCreateSpec(user_id=1, name="tools-hot"))
     scheduled: list[str] = []
     monkeypatch.setattr(manager, "_schedule_reload", lambda aid: scheduled.append(aid))
 
@@ -1950,14 +1966,15 @@ async def test_update_config_json_still_schedules_reload(
 ) -> None:
     from octop.infra.agents.manager import AgentCreateSpec
 
+    _seed_test_provider(manager)
     fake_agent = MagicMock()
     fake_hm = MagicMock()
     fake_hm.get_agent.return_value = MagicMock(agent=fake_agent)
     fake_hm.acreate_agent = AsyncMock(return_value=MagicMock(agent=fake_agent))
-    fake_hm.shared_factory = object()
+    fake_hm.shared_factory = None
     manager._harness_manager = fake_hm
 
-    row = await manager.create(AgentCreateSpec(name="cfg-reload"))
+    row = await manager.create(AgentCreateSpec(user_id=1, name="cfg-reload"))
     scheduled: list[str] = []
     monkeypatch.setattr(manager, "_schedule_reload", lambda aid: scheduled.append(aid))
 
@@ -1973,7 +1990,9 @@ async def test_update_config_json_cannot_change_system_files_path(
     from octop.infra.agents.manager import AgentCreateSpec
 
     # Avoid starting harness runtime in this unit-test context.
-    row = await manager.create(AgentCreateSpec(name="sysfiles-fixed"), defer_bootstrap=True)
+    row = await manager.create(
+        AgentCreateSpec(user_id=1, name="sysfiles-fixed"), defer_bootstrap=True
+    )
     monkeypatch.setattr(manager, "_schedule_reload", lambda _aid: None)
 
     assert manager.get_config(row.agent_id).get("system_files_path") == ".octop"
@@ -1997,7 +2016,7 @@ async def test_update_config_json_cannot_move_the_workspace(
     """
     from octop.infra.agents.manager import AgentCreateSpec
 
-    row = await manager.create(AgentCreateSpec(name="wsdir-fixed"), defer_bootstrap=True)
+    row = await manager.create(AgentCreateSpec(user_id=1, name="wsdir-fixed"), defer_bootstrap=True)
     monkeypatch.setattr(manager, "_schedule_reload", lambda _aid: None)
     scoped = str(manager.paths.root / "sandbox-root" / "ws" / row.agent_id)
     # An agent created against a scoped/container root stores that workspace in its config.
@@ -2019,7 +2038,9 @@ async def test_internal_persist_can_still_set_the_workspace(manager: AgentManage
     """The internal writer must keep writing ``workspace_dir`` (no over-pinning)."""
     from octop.infra.agents.manager import AgentCreateSpec
 
-    row = await manager.create(AgentCreateSpec(name="wsdir-internal"), defer_bootstrap=True)
+    row = await manager.create(
+        AgentCreateSpec(user_id=1, name="wsdir-internal"), defer_bootstrap=True
+    )
     other = str(manager.paths.root / "other-ws" / row.agent_id)
     cfg = manager.get_config(row.agent_id)
     cfg["workspace_dir"] = other
@@ -2045,11 +2066,13 @@ async def test_reload_agent_does_not_block_event_loop(
     run_migrations(db)
     services = build_shared_services(db=db, paths=paths, config=OctopConfig())
     registry = AgentManager(repos=services.repos, paths=services.paths)
+    services.repos.user_repo.create(username="test-owner", password_hash="h", role="admin")
+    _seed_test_provider(registry)
 
     fake_hm = MagicMock()
     fake_entry = MagicMock()
     fake_entry.agent = MagicMock()
-    fake_hm.shared_factory = object()
+    fake_hm.shared_factory = None
     fake_hm.acreate_agent = AsyncMock(return_value=fake_entry)
 
     rebuild_started = asyncio.Event()
@@ -2070,7 +2093,7 @@ async def test_reload_agent_does_not_block_event_loop(
     registry._harness_manager = fake_hm
     monkeypatch.setattr(registry, "_post_start_agent", fake_post_start)
 
-    row = await registry.create(AgentCreateSpec(name="block-test"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="block-test"))
     post_start_finished.clear()
 
     tick = asyncio.Event()

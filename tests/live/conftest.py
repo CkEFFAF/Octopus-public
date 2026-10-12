@@ -76,12 +76,13 @@ def live_openai_config() -> LiveOpenAIConfig:
     )
 
 
-def _seed_live_provider(services: object, cfg: LiveOpenAIConfig) -> None:
+def _seed_live_provider(services: object, cfg: LiveOpenAIConfig, user_id: int) -> None:
     repos = services.repos  # type: ignore[attr-defined]
-    existing = repos.provider_repo.get_by_name(cfg.provider_name)
+    existing = repos.provider_repo.get_by_name(user_id, cfg.provider_name)
     if existing is not None:
-        repos.provider_repo.delete(existing.id)
+        repos.provider_repo.delete(user_id, existing.id)
     repos.provider_repo.create(
+        user_id=user_id,
         name=cfg.provider_name,
         kind="openai",
         base_url=cfg.base_url,
@@ -102,7 +103,8 @@ async def live_agent_manager(
     db = SqlitePool(paths.db)
     run_migrations(db)
     services = build_shared_services(db=db, paths=paths, config=OctopConfig())
-    _seed_live_provider(services, live_openai_config)
+    owner = services.repos.user_repo.create(username="live-owner", password_hash="h", role="user")
+    _seed_live_provider(services, live_openai_config, owner)
 
     catalog = ExpertCatalog(default_library_root())
     catalog.refresh()
@@ -123,7 +125,10 @@ async def live_agent_manager(
         memory = dict(cfg["memory"]) if isinstance(cfg.get("memory"), dict) else {}
         memory.setdefault("memory_enabled", False)
         cfg["memory"] = memory
-        return await _create(replace(spec, config=cfg), **kwargs)
+        return await _create(
+            replace(spec, user_id=owner if spec.user_id is None else spec.user_id, config=cfg),
+            **kwargs,
+        )
 
     manager.create = _create_without_memory  # type: ignore[method-assign]
     await manager.boot()

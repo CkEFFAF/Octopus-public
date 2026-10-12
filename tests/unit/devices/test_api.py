@@ -168,7 +168,6 @@ async def test_same_account_outbound_clients_http_auth_and_revoke(tmp_path: Path
         pool.close()
 
 
-
 @pytest.mark.asyncio
 async def test_account_bearer_enroll_lists_under_owner(tmp_path: Path) -> None:
     """0004 AE-01/AE-02: password-session JWT enrolls; browser JWT alone is not enough without enroll call."""
@@ -221,16 +220,18 @@ async def test_account_bearer_enroll_lists_under_owner(tmp_path: Path) -> None:
         body = enrolled.json()
         assert body["device_token"].startswith("odv_")
         assert "token_hash" not in str(body)
-        devices = (await http.get("/api/devices", headers={"Authorization": f"Bearer {token}"})).json()[
-            "devices"
-        ]
+        devices = (
+            await http.get("/api/devices", headers={"Authorization": f"Bearer {token}"})
+        ).json()["devices"]
         assert len(devices) == 1 and devices[0]["name"] == "Laptop"
         other_list = (
             await http.get("/api/devices", headers={"Authorization": f"Bearer {other_token}"})
         ).json()["devices"]
         assert other_list == []
         # Mixing Bearer with pairing_code is rejected.
-        pairing = (await http.post("/api/devices/pairing", headers={"Authorization": f"Bearer {token}"})).json()
+        pairing = (
+            await http.post("/api/devices/pairing", headers={"Authorization": f"Bearer {token}"})
+        ).json()
         mixed = await http.post(
             "/api/devices/enroll",
             headers={"Authorization": f"Bearer {token}"},

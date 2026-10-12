@@ -113,7 +113,7 @@ export function ActiveModelPool({
         ok: boolean;
         latency_ms?: number;
         error?: string;
-      }>(`/admin/providers/${m.provider_id}/test`, {
+      }>(`/providers/${m.provider_id}/test`, {
         method: "POST",
         body: JSON.stringify({ model_id: m.model }),
       });

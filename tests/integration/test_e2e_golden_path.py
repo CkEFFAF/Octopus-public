@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from tests.support.auth import bootstrap_admin
+from tests.support.auth import bootstrap_admin, seed_openai_provider
 from tests.support.http import ws_chat_turn
 
 
@@ -47,7 +47,7 @@ async def test_full_golden_path(env: Any) -> None:
     )
     assert r.status_code == 201
 
-    # 4) admin creates a shared provider
+    # 4) admin creates an account-owned provider
     r = await c.post(
         "/api/admin/providers",
         headers=auth,
@@ -73,6 +73,10 @@ async def test_full_golden_path(env: Any) -> None:
     assert r.status_code == 200
     alice_tok = r.json()["access_token"]
     alice_auth = {"Authorization": f"Bearer {alice_tok}"}
+    r = await c.get("/api/providers/resolved", headers=alice_auth)
+    assert r.status_code == 200
+    assert r.json() == []
+    await seed_openai_provider(c, alice_auth, api_key="alice-test-key")
 
     # 6) alice creates her own agent and chats on it (must own the agent to connect)
     r = await c.post(
@@ -109,8 +113,8 @@ async def test_expert_to_chat_golden_path(env: Any) -> None:
     """Create an agent from the expert library, start it, then chat.
 
     Full flow:
-      1. Setup admin + provider
-      2. Regular user logs in
+      1. Setup admin + its private provider
+      2. Regular user logs in and configures a private provider
       3. User lists experts, picks "default"
       4. User lists available models → selects one
       5. User creates agent from expert with default_model
@@ -146,6 +150,10 @@ async def test_expert_to_chat_golden_path(env: Any) -> None:
     )
     r = await c.post("/api/auth/login", json={"username": "bob", "password": "TestPass12"})
     bob_auth = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    r = await c.get("/api/providers/resolved", headers=bob_auth)
+    assert r.status_code == 200
+    assert r.json() == []
+    await seed_openai_provider(c, bob_auth, api_key="bob-test-key")
 
     # 3) list experts — the default expert must be present
     r = await c.get("/api/experts", headers=bob_auth)

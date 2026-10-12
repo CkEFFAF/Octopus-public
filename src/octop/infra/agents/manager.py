@@ -15,7 +15,7 @@ from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from octop_harness import HarnessAgent, HarnessAgentConfig, HarnessAgentManager
+from octop_harness import HarnessAgent, HarnessAgentConfig
 from octop_harness.registry import AgentEntry
 from octop_harness.security.models import SecurityPolicy
 
@@ -26,7 +26,10 @@ from octop.i18n.domains.agents import (
 )
 from octop.infra.agents.memory.backend import memory_backend_from_agent_config
 from octop.infra.agents.memory.slim import MemorySlimCoordinator
-from octop.infra.agents.providers import ProviderStore, sync_providers_to_harness
+from octop.infra.agents.plugins.harness_isolation import (
+    AccountIsolatedHarnessManager as HarnessAgentManager,
+)
+from octop.infra.agents.providers import ProviderStore
 from octop.infra.agents.security import SecuritySettingsStore, ToolGuardRulesStore
 from octop.infra.agents.security.hitl_session import (
     HitlSessionPolicyStore,
@@ -429,9 +432,6 @@ class AgentManager:
             agents_repo=repos.agent_repo,
         )
         self._tool_guard_rules = ToolGuardRulesStore(paths=paths)
-        self._providers = ProviderStore(
-            provider_repo=repos.provider_repo,
-        )
         self._connector_svc = ConnectorService(
             repo=repos.connector_repo,
             secret_repo=repos.secret_repo,
@@ -463,7 +463,6 @@ class AgentManager:
             settings_repo=repos.settings_repo,
             agents_repo=repos.agent_repo,
         )
-        self._providers = ProviderStore(provider_repo=repos.provider_repo)
         self._connector_svc = ConnectorService(
             repo=repos.connector_repo,
             secret_repo=repos.secret_repo,
@@ -501,9 +500,10 @@ class AgentManager:
 
     async def boot(self) -> None:
         self._tool_guard_rules.ensure_seeded()
-        providers = self._providers.build_harness_configs()
         self._harness_manager = HarnessAgentManager(
-            providers=providers,
+            # Each agent receives its owner's configs and owns its model factory.
+            # A process-wide factory would conflate equal provider names across users.
+            providers=[],
             langfuse=self._langfuse.harness_config(),
             team_processor=self._team_processor,
             log_dir=str(self.paths.logs_dir),
@@ -563,9 +563,12 @@ class AgentManager:
     # Exposed stores & paths (read-only accessors)
     # ------------------------------------------------------------------
 
-    @property
-    def providers(self) -> ProviderStore:
-        return self._providers
+    def providers_for_user(self, user_id: int | None) -> ProviderStore:
+        return ProviderStore(provider_repo=self._repos.provider_repo, user_id=user_id)
+
+    def providers_for_agent(self, agent_id: str) -> ProviderStore:
+        row = self._repos.agent_repo.get(agent_id)
+        return self.providers_for_user(row.user_id if row is not None else None)
 
     @property
     def security(self) -> SecuritySettingsStore:
@@ -1171,9 +1174,9 @@ class AgentManager:
             )
             return True
 
-    def find_agents_using_provider(self, provider_name: str) -> list[dict[str, str]]:
+    def find_agents_using_provider(self, user_id: int, provider_name: str) -> list[dict[str, str]]:
         """Return agents referencing *provider_name* in config or default_model."""
-        return self._providers.find_agents_using_provider(
+        return self.providers_for_user(user_id).find_agents_using_provider(
             agent_repo=self._repos.agent_repo,
             get_config=self.get_config,
             provider_name=provider_name,
@@ -1372,14 +1375,17 @@ class AgentManager:
         if self._harness_manager is not None:
             self._harness_manager.clear_thread_model(agent_id, thread_id)
 
-    def resolve_fallback_model_ref(self) -> str | None:
+    def resolve_fallback_model_ref(self, user_id: int | None) -> str | None:
         """Settings active model when usable, else the first enabled catalog model."""
-        name, model_id = self._repos.settings_repo.get_active_model()
+        providers = self.providers_for_user(user_id)
+        name, model_id = (
+            self._repos.settings_repo.get_active_model(user_id) if user_id is not None else ("", "")
+        )
         if name and model_id:
             ref = f"{name}/{model_id}"
-            if self._providers.is_model_ref_usable(ref):
+            if providers.is_model_ref_usable(ref):
                 return ref
-        return self._providers.resolve_first_model_ref()
+        return providers.resolve_first_model_ref()
 
     # ------------------------------------------------------------------
     # Hot-reload — rebuild harness agents after config / provider changes
@@ -1406,37 +1412,30 @@ class AgentManager:
 
     def _agent_uses_auto_default(self, row: AgentRow) -> bool:
         cfg = self.get_config(row.agent_id)
-        return self._providers.resolve_explicit_default_model(row, cfg) is None
+        return self.providers_for_user(row.user_id).resolve_explicit_default_model(row, cfg) is None
 
     def _provider_reload_impact_ids(
         self,
         *,
+        user_id: int | None = None,
         provider_name: str | None = None,
         active_model_changed: bool = False,
     ) -> list[str]:
         """Agent IDs that must be rebuilt after a provider / active-model change."""
         rows = self._repos.agent_repo.list_all(include_disabled=False)
-        if provider_name is None and not active_model_changed:
+        if user_id is not None:
+            rows = [row for row in rows if row.user_id == user_id]
+        # Every per-agent factory holds the owner's complete provider catalog,
+        # including non-default models selectable for an individual turn.
+        # Rebuild the whole owner's cache when credentials/catalogs change.
+        if provider_name is not None or not active_model_changed:
             return [row.agent_id for row in rows]
-
-        enabled_ids = {row.agent_id for row in rows}
         impact: set[str] = set()
-        include_auto = active_model_changed
-        if provider_name and not include_auto:
-            active_name, _ = self._repos.settings_repo.get_active_model()
-            include_auto = active_name == provider_name
-
         for row in rows:
             if row.last_state in _AGENT_STATES_NEEDING_MODEL_RELOAD or (
-                include_auto and self._agent_uses_auto_default(row)
+                active_model_changed and self._agent_uses_auto_default(row)
             ):
                 impact.add(row.agent_id)
-
-        if provider_name:
-            for ref in self.find_agents_using_provider(provider_name):
-                aid = ref.get("agent_id")
-                if isinstance(aid, str) and aid in enabled_ids:
-                    impact.add(aid)
 
         return sorted(impact)
 
@@ -1458,27 +1457,21 @@ class AgentManager:
     async def on_provider_changed(
         self,
         *,
+        user_id: int | None = None,
         provider_name: str | None = None,
         active_model_changed: bool = False,
     ) -> None:
-        """Sync harness factory from DB, then reload impacted agents (awaited).
+        """Refresh account-owned factories from DB, then reload agents (awaited).
 
-        When *provider_name* or *active_model_changed* is set, only the impact set
-        is rebuilt. With neither set (backup restore, OAuth, unknown), all enabled
-        agents are rebuilt in parallel.
+        Provider edits invalidate every factory belonging to that account;
+        active-model preference edits only affect AUTO and failed agents.
+        Without an owner (backup restore), all enabled agents are considered.
         """
         if self._harness_manager is None:
             return
-        providers = self._providers.build_harness_configs()
-        sync_providers_to_harness(
-            self._harness_manager,
-            providers,
-            shared_factory=self._harness_manager.shared_factory,
-        )
-        if self._harness_manager.shared_factory is None:
-            return
         await self._reload_agents(
             self._provider_reload_impact_ids(
+                user_id=user_id,
                 provider_name=provider_name,
                 active_model_changed=active_model_changed,
             )
@@ -2571,7 +2564,7 @@ class AgentManager:
         self, row: AgentRow, *, init_workspace: bool = True
     ) -> HarnessAgent | None:
         assert self._harness_manager is not None, "_start_agent called before boot()"
-        if self._harness_manager.shared_factory is None:
+        if not self.providers_for_user(row.user_id).has_usable_providers():
             self._repos.agent_repo.set_state(row.agent_id, "failed", error=NO_MODELS_CONFIGURED)
             return None
         async with self._lifecycle_lock_for(row.agent_id):
@@ -2938,7 +2931,9 @@ class AgentManager:
                 await asyncio.to_thread(self._quiesce_octop_memory, agent_id)
                 await self._harness_manager.aremove_agent(agent_id)
                 return
-            if self._harness_manager.shared_factory is None:
+            if not self.providers_for_user(row.user_id).has_usable_providers():
+                await self._harness_manager.aremove_agent(agent_id)
+                self._repos.agent_repo.set_state(agent_id, "failed", error=NO_MODELS_CONFIGURED)
                 return
             try:
                 cfg, metadata, tags, user_display = self._agent_runtime_bundle(row)
@@ -3103,6 +3098,15 @@ class AgentManager:
         from octop_harness.plugins import collect_plugin_tool_configs  # noqa: PLC0415
 
         req = dict(request)
+        model = req.get("model")
+        if (
+            isinstance(model, str)
+            and model
+            and not self.providers_for_agent(agent_id).is_model_ref_usable(model)
+        ):
+            raise OctopError(
+                ErrorCode.SLASH_BAD_ARGS, "model must reference an enabled owner model"
+            )
         if req.get("agent_id") is None:
             req["agent_id"] = agent_id
         agent_cfg = self.get_config(agent_id)
@@ -3446,6 +3450,7 @@ class AgentManager:
         )
 
         harness_cfg = HarnessAgentConfig(
+            providers=self.providers_for_user(row.user_id).build_harness_configs(),
             name=_memory_namespace(row.agent_id),
             workspace_dir=harness_workspace,
             system_files_path=system_files_path_from_config(cfg),
@@ -3455,8 +3460,8 @@ class AgentManager:
             # Per-turn AUTO routing is unaffected: the gateway resolves models via
             # ``resolve_explicit_default_model`` directly.
             default_model=(
-                self._providers.resolve_explicit_default_model(row, cfg)
-                or self.resolve_fallback_model_ref()
+                self.providers_for_user(row.user_id).resolve_explicit_default_model(row, cfg)
+                or self.resolve_fallback_model_ref(row.user_id)
             ),
             system_prompt=system_prompt,
             memory=memory,
@@ -3472,7 +3477,9 @@ class AgentManager:
             default_timezone=self._config.default_timezone,
             log_dir=str(self.paths.logs_dir),
             media_generation=self._media_generation.harness_config(),
-            **_memory_extract_settings(cfg, is_ref_usable=self._providers.is_model_ref_usable),
+            **_memory_extract_settings(
+                cfg, is_ref_usable=self.providers_for_user(row.user_id).is_model_ref_usable
+            ),
             **_resolve_memory_backend_kwargs(cfg, workspace_dir=workspace_dir, config=self._config),
         )
         if "tools_disabled" in _HARNESS_AGENT_CONFIG_FIELDS:

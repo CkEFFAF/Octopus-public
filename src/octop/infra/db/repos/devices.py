@@ -43,7 +43,9 @@ class DeviceRow:
             roots=cast(list[dict[str, Any]], json.loads(row["roots"])),
             token_hash=str(row["token_hash"]),
             grant_version=int(row["grant_version"]),
-            remote_grant_mode=str(row["remote_grant_mode"] if row["remote_grant_mode"] is not None else "owner_auto"),
+            remote_grant_mode=str(
+                row["remote_grant_mode"] if row["remote_grant_mode"] is not None else "owner_auto"
+            ),
             last_seen_at=(float(row["last_seen_at"]) if row["last_seen_at"] is not None else None),
             revoked_at=(float(row["revoked_at"]) if row["revoked_at"] is not None else None),
             created_at=float(row["created_at"]),

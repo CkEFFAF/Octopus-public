@@ -215,7 +215,7 @@ export function PresetProviderModal({
       const values = await form.validateFields();
       setSaving(true);
 
-      await request<ProviderRow>("/admin/providers", {
+      await request<ProviderRow>("/providers", {
         method: "POST",
         body: JSON.stringify({
           name: values.name.trim(),
@@ -348,7 +348,7 @@ export function PresetProviderModal({
             provider={draftProvider}
             models={draftModels}
             onModelsChange={setDraftModels}
-            apiPrefix="/admin/providers"
+            apiPrefix="/providers"
             canTest={canTest}
             onTestModel={(modelId) => testDraftModel(modelId)}
           />

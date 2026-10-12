@@ -168,10 +168,9 @@ async def patch_preferences(
         preferred: str | None | object = ...
         if "preferred_model" in body.model_fields_set:
             preferred = body.preferred_model
-            if (
-                preferred is not None
-                and not server.app_runtime.agent_registry.providers.is_model_ref_usable(preferred)
-            ):
+            if preferred is not None and not server.app_runtime.agent_registry.providers_for_user(
+                user.id
+            ).is_model_ref_usable(preferred):
                 raise OctopError(
                     ErrorCode.SLASH_BAD_ARGS,
                     "preferred_model must reference an enabled model",

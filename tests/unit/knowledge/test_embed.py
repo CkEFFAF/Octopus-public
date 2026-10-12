@@ -16,7 +16,7 @@ def test_remote_embedding_routes_to_provider_embeddings_endpoint(monkeypatch) ->
             }.get(key)
         ),
         provider_repo=SimpleNamespace(
-            get=lambda provider_id: provider if provider_id == 7 else None
+            get_for_admin=lambda provider_id: provider if provider_id == 7 else None
         ),
     )
     captured = {}
@@ -62,7 +62,7 @@ def test_remote_embedding_merges_provider_extra_headers(monkeypatch) -> None:
             }.get(key)
         ),
         provider_repo=SimpleNamespace(
-            get=lambda provider_id: provider if provider_id == 7 else None
+            get_for_admin=lambda provider_id: provider if provider_id == 7 else None
         ),
     )
     captured = {}
@@ -103,7 +103,7 @@ def test_remote_embedding_batches_large_input(monkeypatch) -> None:
             }.get(key)
         ),
         provider_repo=SimpleNamespace(
-            get=lambda provider_id: provider if provider_id == 7 else None
+            get_for_admin=lambda provider_id: provider if provider_id == 7 else None
         ),
     )
     calls: list[dict] = []

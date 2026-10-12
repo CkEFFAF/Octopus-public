@@ -181,7 +181,7 @@ export function PresetGroupCard({
           isHover={isHover}
           onMouseEnter={onMouseEnter}
           onMouseLeave={onMouseLeave}
-          apiPrefix="/admin/providers"
+          apiPrefix="/providers"
         />
         <div className={styles.presetGroupFooter}>
           <button

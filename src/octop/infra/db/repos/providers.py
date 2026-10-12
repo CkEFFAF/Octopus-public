@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class ProviderRow:
     id: int
+    user_id: int
     name: str
     kind: str
     base_url: str | None
@@ -38,6 +39,7 @@ class ProviderRow:
     def from_row(cls, r: DbRow) -> ProviderRow:
         return cls(
             id=r["id"],
+            user_id=r["user_id"],
             name=r["name"],
             kind=r["kind"],
             base_url=r["base_url"],
@@ -69,6 +71,7 @@ class ProviderRepo:
     def create(
         self,
         *,
+        user_id: int,
         name: str,
         kind: str,
         base_url: str | None = None,
@@ -81,29 +84,47 @@ class ProviderRepo:
         with self._db.transaction() as conn:
             return insert_returning_id(
                 conn,
-                "INSERT INTO providers(name, kind, base_url, api_key, "
+                "INSERT INTO providers(user_id, name, kind, base_url, api_key, "
                 "extra_json, models_json, note, enabled, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
-                (name, kind, base_url, api_key, extra_json, models_json, note, ts, ts),
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+                (user_id, name, kind, base_url, api_key, extra_json, models_json, note, ts, ts),
             )
 
-    def get(self, provider_id: int) -> ProviderRow | None:
+    def get(self, user_id: int, provider_id: int) -> ProviderRow | None:
+        with self._db.connect() as conn:
+            r = conn.execute(
+                "SELECT * FROM providers WHERE user_id = ? AND id = ?", (user_id, provider_id)
+            ).fetchone()
+        return ProviderRow.from_row(r) if r else None
+
+    def get_for_admin(self, provider_id: int) -> ProviderRow | None:
+        """Explicit privileged lookup for administration and system knowledge settings."""
         with self._db.connect() as conn:
             r = conn.execute("SELECT * FROM providers WHERE id = ?", (provider_id,)).fetchone()
         return ProviderRow.from_row(r) if r else None
 
-    def get_by_name(self, name: str) -> ProviderRow | None:
+    def get_by_name(self, user_id: int, name: str) -> ProviderRow | None:
         with self._db.connect() as conn:
-            r = conn.execute("SELECT * FROM providers WHERE name = ?", (name,)).fetchone()
+            r = conn.execute(
+                "SELECT * FROM providers WHERE user_id = ? AND name = ?", (user_id, name)
+            ).fetchone()
         return ProviderRow.from_row(r) if r else None
 
-    def list_all(self) -> list[ProviderRow]:
+    def list_all(self, user_id: int) -> list[ProviderRow]:
         with self._db.connect() as conn:
-            rows = conn.execute("SELECT * FROM providers ORDER BY name").fetchall()
+            rows = conn.execute(
+                "SELECT * FROM providers WHERE user_id = ? ORDER BY name", (user_id,)
+            ).fetchall()
+        return map_rows(rows, ProviderRow)
+
+    def list_for_admin(self) -> list[ProviderRow]:
+        with self._db.connect() as conn:
+            rows = conn.execute("SELECT * FROM providers ORDER BY user_id, name").fetchall()
         return map_rows(rows, ProviderRow)
 
     def update(
         self,
+        user_id: int,
         provider_id: int,
         *,
         kind: str | None = None,
@@ -132,16 +153,23 @@ class ProviderRepo:
         fields.append("updated_at = ?")
         params.append(now_ts())
         params.append(provider_id)
+        params.append(user_id)
         with self._db.transaction() as conn:
-            conn.execute(f"UPDATE providers SET {', '.join(fields)} WHERE id = ?", params)
+            conn.execute(
+                f"UPDATE providers SET {', '.join(fields)} WHERE id = ? AND user_id = ?", params
+            )
 
-    def delete(self, provider_id: int) -> None:
+    def delete(self, user_id: int, provider_id: int) -> None:
         with self._db.transaction() as conn:
-            conn.execute("DELETE FROM providers WHERE id = ?", (provider_id,))
+            conn.execute(
+                "DELETE FROM providers WHERE id = ? AND user_id = ?", (provider_id, user_id)
+            )
 
-    def find_referencing_agent_ids(self, agent_repo: AgentRepo, provider_name: str) -> list[str]:
+    def find_referencing_agent_ids(
+        self, agent_repo: AgentRepo, user_id: int, provider_name: str
+    ) -> list[str]:
         out: list[str] = []
-        for row in agent_repo.list_all():
+        for row in agent_repo.list_by_user(user_id):
             cfg = json.loads(row.config_json or "{}")
             if provider_name in (cfg.get("providers") or []):
                 out.append(row.agent_id)

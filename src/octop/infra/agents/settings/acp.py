@@ -35,6 +35,24 @@ _OCTOP_BUILTIN_RUNNERS: dict[str, dict[str, Any]] = {
         "trusted": True,
         "tool_parse_mode": "update_detail",
     },
+    "hermes": {
+        "command": "hermes",
+        "args": ["acp"],
+        "trusted": True,
+        "tool_parse_mode": "update_detail",
+    },
+    "grok_build": {
+        "command": "grok",
+        "args": ["agent", "stdio"],
+        "trusted": True,
+        "tool_parse_mode": "update_detail",
+    },
+    "openclaw": {
+        "command": "openclaw",
+        "args": ["acp"],
+        "trusted": True,
+        "tool_parse_mode": "update_detail",
+    },
 }
 
 

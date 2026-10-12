@@ -147,9 +147,7 @@ def run_tk_first_run(
     frm.grid(row=0, column=0, sticky="nsew")
 
     ttk.Label(frm, text="Server URL").grid(row=0, column=0, sticky="w")
-    server_var = tk.StringVar(
-        value=(server or "").strip() or resolve_default_device_server()
-    )
+    server_var = tk.StringVar(value=(server or "").strip() or resolve_default_device_server())
     ttk.Entry(frm, textvariable=server_var, width=42).grid(row=0, column=1, sticky="ew", pady=4)
 
     ttk.Label(frm, text="Username").grid(row=1, column=0, sticky="w")

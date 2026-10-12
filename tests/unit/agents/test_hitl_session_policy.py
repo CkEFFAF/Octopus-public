@@ -36,6 +36,7 @@ def manager(tmp_path: Path) -> AgentManager:
     db = SqlitePool(paths.db)
     run_migrations(db)
     services = build_shared_services(db=db, paths=paths, config=OctopConfig())
+    services.repos.user_repo.create(username="test-owner", password_hash="h", role="admin")
     return AgentManager(repos=services.repos, paths=services.paths)
 
 

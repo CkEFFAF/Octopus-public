@@ -1,8 +1,8 @@
 /**
- * Models — admin-only provider management page.
+ * Models — account-owned provider management page.
  *
- * Admins can create, edit, enable/disable, test, and delete providers.
- * All providers are globally available to every agent.
+ * Users can create, edit, enable/disable, test, and delete their providers.
+ * Shared experts use the expert owner’s providers.
  *
  * Layout:
  *  1. Preset providers (from /providers/presets) — shows configured ones via
@@ -78,7 +78,7 @@ export default function ModelsPage() {
   const canOnnx = userCan(user, "onnx_models");
   const canVoice = userCan(user, "voice");
   const canSearch = userCan(user, "search");
-  const canChat = canProviders || canOllama || canOnnx;
+  const canChat = Boolean(user);
   const {
     providers,
     presets,
@@ -132,7 +132,7 @@ export default function ModelsPage() {
       ),
     [presets, canOllama, canOnnx],
   );
-  const showCloudTab = canProviders;
+  const showCloudTab = canChat;
   const showLocalTab =
     (canOllama || canOnnx) &&
     (localPresets.grouped.length > 0 || localPresets.ungrouped.length > 0);
@@ -364,7 +364,7 @@ export default function ModelsPage() {
             </>
           )}
 
-          {canProviders && (
+          {canChat && (
             <>
               {(presets.length > 0 || customProviders.length > 0) && (
                 <Divider style={{ margin: "20px 0" }} />
@@ -399,7 +399,7 @@ export default function ModelsPage() {
                       isHover={hoveredCard === String(p.id)}
                       onMouseEnter={() => setHoveredCard(String(p.id))}
                       onMouseLeave={() => setHoveredCard(null)}
-                      apiPrefix="/admin/providers"
+                      apiPrefix="/providers"
                     />
                   ))}
                 </div>
@@ -416,10 +416,10 @@ export default function ModelsPage() {
 
       {modelCategory === "chat" && (
         <CustomProviderModal
-          open={addOpen && canProviders}
+          open={addOpen && canChat}
           onClose={() => setAddOpen(false)}
           onSaved={fetchAll}
-          apiPrefix="/admin/providers"
+          apiPrefix="/providers"
         />
       )}
     </PageShell>

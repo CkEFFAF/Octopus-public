@@ -20,7 +20,10 @@ def device() -> None:
 
 
 @device.command("connect")
-@click.option("--server", help="Control center URL, e.g. https://octop.effaf.me (HTTP allowed on loopback only).")
+@click.option(
+    "--server",
+    help="Control center URL, e.g. https://octop.effaf.me (HTTP allowed on loopback only).",
+)
 @click.option("--pair-code", help="Single-use code from your account's Devices page.")
 @click.option(
     "--access-key",
@@ -162,9 +165,7 @@ def connect(
                 credential = key_file.read_text(encoding="utf-8-sig").strip()
             if username and not session_token:
                 if not server:
-                    raise DeviceExecutionError(
-                        "first connect with --username requires --server"
-                    )
+                    raise DeviceExecutionError("first connect with --username requires --server")
                 session_token = account_login(
                     server, username, password or "", allow_insecure=allow_insecure
                 )
@@ -233,12 +234,19 @@ def connect(
 
 
 @device.command("add-controller")
-@click.option("--server", required=True, help="Trusted management host URL, e.g. https://octop.effaf.me.")
+@click.option(
+    "--server", required=True, help="Trusted management host URL, e.g. https://octop.effaf.me."
+)
 @click.option("--pair-code", help="Single-use code from that host's Devices page.")
 @click.option("--access-key", help="Prefer --key-file or the hidden interactive prompt.")
 @click.option("--key-file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--username", help="Account username for same-account auto-enroll.")
-@click.option("--password", prompt=False, hide_input=True, help="Account password (prefer interactive prompt).")
+@click.option(
+    "--password",
+    prompt=False,
+    hide_input=True,
+    help="Account password (prefer interactive prompt).",
+)
 @click.option("--account-token", prompt=False, help="Short-lived Bearer JWT; never stored.")
 @click.option("--name", help="Current device's name shown on that management host.")
 @click.option(

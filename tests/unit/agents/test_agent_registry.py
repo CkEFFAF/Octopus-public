@@ -33,7 +33,9 @@ def _make_services(tmp_path: Path):
     db = SqlitePool(tmp_path / "octop.db")
     run_migrations(db)
     services = build_shared_services(db=db, paths=PathLayout(tmp_path), config=OctopConfig())
+    services.repos.user_repo.create(username="test-owner", password_hash="h", role="admin")
     services.provider_repo.create(
+        user_id=1,
         name="test-openai",
         kind="openai",
         base_url="https://api.example.com/v1",
@@ -43,11 +45,6 @@ def _make_services(tmp_path: Path):
         ),
     )
     return services
-
-
-def _bootstrap_factory_from_db(registry: AgentManager, fake_hm: MagicMock) -> None:
-    for provider in registry.providers.build_harness_configs():
-        fake_hm.add_provider(provider)
 
 
 def _make_fake_hm(fake_agent: Any | None = None) -> MagicMock:
@@ -78,12 +75,9 @@ def _make_registry(services, *, fake_hm: MagicMock | None = None) -> AgentManage
     """Construct a registry with harness already injected (skips boot())."""
     reg = AgentManager(repos=services.repos, paths=services.paths)
     if fake_hm is None:
-        reg._harness_manager = build_harness_manager_mock(
-            providers=reg.providers.build_harness_configs(),
-        )
+        reg._harness_manager = build_harness_manager_mock()
     else:
         reg._harness_manager = fake_hm
-        _bootstrap_factory_from_db(reg, fake_hm)
     return reg
 
 
@@ -121,8 +115,8 @@ async def test_boot_starts_pre_existing_agents(tmp_path: Path, monkeypatch) -> N
     services = _make_services(tmp_path)
     fake_hm = _patch_harness(monkeypatch)
 
-    # Insert an agent before boot (no FK: user_id=None is allowed)
-    services.repos.agent_repo.create(agent_id="pre1", user_id=None, name="pre-agent")
+    # Insert an agent before boot (no FK: user_id=1 is allowed)
+    services.repos.agent_repo.create(agent_id="pre1", user_id=1, name="pre-agent")
 
     registry = AgentManager(repos=services.repos, paths=services.paths)
     await registry.boot()
@@ -137,8 +131,8 @@ async def test_boot_skips_disabled_agents(tmp_path: Path, monkeypatch) -> None:
     services = _make_services(tmp_path)
     fake_hm = _patch_harness(monkeypatch)
 
-    services.repos.agent_repo.create(agent_id="enabled-one", user_id=None, name="enabled")
-    services.repos.agent_repo.create(agent_id="disabled-one", user_id=None, name="disabled")
+    services.repos.agent_repo.create(agent_id="enabled-one", user_id=1, name="enabled")
+    services.repos.agent_repo.create(agent_id="disabled-one", user_id=1, name="disabled")
     services.repos.agent_repo.set_enabled("disabled-one", False)
 
     registry = AgentManager(repos=services.repos, paths=services.paths)
@@ -157,8 +151,8 @@ async def test_boot_start_timeout_marks_failed_and_continues(
 
     services = _make_services(tmp_path)
     _patch_harness(monkeypatch)
-    services.repos.agent_repo.create(agent_id="slow1", user_id=None, name="slow")
-    services.repos.agent_repo.create(agent_id="ok1", user_id=None, name="ok")
+    services.repos.agent_repo.create(agent_id="slow1", user_id=1, name="slow")
+    services.repos.agent_repo.create(agent_id="ok1", user_id=1, name="ok")
     registry = AgentManager(repos=services.repos, paths=services.paths)
     original = registry._start_agent
 
@@ -188,7 +182,7 @@ async def test_boot_start_timeout_keeps_registered_agent_running(
     """If harness already registered the agent, a late timeout stays running."""
     services = _make_services(tmp_path)
     _patch_harness(monkeypatch)
-    services.repos.agent_repo.create(agent_id="late1", user_id=None, name="late")
+    services.repos.agent_repo.create(agent_id="late1", user_id=1, name="late")
     registry = AgentManager(repos=services.repos, paths=services.paths)
 
     async def hang_after_register(row: Any) -> Any:
@@ -223,8 +217,8 @@ async def test_shutdown_clears_harness_manager(tmp_path: Path) -> None:
     fake_hm = _make_fake_hm()
     registry = _make_registry(services, fake_hm=fake_hm)
 
-    await registry.create(AgentCreateSpec(name="a"))
-    await registry.create(AgentCreateSpec(name="b"))
+    await registry.create(AgentCreateSpec(user_id=1, name="a"))
+    await registry.create(AgentCreateSpec(user_id=1, name="b"))
 
     await registry.shutdown()
 
@@ -281,7 +275,7 @@ async def test_create_persists_row(tmp_path: Path) -> None:
     services = _make_services(tmp_path)
     registry = _make_registry(services)
 
-    row = await registry.create(AgentCreateSpec(name="my-agent"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="my-agent"))
 
     rows = registry.list_rows()
     assert len(rows) == 1
@@ -297,7 +291,7 @@ async def test_create_registers_with_harness(tmp_path: Path) -> None:
     fake_hm = _make_fake_hm()
     registry = _make_registry(services, fake_hm=fake_hm)
 
-    row = await registry.create(AgentCreateSpec(name="bot"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="bot"))
 
     fake_hm.acreate_agent.assert_called_once()
     manager_skill = await registry.get_agent(row.agent_id).workspace.aread_text(
@@ -314,7 +308,9 @@ async def test_create_stores_config_json(tmp_path: Path) -> None:
     registry = _make_registry(services)
 
     row = await registry.create(
-        AgentCreateSpec(name="configured", config={"temperature": 0.5, "max_tokens": 256})
+        AgentCreateSpec(
+            user_id=1, name="configured", config={"temperature": 0.5, "max_tokens": 256}
+        )
     )
 
     cfg = registry.get_config(row.agent_id)
@@ -328,7 +324,7 @@ async def test_create_writes_audit_entry(tmp_path: Path) -> None:
     services = _make_services(tmp_path)
     registry = _make_registry(services)
 
-    row = await registry.create(AgentCreateSpec(name="audited"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="audited"))
 
     audit_rows = services.repos.audit_repo.query(limit=10)
     actions = [a.action for a in audit_rows]
@@ -343,7 +339,7 @@ async def test_create_sets_state_running(tmp_path: Path) -> None:
     services = _make_services(tmp_path)
     registry = _make_registry(services)
 
-    row = await registry.create(AgentCreateSpec(name="runner"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="runner"))
 
     db_row = registry.get_row(row.agent_id)
     assert db_row is not None
@@ -358,7 +354,7 @@ async def test_create_sets_state_failed_on_harness_error(tmp_path: Path) -> None
     fake_hm.acreate_agent.side_effect = RuntimeError("boom")
     registry = _make_registry(services, fake_hm=fake_hm)
 
-    row = await registry.create(AgentCreateSpec(name="bad-agent"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="bad-agent"))
 
     db_row = registry.get_row(row.agent_id)
     assert db_row is not None
@@ -372,9 +368,9 @@ async def test_create_multiple_agents(tmp_path: Path) -> None:
     services = _make_services(tmp_path)
     registry = _make_registry(services)
 
-    await registry.create(AgentCreateSpec(name="alpha"))
-    await registry.create(AgentCreateSpec(name="beta"))
-    await registry.create(AgentCreateSpec(name="gamma"))
+    await registry.create(AgentCreateSpec(user_id=1, name="alpha"))
+    await registry.create(AgentCreateSpec(user_id=1, name="beta"))
+    await registry.create(AgentCreateSpec(user_id=1, name="gamma"))
 
     names = {r.name for r in registry.list_rows()}
     assert names == {"alpha", "beta", "gamma"}
@@ -417,7 +413,7 @@ async def test_delete_removes_from_db_and_entries(tmp_path: Path) -> None:
     fake_hm = _make_fake_hm()
     registry = _make_registry(services, fake_hm=fake_hm)
 
-    row = await registry.create(AgentCreateSpec(name="doomed"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="doomed"))
     assert len(registry.list_rows()) == 1
 
     await registry.delete(row.agent_id)
@@ -433,7 +429,7 @@ async def test_delete_calls_harness_remove(tmp_path: Path) -> None:
     fake_hm = _make_fake_hm()
     registry = _make_registry(services, fake_hm=fake_hm)
 
-    row = await registry.create(AgentCreateSpec(name="removable"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="removable"))
     fake_hm.aremove_agent.reset_mock()
 
     await registry.delete(row.agent_id)
@@ -447,7 +443,7 @@ async def test_delete_writes_audit_entry(tmp_path: Path) -> None:
     services = _make_services(tmp_path)
     registry = _make_registry(services)
 
-    row = await registry.create(AgentCreateSpec(name="audit-delete"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="audit-delete"))
     await registry.delete(row.agent_id)
 
     audit_rows = services.repos.audit_repo.query(limit=20)
@@ -461,7 +457,7 @@ async def test_delete_tolerates_missing_workspace(tmp_path: Path) -> None:
     services = _make_services(tmp_path)
     registry = _make_registry(services)
 
-    row = await registry.create(AgentCreateSpec(name="no-ws"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="no-ws"))
     # workspace was never created on disk — delete should still succeed
     await registry.delete(row.agent_id)
 
@@ -476,7 +472,7 @@ async def test_delete_tolerates_harness_key_error(tmp_path: Path) -> None:
     fake_hm.remove_agent.side_effect = KeyError("not registered")
     registry = _make_registry(services, fake_hm=fake_hm)
 
-    row = await registry.create(AgentCreateSpec(name="ghost"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="ghost"))
     # Should not raise
     await registry.delete(row.agent_id)
 
@@ -494,7 +490,7 @@ async def test_update_persists_field_changes(tmp_path: Path) -> None:
     services = _make_services(tmp_path)
     registry = _make_registry(services)
 
-    row = await registry.create(AgentCreateSpec(name="original"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="original"))
     updated = await registry.update(row.agent_id, name="renamed")
 
     assert updated.name == "renamed"
@@ -508,7 +504,7 @@ async def test_update_triggers_harness_reload(tmp_path: Path) -> None:
     fake_hm = _make_fake_hm()
     registry = _make_registry(services, fake_hm=fake_hm)
 
-    row = await registry.create(AgentCreateSpec(name="reloadable"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="reloadable"))
     fake_hm.aremove_agent.reset_mock()
 
     await registry.update(row.agent_id, name="reloaded")
@@ -558,9 +554,8 @@ async def test_get_agent_raises_not_running_for_stopped_row(tmp_path: Path) -> N
     fake_hm = _make_fake_hm()
     fake_hm.get_agent.side_effect = KeyError("missing")
     registry = _attach_registry(services, fake_hm=fake_hm)
-    _bootstrap_factory_from_db(registry, fake_hm)
 
-    row = await registry.create(AgentCreateSpec(name="paused"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="paused"))
     await registry.stop(row.agent_id)
 
     with pytest.raises(OctopError) as exc_info:
@@ -577,9 +572,8 @@ async def test_get_agent_raises_failed_for_failed_row(tmp_path: Path) -> None:
     fake_hm = _make_fake_hm()
     fake_hm.get_agent.side_effect = KeyError("missing")
     registry = _attach_registry(services, fake_hm=fake_hm)
-    _bootstrap_factory_from_db(registry, fake_hm)
 
-    row = await registry.create(AgentCreateSpec(name="broken"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="broken"))
     services.repos.agent_repo.set_state(row.agent_id, "failed", error="boom")
 
     with pytest.raises(OctopError) as exc_info:
@@ -594,9 +588,8 @@ async def test_get_agent_returns_harness_object(tmp_path: Path) -> None:
     fake_agent = MagicMock(name="HarnessAgent")
     fake_hm = _make_fake_hm(fake_agent=fake_agent)
     registry = _attach_registry(services, fake_hm=fake_hm)
-    _bootstrap_factory_from_db(registry, fake_hm)
 
-    row = await registry.create(AgentCreateSpec(name="live"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="live"))
     agent = registry.get_agent(row.agent_id)
 
     assert agent is fake_agent
@@ -623,7 +616,7 @@ async def test_list_subagent_summaries_delegates_to_harness(tmp_path: Path) -> N
     registry = _make_registry(services, fake_hm=fake_hm)
 
     agent_id = "SUBAGENT1"
-    services.repos.agent_repo.create(agent_id=agent_id, user_id=None, name="live")
+    services.repos.agent_repo.create(agent_id=agent_id, user_id=1, name="live")
     fake_hm.create_agent(MagicMock(), agent_id=agent_id)
 
     summaries = await registry.list_subagent_summaries(agent_id)
@@ -658,7 +651,7 @@ async def test_list_subagent_summaries_fills_color_from_frontmatter(tmp_path: Pa
     registry = _make_registry(services, fake_hm=fake_hm)
 
     agent_id = "SUBCOLOR1"
-    services.repos.agent_repo.create(agent_id=agent_id, user_id=None, name="live")
+    services.repos.agent_repo.create(agent_id=agent_id, user_id=1, name="live")
     fake_hm.create_agent(MagicMock(), agent_id=agent_id)
 
     summaries = await registry.list_subagent_summaries(agent_id)
@@ -686,7 +679,7 @@ async def test_get_row_returns_created_agent(tmp_path: Path) -> None:
     services = _make_services(tmp_path)
     registry = _make_registry(services)
 
-    row = await registry.create(AgentCreateSpec(name="findable"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="findable"))
 
     fetched = registry.get_row(row.agent_id)
     assert fetched is not None
@@ -699,8 +692,8 @@ async def test_list_rows_returns_all_enabled(tmp_path: Path) -> None:
     services = _make_services(tmp_path)
     registry = _make_registry(services)
 
-    await registry.create(AgentCreateSpec(name="one"))
-    await registry.create(AgentCreateSpec(name="two"))
+    await registry.create(AgentCreateSpec(user_id=1, name="one"))
+    await registry.create(AgentCreateSpec(user_id=1, name="two"))
 
     rows = registry.list_rows()
     assert len(rows) == 2
@@ -712,7 +705,7 @@ async def test_list_rows_reads_db_directly(tmp_path: Path) -> None:
     services = _make_services(tmp_path)
     registry = _make_registry(services)
 
-    row = await registry.create(AgentCreateSpec(name="before"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="before"))
     services.repos.agent_repo.update_config(row.agent_id, name="after")
 
     names = {r.name for r in registry.list_rows()}
@@ -739,7 +732,7 @@ async def test_get_config_returns_empty_for_null_json(tmp_path: Path) -> None:
     services = _make_services(tmp_path)
     registry = _make_registry(services)
 
-    row = await registry.create(AgentCreateSpec(name="no-cfg"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="no-cfg"))
     # create() always seeds workspace_dir; clear to exercise NULL path.
     services.repos.agent_repo.update_config(row.agent_id, config_json=None)
 
@@ -751,7 +744,7 @@ async def test_create_seeds_workspace_dir(tmp_path: Path) -> None:
     services = _make_services(tmp_path)
     registry = _make_registry(services)
 
-    row = await registry.create(AgentCreateSpec(name="with-ws"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="with-ws"))
     cfg = registry.get_config(row.agent_id)
     assert isinstance(cfg.get("workspace_dir"), str)
     ws_dir = Path(cfg["workspace_dir"])
@@ -768,7 +761,7 @@ async def test_get_config_returns_empty_for_malformed_json(tmp_path: Path) -> No
     services = _make_services(tmp_path)
     registry = _make_registry(services)
 
-    row = await registry.create(AgentCreateSpec(name="bad-json"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="bad-json"))
     services.repos.agent_repo.update_config(row.agent_id, config_json="{corrupt{{")
 
     assert registry.get_config(row.agent_id) == {}
@@ -780,7 +773,7 @@ async def test_get_config_returns_empty_for_non_dict_json(tmp_path: Path) -> Non
     services = _make_services(tmp_path)
     registry = _make_registry(services)
 
-    row = await registry.create(AgentCreateSpec(name="list-json"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="list-json"))
     services.repos.agent_repo.update_config(row.agent_id, config_json='["a", "b"]')
 
     assert registry.get_config(row.agent_id) == {}
@@ -856,14 +849,12 @@ async def test_on_provider_changed_noop_when_manager_is_none(tmp_path: Path) -> 
     registry = AgentManager(repos=services.repos, paths=services.paths)
     # _harness_manager is None
 
-    await registry.on_provider_changed()  # must not raise
+    await registry.on_provider_changed(user_id=1)  # must not raise
 
 
 @pytest.mark.asyncio
-async def test_on_provider_changed_noop_when_factory_is_none_and_no_providers(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """on_provider_changed() is silent when factory is None and DB has no providers."""
+async def test_on_provider_changed_does_not_create_global_factory(tmp_path: Path) -> None:
+    """Owner-scoped reloads never add credentials to the shared harness manager."""
     db = SqlitePool(tmp_path / "octop.db")
     run_migrations(db)
     services = build_shared_services(db=db, paths=PathLayout(tmp_path), config=OctopConfig())
@@ -873,16 +864,17 @@ async def test_on_provider_changed_noop_when_factory_is_none_and_no_providers(
     registry = _attach_registry(services, fake_hm=fake_hm)
     fake_hm.add_provider = MagicMock()
 
-    await registry.on_provider_changed()
+    await registry.on_provider_changed(user_id=1)
 
     fake_hm.add_provider.assert_not_called()
+    assert fake_hm.shared_factory is None
 
 
 @pytest.mark.asyncio
-async def test_on_provider_changed_bootstraps_factory_when_none(
+async def test_on_provider_changed_reloads_only_owners_enabled_agents(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """First provider after boot must create the shared factory and reload agents."""
+    """Adding a provider cannot rebuild another account's or disabled experts."""
     services = _make_services(tmp_path)
     fake_hm = _make_fake_hm()
     fake_hm._shared_factory = None
@@ -890,161 +882,179 @@ async def test_on_provider_changed_bootstraps_factory_when_none(
     fake_hm.add_provider = MagicMock()
     registry = _attach_registry(services, fake_hm=fake_hm)
 
-    fake_provider_cfg = MagicMock()
-    fake_provider_cfg.id = "test-openai"
-    monkeypatch.setattr(
-        "octop.infra.agents.providers.store.ProviderStore.build_harness_configs",
-        lambda self: [fake_provider_cfg],
-    )
+    other = services.repos.user_repo.create(username="other", password_hash="h", role="user")
+    services.repos.agent_repo.create(agent_id="owned", user_id=1, name="owned")
+    services.repos.agent_repo.create(agent_id="other", user_id=other, name="other")
+    services.repos.agent_repo.create(agent_id="disabled", user_id=1, name="disabled")
+    services.repos.agent_repo.set_enabled("disabled", False)
     reload_mock = AsyncMock()
     monkeypatch.setattr(registry, "_reload_agents", reload_mock)
 
-    await registry.on_provider_changed()
+    await registry.on_provider_changed(user_id=1)
 
-    fake_hm.add_provider.assert_called_once_with(fake_provider_cfg)
-    reload_mock.assert_not_awaited()
+    fake_hm.add_provider.assert_not_called()
+    assert fake_hm.shared_factory is None
+    reload_mock.assert_awaited_once_with(["owned"])
 
 
 @pytest.mark.asyncio
-async def test_on_provider_changed_reloads_agents_when_factory_bootstraps(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_on_provider_changed_refreshes_only_owner_credentials(tmp_path: Path) -> None:
+    """An owner provider edit rebuilds that runtime using the new private key."""
     services = _make_services(tmp_path)
+    other = services.repos.user_repo.create(username="other", password_hash="h", role="user")
+    services.provider_repo.create(
+        user_id=other,
+        name="test-openai",
+        kind="openai",
+        base_url="https://api.other.example/v1",
+        api_key="sk-other",
+        models_json=json.dumps([{"id": "gpt-4o-mini", "enabled": True}]),
+    )
     fake_hm = _make_fake_hm()
-    fake_hm._shared_factory = None
-    fake_hm.add_provider = MagicMock(
-        side_effect=lambda p: (
-            setattr(fake_hm, "_shared_factory", object()),
-            setattr(fake_hm, "shared_factory", fake_hm._shared_factory),
-        )
+    registry = _make_registry(services, fake_hm=fake_hm)
+    owned = await registry.create(
+        AgentCreateSpec(name="owned", user_id=1, default_model="test-openai/gpt-4o-mini")
     )
-    registry = _attach_registry(services, fake_hm=fake_hm)
-
-    fake_provider_cfg = MagicMock()
-    fake_provider_cfg.id = "test-openai"
-    monkeypatch.setattr(
-        "octop.infra.agents.providers.store.ProviderStore.build_harness_configs",
-        lambda self: [fake_provider_cfg],
+    other_agent = await registry.create(
+        AgentCreateSpec(name="other", user_id=other, default_model="test-openai/gpt-4o-mini")
     )
-    reload_mock = AsyncMock()
-    monkeypatch.setattr(registry, "_reload_agents", reload_mock)
+    provider = services.provider_repo.get_by_name(1, "test-openai")
+    assert provider is not None
+    services.provider_repo.update(1, provider.id, api_key="sk-new")
 
-    await registry.on_provider_changed()
+    await registry.on_provider_changed(user_id=1, provider_name="test-openai")
 
-    fake_hm.add_provider.assert_called_once_with(fake_provider_cfg)
-    reload_mock.assert_awaited_once()
+    fake_hm.arebuild_agent.assert_awaited_once()
+    assert fake_hm.arebuild_agent.call_args.args[0] == owned.agent_id
+    assert fake_hm.get_agent(owned.agent_id).config.providers[0].api_key == "sk-new"
+    assert fake_hm.get_agent(other_agent.agent_id).config.providers[0].api_key == "sk-other"
+    fake_hm.add_provider.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_impact_ids_needing_model_excludes_running(
+async def test_provider_change_refreshes_all_owner_model_factories(
     tmp_path: Path,
 ) -> None:
     services = _make_services(tmp_path)
+    services.provider_repo.create(
+        user_id=1,
+        name="other",
+        kind="openai",
+        base_url="https://api.other.example/v1",
+        api_key="sk-other",
+        models_json=json.dumps([{"id": "x", "enabled": True}]),
+    )
     services.repos.agent_repo.create(
         agent_id="running-one",
-        user_id=None,
+        user_id=1,
         name="Running",
+        default_model="other/x",
     )
     services.repos.agent_repo.set_state("running-one", "running")
     services.repos.agent_repo.create(
         agent_id="failed-one",
-        user_id=None,
+        user_id=1,
         name="Failed",
     )
     services.repos.agent_repo.set_state("failed-one", "failed")
+    other = services.repos.user_repo.create(username="other-owner", password_hash="h", role="user")
+    services.repos.agent_repo.create(agent_id="other-owner", user_id=other, name="Other owner")
+    services.repos.agent_repo.set_state("other-owner", "failed")
     registry = _make_registry(services)
-    services.repos.settings_repo.set_active_model("other", "x")
+    services.repos.settings_repo.set_active_model(1, "other", "x")
 
-    ids = registry._provider_reload_impact_ids(provider_name="test-openai")
-    assert "failed-one" in ids
-    assert "running-one" not in ids
+    ids = registry._provider_reload_impact_ids(user_id=1, provider_name="test-openai")
+    # Pinned-to-other still caches this owner's full provider catalog for
+    # per-turn overrides, so it must discard the changed provider key too.
+    assert set(ids) == {"failed-one", "running-one"}
 
 
 @pytest.mark.asyncio
-async def test_on_provider_changed_reloads_all_when_factory_ready(
+async def test_on_active_model_changed_reloads_only_owner_auto_agents(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     services = _make_services(tmp_path)
     fake_hm = _make_fake_hm()
-    fake_factory = MagicMock()
-    fake_factory._providers = {"test-openai": object()}
-    fake_hm._shared_factory = fake_factory
-    fake_hm.shared_factory = fake_factory
     registry = _attach_registry(services, fake_hm=fake_hm)
+    other = services.repos.user_repo.create(username="other", password_hash="h", role="user")
+    for aid, owner, default_model in (
+        ("auto", 1, None),
+        ("pinned", 1, "test-openai/gpt-4o-mini"),
+        ("other", other, None),
+    ):
+        services.repos.agent_repo.create(
+            agent_id=aid, user_id=owner, name=aid, default_model=default_model
+        )
+        services.repos.agent_repo.set_state(aid, "running")
     reload_mock = AsyncMock()
     monkeypatch.setattr(registry, "_reload_agents", reload_mock)
-    monkeypatch.setattr(
-        "octop.infra.agents.providers.store.ProviderStore.build_harness_configs",
-        lambda self: [],
-    )
 
-    await registry.on_provider_changed()
+    await registry.on_provider_changed(user_id=1, active_model_changed=True)
 
-    reload_mock.assert_awaited_once()
+    reload_mock.assert_awaited_once_with(["auto"])
 
 
 @pytest.mark.asyncio
-async def test_on_provider_changed_adds_new_provider(tmp_path: Path, monkeypatch) -> None:
-    """on_provider_changed() calls add_provider for providers in DB."""
+async def test_on_provider_changed_adds_new_provider_only_to_owner(tmp_path: Path) -> None:
+    """A previously failed owner runtime starts when its first model becomes usable."""
     services = _make_services(tmp_path)
     fake_hm = _make_fake_hm()
-    fake_factory = MagicMock()
-    fake_factory._providers = {}
-    fake_hm._shared_factory = fake_factory
-    fake_hm.shared_factory = fake_factory
-    fake_hm.add_provider = MagicMock()
-    fake_hm.remove_provider = MagicMock()
-
-    monkeypatch.setattr(
-        "octop.infra.agents.manager.HarnessAgentConfig",
-        MagicMock(return_value=MagicMock()),
-    )
-
     registry = _attach_registry(services, fake_hm=fake_hm)
+    services.repos.agent_repo.create(agent_id="failed", user_id=1, name="failed")
+    services.repos.agent_repo.set_state("failed", "failed")
+    await registry.on_provider_changed(user_id=1, provider_name="test-openai")
 
-    services.repos.provider_repo.create(
-        name="openai",
+    row = registry.get_row("failed")
+    assert row is not None and row.last_state == "running"
+    cfg = fake_hm.get_agent("failed").config
+    assert len(cfg.providers) == 1
+    assert cfg.providers[0].id == "test-openai"
+    fake_hm.add_provider.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_on_provider_changed_removes_only_owner_runtime(tmp_path: Path) -> None:
+    """Deleting one account's provider leaves the same name in another account running."""
+    services = _make_services(tmp_path)
+    other = services.repos.user_repo.create(username="other", password_hash="h", role="user")
+    services.provider_repo.create(
+        user_id=other,
+        name="test-openai",
         kind="openai",
-        base_url="https://api.openai.com/v1",
-        api_key="sk-test",
+        base_url="https://api.other.example/v1",
+        api_key="sk-other",
+        models_json=json.dumps([{"id": "gpt-4o-mini", "enabled": True}]),
     )
+    fake_hm = _make_fake_hm()
+    registry = _make_registry(services, fake_hm=fake_hm)
+    owned = await registry.create(AgentCreateSpec(name="owned", user_id=1))
+    other_agent = await registry.create(AgentCreateSpec(name="other", user_id=other))
+    provider = services.provider_repo.get_by_name(1, "test-openai")
+    assert provider is not None
+    services.provider_repo.delete(1, provider.id)
 
-    # Patch ProviderConfig / ModelConfig imports inside the method
-    fake_provider_cfg = MagicMock()
-    fake_provider_cfg.id = "openai"
-    monkeypatch.setattr(
-        "octop.infra.agents.providers.store.ProviderStore.build_harness_configs",
-        lambda self: [fake_provider_cfg],
-    )
+    await registry.on_provider_changed(user_id=1, provider_name="test-openai")
 
-    await registry.on_provider_changed()
-
-    fake_hm.add_provider.assert_called_once_with(fake_provider_cfg)
+    fake_hm.aremove_agent.assert_awaited_once_with(owned.agent_id)
+    assert registry.get_row(owned.agent_id).last_state == "failed"
+    assert registry.get_row(other_agent.agent_id).last_state == "running"
+    assert fake_hm.get_agent(other_agent.agent_id).config.providers[0].api_key == "sk-other"
+    fake_hm.remove_provider.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_on_provider_changed_removes_stale_provider(tmp_path: Path, monkeypatch) -> None:
-    """on_provider_changed() calls remove_provider for providers no longer in DB."""
+async def test_ownerless_agent_cannot_start_with_someone_elses_provider(tmp_path: Path) -> None:
     services = _make_services(tmp_path)
     fake_hm = _make_fake_hm()
-    fake_factory = MagicMock()
-    fake_factory._providers = {"stale-provider": object()}
-    fake_hm._shared_factory = fake_factory
-    fake_hm.shared_factory = fake_factory
-    fake_hm.add_provider = MagicMock()
-    fake_hm.remove_provider = MagicMock()
-
-    registry = _attach_registry(services, fake_hm=fake_hm)
-
-    # No providers in DB → _build_provider_configs returns []
-    monkeypatch.setattr(
-        "octop.infra.agents.providers.store.ProviderStore.build_harness_configs",
-        lambda self: [],
+    registry = _make_registry(services, fake_hm=fake_hm)
+    services.repos.agent_repo.create(
+        agent_id="ownerless", user_id=None, name="legacy", default_model="test-openai/gpt-4o-mini"
     )
-
-    await registry.on_provider_changed()
-
-    fake_hm.remove_provider.assert_called_once_with("stale-provider")
+    row = registry.get_row("ownerless")
+    assert row is not None
+    assert await registry._start_agent(row) is None
+    assert registry.get_row("ownerless").last_state == "failed"
+    fake_hm.acreate_agent.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -1075,7 +1085,7 @@ async def test_deferred_create_initializes_workspace_before_bootstrap(
     monkeypatch.setattr(registry, "_complete_create_bootstrap", bootstrap)
 
     row = await registry.create(
-        AgentCreateSpec(name="deferred-seed"),
+        AgentCreateSpec(user_id=1, name="deferred-seed"),
         defer_bootstrap=True,
         workspace_initializer=initialize,
     )
@@ -1096,7 +1106,7 @@ async def test_create_rolls_back_when_initializer_fails(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="patch failed"):
         await registry.create(
-            AgentCreateSpec(name="rollback-me"),
+            AgentCreateSpec(user_id=1, name="rollback-me"),
             workspace_initializer=initialize,
         )
 
@@ -1146,9 +1156,8 @@ async def test_create_with_template_writes_files(tmp_path: Path) -> None:
         fake_hm=fake_hm,
         expert_catalog=fake_catalog,
     )
-    _bootstrap_factory_from_db(registry, fake_hm)
 
-    await registry.create(AgentCreateSpec(name="expert-bot", template_name="my-expert"))
+    await registry.create(AgentCreateSpec(user_id=1, name="expert-bot", template_name="my-expert"))
 
     ws = services.paths.agent_workspace(
         services.repos.agent_repo.list_all()[0].agent_id,
@@ -1166,13 +1175,13 @@ async def test_create_ensures_skills_dir(tmp_path: Path) -> None:
     fake_entry = MagicMock()
     fake_entry.agent.backend = MagicMock()
     fake_hm = _make_fake_hm()
-    fake_hm.shared_factory = MagicMock()
+    fake_hm.shared_factory = None
     fake_hm.create_agent = MagicMock(return_value=fake_entry)
 
     registry = AgentManager(repos=services.repos, paths=services.paths)
     registry._harness_manager = fake_hm
 
-    row = await registry.create(AgentCreateSpec(name="plain-bot"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="plain-bot"))
     ws = services.paths.agent_workspace(row.agent_id)
     # create() provisions the agent workspace; the skills/ dir is populated later
     # by the plugin manager sync (absent in this harness-only test setup).
@@ -1199,7 +1208,7 @@ async def test_create_without_template_writes_no_files(tmp_path: Path) -> None:
     registry = AgentManager(repos=services.repos, paths=services.paths)
     registry._harness_manager = fake_hm
 
-    await registry.create(AgentCreateSpec(name="plain"))
+    await registry.create(AgentCreateSpec(user_id=1, name="plain"))
 
     assert uploaded == []
 
@@ -1210,7 +1219,7 @@ async def test_create_with_template_no_catalog_does_not_crash(tmp_path: Path) ->
     services = _make_services(tmp_path)
     registry = _make_registry(services)  # expert_catalog=None
 
-    row = await registry.create(AgentCreateSpec(name="no-catalog", template_name="any"))
+    row = await registry.create(AgentCreateSpec(user_id=1, name="no-catalog", template_name="any"))
 
     assert row.template_name == "any"
 
@@ -1231,7 +1240,9 @@ async def test_create_with_unknown_template_does_not_crash(tmp_path: Path) -> No
     )
     registry._harness_manager = _make_fake_hm()
 
-    row = await registry.create(AgentCreateSpec(name="unknown-tmpl", template_name="ghost"))
+    row = await registry.create(
+        AgentCreateSpec(user_id=1, name="unknown-tmpl", template_name="ghost")
+    )
 
     assert row.name == "unknown-tmpl"
 
@@ -1263,7 +1274,7 @@ def test_workspace_for_agent_reuses_running_agent(tmp_path: Path, monkeypatch) -
     services = _make_services(tmp_path)
     fake_hm = _make_fake_hm()
     registry = _attach_registry(services, fake_hm)
-    services.repos.agent_repo.create(agent_id="live1", user_id=None, name="live")
+    services.repos.agent_repo.create(agent_id="live1", user_id=1, name="live")
     entry = fake_hm.create_agent(
         SimpleNamespace(workspace_dir=tmp_path / "ws-live1", backend=None, skills_dir=None),
         agent_id="live1",
@@ -1280,7 +1291,7 @@ def test_workspace_for_agent_falls_back_when_not_running(tmp_path: Path, monkeyp
     """With no live agent the workspace is still resolved from the row's backend spec."""
     services = _make_services(tmp_path)
     registry = _attach_registry(services, _make_fake_hm())
-    services.repos.agent_repo.create(agent_id="idle1", user_id=None, name="idle")
+    services.repos.agent_repo.create(agent_id="idle1", user_id=1, name="idle")
 
     calls = _spy_resolve_backend(monkeypatch)
     workspace = registry.workspace_for_agent("idle1")
@@ -1297,7 +1308,7 @@ async def test_state_workspace_seeds_before_graph_and_survives_reload(tmp_path: 
     for agent_id in ("state-one", "state-two"):
         services.repos.agent_repo.create(
             agent_id=agent_id,
-            user_id=None,
+            user_id=1,
             name=agent_id,
             config_json=json.dumps({"backend": {"type": "state"}}),
         )

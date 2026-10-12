@@ -164,7 +164,7 @@ class TaskBoardService:
             row.knowledge_base_ids,
             row.skill_package_ids,
             self._repos.settings_repo.get("security_policy"),
-            self._repos.settings_repo.get_active_model(),
+            self._repos.settings_repo.get_active_model(user_id),
         ]
         return hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest()
 

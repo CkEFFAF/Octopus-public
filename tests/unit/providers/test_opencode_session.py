@@ -154,7 +154,7 @@ class _FakeRepo:
         self._rows = rows
         self.updates: list[dict[str, Any]] = []
 
-    def list_all(self) -> list[SimpleNamespace]:
+    def list_all(self, user_id: int) -> list[SimpleNamespace]:
         return list(self._rows)
 
     def update(self, provider_id: int, **kwargs: Any) -> None:
@@ -182,7 +182,7 @@ def _row_with_extra(
 
 
 def test_store_sets_session_header_for_go_preset() -> None:
-    store = ProviderStore(_FakeRepo([_row_with_extra(None)]))  # type: ignore[arg-type]
+    store = ProviderStore(_FakeRepo([_row_with_extra(None)]), 1)  # type: ignore[arg-type]
 
     configs = store.build_harness_configs()
 
@@ -193,19 +193,19 @@ def test_store_sets_session_header_for_go_preset() -> None:
 
 def test_store_matches_preset_id() -> None:
     row = _row_with_extra(None, name=GO_PRESET_ID)
-    configs = ProviderStore(_FakeRepo([row])).build_harness_configs()  # type: ignore[arg-type]
+    configs = ProviderStore(_FakeRepo([row]), 1).build_harness_configs()  # type: ignore[arg-type]
     assert configs[0].session_header == OPENCODE_SESSION_HEADER
 
 
 def test_store_sets_session_header_for_zen_preset() -> None:
     row = _row_with_extra(None, name=ZEN_PRESET_NAME, base_url="https://opencode.ai/zen/v1")
-    configs = ProviderStore(_FakeRepo([row])).build_harness_configs()  # type: ignore[arg-type]
+    configs = ProviderStore(_FakeRepo([row]), 1).build_harness_configs()  # type: ignore[arg-type]
     assert configs[0].session_header == OPENCODE_SESSION_HEADER
 
 
 def test_store_does_not_write_provider_row() -> None:
     repo = _FakeRepo([_row_with_extra(None)])
-    store = ProviderStore(repo)  # type: ignore[arg-type]
+    store = ProviderStore(repo, 1)  # type: ignore[arg-type]
 
     store.build_harness_configs()
 
@@ -214,14 +214,14 @@ def test_store_does_not_write_provider_row() -> None:
 
 def test_store_sets_session_header_for_custom_provider_on_opencode_host() -> None:
     row = _row_with_extra(None, name="custom-go")
-    configs = ProviderStore(_FakeRepo([row])).build_harness_configs()  # type: ignore[arg-type]
+    configs = ProviderStore(_FakeRepo([row]), 1).build_harness_configs()  # type: ignore[arg-type]
 
     assert configs and configs[0].session_header == OPENCODE_SESSION_HEADER
 
 
 def test_store_skips_custom_provider_on_other_host() -> None:
     row = _row_with_extra(None, name="custom", base_url="https://api.example.com/v1")
-    configs = ProviderStore(_FakeRepo([row])).build_harness_configs()  # type: ignore[arg-type]
+    configs = ProviderStore(_FakeRepo([row]), 1).build_harness_configs()  # type: ignore[arg-type]
 
     assert configs and configs[0].session_header is None
 
@@ -243,7 +243,7 @@ def test_knowledge_remote_embedding_sends_session_header() -> None:
                 "knowledge_embedding_provider_id": "3",
             }.get(key)
         ),
-        provider_repo=SimpleNamespace(get=lambda _pid: provider),
+        provider_repo=SimpleNamespace(get_for_admin=lambda _pid: provider),
     )
     seen: dict[str, str] = {}
 

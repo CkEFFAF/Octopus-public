@@ -438,6 +438,48 @@ async def test_extract_config_rejects_unusable_aux_model(env_with_main_agent) ->
 
 
 @pytest.mark.asyncio
+async def test_extract_config_aux_model_uses_agent_owner_providers(env_with_main_agent) -> None:
+    from tests.support.auth import create_provider, create_user
+
+    client, _srv, auth, aid = env_with_main_agent
+    other_auth = await create_user(client, auth, username="other-memory-owner")
+    other_provider = await client.post(
+        "/api/providers",
+        headers=other_auth,
+        json={
+            "name": "owner-scoped",
+            "kind": "openai",
+            "api_key": "other-key",
+            "base_url": "https://api.example.test/v1",
+            "models": [{"id": "mini", "name": "Mini", "enabled": True}],
+        },
+    )
+    assert other_provider.status_code == 201, other_provider.text
+
+    rejected = await client.put(
+        f"/api/agents/{aid}/memory/extract-config",
+        headers=auth,
+        json={"aux_model": "owner-scoped/mini"},
+    )
+    assert rejected.status_code == 400, rejected.text
+
+    await create_provider(
+        client,
+        auth,
+        name="owner-scoped",
+        base_url="https://api.example.test/v1",
+        models=[{"id": "mini", "name": "Mini", "enabled": True}],
+    )
+    accepted = await client.put(
+        f"/api/agents/{aid}/memory/extract-config",
+        headers=auth,
+        json={"aux_model": "owner-scoped/mini"},
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["aux_model"] == "owner-scoped/mini"
+
+
+@pytest.mark.asyncio
 async def test_extract_config_rejects_bad_mode(env_with_main_agent) -> None:
     client, _srv, auth, aid = env_with_main_agent
     r = await client.put(

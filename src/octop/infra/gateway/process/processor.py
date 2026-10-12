@@ -529,7 +529,7 @@ class GlobalProcessor:
           falls through to a usable expert default or harness AUTO.
         - When a model is passed and the turn needs vision, upgrade to a vision ref.
         """
-        providers = self._agent_manager.providers
+        providers = self._agent_manager.providers_for_agent(agent_id)
         thread_model = self._agent_manager.get_thread_model(agent_id, thread_id)
         thread_row = self._thread_registry.get_thread(thread_id)
         model_ref = self._model_ref_from_meta(
@@ -547,14 +547,16 @@ class GlobalProcessor:
                     self._agent_manager.get_config(agent_id),
                 )
         if not model_ref:
-            user_row = self._user_repo.get(user_id)
+            user_row = (
+                self._user_repo.get(providers.user_id) if providers.user_id is not None else None
+            )
             preferred = get_preferred_model_from_json(
                 user_row.preferences_json if user_row is not None else None
             )
-            if preferred and self._agent_manager.providers.is_model_ref_usable(preferred):
+            if preferred and providers.is_model_ref_usable(preferred):
                 model_ref = preferred
         if not model_ref:
-            fallback = self._agent_manager.resolve_fallback_model_ref()
+            fallback = self._agent_manager.resolve_fallback_model_ref(providers.user_id)
             model_ref = fallback.strip() if isinstance(fallback, str) and fallback.strip() else None
         if not model_ref:
             return None
@@ -567,13 +569,16 @@ class GlobalProcessor:
         self,
         *,
         user_id: int,
+        agent_id: str,
         thread_id: str,
         model_ref: str | None,
         meta: dict[str, Any] | None,
     ) -> dict[str, Any]:
         if not model_ref:
             return {}
-        capability = self._agent_manager.providers.get_model_reasoning_capability(model_ref)
+        capability = self._agent_manager.providers_for_agent(
+            agent_id
+        ).get_model_reasoning_capability(model_ref)
         if capability is None:
             return {}
         thread = self._thread_registry.get_thread(thread_id)
@@ -1323,6 +1328,7 @@ class GlobalProcessor:
         )
         reasoning_overrides = self._resolve_reasoning_overrides(
             user_id=user_id,
+            agent_id=agent_id,
             thread_id=thread_id,
             model_ref=model_ref,
             meta=meta,

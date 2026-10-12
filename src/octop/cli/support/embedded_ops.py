@@ -67,10 +67,12 @@ def fetch_thread_history(agent_id: str, thread_id: str, *, limit: int = 50) -> A
 
 
 async def probe_provider_async(provider_id: int, *, model_id: str | None = None) -> dict[str, Any]:
+    from octop.cli.support.acting import resolve_cli_acting_user_id
     from octop.cli.support.db import open_cli_services, resolve_cli_locale
 
+    uid = resolve_cli_acting_user_id()
     with open_cli_services() as svc:
-        row = svc.provider_repo.get(provider_id)
+        row = svc.provider_repo.get(uid, provider_id)
         if row is None:
             raise OctopError(ErrorCode.NOT_FOUND, "provider not found")
     return await probe_provider_row(row, model_id=model_id, locale=resolve_cli_locale())

@@ -39,7 +39,7 @@ def _as_bool(value: str | None) -> bool:
 def _provider_for_settings(provider_repo: Any, provider_id: str) -> Any | None:
     if provider_repo is None or not provider_id.isdigit():
         return None
-    return provider_repo.get(int(provider_id))
+    return provider_repo.get_for_admin(int(provider_id))
 
 
 def _remote_ready(provider: Any | None, model: str) -> bool:

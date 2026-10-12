@@ -19,7 +19,7 @@ export interface TestProviderResult {
 export async function testProviderDraft(
   params: TestProviderDraftParams,
 ): Promise<TestProviderResult> {
-  return request<TestProviderResult>("/admin/providers/test-draft", {
+  return request<TestProviderResult>("/providers/test-draft", {
     method: "POST",
     body: JSON.stringify({
       name: params.name,
@@ -55,7 +55,7 @@ export interface FetchProviderModelsResult {
 export async function fetchProviderModels(
   params: FetchProviderModelsParams,
 ): Promise<FetchProviderModelsResult> {
-  return request<FetchProviderModelsResult>("/admin/providers/fetch-models", {
+  return request<FetchProviderModelsResult>("/providers/fetch-models", {
     method: "POST",
     body: JSON.stringify({
       kind: params.kind,
@@ -72,7 +72,7 @@ export async function startCodexOAuth() {
     state_id: string;
     user_code: string;
     verification_url: string;
-  }>("/admin/providers/codex-oauth/start", { method: "POST" });
+  }>("/providers/codex-oauth/start", { method: "POST" });
 }
 
 export async function pollCodexOAuth(stateId: string) {
@@ -81,5 +81,5 @@ export async function pollCodexOAuth(stateId: string) {
     error?: string;
     provider_id?: number;
     provider_name?: string;
-  }>(`/admin/providers/codex-oauth/pending/${encodeURIComponent(stateId)}`);
+  }>(`/providers/codex-oauth/pending/${encodeURIComponent(stateId)}`);
 }

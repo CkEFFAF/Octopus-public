@@ -95,7 +95,10 @@ async def cmd_compact(
     override = d.get_thread_model_override(ctx, tid)
     if not isinstance(override, str) or not override.strip():
         override = None
-    model_ref = ctx.model_ref or override or ctx.agent_manager.resolve_fallback_model_ref()
+    providers = ctx.agent_manager.providers_for_agent(ctx.agent_id)
+    model_ref = (
+        ctx.model_ref or override or ctx.agent_manager.resolve_fallback_model_ref(providers.user_id)
+    )
     try:
         result = await compact(tid, model=model_ref)
     except Exception:

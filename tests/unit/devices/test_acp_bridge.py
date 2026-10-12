@@ -27,6 +27,7 @@ class DeviceLink:
             grant_version=1,
         )
         self.actions: list[str] = []
+        self.open_params: dict[str, Any] | None = None
 
     def owned(self, owner: int, device_id: str) -> Any:
         assert owner == 7 and device_id == "target-device"
@@ -51,6 +52,8 @@ class DeviceLink:
             True,
         )
         self.actions.append(action)
+        if action == "acp.open":
+            self.open_params = params.copy()
         return await self.executor.execute(
             uuid.uuid4().hex,
             action,
@@ -94,6 +97,55 @@ async def test_remote_acp_stream_uses_device_process_and_closes_it(tmp_path: Pat
         assert link.actions[0] == "acp.open"
         assert "acp.write" in link.actions and "acp.poll" in link.actions
         assert link.actions[-1] == "acp.close"
+        assert not executor._acp._sessions
+    finally:
+        await executor.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("runner_name", ["hermes", "grok_build", "openclaw"])
+async def test_remote_runner_uses_device_environment_without_forwarding_hub_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner_name: str
+) -> None:
+    """Exercise the actual device subprocess with conflicting, synthetic credentials."""
+    monkeypatch.setenv("OCTOP_ACP_TEST_TOKEN", "device-local-test-value")
+    script = tmp_path / "environment.py"
+    script.write_text(
+        "import os, sys\n"
+        "print(os.environ['OCTOP_ACP_TEST_TOKEN'], flush=True)\n"
+        "sys.stdin.buffer.read()\n",
+        encoding="utf-8",
+    )
+    root = tmp_path / "device-share"
+    root.mkdir()
+    roots = [{"id": "shared", "path": str(root), "read": True, "write": True}]
+    executor = DeviceExecutor(["files_read", "files_write"], roots, acp_enabled=True)
+    executor.update_grants(1, ["acp_run"], roots)
+    link = DeviceLink(executor, root)
+    runner = ACPRunnerConfig(
+        enabled=True,
+        command=sys.executable,
+        args=[str(script)],
+        env={"OCTOP_ACP_TEST_TOKEN": "hub-only-test-value"},
+    )
+    service = RemoteACPService(
+        config=ACPConfig(runners={runner_name: runner}),
+        devices=link,
+        owner=7,
+        agent_id="expert",
+        device_id="target-device",
+        root_id="shared",
+    )
+    try:
+        async with service._transport(runner, 1, runner_name) as (reader, _, _):
+            line = await asyncio.wait_for(reader.readline(), 10)
+            assert line.rstrip(b"\r\n") == b"device-local-test-value"
+            assert link.open_params == {
+                "root_id": "shared",
+                "runner": runner_name,
+                "command": sys.executable,
+                "args": [str(script)],
+            }
         assert not executor._acp._sessions
     finally:
         await executor.close()

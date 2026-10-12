@@ -51,7 +51,7 @@ def test_remote_ocr_requires_image_capable_model() -> None:
             {"id": "vision-1", "input": ["text", "image"]},
         ],
     )
-    repo = SimpleNamespace(get=lambda provider_id: provider if provider_id == 7 else None)
+    repo = SimpleNamespace(get_for_admin=lambda provider_id: provider if provider_id == 7 else None)
     values: dict[str, str] = {}
 
     with pytest.raises(ValueError, match="provider is not ready"):

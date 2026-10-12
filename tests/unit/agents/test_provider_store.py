@@ -24,8 +24,10 @@ def store(tmp_path: Path) -> ProviderStore:
     db = SqlitePool(paths.db)
     run_migrations(db)
     services = build_shared_services(db=db, paths=paths, config=OctopConfig())
+    services.user_repo.create(username="provider-owner", password_hash="h", role="user")
     return ProviderStore(
         provider_repo=services.repos.provider_repo,
+        user_id=1,
     )
 
 
@@ -60,13 +62,15 @@ def test_kind_to_protocol_maps_openai_compatible_kinds() -> None:
 
 def test_build_harness_configs_skips_disabled(store: ProviderStore) -> None:
     pid = store._provider_repo.create(
+        user_id=1,
         name="disabled",
         kind="openai",
         base_url="https://api.example.com/v1",
         api_key="sk-test",
     )
-    store._provider_repo.update(pid, enabled=False)
+    store._provider_repo.update(1, pid, enabled=False)
     store._provider_repo.create(
+        user_id=1,
         name="enabled",
         kind="openai",
         base_url="https://api.example.com/v1",
@@ -79,8 +83,9 @@ def test_build_harness_configs_skips_disabled(store: ProviderStore) -> None:
 
 
 def test_build_harness_configs_skips_missing_credentials(store: ProviderStore) -> None:
-    store._provider_repo.create(name="no-url", kind="openai", api_key="sk-test")
+    store._provider_repo.create(user_id=1, name="no-url", kind="openai", api_key="sk-test")
     store._provider_repo.create(
+        user_id=1,
         name="no-key",
         kind="openai",
         base_url="https://api.example.com/v1",
@@ -92,6 +97,7 @@ def test_build_harness_configs_skips_missing_credentials(store: ProviderStore) -
 
 def test_has_usable_providers_requires_enabled_model(store: ProviderStore) -> None:
     store._provider_repo.create(
+        user_id=1,
         name="empty-models",
         kind="openai",
         base_url="https://api.example.com/v1",
@@ -101,6 +107,7 @@ def test_has_usable_providers_requires_enabled_model(store: ProviderStore) -> No
     assert store.has_usable_providers() is False
 
     store._provider_repo.create(
+        user_id=1,
         name="ready",
         kind="openai",
         base_url="https://api.example.com/v1",
@@ -112,6 +119,7 @@ def test_has_usable_providers_requires_enabled_model(store: ProviderStore) -> No
 
 def test_build_harness_configs_maps_kind_to_protocol(store: ProviderStore) -> None:
     store._provider_repo.create(
+        user_id=1,
         name="anthropic",
         kind="anthropic",
         base_url="https://api.anthropic.com",
@@ -126,6 +134,7 @@ def test_build_harness_configs_maps_context_window_to_max_input_tokens(
     store: ProviderStore,
 ) -> None:
     store._provider_repo.create(
+        user_id=1,
         name="hai",
         kind="openai",
         base_url="https://api.example.com/v1",
@@ -147,6 +156,7 @@ def test_build_harness_configs_maps_context_window_to_max_input_tokens(
 
 def test_resolve_default_model_returns_none_when_stale(store: ProviderStore) -> None:
     store._provider_repo.create(
+        user_id=1,
         name="hai",
         kind="openai",
         base_url="https://api.example.com/v1",
@@ -179,31 +189,33 @@ def test_clear_stale_pins_for_provider(tmp_path: Path) -> None:
     db = SqlitePool(paths.db)
     run_migrations(db)
     services = build_shared_services(db=db, paths=paths, config=OctopConfig())
+    services.user_repo.create(username="provider-owner", password_hash="h", role="user")
     agent_repo = services.repos.agent_repo
     settings_repo = services.repos.settings_repo
     agent_repo.create(
         agent_id="01KEEP",
-        user_id=None,
+        user_id=1,
         name="keep",
         default_model="hai/still-there",
     )
     agent_repo.create(
         agent_id="01STALE",
-        user_id=None,
+        user_id=1,
         name="stale",
         default_model="hai/deleted",
     )
     agent_repo.create(
         agent_id="01OTHER",
-        user_id=None,
+        user_id=1,
         name="other",
         default_model="other/m",
     )
-    settings_repo.set_active_model("hai", "deleted")
+    settings_repo.set_active_model(1, "hai", "deleted")
 
     cleared = clear_stale_pins_for_provider(
         agent_repo=agent_repo,
         settings_repo=settings_repo,
+        user_id=1,
         provider_name="hai",
         models=[{"id": "still-there", "enabled": True}],
     )
@@ -211,11 +223,12 @@ def test_clear_stale_pins_for_provider(tmp_path: Path) -> None:
     assert agent_repo.get("01KEEP").default_model == "hai/still-there"
     assert agent_repo.get("01STALE").default_model is None
     assert agent_repo.get("01OTHER").default_model == "other/m"
-    assert settings_repo.get_active_model() == ("", "")
+    assert settings_repo.get_active_model(1) == ("", "")
 
 
 def test_resolve_default_model_auto_returns_none(store: ProviderStore) -> None:
     store._provider_repo.create(
+        user_id=1,
         name="hai",
         kind="openai",
         base_url="https://api.example.com/v1",
@@ -228,6 +241,7 @@ def test_resolve_default_model_auto_returns_none(store: ProviderStore) -> None:
 
 def test_resolve_default_model_returns_explicit_ref_when_usable(store: ProviderStore) -> None:
     store._provider_repo.create(
+        user_id=1,
         name="hai",
         kind="openai",
         base_url="https://api.example.com/v1",
@@ -247,12 +261,14 @@ def test_manager_exposes_provider_store(tmp_path: Path) -> None:
     db = SqlitePool(paths.db)
     run_migrations(db)
     services = build_shared_services(db=db, paths=paths, config=OctopConfig())
+    services.user_repo.create(username="provider-owner", password_hash="h", role="user")
     manager = AgentManager(repos=services.repos, paths=services.paths)
-    assert isinstance(manager.providers, ProviderStore)
+    assert isinstance(manager.providers_for_user(1), ProviderStore)
 
 
 def test_build_harness_configs_infers_vision_from_model_id(store: ProviderStore) -> None:
     store._provider_repo.create(
+        user_id=1,
         name="p",
         kind="openai",
         base_url="https://api.example.com/v1",
@@ -283,6 +299,7 @@ def test_resolve_model_for_multimodal_turn(
     store: ProviderStore, model_ref: str | None, expected: str
 ) -> None:
     store._provider_repo.create(
+        user_id=1,
         name="p",
         kind="openai",
         base_url="https://api.example.com/v1",
@@ -300,6 +317,7 @@ def test_resolve_model_for_multimodal_turn(
 
 def test_resolve_first_model_ref_returns_first_enabled_model(store: ProviderStore) -> None:
     store._provider_repo.create(
+        user_id=1,
         name="p1",
         kind="openai",
         base_url="https://api.example.com/v1",
@@ -312,6 +330,7 @@ def test_resolve_first_model_ref_returns_first_enabled_model(store: ProviderStor
         ),
     )
     store._provider_repo.create(
+        user_id=1,
         name="p2",
         kind="openai",
         base_url="https://api.example.com/v1",
@@ -324,6 +343,7 @@ def test_resolve_first_model_ref_returns_first_enabled_model(store: ProviderStor
 
 def test_resolve_multimodal_model_ref_prefers_inferred_vision_model(store: ProviderStore) -> None:
     store._provider_repo.create(
+        user_id=1,
         name="p",
         kind="openai",
         base_url="https://api.example.com/v1",

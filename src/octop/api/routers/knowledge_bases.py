@@ -326,7 +326,7 @@ async def embedding_options(
 ) -> dict[str, Any]:
     assert server.services is not None
     remote = []
-    for provider in server.services.provider_repo.list_all():
+    for provider in server.services.provider_repo.list_all(_admin.id):
         if is_onnx_local_provider(
             provider.name, provider_api_key=getattr(provider, "api_key", None)
         ):
@@ -358,7 +358,7 @@ async def ocr_options(
 ) -> dict[str, Any]:
     assert server.services is not None
     remote = []
-    for provider in server.services.provider_repo.list_all():
+    for provider in server.services.provider_repo.list_all(_admin.id):
         if not provider.enabled or not provider.api_key or not provider.base_url:
             continue
         models = [
@@ -390,6 +390,13 @@ async def put_feature(
     _admin: User = Depends(require_permission("knowledge_settings")),
 ) -> dict[str, Any]:
     assert server.services is not None
+    for selected_provider in (body.provider_id, body.ocr_provider_id):
+        if (
+            selected_provider
+            and selected_provider.isdigit()
+            and server.services.provider_repo.get(_admin.id, int(selected_provider)) is None
+        ):
+            raise OctopError(ErrorCode.NOT_FOUND, "provider not found for account")
     previous = get_capability(server.services.settings_repo.get, server.services.provider_repo)
     previous_ocr = get_ocr_capability(
         server.services.settings_repo.get, server.services.provider_repo

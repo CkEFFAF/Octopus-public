@@ -72,6 +72,37 @@ async def test_acp_builtin_runner_cannot_delete(env) -> None:
     assert r.status_code == 403
 
 
+@pytest.mark.parametrize(
+    ("name", "command", "args"),
+    [
+        ("hermes", "hermes", ["acp"]),
+        ("grok_build", "grok", ["agent", "stdio"]),
+        ("openclaw", "openclaw", ["acp"]),
+    ],
+)
+async def test_extended_global_presets_are_disabled_editable_and_not_deletable(
+    env, name: str, command: str, args: list[str]
+) -> None:
+    c, _srv, auth, _agent_id = env
+    response = await c.get("/api/acp", headers=auth)
+    assert response.status_code == 200
+    runner = response.json()["runners"][name]
+    assert runner["enabled"] is False
+    assert runner["command"] == command
+    assert runner["args"] == args
+    assert runner["env"] == {}
+
+    response = await c.put(
+        f"/api/acp/{name}", headers=auth, json={**runner, "command": "custom-launcher"}
+    )
+    assert response.status_code == 200
+    assert response.json()["command"] == "custom-launcher"
+    response = await c.get(f"/api/acp/{name}", headers=auth)
+    assert response.json()["command"] == "custom-launcher"
+    response = await c.delete(f"/api/acp/{name}", headers=auth)
+    assert response.status_code == 403
+
+
 async def test_acp_tool_allowed_for_scoped_root_dir(env) -> None:
     """Directory sandbox does not block enabling outbound acp_runner."""
     c, _srv, auth, _agent_id = env

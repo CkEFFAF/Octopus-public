@@ -172,7 +172,7 @@ async def _bootstrap_default_agent(server: Any, *, user_id: int, locale: str = "
     )
 
 
-async def _apply_provider_draft(server: Any, draft: ProviderDraftBody) -> None:
+async def _apply_provider_draft(server: Any, draft: ProviderDraftBody, *, user_id: int) -> None:
     """Persist provider config from the wizard and reload harness providers."""
     api_key = (draft.api_key or "").strip()
     base_url = (draft.base_url or "").strip()
@@ -200,6 +200,7 @@ async def _apply_provider_draft(server: Any, draft: ProviderDraftBody) -> None:
     if not models:
         raise OctopError(ErrorCode.INTERNAL_ERROR, "at least one model is required", status=400)
     server.services.provider_repo.create(
+        user_id=user_id,
         name=draft.name,
         kind=draft.type,
         base_url=base_url,
@@ -207,9 +208,9 @@ async def _apply_provider_draft(server: Any, draft: ProviderDraftBody) -> None:
         models_json=json.dumps(models),
         extra_json=json.dumps(draft.extras) if draft.extras else None,
     )
-    server.services.settings_repo.set_active_model(draft.name, models[0]["id"])
+    server.services.settings_repo.set_active_model(user_id, draft.name, models[0]["id"])
     if server.app_runtime is not None:
-        await server.app_runtime.agent_registry.on_provider_changed()
+        await server.app_runtime.agent_registry.on_provider_changed(user_id=user_id)
 
 
 @router.get("/setup/presets", summary="List provider presets")
@@ -426,9 +427,13 @@ async def finish(
     require_database(server)
     assert server.user_manager is not None
     wizard_token = _authorize_setup_mid_wizard(authorization, server)
+    users = server.user_manager.list()
+    admin = next((u for u in users if u.is_admin), users[0] if users else None)
     if body.provider_draft is not None:
+        if admin is None:
+            raise OctopError(ErrorCode.SETUP_TOKEN_INVALID, "admin not created yet", status=400)
         try:
-            await _apply_provider_draft(server, body.provider_draft)
+            await _apply_provider_draft(server, body.provider_draft, user_id=admin.id)
         except OctopError:
             raise
         except Exception as exc:
@@ -437,8 +442,6 @@ async def finish(
                 ErrorCode.INTERNAL_ERROR,
                 f"failed to save provider: {exc}",
             ) from exc
-    users = server.user_manager.list()
-    admin = next((u for u in users if u.is_admin), users[0] if users else None)
     if admin is not None:
         try:
             await _bootstrap_default_agent(server, user_id=admin.id, locale=admin.locale)

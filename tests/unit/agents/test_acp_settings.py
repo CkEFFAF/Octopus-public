@@ -66,6 +66,44 @@ def test_save_and_load_round_trip(acp_store: tuple[ACPSettingsStore, AgentRepo, 
     assert reloaded["opencode"]["enabled"] is True
 
 
+@pytest.mark.parametrize(
+    ("runner", "command", "args"),
+    [
+        ("hermes", "hermes", ["acp"]),
+        ("grok_build", "grok", ["agent", "stdio"]),
+        ("openclaw", "openclaw", ["acp"]),
+    ],
+)
+def test_extended_presets_are_disabled_and_preserve_saved_overrides(
+    acp_store: tuple[ACPSettingsStore, AgentRepo, int],
+    runner: str,
+    command: str,
+    args: list[str],
+) -> None:
+    store, _, user_id = acp_store
+    default = store.load_runners(user_id)[runner]
+    assert default["enabled"] is False
+    assert default["command"] == command
+    assert default["args"] == args
+    assert default["env"] == {}
+
+    override = {**default, "enabled": True, "command": "custom-launcher", "args": ["custom"]}
+    store.save_runners(user_id, {runner: override})
+    assert store.load_runners(user_id)[runner] == override
+
+
+def test_runner_definitions_do_not_leak_to_another_user(
+    acp_store: tuple[ACPSettingsStore, AgentRepo, int],
+) -> None:
+    store, _, user_id = acp_store
+    saved = store.load_runners(user_id)["grok_build"]
+    saved.update(enabled=True, env={"XAI_API_KEY": "test-owner-secret"})
+    store.save_runners(user_id, {"grok_build": saved})
+    other = store.load_runners(user_id + 1)["grok_build"]
+    assert other["enabled"] is False
+    assert other["env"] == {}
+
+
 def test_migrate_legacy_per_agent_runners(
     acp_store: tuple[ACPSettingsStore, AgentRepo, int],
 ) -> None:

@@ -69,7 +69,7 @@ export function PresetProviderCard({
         isHover={isHover}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
-        apiPrefix="/admin/providers"
+        apiPrefix="/providers"
       />
     );
   }

@@ -88,7 +88,7 @@ async def seed_openai_provider(
     api_key: str = "k",
 ) -> None:
     r = await client.post(
-        "/api/admin/providers",
+        "/api/providers",
         headers=auth,
         json={
             "name": name,

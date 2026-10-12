@@ -23,7 +23,9 @@ def _make_services(tmp_path: Path):
     db = SqlitePool(tmp_path / "octop.db")
     run_migrations(db)
     services = build_shared_services(db=db, paths=PathLayout(tmp_path), config=OctopConfig())
+    services.user_repo.create(username="owner", password_hash="h", role="user")
     services.provider_repo.create(
+        user_id=1,
         name="test-openai",
         kind="openai",
         base_url="https://api.example.com/v1",
@@ -33,6 +35,7 @@ def _make_services(tmp_path: Path):
         ),
     )
     services.provider_repo.create(
+        user_id=1,
         name="other-llm",
         kind="openai",
         base_url="https://other.example.com/v1",
@@ -47,61 +50,60 @@ def _make_services(tmp_path: Path):
 def _registry(services) -> AgentManager:
     reg = AgentManager(repos=services.repos, paths=services.paths)
     reg._harness_manager = build_harness_manager_mock(
-        providers=reg.providers.build_harness_configs(),
+        providers=reg.providers_for_user(1).build_harness_configs(),
     )
     return reg
 
 
-def test_impact_ids_include_refs_failed_and_auto_for_active_provider(
+def test_provider_changes_refresh_all_owner_factories_including_nondefault_models(
     tmp_path: Path,
 ) -> None:
     services = _make_services(tmp_path)
-    services.repos.settings_repo.set_active_model("test-openai", "gpt-4o-mini")
+    services.repos.settings_repo.set_active_model(1, "test-openai", "gpt-4o-mini")
 
-    services.repos.agent_repo.create(agent_id="ref-one", user_id=None, name="Ref")
+    services.repos.agent_repo.create(agent_id="ref-one", user_id=1, name="Ref")
     services.repos.agent_repo.set_state("ref-one", "running")
     services.repos.agent_repo.update_config(
         "ref-one",
         config_json=json.dumps({"providers": ["test-openai"]}),
     )
 
-    services.repos.agent_repo.create(agent_id="pinned-other", user_id=None, name="Pinned")
+    services.repos.agent_repo.create(agent_id="pinned-other", user_id=1, name="Pinned")
     services.repos.agent_repo.set_state("pinned-other", "running")
     services.repos.agent_repo.update_config(
         "pinned-other",
         default_model="other-llm/m1",
     )
 
-    services.repos.agent_repo.create(agent_id="auto-one", user_id=None, name="Auto")
+    services.repos.agent_repo.create(agent_id="auto-one", user_id=1, name="Auto")
     services.repos.agent_repo.set_state("auto-one", "running")
 
-    services.repos.agent_repo.create(agent_id="failed-one", user_id=None, name="Failed")
+    services.repos.agent_repo.create(agent_id="failed-one", user_id=1, name="Failed")
     services.repos.agent_repo.set_state("failed-one", "failed")
 
     registry = _registry(services)
-    ids = registry._provider_reload_impact_ids(provider_name="test-openai")
-    assert set(ids) == {"ref-one", "auto-one", "failed-one"}
-    assert "pinned-other" not in ids
+    ids = registry._provider_reload_impact_ids(user_id=1, provider_name="test-openai")
+    assert set(ids) == {"ref-one", "auto-one", "failed-one", "pinned-other"}
 
 
 def test_impact_ids_active_model_changed_only_auto_and_needing(
     tmp_path: Path,
 ) -> None:
     services = _make_services(tmp_path)
-    services.repos.settings_repo.set_active_model("test-openai", "gpt-4o-mini")
+    services.repos.settings_repo.set_active_model(1, "test-openai", "gpt-4o-mini")
 
-    services.repos.agent_repo.create(agent_id="auto-one", user_id=None, name="Auto")
+    services.repos.agent_repo.create(agent_id="auto-one", user_id=1, name="Auto")
     services.repos.agent_repo.set_state("auto-one", "running")
 
-    services.repos.agent_repo.create(agent_id="pinned", user_id=None, name="Pinned")
+    services.repos.agent_repo.create(agent_id="pinned", user_id=1, name="Pinned")
     services.repos.agent_repo.set_state("pinned", "running")
     services.repos.agent_repo.update_config("pinned", default_model="other-llm/m1")
 
-    services.repos.agent_repo.create(agent_id="created-one", user_id=None, name="Created")
+    services.repos.agent_repo.create(agent_id="created-one", user_id=1, name="Created")
     services.repos.agent_repo.set_state("created-one", "created")
 
     registry = _registry(services)
-    ids = registry._provider_reload_impact_ids(active_model_changed=True)
+    ids = registry._provider_reload_impact_ids(user_id=1, active_model_changed=True)
     assert set(ids) == {"auto-one", "created-one"}
 
 
@@ -133,18 +135,18 @@ async def test_reload_agents_runs_in_parallel(
 
 
 @pytest.mark.asyncio
-async def test_on_provider_changed_selective_skips_unrelated(
+async def test_on_provider_changed_refreshes_even_a_nondefault_provider(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     services = _make_services(tmp_path)
-    services.repos.settings_repo.set_active_model("other-llm", "m1")
-    services.repos.agent_repo.create(agent_id="ref-one", user_id=None, name="Ref")
+    services.repos.settings_repo.set_active_model(1, "other-llm", "m1")
+    services.repos.agent_repo.create(agent_id="ref-one", user_id=1, name="Ref")
     services.repos.agent_repo.set_state("ref-one", "running")
     services.repos.agent_repo.update_config(
         "ref-one",
         config_json=json.dumps({"providers": ["test-openai"]}),
     )
-    services.repos.agent_repo.create(agent_id="unrelated", user_id=None, name="Unrelated")
+    services.repos.agent_repo.create(agent_id="unrelated", user_id=1, name="Unrelated")
     services.repos.agent_repo.set_state("unrelated", "running")
     services.repos.agent_repo.update_config("unrelated", default_model="other-llm/m1")
 
@@ -152,8 +154,8 @@ async def test_on_provider_changed_selective_skips_unrelated(
     reload_mock = AsyncMock()
     monkeypatch.setattr(registry, "_reload_agents", reload_mock)
 
-    await registry.on_provider_changed(provider_name="test-openai")
+    await registry.on_provider_changed(user_id=1, provider_name="test-openai")
 
     reload_mock.assert_awaited_once()
     called_ids = set(reload_mock.await_args.args[0])
-    assert called_ids == {"ref-one"}
+    assert called_ids == {"ref-one", "unrelated"}

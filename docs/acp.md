@@ -35,8 +35,23 @@ Legacy per-agent `config_json.acp.runners` is migrated to the user-global store 
 | `kimi_code` | `kimi` | `acp` |
 | `cursor_cli` | `agent` | `acp` |
 | `pi` | `npx` | `-y`, `pi-acp` |
+| `hermes` | `hermes` | `acp` |
+| `grok_build` | `grok` | `agent`, `stdio` |
+| `openclaw` | `openclaw` | `acp` |
 
-Install the CLI on the host where `octop run` executes, ensure it is on `PATH` (or set an absolute `command` in the runner drawer). Built-in runners cannot be deleted; custom runners can be added from **Add runner**.
+All built-in runners start disabled and cannot be deleted; their command, args and env can be edited. Custom runners can be added from **Add runner**.
+
+Install and authenticate the CLI on the machine that will execute it. An expert with a `device_binding` starts ACP on that device, using its shared directory and local CLI login; an unbound expert runs on the management host. Ensure the CLI is on that process's `PATH`, or configure an absolute `command` valid on the execution machine. See [device ACP](octopus/device-acp.md).
+
+Runner definitions and enablement belong to the Octop account; CLI installations, CLI logins and running processes belong to the execution machine. The agent's tool toggle and device binding are independent of the desktop viewer's target selection.
+
+### Credentials for local and remote execution
+
+For local execution on the hub, runner `env` overlays the process environment. Remote `acp.open` sends only `root_id`, `runner`, `command` and `args`; it never forwards hub runner `env` or provider API keys. Set remote CLI credentials on the device itself.
+
+OpenClaw is an ACP bridge to an already running Gateway. Use `OPENCLAW_GATEWAY_TOKEN` in the execution process environment, or `--token-file` with a file on that machine; never put the token value in command-line args. Setting a token in the Dashboard runner env works only for a local hub process. The preset contains neither a token nor `--token`.
+
+Grok Build uses `grok agent stdio`. The preset omits `--always-approve`, preserving external permission requests and the chat `action=respond` flow.
 
 ### Enable delegation in chat
 
@@ -165,7 +180,7 @@ Runner shape:
 ## Prerequisites
 
 - **octop-harness `[acp]` extra** — pulls in `agent-client-protocol` (included in the Octop wheel dependency on octop-harness).
-- **Outbound:** install external CLIs (`opencode`, `codebuddy`, …) on the machine running `octop run`.
+- **Outbound:** install external CLIs on the bound device, or on the management host for an unbound expert.
 - **Inbound:** agent must start successfully (provider + model configured).
 
 ---
@@ -182,6 +197,10 @@ Runner shape:
 | Kimi Code fails to start | Install [kimi-code](https://github.com/MoonshotAI/kimi-code) and run `kimi` login on the host |
 | Cursor CLI fails to start | Install Cursor CLI; run `agent login` or set `CURSOR_API_KEY` |
 | Pi runner fails to start | Requires Node.js for `npx -y pi-acp`; ensure network access for first npm fetch |
+| Hermes fails to start | Install Hermes and its ACP extra on the execution machine; run `hermes acp --check`, then configure its model/login with `hermes model` |
+| Grok Build fails to start | Install Grok Build CLI and authenticate on the execution machine, or set `XAI_API_KEY` there; verify `grok agent stdio` is supported by that version |
+| OpenClaw cannot connect | Verify its Gateway is running and reachable; configure the Gateway URL and a device-local env token or `--token-file` |
+| Runner env works on hub but not on a remote device | Remote ACP deliberately does not forward hub env. Configure credentials on the bound device; check its client process environment and token-file path |
 
 ---
 
@@ -191,3 +210,8 @@ Runner shape:
 - CLI: `octop acp --help`
 - OpenAPI: `/api/docs`
 - Harness implementation: `octop-harness` → `octop_harness.acp` (server + `acp_runner` tool)
+- [Hermes ACP setup and dependency checks](https://hermes-agent.nousresearch.com/docs/user-guide/features/acp)
+- [Grok Build ACP, installation and authentication](https://docs.x.ai/build/cli/headless-scripting)
+- [OpenClaw ACP Gateway and token-file options](https://docs.openclaw.ai/cli/acp)
+
+New runner launch commands checked against the official documentation on 2026-10-13. The presets do not install CLIs, authenticate accounts or provision an OpenClaw Gateway.
