@@ -21,8 +21,10 @@ from octop.infra.devices.protocol import (
     CHUNK_SIZE,
     CLIENT_PROTOCOL_VERSION,
     DEFAULT_REMOTE_GRANT_MODE,
+    DESKTOP_TAKEOVER_MODES,
     HIGH_RISK_PERMISSIONS,
     PENDING_GRANT_TTL_SECONDS,
+    PENDING_TAKEOVER_TTL_SECONDS,
     REMOTE_GRANT_MODES,
     device_error,
     ledger_result,
@@ -56,6 +58,12 @@ class DeviceService:
         # proposal_id -> payload; in-memory MVP (DEC-002 TTL enforced on read)
         self._proposals: dict[str, dict[str, Any]] = {}
         self._client_protocol: dict[str, int] = {}
+        # 0008 MVP-S1: owner -> current desktop target device_id (cold standby)
+        self._desktop_targets: dict[int, str] = {}
+        # request_id -> takeover payload (TTL PENDING_TAKEOVER_TTL_SECONDS)
+        self._takeovers: dict[str, dict[str, Any]] = {}
+        # bounded audit trail for switch/reject/timeout (AC-011)
+        self._takeover_events: list[dict[str, Any]] = []
         self.repos.device_repo.recover_incomplete_operations()
 
     def replace_repos(self, repos: RepoBundle) -> None:
@@ -96,7 +104,9 @@ class DeviceService:
         roots: list[dict[str, Any]],
     ) -> dict[str, Any]:
         # Exactly one enrollment credential: pairing code, access key, or account session.
-        provided = sum(bool(value) for value in (pairing_code, access_key, owner_user_id is not None))
+        provided = sum(
+            bool(value) for value in (pairing_code, access_key, owner_user_id is not None)
+        )
         if provided != 1:
             raise OctopError(ErrorCode.AUTH_FAILED, "provide one enrollment credential")
         digest = hashlib.sha256((pairing_code or "").encode()).hexdigest()
@@ -118,7 +128,10 @@ class DeviceService:
             raise device_error("invalid device capabilities")
         # REQ-007: force-include default grants that the client can support.
         effective_permissions = merge_enroll_permissions(capabilities, permissions)
-        if "desktop_control" in effective_permissions and "desktop_view" not in effective_permissions:
+        if (
+            "desktop_control" in effective_permissions
+            and "desktop_view" not in effective_permissions
+        ):
             raise device_error("desktop control requires view permission")
         if len(roots) > 20 or len({r["id"] for r in roots}) != len(roots):
             raise device_error("invalid shared roots")
@@ -181,9 +194,7 @@ class DeviceService:
     def _purge_proposals(self) -> None:
         now = time.time()
         expired = [
-            pid
-            for pid, item in self._proposals.items()
-            if float(item.get("expires_at", 0)) <= now
+            pid for pid, item in self._proposals.items() if float(item.get("expires_at", 0)) <= now
         ]
         for pid in expired:
             self._proposals.pop(pid, None)
@@ -322,11 +333,19 @@ class DeviceService:
             await self.resolve_grant_proposal(
                 row.device_id, proposal_id, accept=(decision == "accept")
             )
+        elif frame.get("type") == "desktop_takeover_resolve":
+            request_id = frame.get("request_id")
+            decision = frame.get("decision")
+            if not isinstance(request_id, str) or decision not in {"accept", "reject"}:
+                raise device_error("invalid desktop_takeover_resolve")
+            await self.resolve_desktop_takeover(
+                row.device_id, request_id, accept=(decision == "accept")
+            )
         elif frame.get("type") == "root_candidates":
             candidates = frame.get("candidates")
             if not isinstance(candidates, list) or len(candidates) > 50:
                 raise device_error("invalid root_candidates")
-            setattr(connection, "root_candidates", candidates)
+            connection.root_candidates = candidates
         else:
             raise device_error("invalid device frame")
 
@@ -391,7 +410,8 @@ class DeviceService:
         roots_changed = roots is not None and desired_roots != row.roots
         high_risk_added = bool(added & HIGH_RISK_PERMISSIONS)
         expanding = bool(added) or (
-            roots is not None and any(
+            roots is not None
+            and any(
                 (not any(r["id"] == d["id"] and r.get("write") for r in row.roots))
                 and d.get("write")
                 for d in desired_roots
@@ -603,6 +623,216 @@ class DeviceService:
             with contextlib.suppress(Exception):
                 await connection.send(self.grants(updated))
         return self.public(updated)
+
+    def _purge_takeovers(self) -> None:
+        now = time.time()
+        expired = [
+            rid
+            for rid, item in self._takeovers.items()
+            if item.get("status") == "pending" and float(item.get("expires_at", 0)) < now
+        ]
+        for rid in expired:
+            item = self._takeovers[rid]
+            item["status"] = "timeout"
+            self._record_takeover_event(item, "timeout")
+
+    def _record_takeover_event(self, item: dict[str, Any], outcome: str) -> None:
+        self._takeover_events.append(
+            {
+                "request_id": item["request_id"],
+                "owner_user_id": item["owner_user_id"],
+                "from_device_id": item.get("from_device_id"),
+                "to_device_id": item["to_device_id"],
+                "mode": item["mode"],
+                "outcome": outcome,
+                "at": time.time(),
+            }
+        )
+        if len(self._takeover_events) > 200:
+            self._takeover_events = self._takeover_events[-200:]
+
+    def get_desktop_target(self, owner: int) -> dict[str, Any]:
+        """Return current desktop target for owner (0008); does not touch device_binding."""
+        self._user(owner)
+        self._purge_takeovers()
+        device_id = self._desktop_targets.get(owner)
+        device = None
+        if device_id:
+            row = self.repos.device_repo.get_for_owner(device_id, owner)
+            if row is None or row.revoked_at is not None:
+                self._desktop_targets.pop(owner, None)
+                device_id = None
+            else:
+                device = self.public(row)
+        pending = None
+        for item in self._takeovers.values():
+            if item.get("owner_user_id") == owner and item.get("status") == "pending":
+                pending = {
+                    "request_id": item["request_id"],
+                    "to_device_id": item["to_device_id"],
+                    "from_device_id": item.get("from_device_id"),
+                    "mode": item["mode"],
+                    "status": item["status"],
+                    "expires_at": item["expires_at"],
+                }
+                break
+        return {
+            "device_id": device_id,
+            "device": device,
+            "pending_takeover": pending,
+            # DEC-002/005: desktop target is independent of expert device_binding
+            "note": "desktop_target_independent_of_expert_binding",
+        }
+
+    def get_takeover_request(self, owner: int, request_id: str) -> dict[str, Any]:
+        self._user(owner)
+        self._purge_takeovers()
+        item = self._takeovers.get(request_id)
+        if item is None or item.get("owner_user_id") != owner:
+            raise OctopError(ErrorCode.NOT_FOUND, "desktop takeover request not found")
+        return {
+            "request_id": item["request_id"],
+            "from_device_id": item.get("from_device_id"),
+            "to_device_id": item["to_device_id"],
+            "mode": item["mode"],
+            "status": item["status"],
+            "expires_at": item["expires_at"],
+            "current_device_id": self._desktop_targets.get(owner),
+        }
+
+    def list_takeover_events(self, owner: int, *, limit: int = 50) -> list[dict[str, Any]]:
+        self._user(owner)
+        limit = max(1, min(int(limit), 100))
+        return [e for e in reversed(self._takeover_events) if e.get("owner_user_id") == owner][
+            :limit
+        ]
+
+    async def request_desktop_switch(
+        self,
+        owner: int,
+        to_device_id: str,
+        *,
+        mode: str = "view",
+    ) -> dict[str, Any]:
+        """Start 0008 MVP-S1 desktop target switch; target must Allow takeover."""
+        self._user(owner)
+        if mode not in DESKTOP_TAKEOVER_MODES:
+            raise device_error("invalid desktop takeover mode")
+        # AC-010: non-owner forbidden (device exists under another account)
+        row = self.repos.device_repo.get(to_device_id)
+        if row is None:
+            raise OctopError(ErrorCode.NOT_FOUND, "device not found")
+        if row.owner_user_id != owner:
+            raise OctopError(ErrorCode.FORBIDDEN, "desktop target switch forbidden")
+        if row.revoked_at is not None:
+            raise OctopError(ErrorCode.FORBIDDEN, "device revoked")
+        # AC-003: require desktop_view (and desktop_control when view_control)
+        needed = {"desktop_view"}
+        if mode == "view_control":
+            needed.add("desktop_control")
+        missing = needed - set(row.permissions)
+        if missing or not needed <= set(row.capabilities):
+            raise OctopError(
+                ErrorCode.FORBIDDEN,
+                "DESKTOP_PERMISSION_REQUIRED: grant desktop_view"
+                + (" and desktop_control" if mode == "view_control" else "")
+                + " via 0005 before takeover",
+            )
+        if to_device_id not in self._connections:
+            raise OctopError(ErrorCode.DEVICE_OFFLINE, "device offline")
+
+        current = self._desktop_targets.get(owner)
+        if current == to_device_id:
+            return {
+                "request_id": None,
+                "status": "accepted",
+                "from_device_id": current,
+                "to_device_id": to_device_id,
+                "mode": mode,
+                "current_device_id": current,
+            }
+
+        self._purge_takeovers()
+        # Replace any prior pending takeover for this owner.
+        for rid, item in list(self._takeovers.items()):
+            if item.get("owner_user_id") == owner and item.get("status") == "pending":
+                item["status"] = "cancelled"
+                self._takeovers.pop(rid, None)
+
+        request_id = new_ulid()
+        owner_user = self.repos.user_repo.get(owner)
+        owner_label = getattr(owner_user, "username", None) or str(owner)
+        payload = {
+            "request_id": request_id,
+            "owner_user_id": owner,
+            "owner_label": owner_label,
+            "from_device_id": current,
+            "to_device_id": to_device_id,
+            "mode": mode,
+            "status": "pending",
+            "created_at": time.time(),
+            "expires_at": time.time() + PENDING_TAKEOVER_TTL_SECONDS,
+        }
+        self._takeovers[request_id] = payload
+        connection = self._connections[to_device_id]
+        with contextlib.suppress(Exception):
+            await connection.send(
+                {
+                    "type": "desktop_takeover",
+                    "request_id": request_id,
+                    "owner_label": owner_label,
+                    "mode": mode,
+                    "from_device_id": current,
+                    "expires_at": payload["expires_at"],
+                }
+            )
+        # Device may have resolved synchronously during send.
+        fresh = self._takeovers.get(request_id, payload)
+        return {
+            "request_id": request_id,
+            "status": fresh["status"],
+            "from_device_id": current,
+            "to_device_id": to_device_id,
+            "mode": mode,
+            "expires_at": fresh["expires_at"],
+            "current_device_id": self._desktop_targets.get(owner),
+        }
+
+    async def resolve_desktop_takeover(
+        self,
+        device_id: str,
+        request_id: str,
+        *,
+        accept: bool,
+    ) -> dict[str, Any]:
+        """Resolve takeover from the controlled device wire (DEC-001)."""
+        self._purge_takeovers()
+        item = self._takeovers.get(request_id)
+        if item is None or item.get("to_device_id") != device_id:
+            raise OctopError(ErrorCode.NOT_FOUND, "desktop takeover request not found")
+        if item.get("status") != "pending":
+            raise device_error("desktop takeover already resolved")
+        if not accept:
+            item["status"] = "rejected"
+            self._record_takeover_event(item, "rejected")
+            return {
+                "request_id": request_id,
+                "status": "rejected",
+                "current_device_id": self._desktop_targets.get(item["owner_user_id"]),
+            }
+        # Cold standby (DEC-003): bind new target; no hot session migration.
+        owner = int(item["owner_user_id"])
+        self._desktop_targets[owner] = device_id
+        item["status"] = "accepted"
+        self._record_takeover_event(item, "accepted")
+        return {
+            "request_id": request_id,
+            "status": "accepted",
+            "current_device_id": device_id,
+            "from_device_id": item.get("from_device_id"),
+            "to_device_id": device_id,
+            "mode": item["mode"],
+        }
 
     async def revoke(self, owner: int, device_id: str) -> dict[str, Any]:
         self.owned(owner, device_id, active=False)

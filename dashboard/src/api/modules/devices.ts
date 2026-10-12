@@ -37,6 +37,39 @@ export interface Device {
   revoked_at: number | null;
 }
 
+
+export type DesktopTakeoverMode = "view" | "view_control";
+export type DesktopTakeoverStatus =
+  | "pending"
+  | "accepted"
+  | "rejected"
+  | "timeout"
+  | "cancelled";
+
+export interface DesktopTargetState {
+  device_id: string | null;
+  device: Device | null;
+  pending_takeover: {
+    request_id: string;
+    to_device_id: string;
+    from_device_id: string | null;
+    mode: DesktopTakeoverMode;
+    status: DesktopTakeoverStatus;
+    expires_at: number;
+  } | null;
+  note?: string;
+}
+
+export interface DesktopTakeoverRequest {
+  request_id: string | null;
+  from_device_id: string | null;
+  to_device_id: string;
+  mode: DesktopTakeoverMode;
+  status: DesktopTakeoverStatus;
+  expires_at?: number;
+  current_device_id: string | null;
+}
+
 export type DeviceOperationStatus =
   | "pending_confirmation"
   | "queued"
@@ -138,6 +171,21 @@ async function boundedCall<T>(
 }
 
 export const devicesApi = {
+  desktopTarget: () =>
+    request<DesktopTargetState>("/devices/desktop-target"),
+  switchDesktopTarget: (device_id: string, mode: DesktopTakeoverMode = "view") =>
+    post<DesktopTakeoverRequest>("/devices/desktop-target/switch", {
+      device_id,
+      mode,
+    }),
+  desktopTakeoverRequest: (requestId: string) =>
+    request<DesktopTakeoverRequest>(
+      `/devices/desktop-target/requests/${encodeURIComponent(requestId)}`,
+    ),
+  desktopTakeoverEvents: () =>
+    request<{ events: Array<Record<string, unknown>> }>(
+      "/devices/desktop-target/events",
+    ),
   list: () => request<{ devices: Device[] }>("/devices"),
   pairing: () =>
     post<{ pairing_code: string; expires_at: number }>("/devices/pairing", {}),

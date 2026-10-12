@@ -11,7 +11,13 @@ from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ConfigDict, Field
 
 from octop.api.common.client_ip import resolve_client_ip
-from octop.api.deps import _decode, current_user, extract_raw_token, get_server, resolve_user_from_token
+from octop.api.deps import (
+    _decode,
+    current_user,
+    extract_raw_token,
+    get_server,
+    resolve_user_from_token,
+)
 from octop.infra.devices.protocol import MAX_FRAME
 from octop.infra.devices.service import DeviceConnection, DeviceService
 from octop.infra.errors import ErrorCode, OctopError
@@ -58,6 +64,11 @@ class GrantProposalBody(StrictBody):
 
 class GrantResolveBody(StrictBody):
     decision: str = Field(pattern="^(accept|reject)$")
+
+
+class DesktopSwitchBody(StrictBody):
+    device_id: str = Field(min_length=1, max_length=80)
+    mode: str = Field(default="view", pattern="^(view|view_control)$")
 
 
 class CallBody(StrictBody):
@@ -123,9 +134,7 @@ async def enroll(
     owner_user_id: int | None = None
     if raw:
         if has_pair or has_key:
-            raise OctopError(
-                ErrorCode.AUTH_FAILED, "provide one enrollment credential"
-            )
+            raise OctopError(ErrorCode.AUTH_FAILED, "provide one enrollment credential")
         server = request.app.state.octop_server
         claims = _decode(server, raw)
         if claims.get("auth_key_id") is not None:
@@ -190,6 +199,40 @@ async def cancel(
     service: DeviceService = Depends(device_service),
 ) -> dict[str, Any]:
     return await service.cancel(int(user.id), operation_id)
+
+
+@router.get("/devices/desktop-target")
+async def desktop_target(
+    user: Any = Depends(current_user), service: DeviceService = Depends(device_service)
+) -> dict[str, Any]:
+    """0008: current Dashboard desktop target (independent of expert device_binding)."""
+    return service.get_desktop_target(int(user.id))
+
+
+@router.post("/devices/desktop-target/switch", status_code=202)
+async def desktop_target_switch(
+    body: DesktopSwitchBody,
+    user: Any = Depends(current_user),
+    service: DeviceService = Depends(device_service),
+) -> dict[str, Any]:
+    """0008 MVP-S1: request switch; controlled device must Allow takeover."""
+    return await service.request_desktop_switch(int(user.id), body.device_id, mode=body.mode)
+
+
+@router.get("/devices/desktop-target/requests/{request_id}")
+async def desktop_target_request(
+    request_id: str,
+    user: Any = Depends(current_user),
+    service: DeviceService = Depends(device_service),
+) -> dict[str, Any]:
+    return service.get_takeover_request(int(user.id), request_id)
+
+
+@router.get("/devices/desktop-target/events")
+async def desktop_target_events(
+    user: Any = Depends(current_user), service: DeviceService = Depends(device_service)
+) -> dict[str, Any]:
+    return {"events": service.list_takeover_events(int(user.id))}
 
 
 @router.post("/devices/transfers", status_code=202)
