@@ -116,3 +116,20 @@ Actions 使用 GitHub 上游 PBS（`PBS_BASE_URL`），本机构建默认 npmmir
 
 壳只消费 `Octop-portable-<plat>-<version>.zip`（zip 内仍是 `Octop-<plat>/`），不要把绿包编进 asar。步骤见
 [`AGENT_ELECTRON_INTEGRATION.md`](AGENT_ELECTRON_INTEGRATION.md)。
+
+
+## 稳定入口（执行端开箱）
+
+正式路径：**Cloudflare Tunnel + 公网域名 HTTPS**（规格 0005 REQ-008 / DEC-008）。
+
+执行端只配置：
+
+```text
+--server https://octop.effaf.me
+
+执行端开箱主路径：双击 `open-device.bat`（或 `./open-device.sh`）→ 默认域名 + 账号密码 → 自动登记。
+```
+
+加上账号密码（或接入密钥）。**不要**把 `http://192.168.x.x` 写成唯一开箱路径；内网 IP / `--allow-insecure` 仅作局域网调试附录。
+
+迁云时只改 Tunnel 源站指向新控制中心；执行端域名与账号不变。Tunnel 配置步骤见 `docs/octopus/` 下 deploy / 本里程碑运维说明（本包不内置 cloudflared 安装器）。

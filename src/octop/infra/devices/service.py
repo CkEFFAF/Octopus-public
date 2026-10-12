@@ -19,8 +19,14 @@ from octop.infra.db.services import RepoBundle
 from octop.infra.devices.protocol import (
     CAPABILITIES,
     CHUNK_SIZE,
+    CLIENT_PROTOCOL_VERSION,
+    DEFAULT_REMOTE_GRANT_MODE,
+    HIGH_RISK_PERMISSIONS,
+    PENDING_GRANT_TTL_SECONDS,
+    REMOTE_GRANT_MODES,
     device_error,
     ledger_result,
+    merge_enroll_permissions,
     result_status,
     validate_action,
 )
@@ -47,6 +53,9 @@ class DeviceService:
         self._pairings: dict[str, tuple[int, float]] = {}
         self._pending: dict[str, tuple[DeviceConnection, asyncio.Future[dict[str, Any]]]] = {}
         self._jobs: dict[str, asyncio.Task[None]] = {}
+        # proposal_id -> payload; in-memory MVP (DEC-002 TTL enforced on read)
+        self._proposals: dict[str, dict[str, Any]] = {}
+        self._client_protocol: dict[str, int] = {}
         self.repos.device_repo.recover_incomplete_operations()
 
     def replace_repos(self, repos: RepoBundle) -> None:
@@ -107,7 +116,9 @@ class DeviceService:
             raise device_error("invalid device identity")
         if not set(capabilities) <= CAPABILITIES or not set(permissions) <= set(capabilities):
             raise device_error("invalid device capabilities")
-        if "desktop_control" in permissions and "desktop_view" not in permissions:
+        # REQ-007: force-include default grants that the client can support.
+        effective_permissions = merge_enroll_permissions(capabilities, permissions)
+        if "desktop_control" in effective_permissions and "desktop_view" not in effective_permissions:
             raise device_error("desktop control requires view permission")
         if len(roots) > 20 or len({r["id"] for r in roots}) != len(roots):
             raise device_error("invalid shared roots")
@@ -120,7 +131,7 @@ class DeviceService:
             name.strip(),
             platform,
             sorted(set(capabilities)),
-            sorted(set(permissions)),
+            effective_permissions,
             roots,
             hashlib.sha256(token.encode()).hexdigest(),
         )
@@ -136,7 +147,11 @@ class DeviceService:
         return row
 
     def public(self, row: DeviceRow) -> dict[str, Any]:
-        return row.public(online=row.device_id in self._connections)
+        payload = row.public(online=row.device_id in self._connections)
+        pending = self._pending_for(row.device_id)
+        if pending is not None:
+            payload["pending_proposal"] = pending
+        return payload
 
     def list_devices(self, owner: int) -> list[dict[str, Any]]:
         self._user(owner)
@@ -160,10 +175,52 @@ class DeviceService:
             "grant_version": row.grant_version,
             "permissions": row.permissions,
             "roots": row.roots,
+            "remote_grant_mode": row.remote_grant_mode,
+        }
+
+    def _purge_proposals(self) -> None:
+        now = time.time()
+        expired = [
+            pid
+            for pid, item in self._proposals.items()
+            if float(item.get("expires_at", 0)) <= now
+        ]
+        for pid in expired:
+            self._proposals.pop(pid, None)
+
+    def _pending_for(self, device_id: str) -> dict[str, Any] | None:
+        self._purge_proposals()
+        for item in self._proposals.values():
+            if item.get("device_id") == device_id and item.get("status") == "pending":
+                return {
+                    "proposal_id": item["proposal_id"],
+                    "permissions": item["permissions"],
+                    "roots": item["roots"],
+                    "requires_confirm": item["requires_confirm"],
+                    "expires_at": item["expires_at"],
+                }
+        return None
+
+    def grant_status(self, owner: int, device_id: str) -> dict[str, Any]:
+        row = self.owned(owner, device_id, active=False)
+        return {
+            "grant_version": row.grant_version,
+            "permissions": row.permissions,
+            "roots": row.roots,
+            "remote_grant_mode": row.remote_grant_mode,
+            "pending_proposal": self._pending_for(device_id),
+            "client_protocol_version": self._client_protocol.get(device_id),
+            "online": device_id in self._connections and row.revoked_at is None,
         }
 
     async def connect(
-        self, device_id: str, token: str, send: Send, close: Close
+        self,
+        device_id: str,
+        token: str,
+        send: Send,
+        close: Close,
+        *,
+        client_protocol_version: int = 1,
     ) -> DeviceConnection:
         row = self.authenticate(device_id, token)
         old = self._connections.get(device_id)
@@ -174,6 +231,9 @@ class DeviceService:
         row = self.authenticate(device_id, token)
         connection = DeviceConnection(device_id, new_ulid(), send, close)
         self._connections[device_id] = connection
+        self._client_protocol[device_id] = (
+            int(client_protocol_version) if isinstance(client_protocol_version, int) else 1
+        )
         self.repos.device_repo.touch_seen(device_id)
         try:
             await send(
@@ -181,8 +241,22 @@ class DeviceService:
                     **self.grants(row, kind="hello_ack"),
                     "protocol": 1,
                     "connection_id": connection.connection_id,
+                    "client_protocol_version": self._client_protocol[device_id],
                 }
             )
+            pending = self._pending_for(device_id)
+            if pending is not None and self._client_protocol[device_id] >= CLIENT_PROTOCOL_VERSION:
+                await send(
+                    {
+                        "type": "grant_proposal",
+                        "proposal_id": pending["proposal_id"],
+                        "grant_version": row.grant_version,
+                        "permissions": pending["permissions"],
+                        "roots": pending["roots"],
+                        "requires_confirm": pending["requires_confirm"],
+                        "expires_at": pending["expires_at"],
+                    }
+                )
         except Exception:
             self.disconnect(connection)
             raise
@@ -191,6 +265,7 @@ class DeviceService:
     def disconnect(self, connection: DeviceConnection) -> None:
         if self._connections.get(connection.device_id) is connection:
             self._connections.pop(connection.device_id, None)
+            self._client_protocol.pop(connection.device_id, None)
         for request_id, (bound, future) in list(self._pending.items()):
             if bound is connection:
                 if not future.done():
@@ -239,6 +314,19 @@ class DeviceService:
                         status="unknown",
                         error="unconfirmed device outcome",
                     )
+        elif frame.get("type") == "grant_resolve":
+            proposal_id = frame.get("proposal_id")
+            decision = frame.get("decision")
+            if not isinstance(proposal_id, str) or decision not in {"accept", "reject"}:
+                raise device_error("invalid grant_resolve")
+            await self.resolve_grant_proposal(
+                row.device_id, proposal_id, accept=(decision == "accept")
+            )
+        elif frame.get("type") == "root_candidates":
+            candidates = frame.get("candidates")
+            if not isinstance(candidates, list) or len(candidates) > 50:
+                raise device_error("invalid root_candidates")
+            setattr(connection, "root_candidates", candidates)
         else:
             raise device_error("invalid device frame")
 
@@ -261,27 +349,259 @@ class DeviceService:
         *,
         name: str | None = None,
         permissions: list[str] | None = None,
+        roots: list[dict[str, Any]] | None = None,
+        remote_grant_mode: str | None = None,
     ) -> dict[str, Any]:
         row = self.owned(owner, device_id)
-        # UI changes may reduce current grants, never enlarge the local consent.
-        if permissions is not None and not set(permissions) <= set(row.permissions):
-            raise OctopError(
-                ErrorCode.FORBIDDEN, "increasing device permission requires re-enrollment"
-            )
-        if (
-            permissions is not None
-            and "desktop_control" in permissions
-            and "desktop_view" not in permissions
-        ):
-            raise device_error("desktop control requires view permission")
-        updated = self.repos.device_repo.update(device_id, name=name, permissions=permissions)
-        assert updated is not None
-        connection = self._connections.get(device_id)
+        if remote_grant_mode is not None and remote_grant_mode not in REMOTE_GRANT_MODES:
+            raise device_error("invalid remote_grant_mode")
         if permissions is not None:
+            if not set(permissions) <= set(row.capabilities):
+                raise OctopError(
+                    ErrorCode.DEVICE_INVALID,
+                    "UNSUPPORTED_CAPABILITY: permission not in device capabilities",
+                )
+            if "desktop_control" in permissions and "desktop_view" not in permissions:
+                raise device_error("desktop control requires view permission")
+        if roots is not None:
+            if len(roots) > 20 or len({r["id"] for r in roots}) != len(roots):
+                raise device_error("invalid shared roots")
+            # DEC-003: never invent paths; only keep roots the device already shared
+            # or that match an existing root id/path. New paths require a proposal.
+            known = {r["id"]: r for r in row.roots}
+            for item in roots:
+                prior = known.get(item["id"])
+                if prior is None:
+                    raise OctopError(
+                        ErrorCode.DEVICE_INVALID,
+                        "ROOT_NOT_ALLOWED: choose a device-reported root or request via proposal",
+                    )
+                if item.get("path") != prior.get("path"):
+                    raise OctopError(
+                        ErrorCode.DEVICE_INVALID,
+                        "ROOT_MKDIR_FORBIDDEN: path changes require device consent",
+                    )
+
+        desired_permissions = (
+            sorted(set(permissions)) if permissions is not None else list(row.permissions)
+        )
+        desired_roots = roots if roots is not None else list(row.roots)
+        added = set(desired_permissions) - set(row.permissions)
+        reduced_only = permissions is not None and set(desired_permissions) <= set(row.permissions)
+        roots_changed = roots is not None and desired_roots != row.roots
+        high_risk_added = bool(added & HIGH_RISK_PERMISSIONS)
+        expanding = bool(added) or (
+            roots is not None and any(
+                (not any(r["id"] == d["id"] and r.get("write") for r in row.roots))
+                and d.get("write")
+                for d in desired_roots
+            )
+        )
+
+        # Name / mode-only updates, or pure reductions, apply immediately.
+        if permissions is None and roots is None:
+            updated = self.repos.device_repo.update(
+                device_id, name=name, remote_grant_mode=remote_grant_mode
+            )
+            assert updated is not None
+            return self.public(updated)
+
+        mode = remote_grant_mode or row.remote_grant_mode or DEFAULT_REMOTE_GRANT_MODE
+        if reduced_only and not roots_changed:
+            updated = self.repos.device_repo.update(
+                device_id,
+                name=name,
+                permissions=desired_permissions,
+                remote_grant_mode=remote_grant_mode,
+            )
+            assert updated is not None
             await self._interrupt_device(device_id)
+            connection = self._connections.get(device_id)
             if connection is not None:
                 with contextlib.suppress(Exception):
                     await connection.send(self.grants(updated))
+            return self.public(updated)
+
+        if expanding and not reduced_only:
+            client_proto = self._client_protocol.get(device_id, 1)
+            if client_proto < CLIENT_PROTOCOL_VERSION and device_id in self._connections:
+                raise OctopError(
+                    ErrorCode.DEVICE_INVALID,
+                    "CLIENT_OUTDATED: upgrade the device client to accept expanded grants",
+                )
+            requires_confirm = high_risk_added or mode == "confirm"
+            online = device_id in self._connections
+            if not requires_confirm:
+                # owner_auto for desktop_*/files_*: apply when online, else fail (AC-005).
+                if not online:
+                    raise OctopError(
+                        ErrorCode.DEVICE_OFFLINE,
+                        "device offline; reconnect before applying expanded grants",
+                    )
+                updated = self.repos.device_repo.update(
+                    device_id,
+                    name=name,
+                    permissions=desired_permissions,
+                    roots=desired_roots if roots is not None else None,
+                    remote_grant_mode=remote_grant_mode,
+                )
+                assert updated is not None
+                await self._interrupt_device(device_id)
+                connection = self._connections.get(device_id)
+                if connection is not None:
+                    with contextlib.suppress(Exception):
+                        await connection.send(self.grants(updated))
+                return self.public(updated)
+
+            # High-risk or confirm mode: create a pending proposal.
+            return await self.create_grant_proposal(
+                owner,
+                device_id,
+                permissions=desired_permissions,
+                roots=desired_roots,
+                name=name,
+                remote_grant_mode=remote_grant_mode,
+            )
+
+        updated = self.repos.device_repo.update(
+            device_id,
+            name=name,
+            permissions=desired_permissions if permissions is not None else None,
+            roots=desired_roots if roots is not None else None,
+            remote_grant_mode=remote_grant_mode,
+        )
+        assert updated is not None
+        if permissions is not None or roots is not None:
+            await self._interrupt_device(device_id)
+            connection = self._connections.get(device_id)
+            if connection is not None:
+                with contextlib.suppress(Exception):
+                    await connection.send(self.grants(updated))
+        return self.public(updated)
+
+    async def create_grant_proposal(
+        self,
+        owner: int,
+        device_id: str,
+        *,
+        permissions: list[str],
+        roots: list[dict[str, Any]],
+        name: str | None = None,
+        remote_grant_mode: str | None = None,
+    ) -> dict[str, Any]:
+        row = self.owned(owner, device_id)
+        if not set(permissions) <= set(row.capabilities):
+            raise OctopError(
+                ErrorCode.DEVICE_INVALID,
+                "UNSUPPORTED_CAPABILITY: permission not in device capabilities",
+            )
+        self._purge_proposals()
+        # Replace any prior pending proposal for this device.
+        for pid, item in list(self._proposals.items()):
+            if item.get("device_id") == device_id and item.get("status") == "pending":
+                self._proposals.pop(pid, None)
+        proposal_id = new_ulid()
+        added = set(permissions) - set(row.permissions)
+        requires_confirm = bool(added & HIGH_RISK_PERMISSIONS) or row.remote_grant_mode == "confirm"
+        proposal = {
+            "proposal_id": proposal_id,
+            "device_id": device_id,
+            "owner_user_id": owner,
+            "permissions": sorted(set(permissions)),
+            "roots": roots,
+            "name": name,
+            "remote_grant_mode": remote_grant_mode,
+            "requires_confirm": requires_confirm,
+            "status": "pending",
+            "created_at": time.time(),
+            "expires_at": time.time() + PENDING_GRANT_TTL_SECONDS,
+            "base_grant_version": row.grant_version,
+        }
+        self._proposals[proposal_id] = proposal
+        connection = self._connections.get(device_id)
+        if connection is not None:
+            client_proto = self._client_protocol.get(device_id, 1)
+            if client_proto < CLIENT_PROTOCOL_VERSION:
+                self._proposals.pop(proposal_id, None)
+                raise OctopError(
+                    ErrorCode.DEVICE_INVALID,
+                    "CLIENT_OUTDATED: upgrade the device client to confirm expanded grants",
+                )
+            with contextlib.suppress(Exception):
+                await connection.send(
+                    {
+                        "type": "grant_proposal",
+                        "proposal_id": proposal_id,
+                        "grant_version": row.grant_version,
+                        "permissions": proposal["permissions"],
+                        "roots": proposal["roots"],
+                        "requires_confirm": True,
+                        "expires_at": proposal["expires_at"],
+                    }
+                )
+        # Device may have resolved synchronously during send; refresh.
+        fresh = self.repos.device_repo.get(device_id)
+        assert fresh is not None
+        return self.public(fresh)
+
+    async def resolve_grant_proposal(
+        self,
+        device_id: str,
+        proposal_id: str,
+        *,
+        accept: bool,
+        token: str | None = None,
+        owner: int | None = None,
+    ) -> dict[str, Any]:
+        """Resolve from the device wire (token) or owner API."""
+        self._purge_proposals()
+        proposal = self._proposals.get(proposal_id)
+        if proposal is None or proposal.get("device_id") != device_id:
+            raise OctopError(ErrorCode.NOT_FOUND, "grant proposal not found")
+        if proposal.get("status") != "pending":
+            raise device_error("grant proposal already resolved")
+        if token is not None:
+            self.authenticate(device_id, token)
+        elif owner is not None:
+            self.owned(owner, device_id)
+        elif device_id in self._connections:
+            # Authenticated device wire already bound this connection.
+            row = self.repos.device_repo.get(device_id)
+            if row is None or row.revoked_at is not None:
+                raise OctopError(ErrorCode.AUTH_FAILED, "device unavailable")
+        else:
+            raise OctopError(ErrorCode.AUTH_FAILED, "grant proposal auth required")
+        if not accept:
+            proposal["status"] = "rejected"
+            return {"proposal_id": proposal_id, "status": "rejected"}
+        # DEC-005: owner HTTP resolve must not silently land high-risk grants.
+        # Only the device (token or bound wire) may accept command_exec/acp_run.
+        owner_http = owner is not None and token is None
+        if owner_http:
+            row = self.repos.device_repo.get(device_id)
+            if row is None:
+                raise OctopError(ErrorCode.NOT_FOUND, "device not found")
+            added = set(proposal["permissions"]) - set(row.permissions)
+            if added & HIGH_RISK_PERMISSIONS:
+                raise OctopError(
+                    ErrorCode.FORBIDDEN,
+                    "DEVICE_CONFIRM_REQUIRED: command_exec/acp_run require "
+                    "device-side confirm (DEC-005)",
+                )
+        updated = self.repos.device_repo.update(
+            device_id,
+            name=proposal.get("name"),
+            permissions=proposal["permissions"],
+            roots=proposal["roots"],
+            remote_grant_mode=proposal.get("remote_grant_mode"),
+        )
+        assert updated is not None
+        proposal["status"] = "accepted"
+        await self._interrupt_device(device_id)
+        connection = self._connections.get(device_id)
+        if connection is not None:
+            with contextlib.suppress(Exception):
+                await connection.send(self.grants(updated))
         return self.public(updated)
 
     async def revoke(self, owner: int, device_id: str) -> dict[str, Any]:

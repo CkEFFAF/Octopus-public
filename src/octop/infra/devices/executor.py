@@ -347,42 +347,47 @@ class DeviceExecutor:
 
     @property
     def capabilities(self) -> list[str]:
-        result: set[str] = set()
-        if any(root["read"] for root in self.local_roots.values()):
-            result.add("files_read")
-        if any(root["write"] for root in self.local_roots.values()):
-            result.add("files_write")
-        if "command_exec" in self.local_permissions:
-            result.add("command_exec")
-        if "acp_run" in self.local_permissions:
-            result.add("acp_run")
+        """Hardware/client support ceiling (0005): not limited to current consent."""
+        result: set[str] = {"files_read", "files_write", "command_exec", "acp_run"}
         desktop_session = platform.system() == "Windows" or (
             platform.system() == "Linux"
             and bool(os.environ.get("DISPLAY"))
             and os.environ.get("XDG_SESSION_TYPE", "x11").lower() != "wayland"
         )
-        if (
-            desktop_session
-            and "desktop_view" in self.local_permissions
-            and (
-                importlib.util.find_spec("mss") is not None
-                or (platform.system() == "Linux" and shutil.which("import") is not None)
-            )
+        if desktop_session and (
+            importlib.util.find_spec("mss") is not None
+            or (platform.system() == "Linux" and shutil.which("import") is not None)
         ):
             result.add("desktop_view")
-            if "desktop_control" in self.local_permissions and importlib.util.find_spec("pynput"):
+            if importlib.util.find_spec("pynput"):
                 result.add("desktop_control")
         return sorted(result)
+
+    def root_candidates(self) -> list[dict[str, Any]]:
+        """Existing shared directories the control center may select (no mkdir)."""
+        return [
+            {
+                "id": root["id"],
+                "name": root["name"],
+                "path": root["path"],
+                "read": root["read"],
+                "write": root["write"],
+            }
+            for root in self.local_roots.values()
+        ]
 
     def update_grants(
         self, grant_version: int, permissions: list[str], roots: list[dict[str, Any]]
     ) -> None:
         if not isinstance(grant_version, int) or grant_version < self.grant_version:
             raise DeviceExecutionError("stale device grant")
+        caps = set(self.capabilities)
+        incoming = set(permissions) & caps
         effective: dict[str, dict[str, Any]] = {}
         for remote in roots:
             local = self.local_roots.get(str(remote.get("id", "")))
             # No server-supplied path becomes a local root, even with the same id.
+            # DEC-003: never mkdir a path the device did not already share.
             if local is None or os.path.normcase(str(remote.get("path"))) != os.path.normcase(
                 local["path"]
             ):
@@ -393,8 +398,25 @@ class DeviceExecutor:
                 "write": local["write"] and bool(remote.get("write")),
             }
         self.grant_version = grant_version
-        self.permissions = self.local_permissions & set(permissions)
+        # 0005: remote grants may expand up to capabilities; grow local consent accordingly.
+        self.local_permissions |= incoming
+        self.permissions = incoming
         self.roots = effective
+
+    def apply_grant_proposal(
+        self, permissions: list[str], roots: list[dict[str, Any]]
+    ) -> None:
+        """Local confirm path: accept desired grants within capabilities."""
+        caps = set(self.capabilities)
+        if not set(permissions) <= caps:
+            raise DeviceExecutionError("unsupported grant proposal capability")
+        for remote in roots:
+            local = self.local_roots.get(str(remote.get("id", "")))
+            if local is None:
+                raise DeviceExecutionError("ROOT_NOT_ALLOWED")
+            if os.path.normcase(str(remote.get("path"))) != os.path.normcase(local["path"]):
+                raise DeviceExecutionError("ROOT_MKDIR_FORBIDDEN")
+        self.local_permissions |= set(permissions) & caps
 
     def _authorize(self, action: str, grant_version: int, permissions: list[str]) -> None:
         if grant_version != self.grant_version:
@@ -416,10 +438,10 @@ class DeviceExecutor:
             required = {"acp_run"}
         else:
             raise DeviceExecutionError("unsupported device action")
-        if not required <= self.permissions & set(permissions):
-            raise DeviceExecutionError("device permission denied")
         if not required <= set(self.capabilities):
             raise DeviceExecutionError("device capability unavailable")
+        if not required <= self.permissions & set(permissions):
+            raise DeviceExecutionError("device permission denied")
 
     def _path(self, root_id: str, relative: str, *, write: bool = False) -> Path:
         root = self.roots.get(root_id)

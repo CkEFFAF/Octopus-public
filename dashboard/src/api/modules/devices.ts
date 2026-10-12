@@ -24,6 +24,14 @@ export interface Device {
   permissions: string[];
   roots: DeviceRoot[];
   grant_version: number;
+  remote_grant_mode?: "confirm" | "owner_auto";
+  pending_proposal?: {
+    proposal_id: string;
+    permissions: string[];
+    roots: DeviceRoot[];
+    requires_confirm: boolean;
+    expires_at: number;
+  } | null;
   online: boolean;
   last_seen_at: number | null;
   revoked_at: number | null;

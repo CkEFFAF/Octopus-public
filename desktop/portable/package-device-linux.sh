@@ -101,16 +101,19 @@ MODULES=(
   infra/utils/httpx_proxy.py infra/utils/process_lock.py cli/__init__.py
   cli/device_cmd.py cli/device_startup_cmd.py infra/devices/client.py
   infra/devices/executor.py infra/devices/network.py infra/devices/autostart.py
-  infra/devices/acp_process.py
+  infra/devices/acp_process.py infra/devices/protocol.py
+  infra/devices/first_run.py
 )
 for module in "${MODULES[@]}"; do
   cp "${REPO_ROOT}/src/octop/${module}" "${PAYLOAD}/packages/octop/${module}"
 done
 cp "${REPO_ROOT}/desktop/portable/start-device.sh" "${PAYLOAD}/start-device.sh"
+cp "${REPO_ROOT}/desktop/portable/open-device.sh" "${PAYLOAD}/open-device.sh"
+chmod +x "${PAYLOAD}/open-device.sh"
 cp "${REPO_ROOT}/desktop/portable/setup-device.sh" "${PAYLOAD}/setup-device.sh"
 cp "${REPO_ROOT}/desktop/portable/linux-device/README.md" "${PAYLOAD}/README.md"
 cp "${REPO_ROOT}/LICENSE" "${PAYLOAD}/LICENSE"
-chmod +x "${PAYLOAD}/start-device.sh" "${PAYLOAD}/setup-device.sh"
+chmod +x "${PAYLOAD}/start-device.sh" "${PAYLOAD}/setup-device.sh" "${PAYLOAD}/open-device.sh"
 
 cat > "${PAYLOAD}/launch.py" <<'PYTHON'
 """Device-only portable entry; no Web UI or Octop account server is started."""
@@ -191,7 +194,7 @@ def distributable(info):
         return None
     info.uid = info.gid = 0
     info.uname = info.gname = ""
-    if info.name.endswith(("/setup-device.sh", "/start-device.sh")):
+    if info.name.endswith(("/setup-device.sh", "/start-device.sh", "/open-device.sh")):
         info.mode = 0o755
     return info
 

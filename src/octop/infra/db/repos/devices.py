@@ -24,6 +24,7 @@ class DeviceRow:
     roots: list[dict[str, Any]]
     token_hash: str
     grant_version: int
+    remote_grant_mode: str
     last_seen_at: float | None
     revoked_at: float | None
     created_at: float
@@ -42,6 +43,7 @@ class DeviceRow:
             roots=cast(list[dict[str, Any]], json.loads(row["roots"])),
             token_hash=str(row["token_hash"]),
             grant_version=int(row["grant_version"]),
+            remote_grant_mode=str(row["remote_grant_mode"] if row["remote_grant_mode"] is not None else "owner_auto"),
             last_seen_at=(float(row["last_seen_at"]) if row["last_seen_at"] is not None else None),
             revoked_at=(float(row["revoked_at"]) if row["revoked_at"] is not None else None),
             created_at=float(row["created_at"]),
@@ -57,6 +59,7 @@ class DeviceRow:
             "permissions": self.permissions.copy(),
             "roots": deepcopy(self.roots),
             "grant_version": self.grant_version,
+            "remote_grant_mode": self.remote_grant_mode,
             "online": online and self.revoked_at is None,
             "last_seen_at": self.last_seen_at,
             "revoked_at": self.revoked_at,
@@ -185,16 +188,20 @@ class DeviceRepo:
         *,
         name: str | None = None,
         permissions: list[str] | None = None,
+        roots: list[dict[str, Any]] | None = None,
+        remote_grant_mode: str | None = None,
     ) -> DeviceRow | None:
         clauses, params = partial_updates(
             [
                 ("name", name),
                 ("permissions", json.dumps(permissions) if permissions is not None else None),
+                ("roots", json.dumps(roots) if roots is not None else None),
+                ("remote_grant_mode", remote_grant_mode),
             ]
         )
         if not clauses:
             return self.get(device_id)
-        if permissions is not None:
+        if permissions is not None or roots is not None:
             clauses.append("grant_version = grant_version + 1")
         clauses.append("updated_at = ?")
         params.extend((time.time(), device_id))

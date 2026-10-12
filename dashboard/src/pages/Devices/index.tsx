@@ -86,7 +86,14 @@ function DeviceSettings({
         />
       </label>
       <h3>{t("devices.permissionsTitle")}</h3>
-      <p className="devices-muted">{t("devices.reduceHint")}</p>
+      <p className="devices-muted">{t("devices.grantHint", t("devices.reduceHint"))}</p>
+      {device.pending_proposal && (
+        <Alert
+          type="info"
+          showIcon
+          message={t("devices.pendingGrant")}
+        />
+      )}
       {device.permissions.includes("acp_run") && (
         <Alert type="warning" showIcon message={t("devices.acpRunHint")} />
       )}
@@ -97,7 +104,7 @@ function DeviceSettings({
             checked={permissions.includes(permission)}
             disabled={
               device.revoked_at !== null ||
-              !device.permissions.includes(permission) ||
+              !device.capabilities.includes(permission) ||
               (permission === "desktop_control" &&
                 !permissions.includes("desktop_view"))
             }
