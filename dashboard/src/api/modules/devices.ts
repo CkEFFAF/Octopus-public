@@ -5,7 +5,8 @@ export type DevicePermission =
   | "desktop_control"
   | "files_read"
   | "files_write"
-  | "command_exec";
+  | "command_exec"
+  | "acp_run";
 
 export interface DeviceRoot {
   id: string;

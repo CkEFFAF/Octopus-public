@@ -37,7 +37,7 @@ def test_join_hidden_credential_and_confirmed_windows_desktop(
     result = CliRunner().invoke(
         cli,
         ["device", "join", "--server", "https://manager.test", "--state", str(state)],
-        input=f"Windows PC\n2\n\ny\n{credential}\n",
+        input=f"Windows PC\n2\n\nn\ny\n2\n{credential}\n",
     )
     assert result.exit_code == 0, result.output
     requests, runs = enrollment
@@ -64,13 +64,24 @@ def test_linux_join_commands_require_final_consent(tmp_path, monkeypatch, enroll
     result = CliRunner().invoke(
         cli,
         ["device", "join", "--server", "https://manager.test", "--state", str(tmp_path / "state")],
-        input="GPU Server\n1\n\ny\n87654321\n",
+        input="GPU Server\n1\n\nn\ny\n2\n87654321\n",
     )
     assert result.exit_code == 0, result.output
     payload = enrollment[0][0][1]
     assert set(payload["capabilities"]) == {"files_read", "files_write", "command_exec"}
     assert "不是系统沙箱" in result.output
     assert "2 桌面和文件" not in result.output
+
+
+def test_join_acp_requires_separate_local_consent(tmp_path, monkeypatch, enrollment):
+    monkeypatch.setattr("octop.cli.device_startup_cmd.platform.system", lambda: "Linux")
+    result = CliRunner().invoke(
+        cli,
+        ["device", "join", "--server", "https://manager.test", "--state", str(tmp_path / "state")],
+        input="GPU Server\n1\n\ny\ny\n2\n87654321\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "acp_run" in enrollment[0][0][1]["capabilities"]
 
 
 def test_declining_join_does_not_enroll_or_create_share(tmp_path, enrollment):
@@ -105,7 +116,7 @@ def test_accepted_http_still_needs_permission_confirmation(tmp_path, enrollment)
     result = CliRunner().invoke(
         cli,
         ["device", "join", "--server", "http://manager.test", "--state", str(tmp_path / "state")],
-        input="y\nMy PC\n3\n\ny\n11223344\n",
+        input="y\nMy PC\n3\n\ny\n2\n11223344\n",
     )
     assert result.exit_code == 0, result.output
     assert set(enrollment[0][0][1]["capabilities"]) == {"files_read"}
@@ -115,7 +126,7 @@ def test_join_reuses_saved_identity_without_new_authorization(tmp_path, enrollme
     runner = CliRunner()
     args = ["device", "join", "--state", str(tmp_path / "state")]
     first = runner.invoke(
-        cli, [*args, "--server", "https://manager.test"], input="PC\n3\n\ny\n12345678\n"
+        cli, [*args, "--server", "https://manager.test"], input="PC\n3\n\ny\n2\n12345678\n"
     )
     assert first.exit_code == 0, first.output
     second = runner.invoke(cli, args)
@@ -134,3 +145,37 @@ def test_portable_launchers_first_launch_and_reconnect_share_entry(repo_root: Pa
         text = (repo_root / "desktop" / "portable" / filename).read_text(encoding="utf-8")
         assert "device join --state" in text
         assert "device connect --state" in text  # scripted legacy enrollment remains available
+
+
+def test_join_account_password_enroll(tmp_path, monkeypatch, enrollment):
+    """0004: join mode 1 logs in then enrolls with Bearer; JWT not kept in state."""
+    monkeypatch.setattr("octop.cli.device_startup_cmd.platform.system", lambda: "Windows")
+    tokens = []
+
+    def fake_login(server_url, username, password, *, allow_insecure=False, captcha_token=None):
+        tokens.append((server_url, username, password))
+        return "jwt-session-for-enroll"
+
+    captured = []
+
+    def enroll(url, payload, *, authorization=None):
+        captured.append((url, payload, authorization))
+        return {"device": {"device_id": "acct-device"}, "device_token": "odv_acct"}
+
+    monkeypatch.setattr("octop.infra.devices.client.account_login", fake_login)
+    monkeypatch.setattr("octop.cli.device_cmd.account_login", fake_login)
+    monkeypatch.setattr("octop.infra.devices.client._enroll_http", enroll)
+    state = tmp_path / "acct-state"
+    result = CliRunner().invoke(
+        cli,
+        ["device", "join", "--server", "https://manager.test", "--state", str(state)],
+        input="Acct PC\n3\n\ny\n1\nowner\nsecret-pass\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert tokens == [("https://manager.test", "owner", "secret-pass")]
+    assert captured[0][2] == "Bearer jwt-session-for-enroll"
+    assert "access_key" not in captured[0][1] and "pairing_code" not in captured[0][1]
+    state_blob = "\n".join(path.read_text(encoding="utf-8") for path in state.rglob("*.json"))
+    assert "jwt-session-for-enroll" not in state_blob
+    assert "secret-pass" not in state_blob
+    assert "odv_acct" in state_blob

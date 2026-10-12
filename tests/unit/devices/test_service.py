@@ -286,3 +286,59 @@ def test_invalid_command_deadline_is_rejected_before_enqueue(rig: Any, timeout: 
             {"root_id": "share", "argv": ["unused"], "timeout": timeout},
         )
     assert service.repos.device_repo.list_operations(owner) == []
+
+
+def test_account_session_enroll_binds_owner_without_client_claim(rig: Any) -> None:
+    """0004 AE-01: Bearer account session enrolls under server-side owner_user_id."""
+    service, owner, other, _ = rig
+    enrolled = service.enroll(
+        owner_user_id=owner,
+        name="Laptop",
+        platform="windows",
+        capabilities=[],
+        permissions=[],
+        roots=[],
+    )
+    device = enrolled["device"]
+    assert device["name"] == "Laptop"
+    assert enrolled["device_token"].startswith("odv_")
+    listed = service.list_devices(owner)
+    assert any(d["device_id"] == device["device_id"] for d in listed)
+    assert service.list_devices(other) == []
+    with pytest.raises(OctopError) as exc:
+        service.enroll(
+            pairing_code=service.pairing(owner)["pairing_code"],
+            owner_user_id=owner,
+            name="Mixed",
+            platform="windows",
+            capabilities=[],
+            permissions=[],
+            roots=[],
+        )
+    assert exc.value.code == ErrorCode.AUTH_FAILED
+
+
+def test_account_session_minimal_capabilities_and_pair_key_still_work(rig: Any) -> None:
+    """0004 AE-06: pairing and access-key paths remain available beside account session."""
+    service, owner, _, _ = rig
+    via_session = service.enroll(
+        owner_user_id=owner,
+        name="Minimal",
+        platform="linux",
+        capabilities=[],
+        permissions=[],
+        roots=[],
+    )
+    via_pair = enroll(service, owner)
+    key = service.access_keys.create(owner, "spare", 30, False, True)["secret"]
+    via_key = service.enroll(
+        access_key=key,
+        name="KeyPC",
+        platform="windows",
+        capabilities=[],
+        permissions=[],
+        roots=[],
+    )
+    ids = {via_session["device"]["device_id"], via_pair["device"]["device_id"], via_key["device"]["device_id"]}
+    assert len(ids) == 3
+    assert all(d["permissions"] == [] for d in service.list_devices(owner) if d["name"] == "Minimal")

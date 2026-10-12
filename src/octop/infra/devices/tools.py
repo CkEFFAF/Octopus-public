@@ -12,7 +12,9 @@ from octop.infra.devices.service import DeviceService
 from octop.infra.errors import ErrorCode, OctopError
 
 
-def build_device_tools(service: DeviceService, agent_id: str) -> list[Any]:
+def build_device_tools(
+    service: DeviceService, agent_id: str, bound_device_id: str | None = None
+) -> list[Any]:
     def task_run_id() -> str | None:
         return (get_config().get("configurable") or {}).get("octop_task_run_id")
 
@@ -24,6 +26,10 @@ def build_device_tools(service: DeviceService, agent_id: str) -> list[Any]:
         if writes and cfg.get("conversation_mode") in {"ask", "plan"}:
             raise OctopError(ErrorCode.FORBIDDEN, "device changes require craft mode")
         target = cfg.get("octop_device_target")
+        if bound_device_id:
+            if device_id and device_id != bound_device_id:
+                raise OctopError(ErrorCode.FORBIDDEN, "expert is bound to another device")
+            device_id = bound_device_id
         if isinstance(target, dict):
             bound_id = str(target.get("device_id", ""))
             if device_id and bound_id != device_id:
@@ -32,6 +38,8 @@ def build_device_tools(service: DeviceService, agent_id: str) -> list[Any]:
             row = service.owned(uid, device_id)
             if row.grant_version != target.get("grant_version"):
                 raise OctopError(ErrorCode.FORBIDDEN, "selected device permissions changed")
+        elif bound_device_id:
+            service.owned(uid, bound_device_id)
         return uid, device_id
 
     async def device_list() -> str:

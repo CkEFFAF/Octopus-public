@@ -87,6 +87,9 @@ function DeviceSettings({
       </label>
       <h3>{t("devices.permissionsTitle")}</h3>
       <p className="devices-muted">{t("devices.reduceHint")}</p>
+      {device.permissions.includes("acp_run") && (
+        <Alert type="warning" showIcon message={t("devices.acpRunHint")} />
+      )}
       <div className="devices-permissions">
         {permissionKeys.map((permission) => (
           <Checkbox

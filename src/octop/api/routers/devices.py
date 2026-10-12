@@ -11,10 +11,10 @@ from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ConfigDict, Field
 
 from octop.api.common.client_ip import resolve_client_ip
-from octop.api.deps import _decode, current_user, extract_raw_token, get_server
+from octop.api.deps import _decode, current_user, extract_raw_token, get_server, resolve_user_from_token
 from octop.infra.devices.protocol import MAX_FRAME
 from octop.infra.devices.service import DeviceConnection, DeviceService
-from octop.infra.errors import OctopError
+from octop.infra.errors import ErrorCode, OctopError
 
 router = APIRouter()
 
@@ -40,14 +40,14 @@ class EnrollBody(StrictBody):
     access_key: str | None = Field(default=None, min_length=1, max_length=120)
     name: str = Field(min_length=1, max_length=120)
     platform: str
-    capabilities: list[str] = Field(max_length=5)
-    permissions: list[str] = Field(max_length=5)
+    capabilities: list[str] = Field(max_length=6)
+    permissions: list[str] = Field(max_length=6)
     roots: list[RootBody] = Field(default_factory=list, max_length=20)
 
 
 class UpdateBody(StrictBody):
     name: str | None = Field(default=None, min_length=1, max_length=120)
-    permissions: list[str] | None = Field(default=None, max_length=5)
+    permissions: list[str] | None = Field(default=None, max_length=6)
 
 
 class CallBody(StrictBody):
@@ -95,12 +95,46 @@ async def pairing(
 async def enroll(
     body: EnrollBody, request: Request, service: DeviceService = Depends(device_service)
 ) -> dict[str, Any]:
+    """Enroll with pairing_code, access_key, or a Bearer account session JWT.
+
+    The path stays JWT-exempt so pairing/key clients need no prior login; when a
+    Bearer token is the sole credential, owner_user_id is taken from the token
+    (never from the body). Key-session JWTs (auth_key_id) are rejected — use the
+    access key or a password/SSO session instead.
+    """
+    payload = body.model_dump()
+    roots = [r.model_dump() for r in body.roots]
+    raw = extract_raw_token(
+        authorization=request.headers.get("authorization"),
+        access_token=request.query_params.get("access_token"),
+    )
+    has_pair = bool(payload.get("pairing_code"))
+    has_key = bool(payload.get("access_key"))
+    owner_user_id: int | None = None
+    if raw:
+        if has_pair or has_key:
+            raise OctopError(
+                ErrorCode.AUTH_FAILED, "provide one enrollment credential"
+            )
+        server = request.app.state.octop_server
+        claims = _decode(server, raw)
+        if claims.get("auth_key_id") is not None:
+            raise OctopError(
+                ErrorCode.FORBIDDEN,
+                "access key sessions cannot enroll devices; use the access key or a password login",
+            )
+        user = resolve_user_from_token(server, raw)
+        owner_user_id = int(user.id)
     return service.enroll(
-        **{
-            **body.model_dump(),
-            "roots": [r.model_dump() for r in body.roots],
-            "client_ip": resolve_client_ip(request),
-        }
+        pairing_code=payload.get("pairing_code"),
+        access_key=payload.get("access_key"),
+        owner_user_id=owner_user_id,
+        name=payload["name"],
+        platform=payload["platform"],
+        capabilities=payload["capabilities"],
+        permissions=payload["permissions"],
+        roots=roots,
+        client_ip=resolve_client_ip(request),
     )
 
 

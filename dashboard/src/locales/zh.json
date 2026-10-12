@@ -1,5 +1,6 @@
 {
   "devices": {
+    "acpRunHint": "ACP 智能体以设备当前用户权限运行，可能读写文件并执行命令；不经过设备命令逐次确认。",
     "workspaceTitle": "设备工作区",
     "managerSubtitle": "管理受信任设备；打开工作区查看桌面、传文件或执行命令。",
     "records": "操作记录",
@@ -125,7 +126,8 @@
       "desktop_control": "桌面输入",
       "files_read": "读取文件",
       "files_write": "写入文件",
-      "command_exec": "执行命令"
+      "command_exec": "执行命令",
+      "acp_run": "运行本机 ACP 智能体"
     },
     "status": {
       "pending_confirmation": "待人工确认",
@@ -1003,6 +1005,11 @@
     }
   },
   "experts": {
+    "deviceBindingLabel": "运行设备",
+    "deviceBindingHint": "绑定后，ACP 调用设备上已安装并登录的 OpenCode、Codex 等程序；设备须单独授权 ACP，程序按该设备用户权限运行。",
+    "deviceBindingLocal": "管理端本机（默认）",
+    "deviceRootLabel": "设备工作目录",
+    "deviceRootRequired": "请选择可读写的共享目录",
     "subtitle": "基于已配置的场景模板,一键创建预置身份/灵魂/心跳的智能体。每个专家自带 system prompt,新建后再绑定 provider 并启动即可。",
     "loadFailed": "加载专家失败",
     "loadDetailFailed": "加载详情失败",

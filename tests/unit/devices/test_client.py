@@ -334,3 +334,42 @@ def test_state_file_symlink_cannot_disclose_or_overwrite(tmp_path):
     with pytest.raises(DeviceExecutionError, match="symlink"):
         client.load_state()
     assert target.read_text() == "unchanged"
+
+
+async def test_account_token_enroll_sends_bearer_not_body_owner(tmp_path, monkeypatch):
+    """0004: account JWT goes in Authorization; never persisted in device-state."""
+    executor, root = executor_for(tmp_path)
+    client = DeviceClient(tmp_path / "state")
+    requests = []
+
+    def enrollment(url, payload, *, authorization=None):
+        requests.append((url, payload, authorization))
+        return {"device": {"device_id": "device-account"}, "device_token": "odv_account_secret"}
+
+    monkeypatch.setattr("octop.infra.devices.client._enroll_http", enrollment)
+    device = await client.enroll(
+        "https://controller.test",
+        "",
+        "Account PC",
+        executor,
+        account_token="jwt-from-password-login",
+    )
+    assert device["device_id"] == "device-account"
+    assert len(requests) == 1
+    _url, payload, authorization = requests[0]
+    assert authorization == "Bearer jwt-from-password-login"
+    assert "pairing_code" not in payload
+    assert "access_key" not in payload
+    assert "owner_user_id" not in payload
+    state_text = client.state_path.read_text(encoding="utf-8")
+    assert "jwt-from-password-login" not in state_text
+    assert "odv_account_secret" in state_text
+    fresh = DeviceClient(tmp_path / "state-mixed")
+    with pytest.raises(DeviceExecutionError, match="one pairing credential"):
+        await fresh.enroll(
+            "https://controller.test",
+            "pair",
+            "Both",
+            executor,
+            account_token="jwt",
+        )

@@ -2631,6 +2631,8 @@ class AgentManager:
         from octop.infra.agents.teams import is_team_agent  # noqa: PLC0415
 
         team_host = is_team_agent(row)
+        if not team_host:
+            self._bind_remote_acp(row, agent, cfg)
         uid = self._connector_uid_for(row)
         if uid is not None and not team_host:
             inject_missing_gateway_tools(
@@ -2689,6 +2691,38 @@ class AgentManager:
                 self._mark_bootstrap_graph_refresh_pending(agent_id, agent)
 
             agent.on_bootstrap_complete = _on_bootstrap_complete
+
+    def _bind_remote_acp(self, row: AgentRow, agent: HarnessAgent, cfg: HarnessAgentConfig) -> None:
+        """Route this expert's ACP tool to its assigned device, never the host."""
+        from octop_harness.acp.models import ACPConfig
+        from octop_harness.acp.service import close_acp_service
+
+        key = str(agent._workspace_path)
+        binding = self._agent_config_dict(row).get("device_binding")
+        if not binding:
+            close_acp_service(key)
+            return
+        if (
+            not isinstance(binding, dict)
+            or not isinstance(binding.get("device_id"), str)
+            or not isinstance(binding.get("root_id"), str)
+            or self._device_service is None
+            or row.user_id is None
+        ):
+            raise ValueError("invalid expert device binding")
+        from octop.infra.devices.acp_bridge import RemoteACPService, bind_remote_acp_service
+
+        bind_remote_acp_service(
+            key,
+            RemoteACPService(
+                config=ACPConfig(runners=dict(cfg.acp_runners)),
+                devices=self._device_service,
+                owner=row.user_id,
+                agent_id=row.agent_id,
+                device_id=binding["device_id"],
+                root_id=binding["root_id"],
+            ),
+        )
 
     def _mark_bootstrap_graph_refresh_pending(self, agent_id: str, agent: HarnessAgent) -> None:
         """Record DB-backed config updates; graph rebuild runs on the next turn."""
@@ -3140,8 +3174,14 @@ class AgentManager:
         )
         from octop.infra.devices.tools import build_device_tools
 
+        device_binding = cfg.get("device_binding")
+        bound_device_id = (
+            str(device_binding.get("device_id"))
+            if isinstance(device_binding, dict) and device_binding.get("device_id")
+            else None
+        )
         device_tools = (
-            build_device_tools(self._device_service, row.agent_id)
+            build_device_tools(self._device_service, row.agent_id, bound_device_id)
             if self._device_service is not None and not team_host
             else []
         )
