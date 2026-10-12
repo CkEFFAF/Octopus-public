@@ -78,6 +78,8 @@ command.run 非零 returncode 记 failed，不能以传输 ok 宣称命令成功
   检查验证来源密钥，续期不清除来源。撤销密钥不自动撤销已加入的设备。
 - 023 SQLite/PostgreSQL 迁移仅持久摘要与名称、用途、期限、最后使用、撤销时间。
   CLI支持 --access-key；推荐 --key-file 私有文件，避免进程参数留下明文。
+  账号登录登记：`--username`（密码**优先交互输入**，勿把 `--password` 明文挂命令行）或 `--account-token`；详 `docs/octopus/same-account-enroll-ops.md`。
+  扩权现状（MVP）= **拒扩大**（PATCH 只能减）+ **重登记**（撤销后以更大本地能力再 enroll）；非完整设备端确认协议。
 
 ## 任务与群聊执行关联
 
@@ -116,10 +118,20 @@ no-follow fd，使用 dir_fd 提交并复核 inode；Windows 复核已重现的 
 
 ## 启动流程
 
+账号登录登记（0004，推荐最小入网）：
+
+`octop device connect --server URL --username USER`
+密码**优先交互输入**（勿把 `--password` 明文挂在命令行）；也可用 `--account-token` 短 JWT。
+成功后写 device-state（仅 `odv_`），之后无参重连。详 `docs/octopus/same-account-enroll-ops.md`。
+
+配对码路径（保留）：
+
 `octop device connect --server URL --pair-code CODE --name NAME --share PATH`
 选项 --read-only、--desktop（查看）、--control（输入）、--allow-command、--allow-insecure。
 默认只有已选共享目录读写，其他显式启用；无共享目录仍可注册 ping/status。
---state PATH 可隔离测试和多设备；默认独立设备状态目录，存 device_id/token/local policy。
+--state PATH 可隔离测试和多设备；默认独立设备状态目录，含 device_id/token/local policy。
 后续 `octop device connect --state PATH` 使用已保存配置重连，无需重复配对。
 HTTP仅loopback默认允许；远程HTTP必须显式 --allow-insecure。
 不触碰用户现有账号/数据库，不登录 Windows 账号，不自动改防火墙。
+
+扩权：管理端 PATCH 拒扩大；需更大能力时撤销后在设备端重登记（MVP，非完整确认协议）。

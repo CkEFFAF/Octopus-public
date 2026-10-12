@@ -234,7 +234,7 @@ def connect(
 @click.option("--access-key", help="Prefer --key-file or the hidden interactive prompt.")
 @click.option("--key-file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--username", help="Account username for same-account auto-enroll.")
-@click.option("--password", prompt=False, hide_input=True, help="Account password.")
+@click.option("--password", prompt=False, hide_input=True, help="Account password (prefer interactive prompt).")
 @click.option("--account-token", prompt=False, help="Short-lived Bearer JWT; never stored.")
 @click.option("--name", help="Current device's name shown on that management host.")
 @click.option(

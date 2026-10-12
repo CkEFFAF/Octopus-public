@@ -1,7 +1,7 @@
 # 0004 同账号自动登记设备网（对标 UU 远程）
 
 - Status: Accepted（用户 2026-10-12 定稿入库）
-- Revision: 1 — 2026-10-12 MVP 实现说明：`POST /devices/enroll` 第三凭证为密码/SSO 用户 JWT（`Authorization: Bearer`）；key-session JWT（`auth_key_id`）拒绝登记，须改用 access_key 或密码登录；默认空 capabilities/permissions 入网；扩权仍走既有 PATCH 拒绝扩大（须设备端重新同意/登记）；CLI `--username`/`--password`/`--account-token`；配对码与 `--key-file` 保留。未实现可选 `POST /auth/device-login`（复用 `/auth/login`）。
+- Revision: 2 — 2026-10-12 Review 文档修补：运维步骤写入可跟踪 `docs/octopus/same-account-enroll-ops.md`（私有局域网步骤仍留在被 ignore 的 `deploy-other-devices.md`）；明确 CLI `--password` **优先交互输入**；扩权现状 = **拒扩大 + 重登记**（非完整设备端确认协议）。Revision 1 MVP：`POST /devices/enroll` 第三凭证为密码/SSO 用户 JWT；key-session 拒绝；默认空能力入网；CLI `--username`/`--password`/`--account-token`；配对码与 `--key-file` 保留。
 - 建议路径: `docs/specs/0004-same-account-auto-enroll.md`
 - 关联: `0001-account-device-network.md`、`device-network-contract.md`、`device-acp.md`、`0003-workstation-migration.md`
 
@@ -143,7 +143,9 @@ AC-02 增加：在设备客户端完成账号认证并成功登记，视为「�
 - 本文件。
 - `0001` AC-02：增加账号登录登记例外与「登记/配置解耦」一句。
 - `docs/octopus/device-network-contract.md`：enroll 入参。
-- `docs/octopus/deploy-other-devices.md`：增加「账号登录登记」步骤。
+- `docs/octopus/same-account-enroll-ops.md`：账号登录登记运维步骤（可跟踪）；注明 `--password` 优先交互、扩权=拒扩大+重登记。
+- `docs/octopus/same-account-enroll-ops.md`
+- `docs/octopus/deploy-other-devices.md`（本地私有，gitignore）：本机局域网私有步骤（gitignored，勿提交本机 IP）。
 
 ## References
 
