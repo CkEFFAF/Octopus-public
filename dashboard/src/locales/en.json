@@ -159,7 +159,14 @@
       "revokeHint": "Blocks new logins and enrollments, and invalidates browser sessions issued by this key. Enrolled devices keep their independent credentials; revoke them separately in the device list."
     },
     "grantHint": "Grant or reduce permissions within this device's capabilities. File-write expands apply immediately when online under owner_auto; command/ACP expands always require device confirmation.",
-    "pendingGrant": "Waiting for device to confirm expanded grants"
+    "pendingGrant": "Waiting for device to confirm expanded grants",
+    "desktopTargetNote": "Desktop target is independent of the expert default device (device_binding). Switching desktop does not rebind experts.",
+    "takeoverNeedGrant": "Grant desktop_view on the target device (0005) before takeover.",
+    "takeoverWaiting": "Waiting for {{name}} to allow desktop takeover…",
+    "takeoverAccepted": "{{name}} allowed desktop takeover.",
+    "takeoverRejected": "{{name}} rejected desktop takeover; current target unchanged.",
+    "takeoverTimeout": "Desktop takeover timed out on {{name}}; current target unchanged.",
+    "takeoverFailed": "Could not start desktop takeover."
   },
   "octopus": {
     "idle": "Idle",

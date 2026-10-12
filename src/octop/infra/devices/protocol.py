@@ -27,10 +27,14 @@ def resolve_default_device_server() -> str:
     override = os.environ.get(DEVICE_SERVER_ENV, "").strip()
     return override or DEFAULT_DEVICE_SERVER
 
+
 # Wire protocol: v1 = legacy reduce-only clients; v2 = grant proposals / expand.
 DEVICE_PROTOCOL_VERSION = 1
 CLIENT_PROTOCOL_VERSION = 2
 PENDING_GRANT_TTL_SECONDS = 72 * 3600
+# 0008 MVP-S1: controlled-device must confirm desktop target switch (DEC-001).
+PENDING_TAKEOVER_TTL_SECONDS = 60
+DESKTOP_TAKEOVER_MODES = frozenset({"view", "view_control"})
 
 
 def default_enroll_permissions(capabilities: list[str] | set[str]) -> list[str]:
@@ -43,6 +47,8 @@ def merge_enroll_permissions(
     """Apply REQ-007 defaults and keep explicit higher grants from the client."""
     caps = set(capabilities)
     return sorted((set(requested) | (DEFAULT_ENROLL_PERMISSIONS & caps)) & caps)
+
+
 ACTION_PERMISSION = {
     "ping": "",
     "status": "",

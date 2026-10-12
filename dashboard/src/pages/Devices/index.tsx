@@ -297,6 +297,7 @@ export default function DevicesPage() {
   const [pairingBusy, setPairingBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [operationBusy, setOperationBusy] = useState("");
+  const [switchBusy, setSwitchBusy] = useState(false);
   const refreshPending = useRef(false);
   const device = devices.find(
     (item) => item.device_id === (inWorkspace ? requestedId : selected),
@@ -357,6 +358,70 @@ export default function DevicesPage() {
     setSettingsOpen(false);
     navigate(deviceWorkspaceUrl(id, nextView));
   }
+
+  /** 0008 MVP-S1: desktop target switch requires controlled-device Allow takeover. */
+  async function switchDesktopTarget(id: string) {
+    if (id === requestedId) return;
+    const target = devices.find((item) => item.device_id === id);
+    if (!target) {
+      setError(t("devices.targetMissing"));
+      return;
+    }
+    if (!supportsWorkspaceView(target, "desktop")) {
+      message.error(t("devices.takeoverNeedGrant"));
+      return;
+    }
+    const wantControl = canUse(target, "desktop_control");
+    setSwitchBusy(true);
+    setError("");
+    try {
+      const started = await devicesApi.switchDesktopTarget(
+        id,
+        wantControl ? "view_control" : "view",
+      );
+      if (started.status === "accepted") {
+        openWorkspace(id, "desktop");
+        return;
+      }
+      if (!started.request_id) {
+        setError(t("devices.takeoverFailed"));
+        return;
+      }
+      message.info(t("devices.takeoverWaiting", { name: target.name }));
+      const deadline = Date.now() + 65000;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 800));
+        const next = await devicesApi.desktopTakeoverRequest(started.request_id);
+        if (next.status === "accepted") {
+          openWorkspace(id, "desktop");
+          message.success(t("devices.takeoverAccepted", { name: target.name }));
+          return;
+        }
+        if (next.status === "rejected") {
+          message.warning(t("devices.takeoverRejected", { name: target.name }));
+          return;
+        }
+        if (next.status === "timeout" || next.status === "cancelled") {
+          message.warning(t("devices.takeoverTimeout", { name: target.name }));
+          return;
+        }
+      }
+      message.warning(t("devices.takeoverTimeout", { name: target.name }));
+    } catch (err) {
+      onError(err);
+    } finally {
+      setSwitchBusy(false);
+    }
+  }
+
+  function requestWorkspace(id: string, nextView: DeviceWorkspaceView) {
+    if (nextView === "desktop" && id !== requestedId) {
+      void switchDesktopTarget(id);
+      return;
+    }
+    openWorkspace(id, nextView);
+  }
+
   function onChanged(next: Device) {
     setDevices((current) =>
       current.map((item) => (item.device_id === next.device_id ? next : item)),
@@ -514,7 +579,9 @@ export default function DevicesPage() {
                 className="devices-workspace-target"
                 aria-label={t("devices.targetDevice")}
                 value={requestedId}
-                onChange={(id) => openWorkspace(id, view!)}
+                disabled={switchBusy}
+                loading={switchBusy}
+                onChange={(id) => requestWorkspace(id, view!)}
                 options={devices.map((item) => ({
                   value: item.device_id,
                   label: `${item.name} · ${status(item)}`,
@@ -545,11 +612,19 @@ export default function DevicesPage() {
             </div>
             {device ? (
               <>
+                {view === "desktop" && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 8 }}
+                    message={t("devices.desktopTargetNote")}
+                  />
+                )}
                 <Segmented
                   aria-label={t("devices.workspaceTools", "设备操作")}
                   value={view}
                   onChange={(value) =>
-                    openWorkspace(
+                    requestWorkspace(
                       device.device_id,
                       value as DeviceWorkspaceView,
                     )
@@ -686,7 +761,7 @@ export default function DevicesPage() {
                         <Button
                           key={key}
                           icon={<Icon size={16} />}
-                          onClick={() => openWorkspace(item.device_id, key)}
+                          onClick={() => requestWorkspace(item.device_id, key)}
                         >
                           {label}
                         </Button>

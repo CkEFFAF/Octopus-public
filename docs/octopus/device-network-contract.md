@@ -43,6 +43,10 @@ Root：id/name/path/read:boolean/write:boolean。路径仅向所有者显示。
 - POST .../{id}/confirm -> Operation；仅用户 HTTP，Agent 不得自行确认 command.run。
 - POST /devices/{id}/call {action,params} -> object：等待结果的轻量适配；超时返回错误。
   command.run 不允许此入口（走 operations 人工确认）。capture 不落完整图像到数据库。
+- GET /devices/desktop-target -> {device_id, device, pending_takeover, note}（0008 当前桌面目标；与专家 device_binding 独立）
+- POST /devices/desktop-target/switch {device_id, mode:view|view_control} -> 202 takeover request（被控端须允许接管；缺 desktop_view → FORBIDDEN）
+- GET /devices/desktop-target/requests/{request_id} -> 状态 pending|accepted|rejected|timeout
+- GET /devices/desktop-target/events -> {events[]} 切换/拒绝/超时审计（AC-011）
 - POST /devices/transfers {source_device_id,source_root_id,source_path,
   target_device_id,target_root_id,target_path} -> Operation（action=files.transfer）。
   中继分块传输，状态 ledger.result 包含 bytes_total/bytes_done/sha256。
@@ -136,3 +140,9 @@ HTTP仅loopback默认允许；远程HTTP必须显式 --allow-insecure。
 不触碰用户现有账号/数据库，不登录 Windows 账号，不自动改防火墙。
 
 扩权：见 0005；正式 `--server` 示例为 `https://octop.effaf.me`（CF Tunnel），非内网 IP。
+
+## 桌面接管（0008 MVP-S1）
+
+WS 服务端 → 设备：`{type:'desktop_takeover',request_id,owner_label,mode,from_device_id?,expires_at}`
+设备 → 服务端：`{type:'desktop_takeover_resolve',request_id,decision:'accept'|'reject'}`
+无 TTY / headless：必须拒绝（禁止无确认自动同意）。冷备：接受后仅更新当前桌面目标并新开会话。

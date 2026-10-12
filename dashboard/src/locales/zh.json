@@ -159,7 +159,14 @@
       "revokeHint": "阻止新登录和新设备加入，已有密钥浏览器会话失效。已加入的设备保留独立凭据，可在设备列表单独撤销。"
     },
     "grantHint": "可授予或缩减本机已声明能力内的权限。写文件在设备在线且为 owner_auto 时立即生效；命令/ACP 扩权须设备端确认。",
-    "pendingGrant": "等待设备确认扩权"
+    "pendingGrant": "等待设备确认扩权",
+    "desktopTargetNote": "「桌面目标」与专家默认运行设备（device_binding）相互独立；切换桌面不会改绑专家。",
+    "takeoverNeedGrant": "请先按 0005 为目标设备授予 desktop_view，再发起接管。",
+    "takeoverWaiting": "等待 {{name}} 允许桌面接管…",
+    "takeoverAccepted": "{{name}} 已允许桌面接管。",
+    "takeoverRejected": "{{name}} 拒绝了桌面接管；当前目标保持不变。",
+    "takeoverTimeout": "{{name}} 桌面接管超时；当前目标保持不变。",
+    "takeoverFailed": "无法发起桌面接管。"
   },
   "octopus": {
     "idle": "空闲",

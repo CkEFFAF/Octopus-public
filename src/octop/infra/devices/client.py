@@ -433,9 +433,13 @@ class DeviceClient:
 
                             label = ",".join(sorted(set(desired)))
                             if sys.stdin.isatty():
-                                answer = input(
-                                    f"Control center requests permissions [{label}]. Accept? [y/N] "
-                                ).strip().lower()
+                                answer = (
+                                    input(
+                                        f"Control center requests permissions [{label}]. Accept? [y/N] "
+                                    )
+                                    .strip()
+                                    .lower()
+                                )
                                 decision = "accept" if answer in {"y", "yes"} else "reject"
                             else:
                                 decision = "reject"
@@ -449,6 +453,34 @@ class DeviceClient:
                             {
                                 "type": "grant_resolve",
                                 "proposal_id": proposal_id,
+                                "decision": decision,
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
+                elif kind == "desktop_takeover":
+                    # 0008 DEC-001: must prompt Allow takeover; never auto-accept (AC-004).
+                    request_id = frame.get("request_id")
+                    mode = frame.get("mode") or "view"
+                    owner_label = frame.get("owner_label") or "owner"
+                    if not isinstance(request_id, str):
+                        raise DeviceExecutionError("invalid desktop_takeover")
+                    decision = "reject"
+                    import sys
+
+                    mode_label = "view+control" if mode == "view_control" else "view"
+                    if sys.stdin.isatty():
+                        answer = (
+                            input(f"Allow desktop takeover by {owner_label} ({mode_label})? [y/N] ")
+                            .strip()
+                            .lower()
+                        )
+                        decision = "accept" if answer in {"y", "yes"} else "reject"
+                    await socket.send(
+                        json.dumps(
+                            {
+                                "type": "desktop_takeover_resolve",
+                                "request_id": request_id,
                                 "decision": decision,
                             },
                             ensure_ascii=False,
