@@ -83,10 +83,15 @@ def join(ctx: click.Context, server: str | None, state: Path) -> None:
             desktop = system == "Windows" and click.confirm("允许查看桌面？", default=False)
             control = desktop and click.confirm("允许键鼠控制？", default=False)
             allow_command = click.confirm("允许逐次确认后执行命令？", default=False)
+        allow_acp = not read_only and click.confirm(
+            "允许专家调用本机 ACP 智能体？它可按当前用户权限读写和执行命令，不经过设备命令逐次确认",
+            default=False,
+        )
         click.echo(f"管理端：{server}\n设备：{name}\n共享目录：{shared}")
         click.echo("文件：" + ("只读" if read_only else "读写"))
         click.echo("桌面：" + ("查看和控制" if control else "仅查看" if desktop else "关闭"))
         click.echo("命令：" + ("每次确认后以当前系统用户执行" if allow_command else "关闭"))
+        click.echo("ACP 智能体：" + ("以当前系统用户运行" if allow_acp else "关闭"))
         if allow_command:
             click.echo("共享目录限制文件传输；命令以当前用户权限执行，不是系统沙箱。")
         click.confirm("信任该管理端并按以上权限接入？", default=False, abort=True)
@@ -108,6 +113,7 @@ def join(ctx: click.Context, server: str | None, state: Path) -> None:
             desktop=desktop,
             control=control,
             allow_command=allow_command,
+            allow_acp=allow_acp,
             allow_insecure=allow_insecure,
             state=state,
         )
@@ -223,6 +229,14 @@ def setup(ctx: click.Context, state: Path) -> None:
     )
     if allow_command and not share:
         raise click.ClickException("命令执行需要共享工作目录。请重新配置并指定目录。")
+    allow_acp = (
+        bool(share)
+        and not read_only
+        and click.confirm(
+            "允许专家调用本机 ACP 智能体？它可按当前用户权限读写和执行命令，不经过设备命令逐次确认",
+            default=False,
+        )
+    )
     assert ctx.parent is not None
     group = ctx.parent.command
     assert isinstance(group, click.Group)
@@ -240,6 +254,7 @@ def setup(ctx: click.Context, state: Path) -> None:
         desktop=desktop,
         control=control,
         allow_command=allow_command,
+        allow_acp=allow_acp,
         allow_insecure=allow_insecure,
         state=state,
     )

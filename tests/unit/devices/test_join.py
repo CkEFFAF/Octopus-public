@@ -37,7 +37,7 @@ def test_join_hidden_credential_and_confirmed_windows_desktop(
     result = CliRunner().invoke(
         cli,
         ["device", "join", "--server", "https://manager.test", "--state", str(state)],
-        input=f"Windows PC\n2\n\ny\n{credential}\n",
+        input=f"Windows PC\n2\n\nn\ny\n{credential}\n",
     )
     assert result.exit_code == 0, result.output
     requests, runs = enrollment
@@ -64,13 +64,24 @@ def test_linux_join_commands_require_final_consent(tmp_path, monkeypatch, enroll
     result = CliRunner().invoke(
         cli,
         ["device", "join", "--server", "https://manager.test", "--state", str(tmp_path / "state")],
-        input="GPU Server\n1\n\ny\n87654321\n",
+        input="GPU Server\n1\n\nn\ny\n87654321\n",
     )
     assert result.exit_code == 0, result.output
     payload = enrollment[0][0][1]
     assert set(payload["capabilities"]) == {"files_read", "files_write", "command_exec"}
     assert "不是系统沙箱" in result.output
     assert "2 桌面和文件" not in result.output
+
+
+def test_join_acp_requires_separate_local_consent(tmp_path, monkeypatch, enrollment):
+    monkeypatch.setattr("octop.cli.device_startup_cmd.platform.system", lambda: "Linux")
+    result = CliRunner().invoke(
+        cli,
+        ["device", "join", "--server", "https://manager.test", "--state", str(tmp_path / "state")],
+        input="GPU Server\n1\n\ny\ny\n87654321\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "acp_run" in enrollment[0][0][1]["capabilities"]
 
 
 def test_declining_join_does_not_enroll_or_create_share(tmp_path, enrollment):

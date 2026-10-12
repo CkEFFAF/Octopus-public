@@ -40,14 +40,14 @@ class EnrollBody(StrictBody):
     access_key: str | None = Field(default=None, min_length=1, max_length=120)
     name: str = Field(min_length=1, max_length=120)
     platform: str
-    capabilities: list[str] = Field(max_length=5)
-    permissions: list[str] = Field(max_length=5)
+    capabilities: list[str] = Field(max_length=6)
+    permissions: list[str] = Field(max_length=6)
     roots: list[RootBody] = Field(default_factory=list, max_length=20)
 
 
 class UpdateBody(StrictBody):
     name: str | None = Field(default=None, min_length=1, max_length=120)
-    permissions: list[str] | None = Field(default=None, max_length=5)
+    permissions: list[str] | None = Field(default=None, max_length=6)
 
 
 class CallBody(StrictBody):

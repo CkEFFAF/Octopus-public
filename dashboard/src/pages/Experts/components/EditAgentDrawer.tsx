@@ -23,6 +23,7 @@ import ExpertColorPicker from "../../../components/ExpertColorPicker";
 import AgentTrajectoryField from "./AgentTrajectoryField";
 import { workspaceApi } from "../../../api/modules/workspace";
 import { skillPackagesApi } from "../../../api/modules/skillPackages";
+import { devicesApi, type Device } from "../../../api/modules/devices";
 import { apiErrorMessage, isNotFoundApiError } from "../../../utils/apiError";
 import { isAgentChatReady } from "../../../utils/agentError";
 import { useAgentFormResources } from "../../../hooks/useAgentFormResources";
@@ -149,6 +150,8 @@ interface EditFormValues {
   enable_trajectory?: boolean;
   knowledge_base_ids?: string[];
   mcp_servers?: string[];
+  device_id?: string;
+  device_root_id?: string;
 }
 
 interface EditAgentDrawerProps {
@@ -246,6 +249,8 @@ function EditAgentDrawerBody({
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [filesLoading, setFilesLoading] = useState(false);
+  const [devices, setDevices] = useState<Device[]>([]);
+  const boundDeviceId = Form.useWatch("device_id", form) as string | undefined;
   const [saving, setSaving] = useState(false);
   const [fileModalOpen, setFileModalOpen] = useState(false);
   const [editingFile, setEditingFile] = useState<string | null>(null);
@@ -291,6 +296,15 @@ function EditAgentDrawerBody({
 
         const cfg = ag.config ?? {};
         setAgentConfig(cfg);
+        void devicesApi.list().then((response) => {
+          if (!cancelled) setDevices(response.devices);
+        }).catch(() => {
+          if (!cancelled) setDevices([]);
+        });
+        const binding = cfg.device_binding;
+        const bound = binding && typeof binding === "object"
+          ? binding as { device_id?: string; root_id?: string }
+          : {};
         const colorFromRow =
           typeof ag.color === "string"
             ? ag.color
@@ -323,6 +337,8 @@ function EditAgentDrawerBody({
             ? ag.knowledge_base_ids
             : [],
           mcp_servers: Array.isArray(ag.mcp_servers) ? ag.mcp_servers : [],
+          device_id: bound.device_id,
+          device_root_id: bound.root_id,
         });
         setLoading(false);
 
@@ -434,7 +450,11 @@ function EditAgentDrawerBody({
         backend: backendSpec,
         enable_trajectory: values.enable_trajectory === true,
         conversation_mode: values.conversation_mode,
+        ...(values.device_id && values.device_root_id
+          ? { device_binding: { device_id: values.device_id, root_id: values.device_root_id } }
+          : { device_binding: null }),
       });
+      if (!values.device_id) delete nextConfig.device_binding;
       delete nextConfig.color;
       delete nextConfig.icon_name;
       delete nextConfig.icon_url;
@@ -837,6 +857,23 @@ function EditAgentDrawerBody({
                   }
                 />
               </Form.Item>
+
+              <Form.Item name="device_id" label={t("experts.deviceBindingLabel")}
+                extra={t("experts.deviceBindingHint")}>
+                <Select allowClear placeholder={t("experts.deviceBindingLocal")}
+                  options={devices.filter((item) => item.revoked_at === null).map((item) => ({
+                    value: item.device_id,
+                    label: `${item.name}${item.online ? "" : ` · ${t("devices.offline")}`}`,
+                  }))}
+                  onChange={() => form.setFieldValue("device_root_id", undefined)} />
+              </Form.Item>
+              {boundDeviceId && <Form.Item name="device_root_id"
+                label={t("experts.deviceRootLabel")}
+                rules={[{ required: true, message: t("experts.deviceRootRequired") }]}>
+                <Select options={devices.find((item) => item.device_id === boundDeviceId)?.roots
+                  .filter((root) => root.read && root.write)
+                  .map((root) => ({ value: root.id, label: `${root.name} · ${root.path}` })) ?? []} />
+              </Form.Item>}
 
               <AgentBackendFields
                 backends={backends}

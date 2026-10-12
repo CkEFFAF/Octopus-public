@@ -6,6 +6,7 @@ export const permissionKeys: DevicePermission[] = [
   "files_read",
   "files_write",
   "command_exec",
+  "acp_run",
 ];
 
 export type DeviceWorkspaceView = "desktop" | "files" | "command";

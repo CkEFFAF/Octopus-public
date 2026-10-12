@@ -8,7 +8,7 @@ from typing import Any
 from octop.infra.errors import ErrorCode, OctopError
 
 CAPABILITIES = frozenset(
-    {"desktop_view", "desktop_control", "files_read", "files_write", "command_exec"}
+    {"desktop_view", "desktop_control", "files_read", "files_write", "command_exec", "acp_run"}
 )
 ACTION_PERMISSION = {
     "ping": "",
@@ -23,6 +23,10 @@ ACTION_PERMISSION = {
     "desktop.capture": "desktop_view",
     "desktop.input": "desktop_control",
     "command.run": "command_exec",
+    "acp.open": "acp_run",
+    "acp.write": "acp_run",
+    "acp.poll": "acp_run",
+    "acp.close": "acp_run",
 }
 CHUNK_SIZE = 1024 * 1024
 MAX_FRAME = 4 * 1024 * 1024
@@ -50,7 +54,7 @@ def validate_action(action: str, params: dict[str, Any]) -> str:
 
 def ledger_result(action: str, value: dict[str, Any]) -> dict[str, Any]:
     """Keep private desktop frames and file bytes out of the durable ledger."""
-    return {k: v for k, v in value.items() if k not in {"jpeg_b64", "data_b64"}}
+    return {k: v for k, v in value.items() if k not in {"jpeg_b64", "data_b64", "session_id"}}
 
 
 def result_status(action: str, value: dict[str, Any]) -> str:

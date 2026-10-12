@@ -155,6 +155,7 @@ class DeviceNetwork:
         desktop_enabled: bool = False,
         control_enabled: bool = False,
         command_enabled: bool = False,
+        acp_enabled: bool = False,
         allow_insecure: bool = False,
         access_key: str | None = None,
     ) -> dict[str, Any]:
@@ -178,6 +179,7 @@ class DeviceNetwork:
                 desktop_enabled=desktop_enabled,
                 control_enabled=control_enabled,
                 command_enabled=command_enabled,
+                acp_enabled=acp_enabled,
             )
             try:
                 enrolled = await client.enroll(

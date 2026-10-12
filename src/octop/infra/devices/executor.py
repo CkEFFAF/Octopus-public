@@ -25,14 +25,16 @@ import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
-from typing import Any
+from typing import Any, cast
+
+from octop.infra.devices.acp_process import DeviceACPProcesses
 
 CHUNK_SIZE = 1024 * 1024
 JOURNAL_LIMIT = 512
 JOURNAL_BYTES_LIMIT = 8 * 1024 * 1024
 OUTPUT_LIMIT = 1024 * 1024
 CAPABILITIES = frozenset(
-    {"desktop_view", "desktop_control", "files_read", "files_write", "command_exec"}
+    {"desktop_view", "desktop_control", "files_read", "files_write", "command_exec", "acp_run"}
 )
 
 
@@ -270,17 +272,20 @@ class DeviceExecutor:
         desktop_enabled: bool = False,
         control_enabled: bool = False,
         command_enabled: bool = False,
+        acp_enabled: bool = False,
     ) -> None:
         if not set(permissions) <= CAPABILITIES:
             raise DeviceExecutionError("invalid local permissions")
         self.local_permissions = set(permissions)
-        self.local_permissions -= {"desktop_view", "desktop_control", "command_exec"}
+        self.local_permissions -= {"desktop_view", "desktop_control", "command_exec", "acp_run"}
         if desktop_enabled:
             self.local_permissions.add("desktop_view")
         if control_enabled and desktop_enabled:
             self.local_permissions.add("desktop_control")
         if command_enabled:
             self.local_permissions.add("command_exec")
+        if acp_enabled:
+            self.local_permissions.add("acp_run")
         self.local_roots: dict[str, dict[str, Any]] = {}
         for root in roots:
             root_id = str(root["id"])
@@ -304,6 +309,7 @@ class DeviceExecutor:
         self._active: dict[str, asyncio.Task[Any]] = {}
         self._capture: Any = None
         self._injector: Any = None
+        self._acp: DeviceACPProcesses | None = None
         self.state_dir = private_state_dir(state_dir) if state_dir is not None else None
         self._journal: dict[str, Any] = {}
         if self.state_dir is not None:
@@ -348,6 +354,8 @@ class DeviceExecutor:
             result.add("files_write")
         if "command_exec" in self.local_permissions:
             result.add("command_exec")
+        if "acp_run" in self.local_permissions:
+            result.add("acp_run")
         desktop_session = platform.system() == "Windows" or (
             platform.system() == "Linux"
             and bool(os.environ.get("DISPLAY"))
@@ -404,6 +412,8 @@ class DeviceExecutor:
             required = {"desktop_view", "desktop_control"}
         elif action == "command.run":
             required = {"command_exec"}
+        elif action.startswith("acp."):
+            required = {"acp_run"}
         else:
             raise DeviceExecutionError("unsupported device action")
         if not required <= self.permissions & set(permissions):
@@ -519,6 +529,15 @@ class DeviceExecutor:
         permissions: list[str],
     ) -> dict[str, Any]:
         self._authorize(action, grant_version, permissions)
+        # ACP stdio is an ephemeral stream. Neither prompts nor output belong
+        # in the durable operation journal or reconnect reconciliation.
+        if action.startswith("acp."):
+            try:
+                return await self._execute(action, params)
+            except ValueError as exc:
+                raise DeviceExecutionError(str(exc)) from exc
+            except OSError as exc:
+                raise DeviceExecutionError("ACP process transport failed") from exc
         if not operation_id or len(operation_id) > 200:
             raise DeviceExecutionError("invalid operation id")
         fingerprint = hashlib.sha256(
@@ -703,6 +722,26 @@ class DeviceExecutor:
             self._persist_uploads()
 
     async def _execute(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
+        if action.startswith("acp."):
+            if self._acp is None:
+                self._acp = DeviceACPProcesses()
+            session_id = str(params.get("session_id", ""))
+            if action == "acp.open":
+                root = self.roots.get(str(params.get("root_id", "")))
+                if root is None or not root["read"] or not root["write"]:
+                    raise DeviceExecutionError("ACP requires a writable shared root")
+                return await self._acp.open(
+                    cast(str, params.get("command")),
+                    cast(list[str], params.get("args")),
+                    Path(root["path"]),
+                )
+            if action == "acp.write":
+                return await self._acp.write(session_id, cast(str, params.get("data_b64")))
+            if action == "acp.poll":
+                return await self._acp.poll(session_id)
+            if action == "acp.close":
+                return await self._acp.close(session_id)
+            raise DeviceExecutionError("unsupported ACP action")
         if action in {"ping", "status"}:
             return {
                 "platform": platform.system().lower(),
@@ -997,6 +1036,8 @@ class DeviceExecutor:
             self._abort(upload_id)
 
     async def close(self) -> None:
+        if self._acp is not None:
+            await self._acp.close_all()
         for operation_id in list(self._active):
             await self.cancel(operation_id)
         self.abort_uploads()

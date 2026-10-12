@@ -394,6 +394,19 @@ async def patch_agent(
             body.config.get("backend"),
             policy_repo=server.services.user_policy_repo,
         )
+        binding = body.config.get("device_binding")
+        if binding is not None:
+            if not isinstance(binding, dict) or set(binding) != {"device_id", "root_id"}:
+                raise OctopError(ErrorCode.FORBIDDEN, "invalid expert device binding")
+            device_id, root_id = binding.get("device_id"), binding.get("root_id")
+            if not isinstance(device_id, str) or not isinstance(root_id, str):
+                raise OctopError(ErrorCode.FORBIDDEN, "invalid expert device binding")
+            device = server.app_runtime.devices.owned(row.user_id, device_id)
+            root = next((item for item in device.roots if item["id"] == root_id), None)
+            if root is None or not root.get("read") or not root.get("write"):
+                raise OctopError(
+                    ErrorCode.FORBIDDEN, "expert device requires a writable shared root"
+                )
     updates = {
         key: value
         for key, value in body.model_dump(exclude_unset=True).items()

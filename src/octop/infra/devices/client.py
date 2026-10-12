@@ -169,6 +169,7 @@ class DeviceClient:
                 "desktop_enabled": "desktop_view" in executor.local_permissions,
                 "control_enabled": "desktop_control" in executor.local_permissions,
                 "command_enabled": "command_exec" in executor.local_permissions,
+                "acp_enabled": "acp_run" in executor.local_permissions,
             },
         }
         save_private_json(self.state_path, state)
@@ -186,6 +187,7 @@ class DeviceClient:
             desktop_enabled=policy.get("desktop_enabled") is True,
             control_enabled=policy.get("control_enabled") is True,
             command_enabled=policy.get("command_enabled") is True,
+            acp_enabled=policy.get("acp_enabled") is True,
         )
 
     async def stop(self) -> None:
@@ -337,6 +339,7 @@ class DeviceClient:
                             task.cancel()
                         await asyncio.gather(*superseded, return_exceptions=True)
                         tasks.clear()
+                        await executor.close()
                         executor.update_grants(
                             frame["grant_version"], frame["permissions"], frame["roots"]
                         )

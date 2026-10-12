@@ -54,6 +54,11 @@ def device() -> None:
     help="Permit confirmed argv commands on this OS; this is not a filesystem sandbox.",
 )
 @click.option(
+    "--allow-acp",
+    is_flag=True,
+    help="Permit ACP agents installed and signed in on this device; requires a writable --share directory.",
+)
+@click.option(
     "--allow-insecure", is_flag=True, help="Explicitly permit remote HTTP for local development."
 )
 @click.option(
@@ -73,6 +78,7 @@ def connect(
     desktop: bool,
     control: bool,
     allow_command: bool,
+    allow_acp: bool,
     allow_insecure: bool,
     state: Path | None,
 ) -> None:
@@ -86,6 +92,8 @@ def connect(
         raise click.ClickException("Native device connections are supported on Windows and Linux.")
     if control and not desktop:
         raise click.UsageError("--control requires --desktop")
+    if allow_acp and (not share or read_only):
+        raise click.UsageError("--allow-acp requires a writable --share directory")
     if sum(bool(value) for value in (pair_code, access_key, key_file)) > 1:
         raise click.UsageError("choose --pair-code, --access-key or --key-file")
     state_dir = state or Path.home() / ".octop-device"
@@ -106,6 +114,7 @@ def connect(
                     desktop,
                     control,
                     allow_command,
+                    allow_acp,
                     allow_insecure,
                 )
             ):
@@ -146,6 +155,7 @@ def connect(
                 desktop_enabled=desktop,
                 control_enabled=control,
                 command_enabled=allow_command,
+                acp_enabled=allow_acp,
             )
             enrolled = await client.enroll(
                 server,
@@ -189,6 +199,9 @@ def connect(
 @click.option("--desktop", is_flag=True, help="Allow this host to view the desktop.")
 @click.option("--control", is_flag=True, help="Allow desktop input; requires --desktop.")
 @click.option("--allow-command", is_flag=True, help="Allow confirmed commands under this OS user.")
+@click.option(
+    "--allow-acp", is_flag=True, help="Run local ACP agents with this OS user's credentials."
+)
 @click.option("--allow-insecure", is_flag=True, help="Explicitly accept unencrypted remote HTTP.")
 @click.option("--state", type=click.Path(file_okay=False, path_type=Path), default=None)
 def add_controller(
@@ -202,6 +215,7 @@ def add_controller(
     desktop: bool,
     control: bool,
     allow_command: bool,
+    allow_acp: bool,
     allow_insecure: bool,
     state: Path | None,
 ) -> None:
@@ -214,6 +228,8 @@ def add_controller(
         raise click.UsageError("choose --pair-code, --access-key or --key-file")
     if allow_command and not share:
         raise click.UsageError("--allow-command requires a shared working directory")
+    if allow_acp and (not share or read_only):
+        raise click.UsageError("--allow-acp requires a writable shared directory")
     credential = access_key
     try:
         if key_file is not None:
@@ -246,6 +262,7 @@ def add_controller(
                 desktop_enabled=desktop,
                 control_enabled=control,
                 command_enabled=allow_command,
+                acp_enabled=allow_acp,
                 allow_insecure=allow_insecure,
                 access_key=credential,
             )

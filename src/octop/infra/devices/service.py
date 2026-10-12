@@ -342,6 +342,7 @@ class DeviceService:
             action.startswith("files.")
             and action in {"files.list", "files.stat", "files.read", "files.write_begin"}
             or action == "command.run"
+            or action == "acp.open"
         ):
             root = next((r for r in row.roots if r["id"] == params.get("root_id")), None)
             read = action in {"files.list", "files.stat", "files.read"}
@@ -349,6 +350,8 @@ class DeviceService:
                 action != "command.run" and not root.get("read" if read else "write")
             ):
                 raise OctopError(ErrorCode.FORBIDDEN, "shared directory not granted")
+            if action == "acp.open" and not root.get("read"):
+                raise OctopError(ErrorCode.FORBIDDEN, "ACP requires a readable shared root")
         return row
 
     async def call(
@@ -362,9 +365,12 @@ class DeviceService:
         agent_id: str | None = None,
         expected_version: int | None = None,
         allow_command: bool = False,
+        allow_acp: bool = False,
     ) -> dict[str, Any]:
         if action == "command.run" and not allow_command:
             raise OctopError(ErrorCode.FORBIDDEN, "command requires human confirmation")
+        if action.startswith("acp.") and not allow_acp:
+            raise OctopError(ErrorCode.FORBIDDEN, "ACP calls require an expert device binding")
         row = self.authorize(owner, device_id, action, params, agent_id=agent_id)
         if len(self._pending) >= 128:
             raise device_error("device operation capacity reached", status=429)
@@ -376,15 +382,26 @@ class DeviceService:
             "files.write_begin",
             "files.write_commit",
             "files.write_abort",
+            "acp.open",
+            "acp.close",
         }
         request_id = request_id or new_ulid()
         if audit:
+            audit_params = (
+                {"root_id": params.get("root_id"), "runner": params.get("runner")}
+                if action == "acp.open"
+                else {}
+                if action == "acp.close"
+                else {
+                    key: value for key, value in params.items() if key not in {"text", "data_b64"}
+                }
+            )
             self.repos.device_repo.create_operation(
                 request_id,
                 device_id,
                 owner,
                 action,
-                {key: value for key, value in params.items() if key not in {"text", "data_b64"}},
+                audit_params,
                 agent_id=agent_id,
                 grant_version=row.grant_version,
                 status="running",
@@ -460,6 +477,8 @@ class DeviceService:
         agent_id: str | None = None,
         task_run_id: str | None = None,
     ) -> dict[str, Any]:
+        if action.startswith("acp."):
+            raise OctopError(ErrorCode.FORBIDDEN, "ACP streams cannot be submitted as operations")
         if len(self._jobs) >= 32:
             raise device_error("device operation capacity reached", status=429)
         row = self.authorize(owner, device_id, action, params, agent_id=agent_id)

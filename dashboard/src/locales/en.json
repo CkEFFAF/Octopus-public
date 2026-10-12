@@ -1,5 +1,6 @@
 {
   "devices": {
+    "acpRunHint": "ACP agents run as this device's OS user and may read, write and execute commands without Octop's per-command device confirmation.",
     "workspaceTitle": "Device workspace",
     "managerSubtitle": "Manage trusted devices here; open a workspace to view a desktop, work with files, or run commands.",
     "records": "Operation history",
@@ -125,7 +126,8 @@
       "desktop_control": "Desktop input",
       "files_read": "Read files",
       "files_write": "Write files",
-      "command_exec": "Run commands"
+      "command_exec": "Run commands",
+      "acp_run": "Run local ACP agents"
     },
     "status": {
       "pending_confirmation": "Awaiting confirmation",
@@ -1003,6 +1005,11 @@
     }
   },
   "experts": {
+    "deviceBindingLabel": "Execution device",
+    "deviceBindingHint": "ACP uses locally installed and signed-in OpenCode, Codex and other runners. The device must grant ACP access; runners use its OS user permissions.",
+    "deviceBindingLocal": "Management host (default)",
+    "deviceRootLabel": "Device working directory",
+    "deviceRootRequired": "Choose a writable shared directory",
     "subtitle": "Spin up a pre-configured agent (with identity / soul / heartbeat baked in) from a scenario template. Each expert ships with its own system prompt — once created, just bind a provider and start it.",
     "loadFailed": "Failed to load experts",
     "loadDetailFailed": "Failed to load expert details",
