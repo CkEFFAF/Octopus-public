@@ -5,11 +5,12 @@
 - Revision: `2026-10-12.2`
 - Date: 2026-10-12
 - Authoritative path: `docs/specs/0007-portable-release-packages.md`
-- Relates:
+- Relates:；过渡默认见 `0010-transition-default-server.md`（双路径）。
   - `0005-device-permission-management.md`（REQ-006 便携 Release；本规格**覆盖**其「Linux 全量可延后」软门槛）
   - `0006-device-first-run-launcher.md`（默认 `https://octop.effaf.me`、`open-device`）
   - `docs/octopus/run-and-build.md`、`cloud-hub-ops.md`、`same-account-enroll-ops.md`、`cloudflare-tunnel-entry.md`
   - 实现面：`desktop/portable/*`、`.github/workflows/octop-desktop.yml`、`.github/workflows/release.yml`；Release 目标仓 **`CkEFFAF/Octopus`**（DEC-007）
+- Transition（0010 `2026-10-12.2`）: **包内默认仍是** `https://octop.effaf.me`；备案前用 `OCTOP_DEVICE_SERVER` 切 HTTP IP + scoped insecure；**禁止**为过渡改打包常量。
 - Non-overwrite: **不修改** Accepted `0004` 正文；不改 enroll 协议；本规格只定 Release 产物、打包与开箱验收。业务代码由 Coder 按本指南实现。
 
 ## 与 0005 的覆盖/修订关系
@@ -257,4 +258,5 @@ ls -lh desktop/portable/release/Octop-device-linux-amd64-*.tar.gz*
 
 - 2026-10-12.1: 初稿 Proposed。用户明确 Win+Linux 两边 ready-to-run；覆盖 0005 Linux 软门槛；对齐 0006 默认域名；含 Coder 切片与 OQ。
 - 2026-10-12.2: OQ 关闭（用户选「按建议」）→ **Accepted**。DEC-006 device tar 必挂；DEC-007 Release 发 `CkEFFAF/Octopus`；DEC-008 本里程碑不验 Wails。Coder 已派 S1+S2，切片表与决议对齐。REQ/AC ID 未改号。
-
+- 2026-10-12.transition: 对齐 0010 双路径（包内 HTTPS 不变；过渡靠 env）。
+- 2026-10-12.5: 交叉引用 0010 **双路径**——真包默认仍 HTTPS；备案前手测/过渡机用 `OCTOP_DEVICE_SERVER`，不改包内常量。

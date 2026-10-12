@@ -7,7 +7,7 @@
 
 ## 一句话目标
 
-云机跑唯一管理端；设备（Win/Linux 开箱包）默认连 `https://octop.effaf.me`；本周冒烟临时用 `http://111.228.42.228:8188`（须 `--allow-insecure`；**禁止**写进产品默认）。
+云机跑唯一管理端；设备（Win/Linux 开箱包）默认连 `https://octop.effaf.me`；本周冒烟临时用 `http://111.228.42.228:8188`：设备侧走 **0010 路径 B**（`OCTOP_DEVICE_SERVER=...` + 白名单自动 scoped allow-insecure）；CLI 手测仍可显式 `--allow-insecure`。**禁止**把 IP 写进产品/包内默认常量（路径 A 永为 `https://octop.effaf.me`）。
 
 ## 已拍板（0009 DEC）
 
@@ -127,3 +127,10 @@ reboot 抽测：`systemctl is-active octop-hub` 应为 `active`，再跑 `smoke-
 - 不写自动 Tunnel 安装器；不做多活选举；不改 Accepted 0004。
 - 不把 Deploy Key / Token 写入仓库或开箱包。
 - 本切片不做 S3 设备改连手测、不做 S4 Tunnel 切源站（另派）。
+
+## 过渡期执行端（0010 · 双路径）
+
+- **开箱/产品默认仍是** `https://octop.effaf.me`（**禁止**把 IP 写入包内常量）。
+- **备案前**：设 `OCTOP_DEVICE_SERVER=http://111.228.42.228:8188` 后再 `open-device`；对该 URL scoped 自动 allow-insecure（`docs/specs/0010-transition-default-server.md`）。
+- **回切**：unset `OCTOP_DEVICE_SERVER`。中枢仍按 0009 HTTP IP；与执行端产品默认是两件事。
+

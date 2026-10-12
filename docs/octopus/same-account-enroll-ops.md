@@ -15,6 +15,13 @@
 
 已登记后再次打开同一入口会直接重连。CLI 仍可用（见下）。
 
+
+## 过渡双路径（0010，备案前）
+
+- **路径 A（包/产品默认，永久）**：`https://octop.effaf.me`（`DEFAULT_DEVICE_SERVER`；未设 env 时开箱预填此值）。
+- **路径 B（备案前）**：`set OCTOP_DEVICE_SERVER=http://111.228.42.228:8188`（Linux: `export`）后开 `open-device` / `device first-run`；白名单 URL 自动 scoped allow-insecure（见 0010）。**禁止**把 IP 写进包内默认常量。
+- **回切**：撤掉 `OCTOP_DEVICE_SERVER` → 恢复 HTTPS 默认。
+
 ## 推荐：账号登录登记
 
 同一账号在设备客户端登录控制中心后即可自动登记进设备列表，无需先发配对码或接入密钥。登记时按 0005 REQ-007 默认授予 desktop_view/desktop_control/files_read（∩ capabilities）；写文件/命令/ACP 事后在管理端勾选。名称与共享目录仍可事后配置。
@@ -73,3 +80,14 @@ CLI help 已注明：--password prefer interactive prompt；--account-token neve
 `	ext
 uv run pytest tests/unit/devices/test_api.py tests/unit/devices/test_service.py tests/unit/devices/test_join.py tests/unit/devices/test_client.py tests/unit/devices/test_device_cli.py -q
 `
+
+## 过渡期入口（0010 · 双路径）
+
+- **路径 A（产品/开箱默认）**：`https://octop.effaf.me`（包内 `DEFAULT_DEVICE_SERVER` **不改**）。
+- **路径 B（备案前）**：启动前设置
+  ```text
+  OCTOP_DEVICE_SERVER=http://111.228.42.228:8188
+  ```
+  再双击 `open-device`；Server 预填该地址；白名单 URL 自动 allow-insecure。用户只输账密。权威：`docs/specs/0010-transition-default-server.md`。
+- **回切**：删除该环境变量（及可选 `open-device-transition.*`）→ 恢复 HTTPS 预填。
+

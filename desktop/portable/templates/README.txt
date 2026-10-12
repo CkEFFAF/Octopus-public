@@ -15,6 +15,18 @@ client auto-enrolls (0004) and stays connected. Name / shared folders / fine
 permissions are configured later on the manager (0005). Later launches
 reconnect without login.
 
+
+Filing-period transition (0010)
+-------------------------------
+Product / package default remains https://octop.effaf.me (no IP in constants).
+
+Before domain filing completes, use either:
+  - set OCTOP_DEVICE_SERVER=http://111.228.42.228:8188 then run open-device
+  - or double-click open-device-transition.bat (Windows) / ./open-device-transition.sh (Linux)
+
+That wrapper only sets the env var; scoped allow-insecure applies to this hub only.
+After filing: unset OCTOP_DEVICE_SERVER (or use plain open-device) for HTTPS default.
+
 No system Python, uv, or Node is required. Keep this folder writable so
 device-state can be created beside the launchers.
 

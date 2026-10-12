@@ -109,7 +109,8 @@ for module in "${MODULES[@]}"; do
 done
 cp "${REPO_ROOT}/desktop/portable/start-device.sh" "${PAYLOAD}/start-device.sh"
 cp "${REPO_ROOT}/desktop/portable/open-device.sh" "${PAYLOAD}/open-device.sh"
-chmod +x "${PAYLOAD}/open-device.sh"
+cp "${REPO_ROOT}/desktop/portable/open-device-transition.sh" "${PAYLOAD}/open-device-transition.sh"
+chmod +x "${PAYLOAD}/open-device.sh" "${PAYLOAD}/open-device-transition.sh"
 cp "${REPO_ROOT}/desktop/portable/setup-device.sh" "${PAYLOAD}/setup-device.sh"
 cp "${REPO_ROOT}/desktop/portable/linux-device/README.md" "${PAYLOAD}/README.md"
 cp "${REPO_ROOT}/LICENSE" "${PAYLOAD}/LICENSE"
@@ -194,7 +195,7 @@ def distributable(info):
         return None
     info.uid = info.gid = 0
     info.uname = info.gname = ""
-    if info.name.endswith(("/setup-device.sh", "/start-device.sh", "/open-device.sh")):
+    if info.name.endswith(("/setup-device.sh", "/start-device.sh", "/open-device.sh", "/open-device-transition.sh")):
         info.mode = 0o755
     return info
 

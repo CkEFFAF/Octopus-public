@@ -2,10 +2,11 @@
 
 - Spec ID: `0006-device-first-run-launcher`
 - Status: **Draft**（实现已落地于 `feature/octopus-device-permissions`；待总管/用户确认后升 Proposed/Accepted。非 Accepted 前勿按生产最终稿解读；与 0004 Accepted / 0005 冲突时以 Accepted 为准。）
-- Revision: `2026-10-12.2`
+- Revision: `2026-10-12.4`
 - Date: 2026-10-12
 - Authoritative path: `docs/specs/0006-device-first-run-launcher.md`
-- Relates: `0004-same-account-auto-enroll.md`（Accepted，先登记后配置）、`0005-device-permission-management.md`（尤其 REQ-006 便携 Release、REQ-008 稳定入口）、`REQ-008`、`docs/octopus/same-account-enroll-ops.md`、`desktop/portable/*`
+- Relates: `0004-same-account-auto-enroll.md`（Accepted，先登记后配置）、`0005-device-permission-management.md`（尤其 REQ-006 便携 Release、REQ-008 稳定入口）、`REQ-008`、`docs/octopus/same-account-enroll-ops.md`、`desktop/portable/*`；过渡双路径见 `0010-transition-default-server.md`（包默认 HTTPS + `OCTOP_DEVICE_SERVER`，**不**改 DEC-001 常量）。
+- Transition（0010）: **双路径**——产品/Release 默认仍为 `https://octop.effaf.me`（DEC-001 **不暂停**）；备案前用 `OCTOP_DEVICE_SERVER=http://111.228.42.228:8188` 切换，并对该 URL scoped allow-insecure。见 `0010-transition-default-server.md`。
 - Non-overwrite: **不修改** Accepted `0004` 决策正文；不改 enroll API/安全边界；本规格只补「开箱 UX / 启动器 / 首次向导」缺口
 - Deploy context（非硬编码强制）: 云中枢 4C8G Ubuntu24 部署中；产品默认公网入口域名为 `https://octop.effaf.me`（Tunnel/DNS 指向可变，执行端只记域名）
 
@@ -101,7 +102,7 @@
 
 | ID | 决策 | State |
 |---|---|---|
-| DEC-001 | 产品默认 server = `https://octop.effaf.me`（可覆盖）；不把云主机 IP 当默认 | **resolved**（总管产品目标） |
+| DEC-001 | 产品默认 server = `https://octop.effaf.me`（可覆盖）；不把云主机 IP 当默认 | **resolved**（总管产品目标；**0010 不暂停**；过渡用 `OCTOP_DEVICE_SERVER`） |
 | DEC-002 | 便携包主入口如何进入向导：独立「设备接入」入口 **或** `open.bat` 分支；Coder 实现时择一，README 只宣传一条主路径 | **open**（不阻塞规格；阻塞的是实现选型） |
 | DEC-003 | 向导为 MVP 主路径；CLI 保留 | **resolved** |
 | DEC-004 | 首次向导不强制配置 roots/细权限；沿用 0004 先登记后配置 + 0005 默认 permissions | **resolved** |
@@ -127,8 +128,21 @@
 
 - 改 0004 正文；实现 Tunnel；改默认权限矩阵（0005 REQ-007）；业务功能代码以外的 git commit 策略由总管定（本执行员不 commit）。
 
+
+## Transition override（0010 双路径）
+
+备案完成前中枢可能仅 HTTP IP 可达。**不**暂停、**不**改写 DEC-001：产品/包默认仍为 `https://octop.effaf.me`。
+
+- **路径 A（永久包默认）**：`DEFAULT_DEVICE_SERVER = "https://octop.effaf.me"`；未设 env 时向导预填 HTTPS。
+- **路径 B（备案前过渡）**：设 `OCTOP_DEVICE_SERVER=http://111.228.42.228:8188`（或过渡期 `open-device` set/export / 附带 transition 脚本），预填 IP；对白名单 URL 自动 scoped `allow_insecure`（见 0010）。
+- **回切**：撤掉 `OCTOP_DEVICE_SERVER` / 过渡启动器设置 → 恢复路径 A；**不要**改包内常量。
+
+权威细节与 Coder brief：`docs/specs/0010-transition-default-server.md`（`2026-10-12.2`）。AC-013 仍成立：成功路径不永久一键放开任意 http；仅 0010 白名单例外。
+
 ## Evolution
 
 - 2026-10-12.1: 初稿。对照 0004/0005 缺口补齐 UU 式启动器/首次向导；默认域名 `https://octop.effaf.me`；向导优先、CLI 保留；衔接便携 Release 与 REQ-008。
 - 2026-10-12.1-impl: Coder MVP — DEFAULT_DEVICE_SERVER=https://octop.effaf.me; `device join` UU path; `device first-run` + `open-device.bat/.sh`; CLI retained; advanced join/setup kept.
 - 2026-10-12.2: Review 修补说明——明确 Draft 未升 Accepted；默认 server 支持 `OCTOP_DEVICE_SERVER` / CLI `--server` 覆盖；AC-005 边界（`--account-token` 跳过密码、无 token 须密码）写清。实现与规格同步，仍为 Draft。
+- 2026-10-12.4: 对齐 0010 `2026-10-12.2` **双路径**。DEC-001 保持 HTTPS；过渡 = `OCTOP_DEVICE_SERVER` + scoped insecure；包内默认不改 IP。作废「暂停 DEC-001 / 改常量」旧叙事。
+- 2026-10-12.3: 对齐 0010 **双路径**——包默认 HTTPS 不变；备案前过渡用 `OCTOP_DEVICE_SERVER` / 可选过渡启动器 + scoped insecure；**删除**「暂停 DEC-001 / 改常量默认 IP」类表述。仍为 Draft。
