@@ -131,7 +131,7 @@ async def until(predicate):
     assert predicate()
 
 
-async def test_heartbeat_and_changed_grants_enforce_local_consent(tmp_path, monkeypatch):
+async def test_heartbeat_and_changed_grants_apply_within_capabilities(tmp_path, monkeypatch):
     executor, root = executor_for(tmp_path)
     executor.update_grants(1, ["files_read", "files_write"], list(executor.local_roots.values()))
     (root / "file").write_text("data")
@@ -149,7 +149,8 @@ async def test_heartbeat_and_changed_grants_enforce_local_consent(tmp_path, monk
         }
     )
     await until(lambda: executor.grant_version == 2)
-    assert executor.permissions == {"files_read"}
+    # 0005: remote grants may expand up to capabilities (no longer local-consent ∩).
+    assert executor.permissions == {"files_read", "command_exec", "desktop_control"}
     await socket.frames.put(
         {
             "type": "request",

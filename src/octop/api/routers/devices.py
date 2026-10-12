@@ -48,6 +48,16 @@ class EnrollBody(StrictBody):
 class UpdateBody(StrictBody):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     permissions: list[str] | None = Field(default=None, max_length=6)
+    remote_grant_mode: str | None = Field(default=None, pattern="^(confirm|owner_auto)$")
+
+
+class GrantProposalBody(StrictBody):
+    permissions: list[str] = Field(max_length=6)
+    roots: list[RootBody] = Field(default_factory=list, max_length=20)
+
+
+class GrantResolveBody(StrictBody):
+    decision: str = Field(pattern="^(accept|reject)$")
 
 
 class CallBody(StrictBody):
@@ -201,6 +211,46 @@ async def update(
     return await service.update(int(user.id), device_id, **body.model_dump(exclude_unset=True))
 
 
+@router.get("/devices/{device_id}/grant-status")
+async def grant_status(
+    device_id: str,
+    user: Any = Depends(current_user),
+    service: DeviceService = Depends(device_service),
+) -> dict[str, Any]:
+    return service.grant_status(int(user.id), device_id)
+
+
+@router.post("/devices/{device_id}/grant-proposals", status_code=201)
+async def create_grant_proposal(
+    device_id: str,
+    body: GrantProposalBody,
+    user: Any = Depends(current_user),
+    service: DeviceService = Depends(device_service),
+) -> dict[str, Any]:
+    return await service.create_grant_proposal(
+        int(user.id),
+        device_id,
+        permissions=body.permissions,
+        roots=[r.model_dump() for r in body.roots],
+    )
+
+
+@router.post("/devices/{device_id}/grant-proposals/{proposal_id}/resolve")
+async def resolve_grant_proposal(
+    device_id: str,
+    proposal_id: str,
+    body: GrantResolveBody,
+    user: Any = Depends(current_user),
+    service: DeviceService = Depends(device_service),
+) -> dict[str, Any]:
+    return await service.resolve_grant_proposal(
+        device_id,
+        proposal_id,
+        accept=(body.decision == "accept"),
+        owner=int(user.id),
+    )
+
+
 @router.post("/devices/{device_id}/revoke")
 async def revoke(
     device_id: str,
@@ -261,7 +311,16 @@ async def connect(websocket: WebSocket) -> None:
         token = hello.get("token")
         if not isinstance(device_id, str) or not isinstance(token, str):
             raise ValueError("invalid credentials")
-        connection = await service.connect(device_id, token, send, close)
+        client_protocol = hello.get("client_protocol_version", 1)
+        if type(client_protocol) is not int:
+            client_protocol = 1
+        connection = await service.connect(
+            device_id,
+            token,
+            send,
+            close,
+            client_protocol_version=client_protocol,
+        )
         while True:
             raw = await asyncio.wait_for(websocket.receive_text(), 60)
             if len(raw.encode("utf-8")) > MAX_FRAME:

@@ -44,7 +44,7 @@ def join(ctx: click.Context, server: str | None, state: Path) -> None:
             ctx.invoke(run, state=state)
             return
         server = validate_relocation_url(
-            server or click.prompt("管理端地址（浏览器访问的完整地址）", type=str).strip()
+            server or click.prompt("管理端地址（https://<你的域名>）", type=str).strip()
         )
         allow_insecure = False
         try:
@@ -218,7 +218,7 @@ def status(state: Path) -> None:
 def setup(ctx: click.Context, state: Path) -> None:
     """Guided first setup or addition of another trusted Windows controller."""
     click.echo("添加受信任管理端；每个端独立授权，项目和聊天不自动同步。")
-    server = click.prompt("管理端 HTTPS 地址", type=str).strip()
+    server = click.prompt("管理端地址（https://<你的域名>）", type=str).strip()
     allow_insecure = False
     if server.startswith("http://"):
         from octop.infra.devices.client import validate_server_url

@@ -38,8 +38,8 @@
     "unsupported": "此设备不支持",
     "mobileHint": "Android 和 iOS 可在这里控制已配对电脑。Windows / Linux 上的原生设备客户端需要保持运行。",
     "deviceName": "设备名称",
-    "permissionsTitle": "已授予的权限",
-    "reduceHint": "这里可以缩减权限。新增权限或共享目录需要在原生客户端调整本地授权并重新配对。",
+    "permissionsTitle": "设备权限",
+    "reduceHint": "可授予或缩减本机已声明能力内的权限。写文件在设备在线且为 owner_auto 时立即生效；命令/ACP 扩权须设备端确认。",
     "saveDevice": "保存设备",
     "sharedRoots": "共享根目录",
     "noRoots": "暂无共享目录",
@@ -157,7 +157,9 @@
       "revoked": "已撤销",
       "revoke": "撤销密钥",
       "revokeHint": "阻止新登录和新设备加入，已有密钥浏览器会话失效。已加入的设备保留独立凭据，可在设备列表单独撤销。"
-    }
+    },
+    "grantHint": "可授予或缩减本机已声明能力内的权限。写文件在设备在线且为 owner_auto 时立即生效；命令/ACP 扩权须设备端确认。",
+    "pendingGrant": "等待设备确认扩权"
   },
   "octopus": {
     "idle": "空闲",

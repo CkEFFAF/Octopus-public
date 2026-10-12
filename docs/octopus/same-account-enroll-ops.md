@@ -7,24 +7,24 @@
 
 ## 推荐：账号登录登记
 
-同一账号在设备客户端登录控制中心后即可自动登记进设备列表，无需先发配对码或接入密钥。默认以最小能力入网（可空 capabilities/permissions/roots）；名称、共享目录、桌面/命令等事后再配。
+同一账号在设备客户端登录控制中心后即可自动登记进设备列表，无需先发配对码或接入密钥。登记时按 0005 REQ-007 默认授予 desktop_view/desktop_control/files_read（∩ capabilities）；写文件/命令/ACP 事后在管理端勾选。名称与共享目录仍可事后配置。
 
 `at
 REM Windows：首次登记（密码优先交互输入，勿把明文挂在命令行）
-octop device connect --server https://<controller> --username <账号>
+octop device connect --server https://<your-domain> --username <账号>
 REM 成功后写入 ~/.octop-device（或 --state），之后无参 start-device / device run 即可重连
 `
 
 `ash
 # Linux
-octop device connect --server https://<controller> --username <account>
+octop device connect --server https://<your-domain> --username <account>
 # 或交互：setup-device / device join，选择「账号密码登录」
 `
 
 也可先密码登录拿到短 JWT，再：
 
 `ash
-octop device connect --server https://<controller> --account-token <短JWT>
+octop device connect --server https://<your-domain> --account-token <短JWT>
 `
 
 --account-token 仅用于当次登记请求，**不得**写入 device-state。
@@ -40,20 +40,20 @@ octop device connect --server https://<controller> --account-token <短JWT>
 
 CLI help 已注明：--password prefer interactive prompt；--account-token never stored in device-state。
 
-## 扩权现状（MVP）
+## 扩权与默认权限（改走 0005）
 
-扩大权限 **不能** 仅靠管理端 PATCH /devices/{id}。
+账号自动登记的**登记入口**仍按本文件 / 0004。扩权与默认权限集以 **`docs/specs/0005-device-permission-management.md`**（revision 2026-10-12.3+）为准：
 
-当前实现：
+- 新建设备默认 permissions：`desktop_view` + `desktop_control` + `files_read`（∩ capabilities）
+- 管理端可 PATCH 扩权至 capabilities；`files_write` 等在 `owner_auto` 且设备在线时立即生效
+- `command_exec` / `acp_run` **强制设备端确认**（即使 owner_auto）
+- 旧客户端（无 grant_proposal）扩权返回 CLIENT_OUTDATED，保留双轨提示升级
 
-- **拒扩大**：DeviceService.update / PATCH 只能减到客户端已声明能力内；扩大请求失败。
-- **重登记**：需要更大能力时，在控制中心撤销旧设备（或使用新的独立 --state），在设备端用更大本地能力声明重新 enroll（账号登录 / 配对码 / 接入密钥均可）。
-
-现状 = **拒扩大 + 重登记**，属 **非完整** 设备端确认协议（无独立 challenge/ACK 扩权流）。完整设备端同意流属 P1+；验收 AE-03「扩大权限无设备端同意则失败」由拒扩大覆盖。
+稳定入口：`--server https://<your-domain>`（Cloudflare Tunnel + 公网域名）；内网 IP / `--allow-insecure` 仅调试附录。
 
 ## 备用路径（保留）
 
-- 配对码：octop device connect --server URL --pair-code CODE ...
+- 配对码：octop device connect --server https://<your-domain> --pair-code CODE ...
 - 接入密钥：推荐 --key-file 私有 UTF-8 文件，避免进程参数留下明文。
 
 ## 验收指针

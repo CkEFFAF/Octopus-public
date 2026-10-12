@@ -10,6 +10,28 @@ from octop.infra.errors import ErrorCode, OctopError
 CAPABILITIES = frozenset(
     {"desktop_view", "desktop_control", "files_read", "files_write", "command_exec", "acp_run"}
 )
+# REQ-007: enroll defaults when each item is in capabilities.
+DEFAULT_ENROLL_PERMISSIONS = frozenset({"desktop_view", "desktop_control", "files_read"})
+# DEC-005: these expansions always require device-side confirm.
+HIGH_RISK_PERMISSIONS = frozenset({"command_exec", "acp_run"})
+REMOTE_GRANT_MODES = frozenset({"confirm", "owner_auto"})
+DEFAULT_REMOTE_GRANT_MODE = "owner_auto"
+# Wire protocol: v1 = legacy reduce-only clients; v2 = grant proposals / expand.
+DEVICE_PROTOCOL_VERSION = 1
+CLIENT_PROTOCOL_VERSION = 2
+PENDING_GRANT_TTL_SECONDS = 72 * 3600
+
+
+def default_enroll_permissions(capabilities: list[str] | set[str]) -> list[str]:
+    return sorted(DEFAULT_ENROLL_PERMISSIONS & set(capabilities))
+
+
+def merge_enroll_permissions(
+    capabilities: list[str] | set[str], requested: list[str] | set[str]
+) -> list[str]:
+    """Apply REQ-007 defaults and keep explicit higher grants from the client."""
+    caps = set(capabilities)
+    return sorted((set(requested) | (DEFAULT_ENROLL_PERMISSIONS & caps)) & caps)
 ACTION_PERMISSION = {
     "ping": "",
     "status": "",

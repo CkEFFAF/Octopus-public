@@ -177,14 +177,19 @@ async def test_read_only_and_ungranted_inputs_commands_denied(tmp_path):
     assert not (root / "new").exists()
 
 
-async def test_remote_grant_cannot_expand_consent_or_replace_root(tmp_path):
+async def test_remote_grant_expands_permissions_but_rejects_foreign_roots(tmp_path):
+    """0005: capabilities are the ceiling; remote may expand grants, never invent paths."""
     executor, root = make_executor(tmp_path, read_only=True)
     (root / "file").write_text("allowed")
-    changed = [{"id": "shared", "path": str(tmp_path), "read": True, "write": True}]
+    # Matching path keeps the root; write bit stays local-consent gated below.
+    matched = list(executor.local_roots.values())
     executor.update_grants(
-        2, ["files_read", "files_write", "desktop_control", "command_exec"], changed
+        2, ["files_read", "files_write", "desktop_control", "command_exec"], matched
     )
-    assert executor.permissions == {"files_read"}
+    assert {"files_read", "files_write", "command_exec"} <= executor.permissions
+    # Foreign path must not become a root (DEC-003 / no mkdir).
+    foreign = [{"id": "shared", "path": str(tmp_path), "read": True, "write": True}]
+    executor.update_grants(3, ["files_read"], foreign)
     with pytest.raises(DeviceExecutionError, match="root permission"):
         await call(executor, "files.read", {"root_id": "shared", "path": "file"})
     with pytest.raises(DeviceExecutionError, match="stale"):

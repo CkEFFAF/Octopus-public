@@ -21,6 +21,7 @@ from octop.infra.devices.executor import (
     private_state_dir,
     save_private_json,
 )
+from octop.infra.devices.protocol import CLIENT_PROTOCOL_VERSION, HIGH_RISK_PERMISSIONS
 
 
 def account_login(
@@ -219,6 +220,11 @@ class DeviceClient:
             or not token.startswith("odv_")
         ):
             raise DeviceExecutionError("invalid enrollment response")
+        # Align local consent with server-applied REQ-007 defaults.
+        granted = device.get("permissions")
+        if isinstance(granted, list):
+            executor.local_permissions |= set(granted) & set(executor.capabilities)
+            executor.permissions = set(executor.local_permissions)
         state = {
             "server_url": url,
             "device_id": device["device_id"],
@@ -231,6 +237,7 @@ class DeviceClient:
                 "control_enabled": "desktop_control" in executor.local_permissions,
                 "command_enabled": "command_exec" in executor.local_permissions,
                 "acp_enabled": "acp_run" in executor.local_permissions,
+                "remote_grant_mode": "owner_auto",
             },
         }
         save_private_json(self.state_path, state)
@@ -305,6 +312,7 @@ class DeviceClient:
                                 {
                                     "type": "hello",
                                     "protocol": 1,
+                                    "client_protocol_version": CLIENT_PROTOCOL_VERSION,
                                     "device_id": state["device_id"],
                                     "token": state["device_token"],
                                 }
@@ -405,6 +413,47 @@ class DeviceClient:
                             frame["grant_version"], frame["permissions"], frame["roots"]
                         )
                         executor.abort_uploads()
+                elif kind == "grant_proposal":
+                    proposal_id = frame.get("proposal_id")
+                    desired = frame.get("permissions")
+                    roots = frame.get("roots")
+                    if (
+                        not isinstance(proposal_id, str)
+                        or not isinstance(desired, list)
+                        or not isinstance(roots, list)
+                    ):
+                        raise DeviceExecutionError("invalid grant_proposal")
+                    high_risk = bool(set(desired) & HIGH_RISK_PERMISSIONS)
+                    requires = frame.get("requires_confirm") is True or high_risk
+                    decision = "reject"
+                    try:
+                        if requires:
+                            # Interactive CLI confirm for high-risk / confirm mode.
+                            import sys
+
+                            label = ",".join(sorted(set(desired)))
+                            if sys.stdin.isatty():
+                                answer = input(
+                                    f"Control center requests permissions [{label}]. Accept? [y/N] "
+                                ).strip().lower()
+                                decision = "accept" if answer in {"y", "yes"} else "reject"
+                            else:
+                                decision = "reject"
+                        else:
+                            executor.apply_grant_proposal(desired, roots)
+                            decision = "accept"
+                    except DeviceExecutionError:
+                        decision = "reject"
+                    await socket.send(
+                        json.dumps(
+                            {
+                                "type": "grant_resolve",
+                                "proposal_id": proposal_id,
+                                "decision": decision,
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
                 elif kind == "cancel":
                     operation_id = str(frame.get("id", ""))
                     pending = tasks.get(operation_id)

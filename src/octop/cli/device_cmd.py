@@ -20,7 +20,7 @@ def device() -> None:
 
 
 @device.command("connect")
-@click.option("--server", help="Control center HTTPS URL (HTTP allowed on loopback).")
+@click.option("--server", help="Control center URL, e.g. https://<your-domain> (HTTP allowed on loopback only).")
 @click.option("--pair-code", help="Single-use code from your account's Devices page.")
 @click.option(
     "--access-key",
@@ -187,14 +187,18 @@ def connect(
                 permissions.append("files_read")
                 if not read_only:
                     permissions.append("files_write")
-            # Account auto-enroll defaults to the local consent flags only
-            # (minimal when none set); pair/key paths behave the same.
+            # 0005 REQ-007: when the operator did not pass explicit capability flags,
+            # seed local consent for the default enroll set so the server defaults
+            # can take effect without a second registration.
+            seed_defaults = not (desktop or control or allow_command or allow_acp or roots)
+            if seed_defaults:
+                permissions = ["files_read"]
             executor = DeviceExecutor(
                 permissions,
                 roots,
                 state_dir=client.state_dir,
-                desktop_enabled=desktop,
-                control_enabled=control,
+                desktop_enabled=desktop or seed_defaults,
+                control_enabled=control or seed_defaults,
                 command_enabled=allow_command,
                 acp_enabled=allow_acp,
             )
@@ -229,7 +233,7 @@ def connect(
 
 
 @device.command("add-controller")
-@click.option("--server", required=True, help="Trusted management host HTTPS URL.")
+@click.option("--server", required=True, help="Trusted management host URL, e.g. https://<your-domain>.")
 @click.option("--pair-code", help="Single-use code from that host's Devices page.")
 @click.option("--access-key", help="Prefer --key-file or the hidden interactive prompt.")
 @click.option("--key-file", type=click.Path(exists=True, dir_okay=False, path_type=Path))
@@ -311,6 +315,9 @@ def add_controller(
             for index, path in enumerate(share, 1)
         ]
         permissions = (["files_read"] + ([] if read_only else ["files_write"])) if roots else []
+        seed_defaults = not (desktop or control or allow_command or allow_acp or roots)
+        if seed_defaults:
+            permissions = ["files_read"]
         network = DeviceNetwork(state or Path.home() / ".octop-device")
         added = asyncio.run(
             network.add_controller(
@@ -319,8 +326,8 @@ def add_controller(
                 name or platform.node(),
                 permissions,
                 roots,
-                desktop_enabled=desktop,
-                control_enabled=control,
+                desktop_enabled=desktop or seed_defaults,
+                control_enabled=control or seed_defaults,
                 command_enabled=allow_command,
                 acp_enabled=allow_acp,
                 allow_insecure=allow_insecure,

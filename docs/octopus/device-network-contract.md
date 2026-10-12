@@ -31,9 +31,10 @@ Root：id/name/path/read:boolean/write:boolean。路径仅向所有者显示。
   凭证三选一：pairing_code | access_key | Authorization Bearer 用户 JWT（密码/SSO；
   禁止 auth_key_id 的 key-session；禁止客户端自报 owner_user_id）。
   Body：{name,platform,capabilities,permissions,roots}（+ 所选凭证字段）。
-  默认可空 capabilities/permissions/roots（0004 最小入网）；扩权不可仅靠管理端 PATCH。
+  登记时服务端按 0005 REQ-007 写入默认 permissions（desktop_view/desktop_control/files_read ∩ capabilities）；扩权见 0005 grant_proposal / owner_auto。
   -> {device:Device,device_token:string}；消费单次配对码、颁发 odv_；只存 token_hash。
-- PATCH /devices/{id} {name?,permissions?} -> Device；只能减到客户端已声明能力内。
+- PATCH /devices/{id} {name?,permissions?,remote_grant_mode?} -> Device；permissions ⊆ capabilities；扩权按 remote_grant_mode / 高危强制 confirm（0005）。
+- GET /devices/{id}/grant-status；POST /devices/{id}/grant-proposals；POST .../resolve。
 - POST /devices/{id}/revoke -> Device；断开连接并阻止新操作。
 - POST /devices/{id}/operations {action:string,params:object,agent_id?:string}
   -> Operation；操作由宿主执行，关页面仍结算。
@@ -79,7 +80,7 @@ command.run 非零 returncode 记 failed，不能以传输 ok 宣称命令成功
 - 023 SQLite/PostgreSQL 迁移仅持久摘要与名称、用途、期限、最后使用、撤销时间。
   CLI支持 --access-key；推荐 --key-file 私有文件，避免进程参数留下明文。
   账号登录登记：`--username`（密码**优先交互输入**，勿把 `--password` 明文挂命令行）或 `--account-token`；详 `docs/octopus/same-account-enroll-ops.md`。
-  扩权现状（MVP）= **拒扩大**（PATCH 只能减）+ **重登记**（撤销后以更大本地能力再 enroll）；非完整设备端确认协议。
+  扩权（0005）= 管理端可授至 capabilities；owner_auto 非高危在线即生效；command/acp 强制设备 confirm；旧客户端 CLIENT_OUTDATED 双轨。
 
 ## 任务与群聊执行关联
 
@@ -108,7 +109,7 @@ command.run 非零 returncode 记 failed，不能以传输 ok 宣称命令成功
   stdout/stderr 各按实际 JSON UTF-8 编码限制为 1MiB，截断明确标记；对账逐条发送，
   旧命令 journal 在加载和重放时同样限制，防止过大回执反复断开连接。
 
-本地能力检查和 grant_version 更新不会扩大客户端启动时同意的权限。
+capabilities 为硬件/客户端上限；远端 grants 可扩至 capabilities（0005）；高危扩权须设备 confirm；禁止服务端发明路径/自动 mkdir。
 目录相对路径，拒绝绝对路径、..、符号链接与 Windows junction/reparse 逃逸。
 提交前复核哈希期间的根、父目录和临时文件身份。POSIX 将目录和临时文件绑定到
 no-follow fd，使用 dir_fd 提交并复核 inode；Windows 复核已重现的 await 替换窗口，
@@ -134,4 +135,4 @@ no-follow fd，使用 dir_fd 提交并复核 inode；Windows 复核已重现的 
 HTTP仅loopback默认允许；远程HTTP必须显式 --allow-insecure。
 不触碰用户现有账号/数据库，不登录 Windows 账号，不自动改防火墙。
 
-扩权：管理端 PATCH 拒扩大；需更大能力时撤销后在设备端重登记（MVP，非完整确认协议）。
+扩权：见 0005；正式 `--server` 示例为 `https://<your-domain>`（CF Tunnel），非内网 IP。

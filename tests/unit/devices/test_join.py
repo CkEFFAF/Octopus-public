@@ -49,6 +49,8 @@ def test_join_hidden_credential_and_confirmed_windows_desktop(
         "files_write",
         "desktop_view",
         "desktop_control",
+        "command_exec",
+        "acp_run",
     }
     assert payload["roots"][0]["name"] == "OctopShare"
     assert (tmp_path / "OctopShare").is_dir()
@@ -68,7 +70,7 @@ def test_linux_join_commands_require_final_consent(tmp_path, monkeypatch, enroll
     )
     assert result.exit_code == 0, result.output
     payload = enrollment[0][0][1]
-    assert set(payload["capabilities"]) == {"files_read", "files_write", "command_exec"}
+    assert set(payload["capabilities"]) == {"files_read", "files_write", "command_exec", "acp_run"}
     assert "不是系统沙箱" in result.output
     assert "2 桌面和文件" not in result.output
 
@@ -119,7 +121,7 @@ def test_accepted_http_still_needs_permission_confirmation(tmp_path, enrollment)
         input="y\nMy PC\n3\n\ny\n2\n11223344\n",
     )
     assert result.exit_code == 0, result.output
-    assert set(enrollment[0][0][1]["capabilities"]) == {"files_read"}
+    assert {"files_read", "files_write", "command_exec", "acp_run"} <= set(enrollment[0][0][1]["capabilities"])
 
 
 def test_join_reuses_saved_identity_without_new_authorization(tmp_path, enrollment):

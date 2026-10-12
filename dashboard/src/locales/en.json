@@ -38,8 +38,8 @@
     "unsupported": "Unavailable on this device",
     "mobileHint": "Android and iOS can control paired computers here. Keep the native device client running on Windows or Linux.",
     "deviceName": "Device name",
-    "permissionsTitle": "Granted permissions",
-    "reduceHint": "You can reduce these permissions. To add permissions or shared roots, change the native client’s local policy and pair again.",
+    "permissionsTitle": "Device permissions",
+    "reduceHint": "Grant or reduce permissions within this device's capabilities. File-write expands apply immediately when online under owner_auto; command/ACP expands always require device confirmation.",
     "saveDevice": "Save device",
     "sharedRoots": "Shared roots",
     "noRoots": "No shared directories",
@@ -157,7 +157,9 @@
       "revoked": "Revoked",
       "revoke": "Revoke key",
       "revokeHint": "Blocks new logins and enrollments, and invalidates browser sessions issued by this key. Enrolled devices keep their independent credentials; revoke them separately in the device list."
-    }
+    },
+    "grantHint": "Grant or reduce permissions within this device's capabilities. File-write expands apply immediately when online under owner_auto; command/ACP expands always require device confirmation.",
+    "pendingGrant": "Waiting for device to confirm expanded grants"
   },
   "octopus": {
     "idle": "Idle",
