@@ -38,7 +38,7 @@ Ubuntu 20.04 的 glibc 2.31 高于 Python portable GNU/Linux baseline 2.17，预
 
 ```bash
 mkdir -p "$HOME/apps"
-tar -xzf Octop-device-linux-amd64-1.0.2b7.tar.gz -C "$HOME/apps"
+tar -xzf Octop-device-linux-amd64-1.0.2b8.tar.gz -C "$HOME/apps"
 cd "$HOME/apps/Octop-device-linux-amd64"
 chmod +x open-device.sh setup-device.sh start-device.sh
 ./runtime/bin/python3 -c 'import platform, ssl; print(platform.machine(), ssl.OPENSSL_VERSION)'

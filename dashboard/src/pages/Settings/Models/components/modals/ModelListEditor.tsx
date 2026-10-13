@@ -314,6 +314,8 @@ export function ModelListEditor({
       const existing = models.find((m) => m.id === editingModelId);
       if (existing) {
         entry.enabled = existing.enabled;
+        entry.use_responses_api = existing.use_responses_api;
+        entry.max_output_tokens = existing.max_output_tokens;
       }
       onModelsChange(models.map((m) => (m.id === editingModelId ? entry : m)));
       message.success(t("models.modelUpdated", { name: entry.name }));

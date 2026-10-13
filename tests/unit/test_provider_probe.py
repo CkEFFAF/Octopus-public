@@ -33,6 +33,22 @@ def test_build_chat_model_includes_provider_id_and_model_name() -> None:
     assert model.name == "MiniMax-M2.7"
 
 
+def test_response_only_model_setting_reaches_probe_and_draft() -> None:
+    from octop.infra.agents.providers.probe import make_probe_provider_row
+
+    row = make_probe_provider_row(
+        name="OpenCode Go",
+        kind="openai",
+        base_url="https://opencode.ai/inference/go/v1",
+        api_key="sk-test",
+        model_id="grok-4.7",
+        use_responses_api=True,
+    )
+    with patch("octop_harness.llm.factory.build_chat_model") as mock_build:
+        _build_chat_model(row)
+    assert mock_build.call_args.args[1].use_responses_api is True
+
+
 def _embedding_row(**overrides: Any) -> SimpleNamespace:
     models = overrides.pop(
         "models",

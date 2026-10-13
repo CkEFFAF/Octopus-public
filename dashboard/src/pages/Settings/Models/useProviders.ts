@@ -14,6 +14,7 @@ export type { ResolvedModel };
 
 export interface ProviderModel {
   id: string;
+  use_responses_api?: boolean;
   name: string;
   enabled: boolean;
   input?: string[];
@@ -21,6 +22,7 @@ export interface ProviderModel {
   reasoning?: boolean;
   reasoning_config?: ResolvedModel["reasoning_config"];
   context_window?: number;
+  max_output_tokens?: number;
   max_tokens?: number;
   /** Embedding-only: excluded from chat picker and auto-route. */
   embedding?: boolean;
@@ -36,9 +38,11 @@ export function isEmbeddingModel(
 
 export interface ProviderPresetModel {
   id: string;
+  use_responses_api?: boolean;
   name: string;
   max_input_tokens?: number | null;
   context_window?: number | null;
+  max_output_tokens?: number | null;
   max_tokens?: number | null;
   input?: string[];
   reasoning?: boolean | null;

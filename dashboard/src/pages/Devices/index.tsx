@@ -27,6 +27,7 @@ import {
   Laptop,
   Link2,
   Monitor,
+  Pencil,
   RefreshCw,
   Shield,
   Terminal,
@@ -772,6 +773,7 @@ export default function DevicesPage() {
                       {status(item)}
                     </Tag>
                     <Dropdown
+                      overlayClassName="devices-action-menu"
                       trigger={["click"]}
                       menu={{
                         items: [
@@ -783,6 +785,7 @@ export default function DevicesPage() {
                           {
                             key: "rename",
                             label: t("devices.rename"),
+                            icon: <Pencil size={16} />,
                             disabled: item.revoked_at !== null,
                           },
                           {
@@ -794,6 +797,7 @@ export default function DevicesPage() {
                           {
                             key: "revoke",
                             label: t("devices.revoke"),
+                            icon: <Trash2 size={16} />,
                             danger: true,
                             disabled: item.revoked_at !== null,
                           },

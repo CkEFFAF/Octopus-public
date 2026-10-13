@@ -90,6 +90,7 @@ class ProviderTestDraftBody(BaseModel):
     api_key: str | None = None
     base_url: str | None = None
     model_id: str
+    use_responses_api: bool = False
     extra_json: str | None = None
     embedding: bool = False
 
@@ -368,6 +369,7 @@ async def admin_test_provider_draft(
         base_url=(body.base_url or "").strip() or None,
         model_id=model_id,
         extra_json=body.extra_json,
+        use_responses_api=body.use_responses_api,
         embedding=body.embedding,
     )
     return await probe_provider_row(

@@ -2,9 +2,13 @@
 requires = ["hatchling>=1.18"]
 build-backend = "hatchling.build"
 
+[tool.hatch.metadata]
+# This fork pins its canonical model catalog to a verified GitHub release wheel.
+allow-direct-references = true
+
 [project]
 name = "octop"
-version = "1.0.2b7"
+version = "1.0.2b8"
 description = "Smarter self-hosted AI assistant for multiple users and agents, built on octop-harness"
 readme = "README.md"
 license = { text = "MIT" }
@@ -21,7 +25,7 @@ dependencies = [
     "apscheduler>=3.10,<4",
     "argon2-cffi>=23.1",
     "pyjwt>=2.8",
-    "octop-harness[all]>=1.0.1",
+    "octop-harness[all] @ https://github.com/CkEFFAF/octop-harness/releases/download/v1.0.2.post1/octop_harness-1.0.2.post1-py3-none-any.whl",
     "octop-memory>=1.0.0",
     "lark-oapi>=1.7.3",
     "octop-gateway>=1.0.0",

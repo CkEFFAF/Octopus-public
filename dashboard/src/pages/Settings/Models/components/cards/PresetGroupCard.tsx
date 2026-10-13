@@ -177,6 +177,7 @@ export function PresetGroupCard({
         )}
         <ProviderCard
           provider={activeEntry.provider}
+          preset={activeEntry.preset}
           onSaved={onSaved}
           isHover={isHover}
           onMouseEnter={onMouseEnter}
