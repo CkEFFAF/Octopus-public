@@ -12,6 +12,7 @@ import { isTeamAgent, isTeamHostSpeaker } from "../../../utils/teamAgent";
 import { rewritePeerSpeakerId } from "../../../utils/remoteExpert";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
+import { chatAnimationPhase } from "../utils/expertAnimation";
 
 interface TurnProcessBlocksProps {
   split: AssistantTurnSplit;
@@ -73,6 +74,14 @@ export function TurnProcessBlocks({
           {showAvatar && (expert || avatarProfileId) ? (
             <div className={styles.avatarCol}>
               <ExpertMessageAvatar
+                phase={
+                  isStreaming
+                    ? split.tools.some((m) => m.toolData?.output === undefined)
+                      ? chatAnimationPhase(split.tools, true)
+                      : "thinking"
+                    : "idle"
+                }
+                animated={isStreaming}
                 name={expert?.name || avatarProfileId}
                 color={expert?.color}
                 iconName={expert?.icon_name}

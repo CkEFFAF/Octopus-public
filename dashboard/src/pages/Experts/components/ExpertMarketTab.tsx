@@ -26,7 +26,7 @@ import {
   parseWorkflowFrontmatterMeta,
   splitMarkdownFrontmatter,
 } from "../../../utils/markdown";
-import { iconForName } from "./iconForName";
+import { ExpertIcon, iconForName } from "./iconForName";
 import styles from "../index.module.less";
 
 interface ExpertMarketTabProps {
@@ -289,11 +289,7 @@ export default function ExpertMarketTab({
                     }}
                   >
                     {expert.icon_url ? (
-                      <img
-                        src={expert.icon_url}
-                        alt=""
-                        className={styles.marketIconImg}
-                      />
+                      <ExpertIcon iconUrl={expert.icon_url} size={36} />
                     ) : (
                       iconForName(expert.icon_name || "zap", 20)
                     )}

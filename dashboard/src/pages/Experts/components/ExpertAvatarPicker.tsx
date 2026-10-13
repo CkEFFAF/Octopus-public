@@ -1,11 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, Modal } from "antd";
+import { Button, Modal, Select } from "antd";
 import { ImagePlus } from "lucide-react";
 import { message } from "@/utils/antdMessage";
 
 import ExpertAgentAvatar from "../../Chat/components/ExpertAgentAvatar";
 import styles from "../index.module.less";
+import AnimatedExpertAvatar from "../../../components/AnimatedExpertAvatar";
+import {
+  EXPERT_CHARACTERS,
+  EXPERT_PHASES,
+  characterUrl,
+  resolveCharacter,
+  type ExpertPhase,
+} from "../../../components/AnimatedExpertAvatar/model";
 
 export const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
 const AVATAR_ACCEPT = "image/png,image/jpeg,image/webp,image/gif";
@@ -51,6 +59,7 @@ interface ExpertAvatarPickerProps {
   disabled?: boolean;
   onPick: (file: File) => void | Promise<void>;
   onRemove?: () => void | Promise<void>;
+  onSelectCharacter?: (url: string) => void | Promise<void>;
 }
 
 export default function ExpertAvatarPicker({
@@ -60,11 +69,13 @@ export default function ExpertAvatarPicker({
   disabled = false,
   onPick,
   onRemove,
+  onSelectCharacter,
 }: ExpertAvatarPickerProps) {
   const { t } = useTranslation();
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const localPreviewRef = useRef<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewPhase, setPreviewPhase] = useState<ExpertPhase>("welcome");
   const displayUrl = localPreview ?? iconUrl;
   const hasPhoto = Boolean(displayUrl?.trim());
 
@@ -130,9 +141,52 @@ export default function ExpertAvatarPicker({
             iconName={iconName}
             color={color}
             size={220}
+            phase={previewPhase}
           />
         </div>
+        {resolveCharacter(displayUrl) || !displayUrl ? (
+          <Select
+            aria-label={t("expertAnimation.preview")}
+            value={previewPhase}
+            style={{ width: "100%" }}
+            onChange={setPreviewPhase}
+            options={EXPERT_PHASES.map((value) => ({
+              value,
+              label: t(`expertAnimation.phases.${value}`),
+            }))}
+          />
+        ) : null}
       </Modal>
+      {onSelectCharacter && (
+        <Select
+          aria-label={t("expertAnimation.choose")}
+          placeholder={t("expertAnimation.choose")}
+          value={resolveCharacter(displayUrl) ?? undefined}
+          disabled={disabled}
+          style={{ width: 180 }}
+          onChange={(species) => {
+            replaceLocalPreview(null);
+            void Promise.resolve(
+              onSelectCharacter(characterUrl(species)),
+            ).catch(() => undefined);
+          }}
+          options={EXPERT_CHARACTERS.map((species) => ({
+            value: species,
+            label: (
+              <span
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <AnimatedExpertAvatar
+                  species={species}
+                  size={26}
+                  animated={false}
+                />
+                {t(`expertAnimation.characters.${species}`)}
+              </span>
+            ),
+          }))}
+        />
+      )}
       <div className={styles.avatarPickerActions}>
         <Button
           size="small"

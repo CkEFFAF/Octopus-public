@@ -260,6 +260,7 @@ export default function CreateFromExpertDrawer({
   const [skillPackagesLoading, setSkillPackagesLoading] = useState(false);
   const [colorPalette, setColorPalette] = useState<string>("rose");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [characterAvatar, setCharacterAvatar] = useState<string | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [detailPrompts, setDetailPrompts] = useState<QuickPrompt[] | null>(
     null,
@@ -304,6 +305,7 @@ export default function CreateFromExpertDrawer({
     const defaults = sourceDefaults(source, lang);
     setColorPalette(parseStoredColor(defaults.color) ?? DEFAULT_PALETTE);
     setAvatarFile(null);
+    setCharacterAvatar(null);
     setAvatarPreview((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
@@ -517,6 +519,16 @@ export default function CreateFromExpertDrawer({
         message.success(t("experts.agentCreated", { name: body.name }));
       }
       warnComposerPartial(body, t);
+      if (characterAvatar && !avatarFile) {
+        try {
+          await request(`/agents/${body.agent_id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ icon_url: characterAvatar }),
+          });
+        } catch {
+          message.warning(t("experts.avatarUploadLater"));
+        }
+      }
       if (avatarFile) {
         try {
           await octopAgentsApi.uploadAvatar(body.agent_id, avatarFile);
@@ -731,7 +743,9 @@ export default function CreateFromExpertDrawer({
 
         <Form.Item label={t("experts.avatar")}>
           <ExpertAvatarPicker
-            iconUrl={avatarPreview ?? sourceIcon(source).iconUrl}
+            iconUrl={
+              avatarPreview ?? characterAvatar ?? sourceIcon(source).iconUrl
+            }
             iconName={sourceIcon(source).iconName}
             color={
               isCuratedPalette(colorPalette)
@@ -739,6 +753,14 @@ export default function CreateFromExpertDrawer({
                 : colorPalette
             }
             disabled={submitting}
+            onSelectCharacter={(url) => {
+              setCharacterAvatar(url);
+              setAvatarFile(null);
+              setAvatarPreview((prev) => {
+                if (prev) URL.revokeObjectURL(prev);
+                return null;
+              });
+            }}
             onPick={(file) => {
               setAvatarFile(file);
               setAvatarPreview((prev) => {

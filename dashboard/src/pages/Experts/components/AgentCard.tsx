@@ -29,6 +29,7 @@ import type { OctopAgent } from "../../../context/AgentContext";
 import { useAgent } from "../../../context/AgentContext";
 import MbtiPersonaTag from "../../../components/MbtiPersonaTag";
 import { ExpertIcon } from "./iconForName";
+import { lifecyclePhase } from "../../../components/AnimatedExpertAvatar/model";
 import {
   formatAgentError,
   formatAgentState,
@@ -302,6 +303,7 @@ export const AgentCard = memo(function AgentCard({
             style={{ color: accent, background: `${accent}1a` }}
           >
             <ExpertIcon
+              phase={lifecyclePhase(localState, agent.bridge_disconnected)}
               iconUrl={iconUrl ?? agent.icon_url}
               iconName={iconName ?? agent.icon_name}
               size={iconUrl ?? agent.icon_url ? 42 : 22}

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import ExpertAgentAvatar from "./ExpertAgentAvatar";
 import { useChatAgentProfile } from "../ChatAgentProfileContext";
 import styles from "../index.module.less";
+import type { ExpertPhase } from "../../../components/AnimatedExpertAvatar/model";
 
 /** Shared message-row avatar size. */
 export const MESSAGE_AVATAR_SIZE = 36;
@@ -34,6 +35,8 @@ interface ExpertMessageAvatarProps {
   tooltip?: string | null;
   /** Open this agent in the profile drawer (member vs team host). */
   profileAgentId?: string | null;
+  phase?: ExpertPhase;
+  animated?: boolean;
 }
 
 export function ExpertMessageAvatar({
@@ -43,6 +46,8 @@ export function ExpertMessageAvatar({
   iconUrl,
   tooltip,
   profileAgentId,
+  phase = "idle",
+  animated = false,
 }: ExpertMessageAvatarProps) {
   const { t } = useTranslation();
   const profile = useChatAgentProfile();
@@ -54,6 +59,8 @@ export function ExpertMessageAvatar({
       iconUrl={iconUrl}
       color={color}
       size={MESSAGE_AVATAR_SIZE}
+      phase={phase}
+      animated={animated}
     />
   );
 

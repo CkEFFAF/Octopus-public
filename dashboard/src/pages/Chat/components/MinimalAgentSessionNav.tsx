@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import type { OctopAgent } from "../../../context/AgentContext";
 import { ExpertIcon } from "../../Experts/components/iconForName";
+import { lifecyclePhase } from "../../../components/AnimatedExpertAvatar/model";
 import { octopThreadsApi } from "../../../api/modules/octopThreads";
 import { showConfirmModal } from "../../../utils/confirmModal";
 import { isAgentChatReady } from "../../../utils/agentError";
@@ -533,6 +534,10 @@ export default function MinimalAgentSessionNav({
                   aria-hidden
                 >
                   <ExpertIcon
+                    phase={lifecyclePhase(
+                      agent.state,
+                      agent.bridge_disconnected,
+                    )}
                     iconUrl={agent.icon_url}
                     iconName={agent.icon_name}
                     size={agent.icon_url?.trim() ? 22 : 14}

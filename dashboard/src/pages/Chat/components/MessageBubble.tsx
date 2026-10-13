@@ -755,6 +755,8 @@ function MessageBubble({
       iconUrl={expert?.icon_url}
       tooltip={avatarTooltip}
       profileAgentId={avatarProfileId}
+      phase={isError ? "error" : isStreaming ? "speaking" : "idle"}
+      animated={isStreaming}
     />
   ) : null;
 

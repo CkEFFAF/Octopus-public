@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { AtSign, KanbanSquare, UserPlus, Activity } from "lucide-react";
 import { teamsApi, type TeamRecord } from "../../../api/modules/teams";
 import { useAgent } from "../../../context/AgentContext";
+import { ExpertIcon } from "../../Experts/components/iconForName";
 
 export default function ProjectRoomBar({
   teamId,
@@ -105,7 +106,15 @@ export default function ProjectRoomBar({
             }}
           >
             <Avatar
-              src={member.icon_url}
+              src={
+                member.icon_url ? (
+                  <ExpertIcon
+                    iconUrl={member.icon_url}
+                    size={32}
+                    phase={member.busy ? "running" : "idle"}
+                  />
+                ) : undefined
+              }
               style={{ background: member.color || "#7471cf" }}
             >
               {member.name[0]}
@@ -184,7 +193,16 @@ export default function ProjectRoomBar({
               {room.members.map((member) => (
                 <Avatar
                   key={member.agent_id}
-                  src={member.icon_url}
+                  src={
+                    member.icon_url ? (
+                      <ExpertIcon
+                        iconUrl={member.icon_url}
+                        size={28}
+                        phase={member.busy ? "running" : "idle"}
+                        animated={member.busy}
+                      />
+                    ) : undefined
+                  }
                   style={{ background: member.color || "#7471cf" }}
                 >
                   {member.name[0]}

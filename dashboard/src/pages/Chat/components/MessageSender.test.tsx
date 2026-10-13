@@ -10,6 +10,39 @@ vi.mock("react-i18next", () => ({
 }));
 
 describe("MessageSender", () => {
+  it("keeps historical expert avatars still and animates live activity", () => {
+    const { container, rerender } = render(
+      <ExpertMessageAvatar
+        name="Coder"
+        iconUrl="/experts/avatars/ai-coding-coach.svg"
+      />,
+    );
+    expect(container.querySelector("[data-species]")).toHaveAttribute(
+      "data-species",
+      "fox",
+    );
+    expect(container.querySelector("[data-animated]")).toHaveAttribute(
+      "data-animated",
+      "false",
+    );
+    rerender(
+      <ExpertMessageAvatar
+        name="Coder"
+        iconUrl="/expert-animations/fox.webp"
+        phase="coding"
+        animated
+      />,
+    );
+    expect(container.querySelector("[data-phase]")).toHaveAttribute(
+      "data-phase",
+      "coding",
+    );
+    expect(container.querySelector("[data-animated]")).toHaveAttribute(
+      "data-animated",
+      "true",
+    );
+  });
+
   it("renders a plain avatar without a visible name", () => {
     render(<MessageSender name="Ada" avatar={<span>A</span>} />);
     expect(screen.queryByText("Ada")).not.toBeInTheDocument();

@@ -1,4 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import ExpertActivity from "./components/ExpertActivity";
+import { useExpertAnimation } from "./hooks/useExpertAnimation";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
@@ -366,6 +368,13 @@ function ChatPageInner() {
     clearMessages,
     resumeHitl,
   } = useChat(activeThreadId, resolvedAgentId, isTeamChat);
+  const expertAnimation = useExpertAnimation({
+    messages,
+    running: isStreaming || liveSpeakers.length > 0,
+    sessionKey: `${resolvedAgentId}/${activeThreadId}`,
+    state: activeAgent?.state,
+    offline: activeAgent?.bridge_disconnected,
+  });
 
   const hasPendingHitlPause = useMemo(
     () => hasPendingHitl(messages),
@@ -1430,6 +1439,7 @@ function ChatPageInner() {
               ) : showWelcome ? (
                 <WelcomeScreen
                   agentName={activeAgent?.name ?? null}
+                  iconUrl={activeAgent?.icon_url}
                   welcomeSuffix={welcomeSuffix}
                   quickCards={expertQuickCards}
                   onPromptClick={handlePromptClick}
@@ -1726,6 +1736,15 @@ function ChatPageInner() {
                 </div>
               </div>
             ) : null}
+            {resolvedAgentId && !showWelcome && (
+              <ExpertActivity
+                phase={expertAnimation.phase}
+                name={activeAgent?.name}
+                iconUrl={activeAgent?.icon_url}
+                iconName={activeAgent?.icon_name}
+                color={activeAgent?.color}
+              />
+            )}
             <ChatInput
               ref={chatInputRef}
               onSend={wrappedHandleSend}
@@ -1733,7 +1752,10 @@ function ChatPageInner() {
               queuedItems={queuedItems}
               onRemoveQueued={removeQueued}
               onReclaimQueued={reclaimQueued}
-              onCancel={cancelStream}
+              onCancel={() => {
+                expertAnimation.pause();
+                cancelStream();
+              }}
               onNewChat={handleNewChat}
               isStreaming={isStreaming}
               isTeam={isTeamChat}

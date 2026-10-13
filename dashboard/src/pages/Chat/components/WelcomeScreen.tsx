@@ -3,21 +3,19 @@ import { useTranslation } from "react-i18next";
 import { useWelcomeQuickCardsLayout } from "../hooks/useWelcomeQuickCardsLayout";
 import WelcomeQuickCards, { WelcomeQuickCardProbe } from "./WelcomeQuickCards";
 import styles from "../index.module.less";
+import AnimatedExpertAvatar from "../../../components/AnimatedExpertAvatar";
+import {
+  resolveCharacter,
+  type ExpertPhase,
+} from "../../../components/AnimatedExpertAvatar/model";
+import { ExpertIcon } from "../../Experts/components/iconForName";
 
-// Animated WebP keeps alpha on Safari; VP9 WebM alpha is unreliable there.
-const MASCOT_PEEK = "/octop-mascot-peek.webp";
-const MASCOT_TYPE = "/octop-mascot-type.webp";
-const MASCOT_IMAGES = [MASCOT_PEEK, MASCOT_TYPE];
-
-function getRandomMascot(current?: string): string {
-  if (MASCOT_IMAGES.length <= 1) return MASCOT_IMAGES[0];
-  let next = current;
-  // Avoid picking the same image twice in a row.
-  while (next === current) {
-    next = MASCOT_IMAGES[Math.floor(Math.random() * MASCOT_IMAGES.length)];
-  }
-  return next as string;
-}
+const welcomeActions: ExpertPhase[] = [
+  "welcome",
+  "reading",
+  "coding",
+  "success",
+];
 
 export interface WelcomeQuickCard {
   title: string;
@@ -32,6 +30,7 @@ export interface WelcomeQuickCard {
 interface WelcomeScreenProps {
   onPromptClick: (text: string, options?: { prefill?: boolean }) => void;
   agentName?: string | null;
+  iconUrl?: string | null;
   welcomeSuffix?: string | null;
   quickCards: WelcomeQuickCard[];
   hideMascot?: boolean;
@@ -41,13 +40,14 @@ interface WelcomeScreenProps {
 export default function WelcomeScreen({
   onPromptClick,
   agentName,
+  iconUrl,
   welcomeSuffix,
   quickCards,
   hideMascot = false,
   isTeam = false,
 }: WelcomeScreenProps) {
   const { t } = useTranslation();
-  const [mascotSrc, setMascotSrc] = useState(MASCOT_PEEK);
+  const [actionIndex, setActionIndex] = useState(0);
   const {
     welcomeRef,
     headingRef,
@@ -61,7 +61,7 @@ export default function WelcomeScreen({
   } = useWelcomeQuickCardsLayout(quickCards);
 
   const handleMascotClick = () => {
-    setMascotSrc((prev) => getRandomMascot(prev));
+    setActionIndex((prev) => (prev + 1) % welcomeActions.length);
   };
 
   const showMascot = !hideMascot && !autoHideMascot;
@@ -71,23 +71,23 @@ export default function WelcomeScreen({
       <div className={styles.welcomeInner}>
         <div className={styles.welcomeHeading} ref={headingRef}>
           {showMascot && (
-            <img
+            <button
+              type="button"
               className={styles.welcomeMascot}
-              src={mascotSrc}
-              alt=""
-              draggable={false}
               onClick={handleMascotClick}
-              role="button"
-              tabIndex={0}
               title={t("chatWelcome.mascotSwitchHint")}
-              aria-label="Octop mascot"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  handleMascotClick();
-                }
-              }}
-            />
+              aria-label={t("expertAnimation.preview")}
+            >
+              {resolveCharacter(iconUrl) || !iconUrl ? (
+                <AnimatedExpertAvatar
+                  species={resolveCharacter(iconUrl) ?? "swallow"}
+                  phase={welcomeActions[actionIndex]}
+                  size={132}
+                />
+              ) : (
+                <ExpertIcon iconUrl={iconUrl} size={132} />
+              )}
+            </button>
           )}
           <h1 className={styles.welcomeTitle}>
             {isTeam

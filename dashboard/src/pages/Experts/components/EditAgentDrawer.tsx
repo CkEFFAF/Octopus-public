@@ -756,6 +756,23 @@ function EditAgentDrawerBody({
               </Form.Item>
               <Form.Item label={t("experts.avatar")}>
                 <ExpertAvatarPicker
+                  onSelectCharacter={async (url) => {
+                    setAvatarBusy(true);
+                    try {
+                      await request(`/agents/${agent.agent_id}`, {
+                        method: "PATCH",
+                        body: JSON.stringify({ icon_url: url }),
+                      });
+                      setIconUrl(url);
+                      await refresh({ silent: true });
+                    } catch (err) {
+                      message.error(
+                        apiErrorMessage(err, t("common.saveFailed"), t),
+                      );
+                    } finally {
+                      setAvatarBusy(false);
+                    }
+                  }}
                   iconUrl={iconUrl}
                   iconName={agent.icon_name}
                   color={

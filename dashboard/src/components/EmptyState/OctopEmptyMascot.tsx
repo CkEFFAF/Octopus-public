@@ -1,4 +1,4 @@
-import { OCTOP_EMPTY_MASCOT_SRC } from "../../assets/mascot";
+import AnimatedExpertAvatar from "../AnimatedExpertAvatar";
 import styles from "./EmptyState.module.less";
 
 interface OctopEmptyMascotProps {
@@ -17,12 +17,11 @@ export function OctopEmptyMascot({
   size = 160,
 }: OctopEmptyMascotProps) {
   return (
-    <img
-      src={OCTOP_EMPTY_MASCOT_SRC}
-      alt=""
-      draggable={false}
+    <AnimatedExpertAvatar
+      species="swallow"
+      phase="welcome"
+      size={size}
       className={className ? `${styles.mascot} ${className}` : styles.mascot}
-      style={size === 160 ? undefined : { width: size, height: size }}
     />
   );
 }

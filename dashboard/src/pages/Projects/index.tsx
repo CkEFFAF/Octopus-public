@@ -28,6 +28,7 @@ import { taskBoardApi, type BoardSnapshot } from "../../api/modules/taskBoard";
 import { useAgent } from "../../context/AgentContext";
 import { apiErrorMessage } from "../../utils/apiError";
 import PageShell from "../../layouts/PageShell";
+import { ExpertIcon } from "../Experts/components/iconForName";
 
 export default function ProjectsPage() {
   const { t } = useTranslation();
@@ -218,7 +219,15 @@ export default function ProjectsPage() {
                   <Card key={member.agent_id} size="small">
                     <Space>
                       <Avatar
-                        src={member.icon_url}
+                        src={
+                          member.icon_url ? (
+                            <ExpertIcon
+                              iconUrl={member.icon_url}
+                              size={32}
+                              phase={member.busy ? "running" : "idle"}
+                            />
+                          ) : undefined
+                        }
                         style={{ background: member.color || "#7471cf" }}
                       >
                         {member.name[0]}

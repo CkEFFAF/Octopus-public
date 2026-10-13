@@ -1,0 +1,70 @@
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  vertical-align: middle;
+}
+.body {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+  transform-origin: 50% 85%;
+}
+.avatar[data-animated="true"] > .body {
+  animation: breathe 3.2s ease-in-out infinite;
+}
+.avatar[data-animated="true"][data-phase="success"] > .body {
+  animation: celebrate 1.7s ease-in-out 1;
+}
+.avatar[data-animated="true"][data-phase="error"] > .body {
+  animation: concern 2.2s ease-in-out 1;
+}
+.fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--fn-bg-secondary);
+  color: var(--fn-color-brand);
+}
+@keyframes breathe {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  50% {
+    transform: translateY(-1.2%) rotate(0.6deg);
+  }
+}
+@keyframes celebrate {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  40% {
+    transform: translateY(-3%) scale(1.05) rotate(-2deg);
+  }
+  65% {
+    transform: translateY(0) rotate(2deg);
+  }
+}
+@keyframes concern {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  30% {
+    transform: rotate(-2deg);
+  }
+  60% {
+    transform: rotate(2deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .avatar > .body {
+    animation: none !important;
+  }
+}

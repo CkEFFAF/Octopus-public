@@ -1238,7 +1238,7 @@
     "color": "配色",
     "colorHint": "选择专家卡片配色，用于列表与聊天头像等展示。",
     "avatar": "头像",
-    "avatarHint": "可选 PNG、JPEG、WebP 或 GIF，不超过 5 MB。未设置时沿用配色图标。",
+    "avatarHint": "选择动态专家形象，或上传 PNG、JPEG、WebP、GIF 图片（不超过 5 MB）。",
     "avatarPreview": "查看头像",
     "avatarUpload": "上传",
     "avatarChange": "更换",
@@ -1563,7 +1563,11 @@
     },
     "git": {
       "title": "Git / Diff",
-      "view": { "all": "全部变更", "unstaged": "未暂存", "staged": "已暂存" },
+      "view": {
+        "all": "全部变更",
+        "unstaged": "未暂存",
+        "staged": "已暂存"
+      },
       "files": "文件",
       "filterFiles": "筛选文件...",
       "splitView": "切换双栏 / 单栏差异",
@@ -6895,5 +6899,51 @@
     "step4Desc": "操作完成后，输入\"结束\"停止录制，确认后技能将以任务目标为名保存。之后只需输入任务目标关键词即可触发回放。",
     "envNotReady": "请先安装浏览器环境",
     "title": "技能录制引导"
+  },
+  "expertAnimation": {
+    "choose": "专家形象",
+    "preview": "预览动作",
+    "characters": {
+      "swallow": "燕子",
+      "fox": "狐狸",
+      "owl": "猫头鹰",
+      "rabbit": "兔子",
+      "beaver": "海狸",
+      "cat": "猫咪",
+      "redpanda": "小熊猫",
+      "penguin": "企鹅",
+      "corgi": "柯基",
+      "raccoon": "浣熊"
+    },
+    "phases": {
+      "idle": "待机",
+      "welcome": "欢迎",
+      "listening": "倾听",
+      "speaking": "讲解",
+      "thinking": "思考",
+      "planning": "规划",
+      "searching": "检索",
+      "reading": "阅读",
+      "writing": "写作",
+      "coding": "编程",
+      "drawing": "设计",
+      "analyzing": "分析",
+      "running": "执行中",
+      "verifying": "检查",
+      "collaborating": "协作",
+      "handoff": "交接",
+      "uploading": "上传",
+      "downloading": "下载",
+      "waiting_user": "等待回答",
+      "waiting_permission": "等待授权",
+      "paused": "已暂停",
+      "recovering": "恢复状态",
+      "success": "本轮完成",
+      "error": "执行失败",
+      "warning": "需要留意",
+      "reminder": "温和提醒",
+      "offline": "设备离线",
+      "resting": "休息"
+    }
   }
 }

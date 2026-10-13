@@ -59,6 +59,11 @@ import {
 } from "lucide-react";
 import { useAuthImageSrc } from "../../../hooks/useAuthImageSrc";
 import { needsAuthBlobFetch } from "../../../utils/toolMediaBlocks";
+import AnimatedExpertAvatar from "../../../components/AnimatedExpertAvatar";
+import {
+  resolveCharacter,
+  type ExpertPhase,
+} from "../../../components/AnimatedExpertAvatar/model";
 
 const iconMap: Record<string, (size: number) => ReactNode> = {
   sparkles: (size) => <Sparkles size={size} />,
@@ -124,12 +129,27 @@ export function ExpertIcon({
   iconName,
   size = 22,
   className,
+  phase = "idle",
+  animated = true,
 }: {
   iconUrl?: string | null;
   iconName?: string | null;
   size?: number;
   className?: string;
+  phase?: ExpertPhase;
+  animated?: boolean;
 }): ReactNode {
+  const species = resolveCharacter(iconUrl);
+  if (species)
+    return (
+      <AnimatedExpertAvatar
+        species={species}
+        phase={phase}
+        animated={animated}
+        size={size}
+        className={className}
+      />
+    );
   const url = resolveExpertAvatarUrl(iconUrl);
   if (url) {
     return (

@@ -1,5 +1,10 @@
 import { ExpertIcon } from "../../Experts/components/iconForName";
 import styles from "../index.module.less";
+import AnimatedExpertAvatar from "../../../components/AnimatedExpertAvatar";
+import {
+  resolveCharacter,
+  type ExpertPhase,
+} from "../../../components/AnimatedExpertAvatar/model";
 
 export interface ChatAgentOption {
   agent_id: string;
@@ -30,6 +35,8 @@ interface ExpertAgentAvatarProps {
   className?: string;
   /** Neutral styling for read-only history tags. */
   muted?: boolean;
+  phase?: ExpertPhase;
+  animated?: boolean;
 }
 
 export default function ExpertAgentAvatar({
@@ -40,9 +47,12 @@ export default function ExpertAgentAvatar({
   size = 32,
   className,
   muted = false,
+  phase = "idle",
+  animated = true,
 }: ExpertAgentAvatarProps) {
   const accent = muted ? "#94a3b8" : color || "#6366f1";
-  const photo = Boolean(iconUrl?.trim());
+  const character = resolveCharacter(iconUrl);
+  const photo = Boolean(iconUrl?.trim()) || !iconUrl;
   const inner = photo
     ? size
     : iconSize ?? Math.max(12, Math.round(size * 0.55));
@@ -58,7 +68,16 @@ export default function ExpertAgentAvatar({
       }}
       aria-hidden
     >
-      <ExpertIcon iconUrl={iconUrl} iconName={iconName} size={inner} />
+      {character || !iconUrl ? (
+        <AnimatedExpertAvatar
+          species={character ?? "swallow"}
+          phase={phase}
+          animated={animated && !muted}
+          size={size}
+        />
+      ) : (
+        <ExpertIcon iconUrl={iconUrl} iconName={iconName} size={inner} />
+      )}
     </span>
   );
 }
