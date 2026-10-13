@@ -111,6 +111,35 @@
   line-height: 1.5;
 }
 
+.externalFileList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 90px;
+  margin-bottom: 12px;
+  overflow: auto;
+
+  :global(.ant-tag) {
+    max-width: 100%;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.externalManifest {
+  max-height: 360px;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--fn-border-secondary);
+  border-radius: var(--fn-radius-sm);
+  background: var(--fn-bg-tertiary);
+  color: var(--fn-text-secondary);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .packageMountAlert {
   margin: 0 0 16px;
 }

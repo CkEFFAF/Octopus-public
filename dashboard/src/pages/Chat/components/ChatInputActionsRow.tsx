@@ -45,10 +45,8 @@ import ExpertPickerPopover from "./ExpertPickerPopover";
 import SubagentPickerPopover from "./SubagentPickerPopover";
 import ConnectorPickerPopover from "./ConnectorPickerPopover";
 import KnowledgePickerPopover from "./KnowledgePickerPopover";
-import {
-  ConversationModeMenu,
-  conversationModeIcon,
-} from "./ConversationModePicker";
+import { ConversationModeMenu, workModeIcon } from "./ConversationModePicker";
+import type { WorkMode } from "../utils/workMode";
 import HitlPolicyPicker from "./HitlPolicyPicker";
 import SlashCommandMenu from "./SlashCommandMenu";
 import type { SlashMenuGroup } from "../../../utils/slashCategories";
@@ -127,6 +125,8 @@ interface ChatInputActionsRowProps {
   ) => void;
   conversationMode?: "ask" | "plan" | "craft";
   onConversationModeChange?: (mode: "ask" | "plan" | "craft") => void;
+  workMode?: WorkMode;
+  onWorkModeChange?: (mode: WorkMode) => void;
   hitlPolicy?: HitlSessionPolicy;
   onHitlPolicyChange?: (policy: HitlSessionPolicy) => void;
   availableConnectors?: {
@@ -185,6 +185,8 @@ export default function ChatInputActionsRow({
   onReasoningChange,
   conversationMode = "craft",
   onConversationModeChange,
+  workMode = conversationMode === "craft" ? "agentic" : conversationMode,
+  onWorkModeChange,
   hitlPolicy,
   onHitlPolicyChange,
   availableConnectors,
@@ -616,7 +618,7 @@ export default function ChatInputActionsRow({
     </div>
   );
 
-  const ModeIcon = conversationModeIcon(conversationMode);
+  const ModeIcon = workModeIcon(workMode);
 
   const renderPlusMenu = () => (
     <div className={styles.mobileOverflowMenu}>
@@ -634,7 +636,7 @@ export default function ChatInputActionsRow({
           </span>
           <span className={styles.mobileOverflowItemMeta}>
             <span className={styles.mobileOverflowItemMetaLabel}>
-              {t(`chat.conversationMode.${conversationMode}`)}
+              {t(`chat.workMode.${workMode}`)}
             </span>
             <ChevronRight size={16} />
           </span>
@@ -798,6 +800,8 @@ export default function ChatInputActionsRow({
         return (
           <ConversationModeMenu
             conversationMode={conversationMode}
+            workMode={workMode}
+            onWorkModeChange={onWorkModeChange}
             onChange={(mode) => {
               onConversationModeChange?.(mode);
               closePlusMenu();
@@ -907,12 +911,12 @@ export default function ChatInputActionsRow({
       const selected =
         count > 0 ||
         (key === "model" && Boolean(selectedModel)) ||
-        (key === "mode" && conversationMode !== "craft");
+        (key === "mode" && workMode !== "agentic");
       const summary =
         key === "model"
           ? selectedModelTriggerLabel
           : key === "mode"
-          ? t(`chat.conversationMode.${conversationMode}`)
+          ? t(`chat.workMode.${workMode}`)
           : null;
       return (
         <Popover

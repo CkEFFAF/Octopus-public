@@ -412,6 +412,7 @@ function ChatPageInner() {
     openWorkspaceTab,
     openBrowserTab,
     openTerminalTab,
+    openGitTab,
     toggleBrowserPanel,
     toggleWorkspacePanel,
     toggleTerminalPanel,
@@ -497,6 +498,15 @@ function ChatPageInner() {
       handlers.workspaceDisabled = !agentChatReady;
       handlers.workspaceDisabledHint = t("workspace.requiresRunning");
       handlers.onOpenFiles = openFileList;
+      if (!resolvedAgentId?.startsWith("bridge:")) {
+        handlers.onOpenGit = openGitTab;
+      }
+      if (pendingPlanPath) {
+        handlers.onOpenPlan = () => openFileAt(pendingPlanPath);
+      }
+    }
+    if (trajectoryEnabled && activeThreadId) {
+      handlers.onOpenTrajectory = () => setTrajectoryDrawerOpen(true);
     }
     if (canTerminal) {
       handlers.onOpenTerminal = openTerminalTab;
@@ -507,6 +517,12 @@ function ChatPageInner() {
     canTerminal,
     handleOpenBrowserTab,
     openFileList,
+    openGitTab,
+    resolvedAgentId,
+    openFileAt,
+    pendingPlanPath,
+    trajectoryEnabled,
+    activeThreadId,
     openTerminalTab,
     openWorkspaceTab,
     sharedExpertViewer,

@@ -28,6 +28,7 @@ import type { AgentSubagentSummary } from "../../../api/modules/subagents";
 import MentionPickerMenu from "./MentionPickerMenu";
 import ChatInputPreviewBar from "./ChatInputPreviewBar";
 import ChatInputActionsRow from "./ChatInputActionsRow";
+import { applyWorkMode, type WorkMode } from "../utils/workMode";
 import ChatQueuedMessages from "./ChatQueuedMessages";
 import { useVoiceInput } from "../../../hooks/useVoiceInput";
 import { useChatAttachments } from "../hooks/useChatAttachments";
@@ -190,6 +191,14 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     ref,
   ) {
     const { t, i18n } = useTranslation();
+    const [selectedWorkMode, setSelectedWorkMode] =
+      useState<WorkMode>("agentic");
+    const workMode: WorkMode =
+      conversationMode === "craft"
+        ? selectedWorkMode === "plan" || selectedWorkMode === "ask"
+          ? "agentic"
+          : selectedWorkMode
+        : conversationMode;
     const { modal, message: antMessage } = App.useApp();
     const { commands: slashCommands, labelFor } = useSlashCommands("ui");
     const skillDisplayName = useSkillDisplayName();
@@ -524,14 +533,19 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     const submitMessage = useCallback(() => {
       const trimmed = text.trim();
       if ((!trimmed && attachments.length === 0) || disabled) return;
-      const wireText = materializeSkillSlashes(trimmed, skillTokenRefs).trim();
-      const slashItem = matchSlashCommand(wireText);
+      const rawText = materializeSkillSlashes(trimmed, skillTokenRefs).trim();
+      const slashItem = matchSlashCommand(rawText);
       if (slashItem && slashItem.spec.client_action !== "none") {
         // Slash actions are never queued — run immediately or leave input alone.
         if (isStreaming) return;
         runSlashCommand(slashItem);
         return;
       }
+      // Preserve server-handled slash commands verbatim. Prefixing a work-mode
+      // instruction would stop the command parser from recognizing them.
+      const wireText = slashItem
+        ? rawText
+        : applyWorkMode(rawText, workMode, i18n.language);
       const ta = textareaRef.current;
       const prevHeight = ta ? ta.getBoundingClientRect().height : 0;
 
@@ -580,6 +594,8 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       reasoningMode,
       reasoningEffort,
       defaultModel,
+      workMode,
+      i18n.language,
       t,
     ]);
 
@@ -895,6 +911,8 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             onReasoningChange={onReasoningChange}
             conversationMode={conversationMode}
             onConversationModeChange={onConversationModeChange}
+            workMode={workMode}
+            onWorkModeChange={setSelectedWorkMode}
             hitlPolicy={hitlPolicy}
             onHitlPolicyChange={onHitlPolicyChange}
             defaultModel={defaultModel}

@@ -45,7 +45,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from octop.api.common.agent import require_agent_owner_row, require_agent_row
-from octop.api.deps import current_user, get_server, require_permission
+from octop.api.deps import current_user, get_server, require_admin, require_permission
 from octop.infra.agents.manager import (
     skill_package_ids_list,
 )
@@ -754,6 +754,66 @@ class ImportSkillBody(BaseModel):
     version: str = ""
     enable: bool = True
     overwrite: bool = False
+
+
+class ImportExternalSkillBody(BaseModel):
+    source: str
+    slug: str
+    digest: str
+
+
+@router.get(
+    "/agents/{agent_id}/skills/external/discover",
+    summary="Discover local coding assistant skills for review",
+)
+async def discover_external_skill_sources(
+    agent_id: str,
+    as_user: int | None = None,
+    user: Any = Depends(require_admin()),
+    server: Any = Depends(get_server),
+) -> list[dict[str, Any]]:
+    """Read candidates from the server host; no capability is enabled here."""
+    await _ctx(agent_id, user=user, as_user=as_user, server=server)
+    from octop.infra.skills.external_sources import discover_external_skills  # noqa: PLC0415
+
+    return await asyncio.to_thread(discover_external_skills, Path.home())
+
+
+@router.post(
+    "/agents/{agent_id}/skills/external/import",
+    status_code=201,
+    summary="Approve and import one discovered local skill",
+)
+async def import_external_skill(
+    agent_id: str,
+    body: ImportExternalSkillBody,
+    as_user: int | None = None,
+    user: Any = Depends(require_admin()),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    """Import the exact candidate snapshot reviewed by the caller."""
+    await _ctx(agent_id, user=user, as_user=as_user, server=server)
+    from octop.infra.skills.external_sources import load_external_skill  # noqa: PLC0415
+
+    try:
+        package, digest = await asyncio.to_thread(
+            load_external_skill, Path.home(), body.source, body.slug
+        )
+    except (OSError, ValueError) as exc:
+        raise OctopError(ErrorCode.SLASH_BAD_ARGS, str(exc)) from exc
+    if digest != body.digest:
+        raise OctopError(ErrorCode.SLASH_BAD_ARGS, "external skill changed; refresh discovery")
+    files = [
+        SkillFilePart(path=name, content_base64=base64.b64encode(data).decode("ascii"))
+        for name, data in package.files
+    ]
+    return await create_skill(
+        agent_id,
+        CreateSkillBody(name=body.slug, files=files),
+        as_user=as_user,
+        user=user,
+        server=server,
+    )
 
 
 async def _write_skill_files(

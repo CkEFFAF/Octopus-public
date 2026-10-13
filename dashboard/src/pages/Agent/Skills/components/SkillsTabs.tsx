@@ -11,7 +11,7 @@
 
 import { useMemo, useState } from "react";
 import { Empty } from "antd";
-import { Blocks, Package, Sparkles, Store } from "lucide-react";
+import { Blocks, Package, Radar, Sparkles, Store } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import TabBar, {
   type TabBarItem,
@@ -19,17 +19,19 @@ import TabBar, {
 import InstalledSkillsTab from "./InstalledSkillsTab";
 import SkillPackagesTab from "./SkillPackagesTab";
 import SkillHubTab from "./SkillHubTab";
+import ExternalSourcesTab from "./ExternalSourcesTab";
 import { useSkills } from "../useSkills";
 import styles from "../index.module.less";
 import { useCurrentUser } from "../../../../hooks/useCurrentUser";
 import { userCanAny, PERM } from "../../../../utils/permissions";
 
-type SkillsTab = "custom" | "builtin" | "skillhub" | "packages";
+type SkillsTab = "custom" | "builtin" | "skillhub" | "packages" | "external";
 
 const SKILL_TABS: TabBarItem<SkillsTab>[] = [
   { key: "custom", labelKey: "skills.customizedSkills", icon: Sparkles },
   { key: "builtin", labelKey: "skills.builtinSkills", icon: Blocks },
   { key: "skillhub", labelKey: "skills.tencentSkillHub", icon: Store },
+  { key: "external", labelKey: "skills.external.title", icon: Radar },
   { key: "packages", labelKey: "skills.skillPackages", icon: Package },
 ];
 
@@ -43,23 +45,28 @@ export default function SkillsTabs({ agentId }: SkillsTabsProps) {
   const currentUser = useCurrentUser();
   // Hide the skill-packages tab for users without the `skill_packages` permission.
   const canSkillPackages = userCanAny(currentUser, PERM.skillPackages);
+  const canDiscoverServerSkills = currentUser?.role === "admin";
   const remoteAgent = Boolean(agentId?.startsWith("bridge:"));
   const [activeTab, setActiveTab] = useState<SkillsTab>("custom");
   const tabs = useMemo(
     () =>
       SKILL_TABS.filter(
-        (tab) => tab.key !== "packages" || (canSkillPackages && !remoteAgent),
+        (tab) =>
+          (tab.key !== "packages" || (canSkillPackages && !remoteAgent)) &&
+          (tab.key !== "external" || (canDiscoverServerSkills && !remoteAgent)),
       ),
-    [canSkillPackages, remoteAgent],
+    [canSkillPackages, canDiscoverServerSkills, remoteAgent],
   );
   const resolvedTab =
-    activeTab === "packages" && (!canSkillPackages || remoteAgent)
+    (activeTab === "packages" && (!canSkillPackages || remoteAgent)) ||
+    (activeTab === "external" && (!canDiscoverServerSkills || remoteAgent))
       ? "custom"
       : activeTab;
   const onInstalledTab =
     resolvedTab === "custom" ||
     resolvedTab === "builtin" ||
-    resolvedTab === "packages";
+    resolvedTab === "packages" ||
+    resolvedTab === "external";
   const installedSkills = useSkills(agentId, { enabled: onInstalledTab });
 
   const noAgent = (
@@ -87,6 +94,13 @@ export default function SkillsTabs({ agentId }: SkillsTabsProps) {
           )
         ) : resolvedTab === "skillhub" && agentId ? (
           <SkillHubTab key={agentId} target={{ type: "agent", agentId }} />
+        ) : resolvedTab === "external" && agentId ? (
+          <ExternalSourcesTab
+            key={agentId}
+            agentId={agentId}
+            installed={installedSkills.skills}
+            onImported={installedSkills.fetchSkills}
+          />
         ) : resolvedTab === "packages" && agentId && canSkillPackages ? (
           <SkillPackagesTab
             key={agentId}

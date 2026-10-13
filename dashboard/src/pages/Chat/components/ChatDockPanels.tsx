@@ -1,4 +1,5 @@
 import type { PanelMode } from "../../../components/BrowserWorkspace";
+import { Grid } from "antd";
 import type { DisplayEnvironment } from "../../../api/types/browser";
 import type { DockTab, DockTabId } from "../hooks/useChatDockPanel";
 import styles from "../index.module.less";
@@ -64,6 +65,7 @@ export default function ChatDockPanels({
   onResizeStart,
   addTab,
 }: ChatDockPanelsProps) {
+  const screens = Grid.useBreakpoint();
   const keepAlive = openTabs.length > 0;
   const visible = dockOpen && keepAlive;
 
@@ -72,7 +74,9 @@ export default function ChatDockPanels({
   }
 
   const effectiveMode: PanelMode =
-    dockMode === "right" && isMobile ? "popup" : dockMode;
+    dockMode === "right" && (isMobile || screens.lg === false)
+      ? "popup"
+      : dockMode;
 
   const panel = (
     <ChatDockPanel

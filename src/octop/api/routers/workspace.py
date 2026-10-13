@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
@@ -11,6 +13,7 @@ from fastapi.responses import Response, StreamingResponse
 from octop_harness.backends.utils import BackendOperationNotSupportedError
 from pydantic import BaseModel
 
+from octop.api.common.agent import require_agent_owner_row
 from octop.api.common.agent_workspace import resolve_agent_workspace_dir
 from octop.api.common.content_disposition import content_disposition
 from octop.api.common.workspace import (
@@ -116,6 +119,60 @@ _FROM_WORKSPACE_DESC = (
 
 
 router = APIRouter()
+
+
+class RestoreGitFileBody(BaseModel):
+    repository: str = "."
+    path: str
+    expected_hash: str
+
+
+@router.get(
+    "/agents/{agent_id}/workspace/git",
+    summary="Inspect Git status and diffs in an agent workspace",
+)
+async def inspect_workspace_git(
+    agent_id: str,
+    repository: str = ".",
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    require_agent_owner_row(agent_id, user=user, as_user=None, server=server)
+    from octop.infra.backend.git_workbench import git_snapshot  # noqa: PLC0415
+
+    try:
+        return await asyncio.to_thread(
+            git_snapshot, resolve_agent_workspace_dir(server, agent_id), repository
+        )
+    except (OSError, ValueError) as exc:
+        raise OctopError(ErrorCode.SLASH_BAD_ARGS, str(exc)) from exc
+
+
+@router.post(
+    "/agents/{agent_id}/workspace/git/restore",
+    summary="Restore one unstaged Git file after making a recovery copy",
+)
+async def restore_workspace_git_file(
+    agent_id: str,
+    body: RestoreGitFileBody,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> dict[str, str]:
+    require_agent_owner_row(agent_id, user=user, as_user=None, server=server)
+    from octop.infra.backend.git_workbench import restore_file  # noqa: PLC0415
+
+    try:
+        backup = await asyncio.to_thread(
+            restore_file,
+            resolve_agent_workspace_dir(server, agent_id),
+            body.repository,
+            body.path,
+            body.expected_hash,
+            Path.home() / ".octop" / "workbench-recovery" / agent_id,
+        )
+    except (OSError, ValueError) as exc:
+        raise OctopError(ErrorCode.SLASH_BAD_ARGS, str(exc)) from exc
+    return {"recovery_copy": backup}
 
 
 @router.get("/agents/{agent_id}/workspace/tree")

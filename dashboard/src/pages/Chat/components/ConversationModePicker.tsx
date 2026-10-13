@@ -1,88 +1,102 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  Bug,
   Hammer,
   ListTodo,
   MessageCircleQuestion,
+  Monitor,
+  Network,
+  Search,
+  Users,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import { Popover, Tooltip } from "antd";
 import type { ConversationMode } from "../utils/conversationMode";
+import { WORK_MODES, type WorkMode } from "../utils/workMode";
 import styles from "../index.module.less";
 
-const MODE_OPTIONS: readonly {
-  mode: ConversationMode;
-  Icon: LucideIcon;
-  hintKey: string;
-}[] = [
-  {
-    mode: "craft",
-    Icon: Hammer,
-    hintKey: "chat.conversationMode.craftHint",
-  },
-  {
-    mode: "plan",
-    Icon: ListTodo,
-    hintKey: "chat.conversationMode.planHint",
-  },
-  {
-    mode: "ask",
-    Icon: MessageCircleQuestion,
-    hintKey: "chat.conversationMode.askHint",
-  },
-];
+const ICONS: Record<WorkMode, LucideIcon> = {
+  agentic: Hammer,
+  plan: ListTodo,
+  debug: Bug,
+  multitask: Workflow,
+  cowork: Users,
+  computer_use: Monitor,
+  deep_research: Search,
+  team: Network,
+  ask: MessageCircleQuestion,
+};
 
-export function conversationModeIcon(mode: ConversationMode): LucideIcon {
-  return MODE_OPTIONS.find((item) => item.mode === mode)?.Icon ?? Hammer;
-}
-
-function ModeGlyph({ mode }: { mode: ConversationMode }) {
-  const Icon = conversationModeIcon(mode);
-  return <Icon size={16} />;
+export function workModeIcon(mode: WorkMode): LucideIcon {
+  return ICONS[mode];
 }
 
 export function ConversationModeMenu({
   conversationMode,
+  workMode,
   onChange,
+  onWorkModeChange,
 }: {
   conversationMode: ConversationMode;
+  workMode?: WorkMode;
   onChange: (mode: ConversationMode) => void;
+  onWorkModeChange?: (mode: WorkMode) => void;
 }) {
   const { t } = useTranslation();
+  const selected =
+    workMode ?? (conversationMode === "craft" ? "agentic" : conversationMode);
+  const select = (mode: WorkMode) => {
+    onWorkModeChange?.(mode);
+    onChange(mode === "plan" || mode === "ask" ? mode : "craft");
+  };
   return (
-    <div className={styles.modeMenu}>
-      {MODE_OPTIONS.map(({ mode, Icon, hintKey }) => (
-        <button
-          key={mode}
-          type="button"
-          className={`${styles.modeMenuItem} ${
-            conversationMode === mode ? styles.modeMenuItemActive : ""
-          }`}
-          onClick={() => onChange(mode)}
-        >
-          <span className={styles.modeMenuTitle}>
-            <Icon size={16} />
-            {t(`chat.conversationMode.${mode}`)}
-          </span>
-          <span className={styles.modeMenuHint}>{t(hintKey)}</span>
-        </button>
-      ))}
+    <div className={`${styles.modeMenu} ${styles.modeMenuWorkflows}`}>
+      {WORK_MODES.map((mode) => {
+        const Icon = ICONS[mode];
+        return (
+          <button
+            key={mode}
+            type="button"
+            className={`${styles.modeMenuItem} ${
+              selected === mode ? styles.modeMenuItemActive : ""
+            }`}
+            onClick={() => select(mode)}
+          >
+            <span className={styles.modeMenuTitle}>
+              <Icon size={16} />
+              {t(`chat.workMode.${mode}`)}
+            </span>
+            <span className={styles.modeMenuHint}>
+              {t(`chat.workMode.${mode}Hint`)}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
 
 interface ConversationModePickerProps {
   conversationMode: ConversationMode;
+  workMode?: WorkMode;
   onChange: (mode: ConversationMode) => void;
+  onWorkModeChange?: (mode: WorkMode) => void;
 }
 
 export default function ConversationModePicker({
   conversationMode,
+  workMode,
   onChange,
+  onWorkModeChange,
 }: ConversationModePickerProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const modeLabel = t(`chat.conversationMode.${conversationMode}`);
+  const selected =
+    workMode ?? (conversationMode === "craft" ? "agentic" : conversationMode);
+  const Icon = workModeIcon(selected);
+  const modeLabel = t(`chat.workMode.${selected}`);
 
   return (
     <Popover
@@ -94,6 +108,8 @@ export default function ConversationModePicker({
       content={
         <ConversationModeMenu
           conversationMode={conversationMode}
+          workMode={selected}
+          onWorkModeChange={onWorkModeChange}
           onChange={(mode) => {
             onChange(mode);
             setOpen(false);
@@ -104,13 +120,13 @@ export default function ConversationModePicker({
       <Tooltip title={modeLabel} mouseEnterDelay={0.4}>
         <button
           className={`${styles.secondaryBtn} ${
-            conversationMode !== "craft" ? styles.secondaryBtnModelActive : ""
+            selected !== "agentic" ? styles.secondaryBtnModelActive : ""
           }`}
           type="button"
           aria-label={`${t("chat.conversationMode.picker")}: ${modeLabel}`}
           data-testid="conversation-mode-picker"
         >
-          <ModeGlyph mode={conversationMode} />
+          <Icon size={16} />
         </button>
       </Tooltip>
     </Popover>

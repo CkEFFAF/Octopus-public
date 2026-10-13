@@ -24,6 +24,7 @@ export type DockTab =
   | { id: "workspace"; kind: "workspace" }
   | { id: "browser"; kind: "browser" }
   | { id: "terminal"; kind: "terminal" }
+  | { id: "git"; kind: "git" }
   | { id: string; kind: "file"; path: string; agentId?: string }
   | {
       id: string;
@@ -225,6 +226,15 @@ export function useChatDockPanel(isMobile: boolean, agentId?: string | null) {
     openDock();
   }, [openDock]);
 
+  const openGitTab = useCallback(() => {
+    setOpenTabs((prev) => {
+      if (prev.some((t) => t.id === "git")) return prev;
+      return [...prev, { id: "git", kind: "git" }];
+    });
+    setActiveTabId("git");
+    openDock();
+  }, [openDock]);
+
   const openKnowledgeCitation = useCallback(
     (citation: KnowledgeCitation) => {
       const kbId = citation.kbId?.trim();
@@ -373,6 +383,7 @@ export function useChatDockPanel(isMobile: boolean, agentId?: string | null) {
     openBrowserTab,
     toggleBrowserPanel,
     openTerminalTab,
+    openGitTab,
     toggleTerminalPanel,
     openToolUiTab,
     focusToolUiTab,

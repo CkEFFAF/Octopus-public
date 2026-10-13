@@ -1540,6 +1540,52 @@
     "path_outside_root": "The file path is outside this expert's storage root, so it cannot be read or written. Use a path under the storage root, or widen the storage root in expert settings (on Windows, set an explicit drive path such as D:/octop-data)."
   },
   "chat": {
+    "openPlanFile": "Plan file",
+    "workMode": {
+      "agentic": "Agentic",
+      "agenticHint": "Carry out the task autonomously",
+      "plan": "Plan",
+      "planHint": "Plan before execution",
+      "debug": "Debug",
+      "debugHint": "Reproduce, diagnose, fix, verify",
+      "multitask": "Multitask",
+      "multitaskHint": "Split independent tasks and integrate",
+      "cowork": "Cowork",
+      "coworkHint": "Collaborate on key decisions",
+      "computer_use": "Computer Use",
+      "computer_useHint": "Operate and inspect available UIs",
+      "deep_research": "Deep Research",
+      "deep_researchHint": "Research with cited evidence",
+      "team": "Team",
+      "teamHint": "Delegate when team capability is available",
+      "ask": "Ask",
+      "askHint": "Read-only answers"
+    },
+    "git": {
+      "title": "Git / Diff",
+      "view": {
+        "all": "All changes",
+        "unstaged": "Unstaged",
+        "staged": "Staged"
+      },
+      "files": "Files",
+      "filterFiles": "Filter files...",
+      "splitView": "Toggle split / unified diff",
+      "serverOnly": "Showing Git in the agent workspace on this server.",
+      "refresh": "Refresh",
+      "loadFailed": "Could not read Git status",
+      "noRepository": "No Git repository in this agent workspace",
+      "status": "Status",
+      "clean": "Working tree clean",
+      "diff": "Unstaged changes",
+      "staged": "Staged changes",
+      "noDiff": "No unstaged diff",
+      "truncated": "Large diff: showing only the first 512 KB",
+      "restore": "Restore file",
+      "restoreConfirm": "Restore {{path}} to its Git version? A recovery copy of the current file will be saved first.",
+      "restoreFailed": "Restore failed; refresh status and try again",
+      "recoveryCopy": "Restored. Previous content saved at {{path}}"
+    },
     "sharedExpert": {
       "banner": "Shared expert · provided by {{name}}",
       "flag": "Shared"
@@ -2381,6 +2427,19 @@
     "editNote": "Note: Backend API does not support editing skills. You can only view or toggle enable/disable status.",
     "installedSkills": "Installed Skills",
     "tencentSkillHub": "SkillHub",
+    "external": {
+      "title": "External sources",
+      "serverOnly": "Admins can discover OpenCode, Claude Code and Codex skills on this server. Nothing is copied or enabled until you approve it.",
+      "refresh": "Scan again",
+      "empty": "No importable local skills found",
+      "loadFailed": "Could not discover external skills",
+      "importFailed": "Import failed; scan again if the source changed",
+      "review": "Review",
+      "installed": "Installed",
+      "approve": "Approve and enable",
+      "reviewHint": "Source: {{source}}. Review this SKILL.md before copying it and its supporting files.",
+      "files": "{{count}} files"
+    },
     "skillPackages": "Skill Packages",
     "mountedPackages": "Mounted packages",
     "mountPackage": "Mount a package",

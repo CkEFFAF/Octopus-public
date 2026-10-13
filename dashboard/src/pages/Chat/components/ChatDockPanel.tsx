@@ -15,6 +15,9 @@ import {
   Check,
   FilePen,
   FolderOpen,
+  GitBranch,
+  ListTodo,
+  Activity,
   Globe,
   Plus,
   Puzzle,
@@ -40,6 +43,7 @@ import ChatDockFileList from "./ChatDockFileList";
 import FilePanelContent from "./FilePanelContent";
 import KnowledgeCitationPanelContent from "./KnowledgeCitationPanelContent";
 import ChatDockToolUiContent from "./ChatDockToolUiContent";
+import ChatDockGit from "./ChatDockGit";
 
 const TerminalPage = lazy(() => import("../../Control/Terminal"));
 
@@ -47,12 +51,22 @@ export type ChatDockAddTabHandlers = {
   onOpenWorkspace?: () => void;
   onOpenBrowser?: () => void;
   onOpenTerminal?: () => void;
+  onOpenGit?: () => void;
+  onOpenPlan?: () => void;
+  onOpenTrajectory?: () => void;
   onOpenFiles?: () => void;
   workspaceDisabled?: boolean;
   workspaceDisabledHint?: string;
 };
 
-type AddTabKey = "workspace" | "files" | "browser" | "terminal";
+type AddTabKey =
+  | "workspace"
+  | "files"
+  | "browser"
+  | "terminal"
+  | "git"
+  | "plan"
+  | "trajectory";
 
 interface ChatDockPanelProps {
   mode: PanelMode;
@@ -136,6 +150,28 @@ const DockAddTabButton: React.FC<{
         extra: check("terminal"),
       });
     }
+    if (addTab.onOpenGit) {
+      next.push({
+        key: "git",
+        label: t("chat.git.title"),
+        icon: <GitBranch size={14} />,
+        extra: check("git"),
+      });
+    }
+    if (addTab.onOpenPlan) {
+      next.push({
+        key: "plan",
+        label: t("chat.openPlanFile"),
+        icon: <ListTodo size={14} />,
+      });
+    }
+    if (addTab.onOpenTrajectory) {
+      next.push({
+        key: "trajectory",
+        label: t("chat.trajectoryTitle"),
+        icon: <Activity size={14} />,
+      });
+    }
     return next;
   }, [addTab, openTabs, t]);
 
@@ -146,6 +182,9 @@ const DockAddTabButton: React.FC<{
         files: addTab.onOpenFiles,
         browser: addTab.onOpenBrowser,
         terminal: addTab.onOpenTerminal,
+        git: addTab.onOpenGit,
+        plan: addTab.onOpenPlan,
+        trajectory: addTab.onOpenTrajectory,
       };
       openers[key as AddTabKey]?.();
     },
@@ -412,6 +451,11 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
                 <Terminal size={16} strokeWidth={2} aria-hidden />
                 <span>{t("chat.dockTerminalTitle", "终端")}</span>
               </>
+            ) : tab.kind === "git" ? (
+              <>
+                <GitBranch size={16} strokeWidth={2} aria-hidden />
+                <span>{t("chat.git.title")}</span>
+              </>
             ) : tab.kind === "toolUi" ? (
               <>
                 <Puzzle size={16} strokeWidth={2} aria-hidden />
@@ -563,6 +607,16 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
             </div>
           );
         })}
+
+        {openTabs.some((tab) => tab.kind === "git") && (
+          <div
+            className={styles.dockTabBody}
+            hidden={activeTab?.kind !== "git"}
+            style={{ display: activeTab?.kind === "git" ? "flex" : "none" }}
+          >
+            <ChatDockGit agentId={agentId} />
+          </div>
+        )}
 
         {mountedKnowledgeTabs.map((tab) => {
           const isActive =
