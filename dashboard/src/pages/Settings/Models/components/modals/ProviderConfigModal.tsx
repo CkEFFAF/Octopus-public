@@ -20,10 +20,23 @@ import {
   Select,
 } from "antd";
 
-import { Download, Key, Loader2, Trash2, X, Zap } from "lucide-react";
+import {
+  Download,
+  Key,
+  Loader2,
+  RefreshCw,
+  Trash2,
+  X,
+  Zap,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { request } from "../../../../../api/request";
-import type { ProviderRow, ProviderModel } from "../../useProviders";
+import type {
+  ProviderRow,
+  ProviderModel,
+  ProviderPreset,
+} from "../../useProviders";
+import { mergePresetModels } from "../../mergePresetModels";
 import { isEmbeddingModel } from "../../useProviders";
 import { fetchProviderModels, testProviderDraft } from "../../providerApi";
 import { getProviderDocs } from "../../../../../assets/providers";
@@ -65,6 +78,7 @@ interface ProviderConfigForm {
 
 interface ProviderConfigModalProps {
   provider: ProviderRow;
+  preset?: ProviderPreset;
   open: boolean;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
@@ -81,6 +95,7 @@ function formatFileSize(bytes: number): string {
 
 export function ProviderConfigModal({
   provider,
+  preset,
   open,
   onClose,
   onSaved,
@@ -98,6 +113,10 @@ export function ProviderConfigModal({
   const hasApiKey = !!provider.api_key && provider.api_key.length > 0;
   const isOllama = isOllamaProviderRow(provider);
   const isOnnx = isOnnxProviderRow(provider);
+  const isCodexOAuth =
+    preset?.auth_method === "codex_oauth" ||
+    provider.base_url?.startsWith("https://chatgpt.com/backend-api/codex") ===
+      true;
   const [downloadedIds, setDownloadedIds] = useState<string[]>([]);
   const [downloadingIds, setDownloadingIds] = useState<string[]>([]);
   const [onnxSizeById, setOnnxSizeById] = useState<Record<string, number>>({});
@@ -804,9 +823,12 @@ export function ProviderConfigModal({
 
       const draftApiKey = (values.api_key as string | undefined)?.trim();
       const draftBaseUrl = (values.base_url as string | undefined)?.trim();
+      const draftModel = draftModels.find((m) => m.id === modelId);
+      const savedModel = provider.models.find((m) => m.id === modelId);
       const useDraft =
         !!draftApiKey ||
-        (!!draftBaseUrl && draftBaseUrl !== (provider.base_url ?? ""));
+        (!!draftBaseUrl && draftBaseUrl !== (provider.base_url ?? "")) ||
+        draftModel?.use_responses_api !== savedModel?.use_responses_api;
 
       if (useDraft && !draftApiKey && !hasApiKey) {
         message.warning(t("models.pleaseEnterApiKey"));
@@ -824,6 +846,8 @@ export function ProviderConfigModal({
               api_key: draftApiKey || provider.api_key || undefined,
               base_url: draftBaseUrl || provider.base_url,
               model_id: modelId,
+              use_responses_api: draftModels.find((m) => m.id === modelId)
+                ?.use_responses_api,
               embedding,
             })
           : await request<{
@@ -935,23 +959,21 @@ export function ProviderConfigModal({
         return;
       }
 
-      const existingIds = new Set(draftModels.map((m) => m.id));
-      const missing = fetched.filter((m) => !existingIds.has(m.id));
-      if (missing.length === 0) {
+      const merged = mergePresetModels(draftModels, fetched, preset?.models);
+      if (JSON.stringify(merged) === JSON.stringify(draftModels)) {
         message.info(t("models.fetchModelsNoNew"));
         return;
       }
 
-      const added: ProviderModel[] = missing.map((m) => ({
-        id: m.id,
-        name: m.name || m.id,
-        enabled: false,
-        input: ["text"],
-        thinking: null,
-      }));
-      setDraftModels((prev) => [...prev, ...added]);
+      setDraftModels((models) =>
+        mergePresetModels(models, fetched, preset?.models),
+      );
       setFormDirty(true);
-      message.success(t("models.fetchModelsMerged", { count: missing.length }));
+      message.success(
+        t("models.fetchModelsMerged", {
+          count: merged.length - draftModels.length,
+        }),
+      );
     } catch (err) {
       message.error(
         err instanceof Error
@@ -1072,7 +1094,9 @@ export function ProviderConfigModal({
         </Form.Item>
       </Form>
 
-      <div style={{ marginBottom: 16 }}>
+      <div
+        style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap" }}
+      >
         <Button
           size="small"
           icon={<Zap size={12} />}
@@ -1086,10 +1110,24 @@ export function ProviderConfigModal({
           icon={<Download size={12} />}
           loading={fetchingModels}
           onClick={() => void handleFetchModels()}
-          style={{ marginLeft: 8 }}
         >
           {t("models.fetchModels")}
         </Button>
+        {preset && (
+          <Button
+            size="small"
+            icon={<RefreshCw size={12} />}
+            onClick={() => {
+              setDraftModels((models) =>
+                mergePresetModels(models, preset.models, preset.models),
+              );
+              setFormDirty(true);
+              message.success(t("models.presetModelsSynced"));
+            }}
+          >
+            {t("models.syncPresetModels")}
+          </Button>
+        )}
       </div>
 
       {/* ===== Models section ===== */}
@@ -1102,6 +1140,24 @@ export function ProviderConfigModal({
         models={draftModels}
         onModelsChange={handleModelsChange}
         apiPrefix={apiPrefix}
+        onTestModel={
+          !isOllama && !isOnnx && !isCodexOAuth
+            ? (modelId) => {
+                const values = form.getFieldsValue();
+                const model = draftModels.find((m) => m.id === modelId);
+                return testProviderDraft({
+                  name: provider.name,
+                  kind: provider.kind,
+                  api_key:
+                    values.api_key?.trim() || provider.api_key || undefined,
+                  base_url: values.base_url?.trim() || provider.base_url,
+                  model_id: modelId,
+                  use_responses_api: model?.use_responses_api,
+                  embedding: isEmbeddingModel(model),
+                });
+              }
+            : undefined
+        }
         localDownload={
           isOllama || isOnnx
             ? {

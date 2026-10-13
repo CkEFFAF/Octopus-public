@@ -103,12 +103,26 @@ export default function DeviceDetails({ device }: { device: Device }) {
       {error && (
         <Alert type="warning" showIcon message={t("devices.detailsFailed")} />
       )}
+      {status && !status.system && (
+        <Alert
+          type="info"
+          showIcon
+          message={t("devices.clientUpdateRequired")}
+        />
+      )}
       {status && (
         <dl className="devices-detail-list">
           {systemRows.map(([label, value]) => (
             <div key={label}>
               <dt>{label}</dt>
-              <dd>{value || t("devices.notReported")}</dd>
+              <dd>
+                {value ||
+                  t(
+                    status.system
+                      ? "devices.systemUnavailable"
+                      : "devices.notReported",
+                  )}
+              </dd>
             </div>
           ))}
         </dl>

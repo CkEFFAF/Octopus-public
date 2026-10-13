@@ -10,6 +10,7 @@ import { Download, Zap } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { request } from "../../../../../api/request";
 import { enrichWizardModel } from "../../wizardModelMeta";
+import { mergePresetModels } from "../../mergePresetModels";
 import type {
   ProviderModel,
   ProviderPreset,
@@ -75,6 +76,8 @@ export function PresetProviderModal({
           m.context_window ?? m.max_input_tokens ?? meta.context_window;
         const entry: ProviderModel = {
           id: m.id,
+          use_responses_api: m.use_responses_api,
+          max_output_tokens: m.max_output_tokens ?? undefined,
           name: m.name,
           enabled: true,
           input: meta.input,
@@ -124,22 +127,19 @@ export function PresetProviderModal({
         message.info(t("models.fetchModelsNoNew"));
         return;
       }
-      const existingIds = new Set(draftModels.map((m) => m.id));
-      const missing: ProviderModel[] = fetched
-        .filter((m) => !existingIds.has(m.id))
-        .map((m) => ({
-          id: m.id,
-          name: m.name || m.id,
-          enabled: false,
-          input: ["text"],
-          thinking: null,
-        }));
-      if (missing.length === 0) {
+      const merged = mergePresetModels(draftModels, fetched, preset.models);
+      if (JSON.stringify(merged) === JSON.stringify(draftModels)) {
         message.info(t("models.fetchModelsNoNew"));
         return;
       }
-      setDraftModels((prev) => [...prev, ...missing]);
-      message.success(t("models.fetchModelsMerged", { count: missing.length }));
+      setDraftModels((models) =>
+        mergePresetModels(models, fetched, preset.models),
+      );
+      message.success(
+        t("models.fetchModelsMerged", {
+          count: merged.length - draftModels.length,
+        }),
+      );
     } catch (err) {
       if (err && typeof err === "object" && "errorFields" in err) return;
       message.error(
@@ -164,6 +164,8 @@ export function PresetProviderModal({
       api_key: key,
       base_url: values.base_url?.trim() || preset.base_url,
       model_id: modelId,
+      use_responses_api: draftModels.find((m) => m.id === modelId)
+        ?.use_responses_api,
       embedding: isEmbeddingModel(draftModels.find((m) => m.id === modelId)),
     });
   };

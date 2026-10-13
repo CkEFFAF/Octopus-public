@@ -51,7 +51,7 @@ def build_probe_chat_model(row: Any, *, model_id: str | None = None) -> Any:
     mid = model_id or (models[0]["id"] if models else "gpt-4o-mini")
     entry = next((m for m in models if m.get("id") == mid), None)
     display_name = (entry or {}).get("name") or mid
-    model = ModelConfig(id=mid, name=display_name)
+    model = ModelConfig.from_dict({**(entry or {}), "id": mid, "name": display_name})
 
     if _is_codex_base_url(base_url):
         from langchain_openai import ChatOpenAI
@@ -85,10 +85,15 @@ def make_probe_provider_row(
     base_url: str | None,
     model_id: str,
     extra_json: str | None = None,
+    use_responses_api: bool = False,
     embedding: bool = False,
 ) -> Any:
     """Build a ProviderRow-like object for connectivity probes."""
-    model: dict[str, Any] = {"id": model_id, "name": model_id}
+    model: dict[str, Any] = {
+        "id": model_id,
+        "name": model_id,
+        "use_responses_api": use_responses_api,
+    }
     if embedding:
         model["embedding"] = True
         model["task"] = "embedding"

@@ -240,6 +240,46 @@ describe("device management and operator workspace", () => {
     expect(call).not.toHaveBeenCalled();
   });
 
+  it("explains that legacy clients must be updated to report system details", async () => {
+    call.mockResolvedValue({ hostname: "legacy-host", platform: "linux" });
+    show();
+    await screen.findByText("Office Windows");
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "devices.deviceActions" })[0],
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "devices.details" }),
+    );
+    expect(await screen.findByText("legacy-host")).toBeInTheDocument();
+    expect(
+      screen.getByText("devices.clientUpdateRequired"),
+    ).toBeInTheDocument();
+  });
+
+  it("distinguishes unavailable virtual hardware from a missing client report", async () => {
+    call.mockResolvedValue({
+      hostname: "virtual-host",
+      system: {
+        os_version: "Ubuntu 24.04",
+        architecture: "x86_64",
+        cpu: "Xeon",
+      },
+    });
+    show();
+    await screen.findByText("Office Windows");
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "devices.deviceActions" })[0],
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "devices.details" }),
+    );
+    expect(await screen.findByText("Ubuntu 24.04")).toBeInTheDocument();
+    expect(screen.getByText("devices.systemUnavailable")).toBeInTheDocument();
+    expect(
+      screen.queryByText("devices.clientUpdateRequired"),
+    ).not.toBeInTheDocument();
+  });
+
   it("releases the middle navigation pane for the operator workspace", () => {
     render(
       <MemoryRouter

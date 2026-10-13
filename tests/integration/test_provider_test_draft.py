@@ -6,7 +6,33 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 from urllib.parse import urlparse
 
+import pytest
+
 from octop.infra.agents.providers.codex_oauth import CodexOAuthDeviceCodeError
+
+
+@pytest.mark.parametrize("use_responses_api", [True, False])
+async def test_admin_test_draft_preserves_model_protocol(env: Any, use_responses_api: bool) -> None:
+    client, _srv, auth = env
+    with patch(
+        "octop.api.routers.providers.probe_provider_row",
+        new=AsyncMock(return_value={"ok": True, "latency_ms": 1}),
+    ) as probe:
+        response = await client.post(
+            "/api/admin/providers/test-draft",
+            headers=auth,
+            json={
+                "name": "OpenCode Go (Compatible)",
+                "kind": "openai",
+                "api_key": "sk-test",
+                "base_url": "https://opencode.ai/inference/go/v1",
+                "model_id": "grok-4.7",
+                "use_responses_api": use_responses_api,
+            },
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["ok"] is True
+    assert probe.call_args.args[0].get_models()[0]["use_responses_api"] is use_responses_api
 
 
 async def test_admin_test_draft_requires_api_key(env: Any) -> None:

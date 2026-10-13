@@ -6,6 +6,7 @@ export interface TestProviderDraftParams {
   api_key?: string;
   base_url?: string | null;
   model_id: string;
+  use_responses_api?: boolean;
   extra_json?: string | null;
   embedding?: boolean;
 }
@@ -27,6 +28,7 @@ export async function testProviderDraft(
       api_key: params.api_key?.trim() || null,
       base_url: params.base_url?.trim() || null,
       model_id: params.model_id,
+      use_responses_api: params.use_responses_api ?? false,
       extra_json: params.extra_json ?? null,
       embedding: params.embedding === true,
     }),

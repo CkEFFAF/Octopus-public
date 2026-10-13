@@ -18,6 +18,11 @@ def test_load_provider_presets_integration() -> None:
     deepseek_ids = {m["id"] for m in deepseek["models"]}
     assert "deepseek-v4-flash" in deepseek_ids
     assert "deepseek-v4-pro" in deepseek_ids
+    assert "deepseek-flash" in deepseek_ids
+    v41 = next(m for m in deepseek["models"] if m["id"] == "deepseek-flash")
+    assert v41["name"] == "DeepSeek V4.1 Flash"
+    assert v41["input"] == ["text", "image"]
+    assert v41["reasoning_config"]["adapter"] == "thinking"
     flash = next(m for m in deepseek["models"] if m["id"] == "deepseek-v4-flash")
     assert flash["reasoning_config"]["adapter"] == "thinking"
 
@@ -100,7 +105,10 @@ def test_load_provider_presets_integration() -> None:
     assert zen_ant.get("protocol") == "anthropic"
 
     go_oai = next(p for p in presets if p["id"] == "opencode-go-openai")
-    assert go_oai["base_url"] == "https://opencode.ai/zen/go/v1"
+    assert go_oai["base_url"] == "https://opencode.ai/inference/go/v1"
+    go_v41 = next(m for m in go_oai["models"] if m["id"] == "deepseek-v4.1-flash")
+    assert go_v41["reasoning_config"]["adapter"] == "thinking"
+    assert {"grok-4.7", "glm-5.3", "gpt-6-luna"} <= {m["id"] for m in go_oai["models"]}
 
     go_ant = next(p for p in presets if p["id"] == "opencode-go-anthropic")
-    assert go_ant["base_url"] == "https://opencode.ai/zen/go"
+    assert go_ant["base_url"] == "https://opencode.ai/inference/go"

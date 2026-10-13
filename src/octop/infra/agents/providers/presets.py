@@ -106,7 +106,7 @@ def _reasoning_profile(provider_id: str, model_id: str) -> dict[str, Any] | None
                 "toggle": False,
                 "default_mode": "enabled",
             }
-        if model.startswith("deepseek-v4-"):
+        if model == "deepseek-flash" or model.startswith("deepseek-v4-"):
             return {
                 "supported": True,
                 "adapter": "thinking",
@@ -200,7 +200,9 @@ def _reasoning_profile(provider_id: str, model_id: str) -> dict[str, Any] | None
                 "efforts": efforts,
                 "default_effort": "high",
             }
-        if model.startswith(("deepseek-v4-", "kimi-k", "glm-5.1")):
+        if model == "deepseek-flash" or model.startswith(
+            ("deepseek-v4-", "deepseek-v4.1-", "kimi-k", "glm-5.1")
+        ):
             return {
                 "supported": True,
                 "adapter": "thinking",

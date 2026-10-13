@@ -12,7 +12,7 @@ import { request } from "../../../../../api/request";
 import { ollamaModelApi } from "../../../../../api/modules/ollamaModel";
 import { onnxModelApi } from "../../../../../api/modules/onnxModel";
 import { isOllamaProviderRow, isOnnxProviderRow } from "../../presetUtils";
-import type { ProviderRow } from "../../useProviders";
+import type { ProviderRow, ProviderPreset } from "../../useProviders";
 import { ProviderConfigModal } from "../modals/ProviderConfigModal";
 import {
   getProviderLogo,
@@ -22,6 +22,7 @@ import styles from "../../index.module.less";
 
 interface ProviderCardProps {
   provider: ProviderRow;
+  preset?: ProviderPreset;
   onSaved: () => void | Promise<void>;
   isHover: boolean;
   onMouseEnter: () => void;
@@ -32,6 +33,7 @@ interface ProviderCardProps {
 
 export function ProviderCard({
   provider,
+  preset,
   onSaved,
   isHover,
   onMouseEnter,
@@ -375,6 +377,7 @@ export function ProviderCard({
 
       <ProviderConfigModal
         provider={provider}
+        preset={preset}
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onSaved={onSaved}
