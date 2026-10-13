@@ -339,6 +339,12 @@ def test_account_session_minimal_capabilities_and_pair_key_still_work(rig: Any) 
         permissions=[],
         roots=[],
     )
-    ids = {via_session["device"]["device_id"], via_pair["device"]["device_id"], via_key["device"]["device_id"]}
+    ids = {
+        via_session["device"]["device_id"],
+        via_pair["device"]["device_id"],
+        via_key["device"]["device_id"],
+    }
     assert len(ids) == 3
-    assert all(d["permissions"] == [] for d in service.list_devices(owner) if d["name"] == "Minimal")
+    assert all(
+        d["permissions"] == [] for d in service.list_devices(owner) if d["name"] == "Minimal"
+    )

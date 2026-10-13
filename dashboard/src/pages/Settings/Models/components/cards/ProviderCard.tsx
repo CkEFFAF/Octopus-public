@@ -26,7 +26,7 @@ interface ProviderCardProps {
   isHover: boolean;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
-  /** API path prefix for PATCH/DELETE/test. Defaults to "/admin/providers". */
+  /** API path prefix for PATCH/DELETE/test. Defaults to "/providers". */
   apiPrefix?: string;
 }
 
@@ -36,7 +36,7 @@ export function ProviderCard({
   isHover,
   onMouseEnter,
   onMouseLeave,
-  apiPrefix = "/admin/providers",
+  apiPrefix = "/providers",
 }: ProviderCardProps) {
   const { t } = useTranslation();
   const { modal, message } = App.useApp();

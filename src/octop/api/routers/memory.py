@@ -851,7 +851,9 @@ async def put_extract_config(
             patch["extract_interval_seconds"], minimum=_MIN_INTERVAL_SECONDS
         )
     if "aux_model" in patch:
-        merged["aux_model"] = _validated_aux_model(patch["aux_model"], registry.providers)
+        merged["aux_model"] = _validated_aux_model(
+            patch["aux_model"], registry.providers_for_agent(agent_id)
+        )
 
     try:
         cfg = json.loads(row.config_json or "{}")

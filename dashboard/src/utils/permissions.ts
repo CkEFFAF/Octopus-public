@@ -6,7 +6,7 @@ export type PermissionHolder = {
 };
 
 /** Any-of module keys, or ``"admin"`` for role-only. */
-export type PermissionKeys = readonly string[] | "admin";
+export type PermissionKeys = readonly string[] | "admin" | "authenticated";
 
 export const PERM = {
   channels: ["channels"],
@@ -39,7 +39,7 @@ export const NAV_PERMISSIONS = {
   "remote-phone": PERM.mobile,
   acp: "admin",
   "admin-users": PERM.usersPage,
-  models: PERM.modelsPage,
+  models: "authenticated",
   "admin-storage": PERM.storage,
   "admin-plugins": PERM.plugins,
   "admin-security": PERM.securityPage,
@@ -102,6 +102,7 @@ export function canAccessKeys(
   keys: PermissionKeys,
 ): boolean {
   if (keys === "admin") return Boolean(user && user.role === "admin");
+  if (keys === "authenticated") return Boolean(user);
   return userCanAny(user, keys);
 }
 
@@ -128,11 +129,10 @@ export function pathPermissionKeys(pathname: string): PermissionKeys | null {
   if (pathname.startsWith("/admin/users") || pathname === "/admin/sso") {
     return PERM.usersPage;
   }
-  if (
-    pathname.startsWith("/admin/models") ||
-    pathname === "/models" ||
-    pathname.startsWith("/admin/voice")
-  ) {
+  if (pathname.startsWith("/admin/models") || pathname === "/models") {
+    return "authenticated";
+  }
+  if (pathname.startsWith("/admin/voice")) {
     return PERM.modelsPage;
   }
   if (pathname.startsWith("/admin/backend")) {

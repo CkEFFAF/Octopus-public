@@ -67,7 +67,15 @@ def test_linux_join_commands_require_final_consent(tmp_path, monkeypatch, enroll
     monkeypatch.setattr("octop.infra.devices.executor.platform.system", lambda: "Linux")
     result = CliRunner().invoke(
         cli,
-        ["device", "join", "--advanced", "--server", "https://manager.test", "--state", str(tmp_path / "state")],
+        [
+            "device",
+            "join",
+            "--advanced",
+            "--server",
+            "https://manager.test",
+            "--state",
+            str(tmp_path / "state"),
+        ],
         input="GPU Server\n1\n\nn\ny\n2\n87654321\n",
     )
     assert result.exit_code == 0, result.output
@@ -81,7 +89,15 @@ def test_join_acp_requires_separate_local_consent(tmp_path, monkeypatch, enrollm
     monkeypatch.setattr("octop.cli.device_startup_cmd.platform.system", lambda: "Linux")
     result = CliRunner().invoke(
         cli,
-        ["device", "join", "--advanced", "--server", "https://manager.test", "--state", str(tmp_path / "state")],
+        [
+            "device",
+            "join",
+            "--advanced",
+            "--server",
+            "https://manager.test",
+            "--state",
+            str(tmp_path / "state"),
+        ],
         input="GPU Server\n1\n\ny\ny\n2\n87654321\n",
     )
     assert result.exit_code == 0, result.output
@@ -92,7 +108,15 @@ def test_declining_join_does_not_enroll_or_create_share(tmp_path, enrollment):
     share = tmp_path / "new-share"
     result = CliRunner().invoke(
         cli,
-        ["device", "join", "--advanced", "--server", "https://manager.test", "--state", str(tmp_path / "state")],
+        [
+            "device",
+            "join",
+            "--advanced",
+            "--server",
+            "https://manager.test",
+            "--state",
+            str(tmp_path / "state"),
+        ],
         input=f"My PC\n3\n{share}\nn\n",
     )
     assert result.exit_code != 0
@@ -119,11 +143,21 @@ def test_invalid_or_unaccepted_transport_stops_before_credential(tmp_path, enrol
 def test_accepted_http_still_needs_permission_confirmation(tmp_path, enrollment):
     result = CliRunner().invoke(
         cli,
-        ["device", "join", "--advanced", "--server", "http://manager.test", "--state", str(tmp_path / "state")],
+        [
+            "device",
+            "join",
+            "--advanced",
+            "--server",
+            "http://manager.test",
+            "--state",
+            str(tmp_path / "state"),
+        ],
         input="y\nMy PC\n3\n\ny\n2\n11223344\n",
     )
     assert result.exit_code == 0, result.output
-    assert {"files_read", "files_write", "command_exec", "acp_run"} <= set(enrollment[0][0][1]["capabilities"])
+    assert {"files_read", "files_write", "command_exec", "acp_run"} <= set(
+        enrollment[0][0][1]["capabilities"]
+    )
 
 
 def test_join_reuses_saved_identity_without_new_authorization(tmp_path, enrollment):

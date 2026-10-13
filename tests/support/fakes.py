@@ -73,6 +73,11 @@ class FakeHarnessAgent:
         self._thread_messages: dict[str, list[Any]] = {}
         self.graph = _FakeHarnessGraph(self._thread_messages)
 
+    @property
+    def _workspace_path(self) -> Path:
+        """Mirror the harness path used to scope ACP service sessions."""
+        return self._workspace_dir
+
     def use_workspace_dir(
         self,
         workspace_dir: Path,

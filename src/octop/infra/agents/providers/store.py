@@ -74,6 +74,7 @@ def clear_stale_pins_for_provider(
     *,
     agent_repo: Any,
     settings_repo: Any,
+    user_id: int,
     provider_name: str,
     models: list[dict[str, Any]],
 ) -> list[str]:
@@ -85,17 +86,17 @@ def clear_stale_pins_for_provider(
     valid = enabled_model_refs(provider_name, models)
     prefix = f"{provider_name}/"
     cleared: list[str] = []
-    for row in agent_repo.list_all():
+    for row in agent_repo.list_by_user(user_id):
         dm = (row.default_model or "").strip()
         if not dm.startswith(prefix) or dm in valid:
             continue
         agent_repo.update_config(row.agent_id, default_model=None)
         cleared.append(row.agent_id)
-    active_name, active_model = settings_repo.get_active_model()
+    active_name, active_model = settings_repo.get_active_model(user_id)
     if active_name == provider_name and active_model:
         ref = f"{active_name}/{active_model}"
         if ref not in valid:
-            settings_repo.delete("active_model")
+            settings_repo.delete(f"active_model.user.{user_id}")
     return cleared
 
 
@@ -105,12 +106,16 @@ class ProviderStore:
     def __init__(
         self,
         provider_repo: ProviderRepo,
+        user_id: int | None,
     ) -> None:
         self._provider_repo = provider_repo
+        self.user_id = user_id
 
     def iter_usable_rows(self) -> Iterator[Any]:
         """Yield enabled DB providers that have credentials and at least one enabled model."""
-        for row in self._provider_repo.list_all():
+        if self.user_id is None:
+            return
+        for row in self._provider_repo.list_all(self.user_id):
             if not row.enabled:
                 continue
             if not row.base_url or not row.api_key:
@@ -179,7 +184,7 @@ class ProviderStore:
         if not ref or "/" not in ref:
             return False
         provider_name, _, model_id = ref.partition("/")
-        row = self._provider_repo.get_by_name(provider_name)
+        row = self._row_by_name(provider_name)
         if row is None:
             return False
         for model in row.get_models():
@@ -237,7 +242,7 @@ class ProviderStore:
         provider_name, _, model_id = ref.partition("/")
         if not provider_name or not model_id:
             return False
-        row = self._provider_repo.get_by_name(provider_name)
+        row = self._row_by_name(provider_name)
         if row is None or not row.enabled or not row.api_key or not row.base_url:
             return False
         for model in row.get_models():
@@ -253,7 +258,7 @@ class ProviderStore:
         if not self.is_model_ref_usable(ref):
             return None
         provider_name, _, model_id = ref.partition("/")
-        row = self._provider_repo.get_by_name(provider_name)
+        row = self._row_by_name(provider_name)
         if row is None:
             return None
         for model in row.get_models():
@@ -285,7 +290,9 @@ class ProviderStore:
         """Return agents referencing *provider_name* in config or default_model."""
         refs: list[dict[str, str]] = []
         prefix = f"{provider_name}/"
-        for row in agent_repo.list_all():
+        if self.user_id is None:
+            return []
+        for row in agent_repo.list_by_user(self.user_id):
             cfg = get_config(row.agent_id)
             if provider_name in (cfg.get("providers") or []):
                 refs.append({"agent_id": row.agent_id, "name": row.name})
@@ -295,6 +302,11 @@ class ProviderStore:
             ):
                 refs.append({"agent_id": row.agent_id, "name": row.name})
         return refs
+
+    def _row_by_name(self, name: str) -> Any:
+        if self.user_id is None:
+            return None
+        return self._provider_repo.get_by_name(self.user_id, name)
 
 
 __all__ = [

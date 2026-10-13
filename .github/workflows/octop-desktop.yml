@@ -334,7 +334,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
         with:
-          enable-cache: true
+          enable-cache: false
           python-version: "3.12"
 
       - name: Cache python-build-standalone downloads

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from starlette.datastructures import Headers, UploadFile
@@ -22,7 +23,7 @@ def _request() -> Request:
 def _services(**extra: object) -> SimpleNamespace:
     return SimpleNamespace(
         settings_repo=SimpleNamespace(get=lambda _key: None, set=lambda *_: None),
-        provider_repo=SimpleNamespace(list_all=lambda: []),
+        provider_repo=SimpleNamespace(list_all=lambda _user_id: []),
         **extra,
     )
 
@@ -103,7 +104,7 @@ async def test_enabling_reindexes_documents_when_model_changes(
     server = SimpleNamespace(
         services=SimpleNamespace(
             settings_repo=SimpleNamespace(get=settings.get, set=settings.__setitem__),
-            provider_repo=SimpleNamespace(list_all=lambda: []),
+            provider_repo=SimpleNamespace(list_all=lambda _user_id: []),
         )
     )
 
@@ -383,12 +384,13 @@ async def test_embedding_options_excludes_onnx_local_provider() -> None:
             ],
         ),
     ]
-    server = SimpleNamespace(
-        services=SimpleNamespace(provider_repo=SimpleNamespace(list_all=lambda: providers))
-    )
+    provider_repo = MagicMock()
+    provider_repo.list_all.return_value = providers
+    server = SimpleNamespace(services=SimpleNamespace(provider_repo=provider_repo))
 
-    options = await knowledge_bases.embedding_options(server=server, _admin=object())
+    options = await knowledge_bases.embedding_options(server=server, _admin=SimpleNamespace(id=7))
 
+    provider_repo.list_all.assert_called_once_with(7)
     assert [row["provider_name"] for row in options["remote"]] == ["OpenAI"]
     assert options["remote"][0]["models"] == [{"id": "text-embedding-3-small", "name": "embed"}]
     assert isinstance(options["onnx"], list)
@@ -417,12 +419,13 @@ async def test_ocr_options_only_lists_image_capable_models() -> None:
             {"id": "embed-1", "name": "Embed", "embedding": True, "input": ["image"]},
         ],
     )
-    server = SimpleNamespace(
-        services=SimpleNamespace(provider_repo=SimpleNamespace(list_all=lambda: [provider]))
-    )
+    provider_repo = MagicMock()
+    provider_repo.list_all.return_value = [provider]
+    server = SimpleNamespace(services=SimpleNamespace(provider_repo=provider_repo))
 
-    options = await knowledge_bases.ocr_options(server=server, _admin=object())
+    options = await knowledge_bases.ocr_options(server=server, _admin=SimpleNamespace(id=7))
 
+    provider_repo.list_all.assert_called_once_with(7)
     assert options["local"] == {"id": "rapidocr", "name": "RapidOCR (ONNX)"}
     assert options["remote"] == [
         {
@@ -441,14 +444,14 @@ async def test_embedding_options_omits_non_recommended_onnx() -> None:
     extra = "BAAI/bge-small-en-v1.5"
     server = SimpleNamespace(
         services=SimpleNamespace(
-            provider_repo=SimpleNamespace(list_all=lambda: []),
+            provider_repo=SimpleNamespace(list_all=lambda _user_id: []),
             settings_repo=SimpleNamespace(
                 get=lambda key: extra if key == "knowledge_embedding_model" else None
             ),
         )
     )
 
-    options = await knowledge_bases.embedding_options(server=server, _admin=object())
+    options = await knowledge_bases.embedding_options(server=server, _admin=SimpleNamespace(id=7))
 
     assert extra not in [row["id"] for row in options["onnx"]]
     assert [row["id"] for row in options["onnx"]] == list(ONNX_PRESET_MODEL_IDS)
@@ -460,10 +463,12 @@ async def test_embedding_options_all_onnx_includes_extras() -> None:
     from octop.infra.agents.providers.onnx_catalog import ONNX_PRESET_MODEL_IDS
 
     server = SimpleNamespace(
-        services=SimpleNamespace(provider_repo=SimpleNamespace(list_all=lambda: []))
+        services=SimpleNamespace(provider_repo=SimpleNamespace(list_all=lambda _user_id: []))
     )
 
-    options = await knowledge_bases.embedding_options(all_onnx=True, server=server, _admin=object())
+    options = await knowledge_bases.embedding_options(
+        all_onnx=True, server=server, _admin=SimpleNamespace(id=7)
+    )
 
     ids = [row["id"] for row in options["onnx"]]
     assert ids[: len(ONNX_PRESET_MODEL_IDS)] == list(ONNX_PRESET_MODEL_IDS)

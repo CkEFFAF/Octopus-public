@@ -553,10 +553,9 @@ async def patch_thread(
     pending_plan_path: str | None | object = ...
     if "model_ref" in body.model_fields_set:
         model_ref = (body.model_ref or "").strip() or None
-        if (
-            model_ref is not None
-            and not server.app_runtime.agent_registry.providers.is_model_ref_usable(model_ref)
-        ):
+        if model_ref is not None and not server.app_runtime.agent_registry.providers_for_agent(
+            agent_id
+        ).is_model_ref_usable(model_ref):
             raise OctopError(
                 ErrorCode.SLASH_BAD_ARGS,
                 "model_ref must reference an enabled model",

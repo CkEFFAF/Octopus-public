@@ -269,10 +269,9 @@ async def prepare_dashboard_turn(
         session_key=turn.session_key,
     )
     model_ref = (turn.default_model or "").strip() or None
-    if (
-        model_ref is not None
-        and not server.app_runtime.agent_registry.providers.is_model_ref_usable(model_ref)
-    ):
+    if model_ref is not None and not server.app_runtime.agent_registry.providers_for_agent(
+        agent_id
+    ).is_model_ref_usable(model_ref):
         raise OctopError(
             ErrorCode.SLASH_BAD_ARGS,
             "default_model must reference an enabled model",

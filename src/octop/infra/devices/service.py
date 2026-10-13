@@ -45,6 +45,7 @@ class DeviceConnection:
     connection_id: str
     send: Send
     close: Close
+    root_candidates: list[dict[str, Any]] | None = None
 
 
 class DeviceService:

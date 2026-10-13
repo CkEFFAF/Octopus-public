@@ -163,7 +163,21 @@ async def test_windows_reparse_paths_rejected_even_without_symlink_mode(tmp_path
         await call(executor, "files.read", {"root_id": "shared", "path": "secret"})
 
 
-async def test_read_only_and_ungranted_inputs_commands_denied(tmp_path):
+async def test_read_only_and_ungranted_inputs_commands_denied(tmp_path, monkeypatch):
+    # Available hardware must still reject operations without a grant.
+    monkeypatch.setattr(
+        DeviceExecutor,
+        "capabilities",
+        property(
+            lambda _self: [
+                "files_read",
+                "files_write",
+                "command_exec",
+                "desktop_view",
+                "desktop_control",
+            ]
+        ),
+    )
     executor, root = make_executor(tmp_path, read_only=True)
     (root / "readme").write_text("allowed")
     assert (await call(executor, "files.stat", {"root_id": "shared", "path": "readme"}))[
@@ -535,9 +549,9 @@ async def test_headless_linux_does_not_advertise_desktop(tmp_path, monkeypatch):
 async def test_capture_is_not_persisted_and_duplicate_does_not_capture_again(tmp_path, monkeypatch):
     from octop.infra.desktop.capture import ScreenCapture
 
+    monkeypatch.setattr(DeviceExecutor, "capabilities", property(lambda self: ["desktop_view"]))
     executor = DeviceExecutor([], [], state_dir=tmp_path / "state", desktop_enabled=True)
     executor.update_grants(1, ["desktop_view"], [])
-    monkeypatch.setattr(DeviceExecutor, "capabilities", property(lambda self: ["desktop_view"]))
     captured = []
 
     def capture(self, **kwargs):

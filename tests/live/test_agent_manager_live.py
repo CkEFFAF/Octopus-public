@@ -19,7 +19,7 @@ pytestmark = pytest.mark.live
 
 @pytest.mark.asyncio
 async def test_boot_registers_provider_from_db(live_agent_manager, live_openai_config) -> None:
-    providers = live_agent_manager.providers.build_harness_configs()
+    providers = live_agent_manager.providers_for_user(1).build_harness_configs()
     assert len(providers) == 1
     p = providers[0]
     assert p.id == live_openai_config.provider_name
@@ -113,8 +113,8 @@ async def test_delete_removes_agent(live_agent_manager, live_openai_config) -> N
 
 @pytest.mark.asyncio
 async def test_on_provider_changed_hot_reload(live_agent_manager, live_openai_config) -> None:
-    await live_agent_manager.on_provider_changed()
-    providers = live_agent_manager.providers.build_harness_configs()
+    await live_agent_manager.on_provider_changed(user_id=1)
+    providers = live_agent_manager.providers_for_user(1).build_harness_configs()
     assert any(p.id == live_openai_config.provider_name for p in providers)
 
 

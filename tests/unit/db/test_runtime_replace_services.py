@@ -67,7 +67,7 @@ def test_replace_services_retargets_user_and_provider_repos(tmp_path: Path) -> N
     rt.replace_services(svc_b, cfg_b)
 
     assert users._services is svc_b  # noqa: SLF001 — assert retarget landed
-    assert registry.providers._provider_repo._db is svc_b.db  # noqa: SLF001
+    assert registry.providers_for_user(1)._provider_repo._db is svc_b.db  # noqa: SLF001
     assert gateway._repos is svc_b.repos  # noqa: SLF001
     assert cron._repos is svc_b.repos  # noqa: SLF001
     assert cron._delivery_service._repos is svc_b.repos  # noqa: SLF001

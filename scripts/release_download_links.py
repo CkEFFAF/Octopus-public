@@ -10,9 +10,10 @@ filename table. Do not scrape the assets list.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
-GITHUB_REPO = "TencentCloud/Octop"
+GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "TencentCloud/Octop")
 DOWNLOAD_BASE = f"https://github.com/{GITHUB_REPO}/releases/download"
 
 
@@ -43,6 +44,20 @@ def portable_name(os_name: str, arch: str, version: str) -> str:
 
 def render_download_section(raw_version: str) -> str:
     tag, version = split_tag(raw_version)
+    if GITHUB_REPO != "TencentCloud/Octop":
+        return "\n".join(
+            [
+                "",
+                "## Downloads",
+                "",
+                "| Platform | Package |",
+                "| --- | --- |",
+                f"| Windows x64 | {md_link('Portable', tag, portable_name('windows', 'amd64', version))} |",
+                f"| Linux x64 management UI | {md_link('Portable', tag, portable_name('linux', 'amd64', version))} |",
+                f"| Linux x64 headless client | {md_link('Device client', tag, f'Octop-device-linux-amd64-{version}.tar.gz')} |",
+                "",
+            ]
+        )
     win64 = md_link("64-bit (Recommended)", tag, desktop_name("windows", "amd64", version, "exe"))
     win_arm = md_link("ARM64", tag, desktop_name("windows", "arm64", version, "exe"))
     win64_zip = md_link("64-bit", tag, portable_name("windows", "amd64", version))

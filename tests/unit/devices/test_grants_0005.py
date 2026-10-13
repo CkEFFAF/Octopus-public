@@ -144,14 +144,24 @@ async def test_owner_auto_expands_files_write_when_online(rig: Any) -> None:
     await connect_v2(service, item, executor)
     device_id = item["device"]["device_id"]
     updated = await service.update(
-        owner, device_id, permissions=["desktop_view", "desktop_control", "files_read", "files_write"]
+        owner,
+        device_id,
+        permissions=["desktop_view", "desktop_control", "files_read", "files_write"],
     )
     assert "files_write" in updated["permissions"]
     assert updated.get("pending_proposal") is None
 
 
 @pytest.mark.asyncio
-async def test_command_exec_requires_device_confirm(rig: Any) -> None:
+async def test_command_exec_requires_device_confirm(
+    rig: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Exercise the confirmation protocol without probing the test host's display.
+    monkeypatch.setattr(
+        DeviceExecutor,
+        "capabilities",
+        property(lambda _self: ["files_read", "command_exec", "desktop_view", "desktop_control"]),
+    )
     service, owner, _, tmp = rig
     share = tmp / "share"
     share.mkdir()
@@ -248,9 +258,7 @@ async def test_legacy_client_outdated_on_high_risk(rig: Any) -> None:
     async def close() -> None:
         return None
 
-    await service.connect(
-        device_id, item["device_token"], send, close, client_protocol_version=1
-    )
+    await service.connect(device_id, item["device_token"], send, close, client_protocol_version=1)
     with pytest.raises(OctopError) as exc:
         await service.update(
             owner,
@@ -296,9 +304,7 @@ async def test_owner_http_resolve_cannot_silently_accept_high_risk(rig: Any) -> 
     assert len(pending) == 1
     proposal_id = pending[0]["proposal_id"]
     with pytest.raises(OctopError) as exc:
-        await service.resolve_grant_proposal(
-            device_id, proposal_id, accept=True, owner=owner
-        )
+        await service.resolve_grant_proposal(device_id, proposal_id, accept=True, owner=owner)
     assert exc.value.code == ErrorCode.FORBIDDEN
     assert "DEVICE_CONFIRM_REQUIRED" in str(exc.value)
     assert "DEC-005" in str(exc.value)
@@ -342,9 +348,7 @@ async def test_owner_http_resolve_can_reject_high_risk(rig: Any) -> None:
     ]
     assert len(pending) == 1
     proposal_id = pending[0]["proposal_id"]
-    result = await service.resolve_grant_proposal(
-        device_id, proposal_id, accept=False, owner=owner
-    )
+    result = await service.resolve_grant_proposal(device_id, proposal_id, accept=False, owner=owner)
     assert result["status"] == "rejected"
     fresh = service.repos.device_repo.get(device_id)
     assert fresh is not None
@@ -381,9 +385,6 @@ async def test_owner_http_resolve_may_accept_non_high_risk(rig: Any) -> None:
     ]
     assert len(pending) == 1
     proposal_id = pending[0]["proposal_id"]
-    updated = await service.resolve_grant_proposal(
-        device_id, proposal_id, accept=True, owner=owner
-    )
+    updated = await service.resolve_grant_proposal(device_id, proposal_id, accept=True, owner=owner)
     assert "files_write" in updated["permissions"]
     assert "command_exec" not in updated["permissions"]
-

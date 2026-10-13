@@ -1634,7 +1634,7 @@ def test_resolve_harness_model_auto_expert_omits_model() -> None:
     processor._agent_manager.get_thread_model.return_value = None
     processor._agent_repo.get.return_value = MagicMock(default_model=None)
     processor._agent_manager.get_config.return_value = {}
-    processor._agent_manager.providers.resolve_explicit_default_model.return_value = None
+    processor._agent_manager.providers_for_agent.return_value.resolve_explicit_default_model.return_value = None
 
     assert (
         processor._resolve_harness_model(
@@ -1645,6 +1645,7 @@ def test_resolve_harness_model_auto_expert_omits_model() -> None:
         )
         is None
     )
+    processor._agent_manager.providers_for_agent.assert_called_once_with("a1")
 
 
 def test_resolve_harness_model_uses_agent_default_and_upgrades_vision() -> None:
@@ -1662,8 +1663,8 @@ def test_resolve_harness_model_uses_agent_default_and_upgrades_vision() -> None:
     processor._agent_manager.get_thread_model.return_value = None
     processor._agent_repo.get.return_value = MagicMock(default_model="p/text-only")
     processor._agent_manager.get_config.return_value = {}
-    processor._agent_manager.providers.resolve_explicit_default_model.return_value = "p/text-only"
-    processor._agent_manager.providers.resolve_model_for_multimodal_turn.return_value = "p/vision"
+    processor._agent_manager.providers_for_agent.return_value.resolve_explicit_default_model.return_value = "p/text-only"
+    processor._agent_manager.providers_for_agent.return_value.resolve_model_for_multimodal_turn.return_value = "p/vision"
 
     resolved = processor._resolve_harness_model(
         "a1",
@@ -1672,7 +1673,8 @@ def test_resolve_harness_model_uses_agent_default_and_upgrades_vision() -> None:
         needs_multimodal=True,
     )
     assert resolved == "p/vision"
-    processor._agent_manager.providers.resolve_model_for_multimodal_turn.assert_called_once_with(
+    processor._agent_manager.providers_for_agent.assert_called_once_with("a1")
+    processor._agent_manager.providers_for_agent.return_value.resolve_model_for_multimodal_turn.assert_called_once_with(
         "p/text-only",
         needs_multimodal=True,
     )
@@ -1692,8 +1694,10 @@ def test_resolve_harness_model_dashboard_override_wins() -> None:
     )
     processor._agent_manager.get_thread_model.return_value = None
     processor._agent_repo.get.return_value = MagicMock(default_model="p/default")
-    processor._agent_manager.providers.is_model_ref_usable.return_value = True
-    processor._agent_manager.providers.resolve_model_for_multimodal_turn.return_value = "p/picked"
+    processor._agent_manager.providers_for_agent.return_value.is_model_ref_usable.return_value = (
+        True
+    )
+    processor._agent_manager.providers_for_agent.return_value.resolve_model_for_multimodal_turn.return_value = "p/picked"
 
     resolved = processor._resolve_harness_model(
         "a1",
@@ -1702,7 +1706,8 @@ def test_resolve_harness_model_dashboard_override_wins() -> None:
         needs_multimodal=False,
     )
     assert resolved == "p/picked"
-    processor._agent_manager.providers.resolve_model_for_multimodal_turn.assert_called_once_with(
+    processor._agent_manager.providers_for_agent.assert_called_once_with("a1")
+    processor._agent_manager.providers_for_agent.return_value.resolve_model_for_multimodal_turn.assert_called_once_with(
         "p/picked",
         needs_multimodal=False,
     )
@@ -1724,8 +1729,10 @@ def test_resolve_harness_model_drops_unusable_dashboard_override() -> None:
     processor._agent_manager.get_thread_model.return_value = None
     processor._agent_repo.get.return_value = MagicMock(default_model="p/deleted")
     processor._agent_manager.get_config.return_value = {}
-    processor._agent_manager.providers.is_model_ref_usable.return_value = False
-    processor._agent_manager.providers.resolve_explicit_default_model.return_value = None
+    processor._agent_manager.providers_for_agent.return_value.is_model_ref_usable.return_value = (
+        False
+    )
+    processor._agent_manager.providers_for_agent.return_value.resolve_explicit_default_model.return_value = None
 
     assert (
         processor._resolve_harness_model(
@@ -1736,7 +1743,8 @@ def test_resolve_harness_model_drops_unusable_dashboard_override() -> None:
         )
         is None
     )
-    processor._agent_manager.providers.resolve_model_for_multimodal_turn.assert_not_called()
+    processor._agent_manager.providers_for_agent.return_value.resolve_model_for_multimodal_turn.assert_not_called()
+    processor._agent_manager.providers_for_agent.assert_called_once_with("a1")
 
 
 def test_composer_model_precedes_sticky_and_legacy_slash_model() -> None:

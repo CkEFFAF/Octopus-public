@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from octop.infra.errors import OctopError
 
 CAPABILITIES = frozenset(
     {"desktop_view", "desktop_control", "files_read", "files_write", "command_exec", "acp_run"}
@@ -91,7 +94,7 @@ CHUNK_SIZE = 1024 * 1024
 MAX_FRAME = 4 * 1024 * 1024
 
 
-def device_error(key: str, *, status: int = 400):
+def device_error(key: str, *, status: int = 400) -> OctopError:
     """Build a DEVICE_INVALID OctopError (server-side; not used by portable client)."""
     from octop.infra.errors import ErrorCode, OctopError
 

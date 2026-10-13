@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.support.auth import create_user
+from tests.support.auth import create_user, seed_openai_provider
 
 
 @pytest.fixture
@@ -16,6 +16,7 @@ async def _shared_agent(env) -> tuple[object, dict[str, str], dict[str, str], st
     client, _srv, admin_auth = env
     owner_auth = await create_user(client, admin_auth, username="share_owner")
     peer_auth = await create_user(client, admin_auth, username="share_peer")
+    await seed_openai_provider(client, owner_auth)
     response = await client.post(
         "/api/agents/from-expert/default",
         headers=owner_auth,

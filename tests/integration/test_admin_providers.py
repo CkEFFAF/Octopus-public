@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 async def test_admin_create_and_list(env):
-    c, _, auth = env
+    c, srv, auth = env
     r = await c.post(
         "/api/admin/providers",
         headers=auth,
@@ -13,7 +13,9 @@ async def test_admin_create_and_list(env):
     assert r.status_code == 201
     created = r.json()
     assert created["name"] == "shared-gpt"
-    assert "user_id" not in created
+    owner = srv.services.user_repo.get_by_username("admin")
+    assert owner is not None
+    assert created["user_id"] == owner.id
 
     r = await c.get("/api/admin/providers", headers=auth)
     assert r.status_code == 200

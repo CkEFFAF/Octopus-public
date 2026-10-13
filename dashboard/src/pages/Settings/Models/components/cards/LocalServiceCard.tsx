@@ -106,7 +106,7 @@ export function LocalServiceCard({
     if (row) return row;
     setEnsuring(true);
     try {
-      const created = await request<ProviderRow>("/admin/providers", {
+      const created = await request<ProviderRow>("/providers", {
         method: "POST",
         body: JSON.stringify({
           name: preset.name,
@@ -140,7 +140,7 @@ export function LocalServiceCard({
         setServiceEnabled(st.enabled);
         setServiceRunning(st.running);
       }
-      await request(`/admin/providers/${ensured.id}`, {
+      await request(`/providers/${ensured.id}`, {
         method: "PATCH",
         body: JSON.stringify({ enabled: next }),
       });
@@ -303,7 +303,7 @@ export function LocalServiceCard({
           onSaved={async () => {
             await onSaved();
           }}
-          apiPrefix="/admin/providers"
+          apiPrefix="/providers"
         />
       )}
     </>

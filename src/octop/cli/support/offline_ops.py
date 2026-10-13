@@ -343,8 +343,11 @@ def admin_audit_offline(
 
 
 def list_providers_offline(*, home: Path | None = None) -> list[dict[str, Any]]:
+    from octop.cli.support.acting import resolve_cli_acting_user_id
+
+    uid = resolve_cli_acting_user_id(home=home)
     with open_cli_services(home) as svc:
-        return [_provider_row_to_dict(r) for r in svc.provider_repo.list_all()]
+        return [_provider_row_to_dict(r) for r in svc.provider_repo.list_all(uid)]
 
 
 def create_provider_offline(
@@ -357,24 +360,31 @@ def create_provider_offline(
     home: Path | None = None,
 ) -> dict[str, Any]:
     models_json = json.dumps(models) if models is not None else None
+    from octop.cli.support.acting import resolve_cli_acting_user_id
+
+    uid = resolve_cli_acting_user_id(home=home)
     with open_cli_services(home) as svc:
-        if svc.provider_repo.get_by_name(name) is not None:
+        if svc.provider_repo.get_by_name(uid, name) is not None:
             raise OctopError(ErrorCode.PROVIDER_NAME_TAKEN, f"provider {name!r} already exists")
         pid = svc.provider_repo.create(
+            user_id=uid,
             name=name,
             kind=kind,
             base_url=base_url,
             api_key=api_key,
             models_json=models_json,
         )
-        row = svc.provider_repo.get(pid)
+        row = svc.provider_repo.get(uid, pid)
         assert row is not None
         return _provider_row_to_dict(row)
 
 
 def delete_provider_offline(provider_id: int, *, home: Path | None = None) -> None:
+    from octop.cli.support.acting import resolve_cli_acting_user_id
+
+    uid = resolve_cli_acting_user_id(home=home)
     with open_cli_services(home) as svc:
-        row = svc.provider_repo.get(provider_id)
+        row = svc.provider_repo.get(uid, provider_id)
         if row is None:
             raise OctopError(ErrorCode.NOT_FOUND, "provider not found")
         if is_local_runtime_provider(
@@ -386,13 +396,13 @@ def delete_provider_offline(provider_id: int, *, home: Path | None = None) -> No
                 ErrorCode.PROVIDER_LOCAL_PROTECTED,
                 "local runtime providers cannot be deleted",
             )
-        refs = svc.provider_repo.find_referencing_agent_ids(svc.agent_repo, row.name)
+        refs = svc.provider_repo.find_referencing_agent_ids(svc.agent_repo, uid, row.name)
         if refs:
             raise OctopError(
                 ErrorCode.PROVIDER_REFERENCED,
                 f"provider {row.name!r} is referenced by {len(refs)} agent(s)",
             )
-        svc.provider_repo.delete(provider_id)
+        svc.provider_repo.delete(uid, provider_id)
 
 
 def load_provider_presets_offline() -> list[dict[str, Any]]:
@@ -402,23 +412,40 @@ def load_provider_presets_offline() -> list[dict[str, Any]]:
 
 
 def list_resolved_models_offline(*, home: Path | None = None) -> list[dict[str, Any]]:
+    from octop.cli.support.acting import resolve_cli_acting_user_id
     from octop.infra.agents.providers.resolved import list_resolved_models
 
+    uid = resolve_cli_acting_user_id(home=home)
+
     with open_cli_services(home) as svc:
-        return list_resolved_models(svc.provider_repo.list_all())
+        return list_resolved_models(svc.provider_repo.list_all(uid))
 
 
 def get_active_model_offline(*, home: Path | None = None) -> dict[str, str]:
+    from octop.cli.support.acting import resolve_cli_acting_user_id
+
+    uid = resolve_cli_acting_user_id(home=home)
     with open_cli_services(home) as svc:
-        name, model = svc.settings_repo.get_active_model()
+        name, model = svc.settings_repo.get_active_model(uid)
         return {"provider_name": name, "model": model}
 
 
 def set_active_model_offline(
     provider_name: str, model: str, *, home: Path | None = None
 ) -> dict[str, str]:
+    from octop.cli.support.acting import resolve_cli_acting_user_id
+
+    uid = resolve_cli_acting_user_id(home=home)
     with open_cli_services(home) as svc:
-        svc.settings_repo.set_active_model(provider_name, model)
+        from octop.infra.agents.providers.store import ProviderStore
+
+        if not ProviderStore(svc.provider_repo, uid).is_model_ref_usable(
+            f"{provider_name}/{model}"
+        ):
+            raise OctopError(
+                ErrorCode.SLASH_BAD_ARGS, "active model must reference an enabled own model"
+            )
+        svc.settings_repo.set_active_model(uid, provider_name, model)
         return {"provider_name": provider_name, "model": model}
 
 

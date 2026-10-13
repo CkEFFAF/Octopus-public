@@ -78,16 +78,20 @@ class SkillHubMarketAgentCreateResult:
     welcome_enrichment: WelcomeEnrichment
 
 
-def _resolve_generator_model_ref(server: Any, requested_model: str | None) -> str | None:
+def _resolve_generator_model_ref(
+    server: Any, requested_model: str | None, *, user_id: int | None
+) -> str | None:
     """Pick a usable model for internal manifest generation."""
     assert server.app_runtime is not None
     registry = server.app_runtime.agent_registry
-    providers = registry.providers
+    providers = registry.providers_for_user(user_id)
     requested = (requested_model or "").strip()
     if requested and providers.is_model_ref_usable(requested):
         return requested
 
-    active_name, active_model = server.services.settings_repo.get_active_model()
+    active_name, active_model = (
+        server.services.settings_repo.get_active_model(user_id) if user_id is not None else ("", "")
+    )
     active_ref = f"{active_name}/{active_model}" if active_name and active_model else ""
     first_ref = providers.resolve_first_model_ref()
     candidates = [
@@ -112,17 +116,20 @@ def _resolve_generator_llm(
     server: Any,
     requested_model: str | None,
     slug: str,
+    agent_id: str,
 ) -> tuple[Any, str] | None:
     """Return ``(llm, model_ref)`` or ``None`` when generation should be skipped."""
     assert server.app_runtime is not None
     registry = server.app_runtime.agent_registry
-    harness_manager = registry.harness_manager
-    factory = harness_manager.shared_factory if harness_manager is not None else None
+    agent = registry._octop_harness_or_none(agent_id)
+    factory = agent.model_factory if agent is not None else None
     if factory is None:
         logger.info("skip SkillHub manifest generation for %s: no model factory", slug)
         return None
 
-    model_ref = _resolve_generator_model_ref(server, requested_model)
+    model_ref = _resolve_generator_model_ref(
+        server, requested_model, user_id=registry.providers_for_agent(agent_id).user_id
+    )
     if not model_ref:
         logger.info("skip SkillHub manifest generation for %s: no usable model", slug)
         return None
@@ -173,6 +180,7 @@ async def _enrich_agent_welcome_async(
             server=server,
             requested_model=requested_model,
             slug=item.slug,
+            agent_id=agent_id,
         )
         if resolved is None:
             _set_welcome_enrichment_status(
@@ -275,12 +283,7 @@ async def create_agent_from_skillhub_skillset(
     customized_prompts = options.quick_prompts is not None
     can_enrich = (
         not customized_prompts
-        and _resolve_generator_llm(
-            server=server,
-            requested_model=options.default_model,
-            slug=item.slug,
-        )
-        is not None
+        and _resolve_generator_model_ref(server, options.default_model, user_id=user.id) is not None
     )
     welcome_enrichment: WelcomeEnrichment = "pending" if can_enrich else "skipped"
 

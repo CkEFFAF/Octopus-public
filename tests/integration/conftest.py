@@ -126,6 +126,7 @@ async def env_alice_bob_agent(
 
     client, srv, admin_auth = env_with_provider
     users = await ensure_users(client, admin_auth, "alice", "bob")
+    await seed_openai_provider(client, users["alice"])
     r = await client.post(
         "/api/agents",
         headers=users["alice"],

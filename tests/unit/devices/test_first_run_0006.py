@@ -230,4 +230,3 @@ def test_enroll_with_account_requires_password_without_token(tmp_path, monkeypat
             password="",
             name="PC",
         )
-

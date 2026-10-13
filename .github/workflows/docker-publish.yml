@@ -35,7 +35,9 @@ jobs:
     name: Resolve version
     runs-on: ubuntu-latest
     # 拒绝在非 v* ref 上误跑（例如 UI 里对 main 点 Run workflow）
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') &&
+      (github.repository == 'TencentCloud/Octop' || vars.OCTOP_PUBLISH_DOCKER == 'true')
     outputs:
       version: ${{ steps.ver.outputs.version }}
       tag: ${{ steps.ver.outputs.tag }}

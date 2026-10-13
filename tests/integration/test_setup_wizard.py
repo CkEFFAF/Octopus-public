@@ -331,15 +331,18 @@ async def test_finish_saves_provider_with_admin_jwt(env: Any) -> None:
         headers={"Authorization": f"Bearer {admin['access_token']}"},
     )
     assert r.status_code == 200, r.text
-    providers = srv.services.provider_repo.list_all()
+    owner = srv.services.user_repo.get_by_username("admin")
+    assert owner is not None
+    providers = srv.services.provider_repo.list_all(owner.id)
     assert len(providers) == 1
     assert providers[0].api_key == "sk-test"
-    provider_name, model_id = srv.services.settings_repo.get_active_model()
+    assert providers[0].user_id == owner.id
+    provider_name, model_id = srv.services.settings_repo.get_active_model(owner.id)
     assert provider_name == "HAI"
     assert model_id == "MiniMax-M2.7"
     registry = srv.app_runtime.agent_registry
     assert registry._harness_manager is not None
-    assert registry._harness_manager.shared_factory is not None
+    assert registry._harness_manager.shared_factory is None
     main = srv.services.repos.agent_repo.get("main")
     assert main is not None
     # The default agent boots asynchronously after finish(); wait for it to settle.
@@ -354,6 +357,11 @@ async def test_finish_saves_provider_with_admin_jwt(env: Any) -> None:
         if current is not None:
             last_state = current.last_state
     assert last_state == "running"
+    assert main.user_id == owner.id
+    runtime_config = registry._harness_manager.get_agent("main").config
+    assert len(runtime_config.providers) == 1
+    assert runtime_config.providers[0].id == "HAI"
+    assert runtime_config.providers[0].api_key == "sk-test"
 
 
 # ─── 410 guard ─────────────────────────────────────────────────────

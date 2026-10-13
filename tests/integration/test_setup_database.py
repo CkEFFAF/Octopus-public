@@ -61,8 +61,9 @@ async def test_setup_database_sqlite_bind(patched_app_client) -> None:
 
     # Runtime stores must use the live pool (not a closed previous sqlite).
     assert srv.app_runtime is not None
-    list(srv.app_runtime.agent_registry.providers.iter_usable_rows())
-    assert srv.services.db is srv.app_runtime.agent_registry._providers._provider_repo._db  # noqa: SLF001
+    store = srv.app_runtime.agent_registry.providers_for_user(1)
+    list(store.iter_usable_rows())
+    assert srv.services.db is store._provider_repo._db  # noqa: SLF001
 
 
 @pytest.mark.asyncio

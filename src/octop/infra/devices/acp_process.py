@@ -67,7 +67,7 @@ class DeviceACPProcesses:
         }
         if os.name == "nt":
             spawn["creationflags"] = (
-                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW | 0x4
+                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW | 0x4  # type: ignore[attr-defined, unused-ignore]
             )
         else:
             spawn["start_new_session"] = True

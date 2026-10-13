@@ -1,4 +1,4 @@
-"""Providers router (admin-only write operations)."""
+"""Account-owned providers; explicit privileged endpoints allow administration."""
 
 from __future__ import annotations
 
@@ -8,13 +8,15 @@ import logging
 from types import SimpleNamespace
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel
 
+from octop.api.common.agent import require_agent_row
 from octop.api.deps import current_user, get_server, require_permission
 from octop.infra.agents.providers.codex_apply import (
     CODEX_PROVIDER_NAME,
     apply_codex_credentials,
+    codex_user_paths,
     sync_refreshed_codex_api_key,
 )
 from octop.infra.agents.providers.codex_oauth import (
@@ -46,6 +48,7 @@ router = APIRouter()
 
 
 class ProviderCreateBody(BaseModel):
+    user_id: int | None = None
     name: str
     kind: str
     base_url: str | None = None
@@ -106,13 +109,13 @@ def _is_codex_base_url(base_url: str | None) -> bool:
 async def _maybe_refresh_codex_row(server: Any, row: Any) -> Any:
     if row.name != CODEX_PROVIDER_NAME and not _is_codex_base_url(row.base_url):
         return row
-    paths = server.services.paths
+    paths = codex_user_paths(server.services, row.user_id)
     token = await asyncio.to_thread(get_valid_access_token, paths)
     if not token:
         return row
     if row.api_key != token:
-        sync_refreshed_codex_api_key(server.services, paths, token)
-        refreshed = server.services.provider_repo.get(row.id)
+        sync_refreshed_codex_api_key(server.services, paths, token, user_id=row.user_id)
+        refreshed = server.services.provider_repo.get(row.user_id, row.id)
         return refreshed if refreshed is not None else row
     return row
 
@@ -128,6 +131,7 @@ def _row_to_dict(r: Any) -> dict[str, Any]:
         models.append(model)
     return {
         "id": r.id,
+        "user_id": r.user_id,
         "name": r.name,
         "kind": r.kind,
         "base_url": r.base_url,
@@ -148,14 +152,23 @@ async def list_provider_presets(
 
 @router.get("/resolved")
 async def list_resolved_models(
-    _: Any = Depends(current_user),
+    user: Any = Depends(current_user),
     server: Any = Depends(get_server),
+    agent_id: str | None = Header(default=None, alias="X-Octop-Agent-Id"),
 ) -> list[dict[str, Any]]:
     """Return all enabled models across all providers.
 
     Used by the Agent model selector to show available candidates.
     """
-    return _list_resolved_models(server.services.provider_repo.list_all())
+    owner_id = user.id
+    if agent_id:
+        row = require_agent_row(agent_id, user=user, as_user=None, server=server)
+        owner_id = row.user_id
+    return (
+        _list_resolved_models(server.services.provider_repo.list_all(owner_id))
+        if owner_id is not None
+        else []
+    )
 
 
 class ActiveModelBody(BaseModel):
@@ -165,34 +178,52 @@ class ActiveModelBody(BaseModel):
 
 @router.get("/active-model")
 async def get_active_model(
-    _: Any = Depends(current_user),
+    user: Any = Depends(current_user),
     server: Any = Depends(get_server),
+    agent_id: str | None = Header(default=None, alias="X-Octop-Agent-Id"),
 ) -> dict[str, str]:
-    """Return the globally preferred model (provider_name + model id)."""
-    name, model = server.services.settings_repo.get_active_model()
+    """Return the account owner's preferred model (provider_name + model id)."""
+    owner_id = user.id
+    if agent_id:
+        owner_id = require_agent_row(agent_id, user=user, as_user=None, server=server).user_id
+    name, model = (
+        server.services.settings_repo.get_active_model(owner_id)
+        if owner_id is not None
+        else ("", "")
+    )
     return {"provider_name": name, "model": model}
 
 
 @router.put("/active-model")
 async def set_active_model(
     body: ActiveModelBody,
-    _: Any = Depends(require_permission("providers")),
+    user: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> dict[str, str]:
-    """Set the globally preferred model used when no agent override applies."""
-    server.services.settings_repo.set_active_model(body.provider_name, body.model)
+    """Set this account's preferred model used when no agent override applies."""
+    from octop.infra.agents.providers.store import ProviderStore
+
+    if not ProviderStore(server.services.provider_repo, user.id).is_model_ref_usable(
+        f"{body.provider_name}/{body.model}"
+    ):
+        raise OctopError(
+            ErrorCode.SLASH_BAD_ARGS, "active model must reference an enabled own model"
+        )
+    server.services.settings_repo.set_active_model(user.id, body.provider_name, body.model)
     if server.app_runtime is not None:
-        await server.app_runtime.agent_registry.on_provider_changed(active_model_changed=True)
+        await server.app_runtime.agent_registry.on_provider_changed(
+            user_id=user.id, active_model_changed=True
+        )
     return {"provider_name": body.provider_name, "model": body.model}
 
 
 @router.get("")
 async def list_providers(
-    _: Any = Depends(current_user),
+    user: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> list[dict[str, Any]]:
-    """Return all providers. Read-only for regular users."""
-    return [_row_to_dict(r) for r in server.services.provider_repo.list_all()]
+    """Return only the signed-in account's providers and credentials."""
+    return [_row_to_dict(r) for r in server.services.provider_repo.list_all(user.id)]
 
 
 # ── Admin endpoints ─────────────────────────────────────────────────────────
@@ -205,19 +236,27 @@ async def admin_list_providers(
     _: Any = Depends(require_permission("providers")),
     server: Any = Depends(get_server),
 ) -> list[dict[str, Any]]:
-    return [_row_to_dict(r) for r in server.services.provider_repo.list_all()]
+    return [_row_to_dict(r) for r in server.services.provider_repo.list_for_admin()]
 
 
 @admin_router.post("", status_code=201)
 async def admin_create_provider(
     body: ProviderCreateBody,
-    _: Any = Depends(require_permission("providers")),
+    user: Any = Depends(require_permission("providers")),
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     import json as _json
 
     models_json = _json.dumps(body.models) if body.models is not None else None
+    owner_id = body.user_id if body.user_id is not None else user.id
+    if server.services.user_repo.get(owner_id) is None:
+        raise OctopError(ErrorCode.NOT_FOUND, "provider owner not found")
+    if server.services.provider_repo.get_by_name(owner_id, body.name) is not None:
+        raise OctopError(
+            ErrorCode.PROVIDER_NAME_TAKEN, "provider name already exists for this account"
+        )
     pid = server.services.provider_repo.create(
+        user_id=owner_id,
         name=body.name,
         kind=body.kind,
         base_url=body.base_url,
@@ -227,8 +266,10 @@ async def admin_create_provider(
         note=body.note,
     )
     if server.app_runtime:
-        await server.app_runtime.agent_registry.on_provider_changed(provider_name=body.name)
-    return _row_to_dict(server.services.provider_repo.get(pid))
+        await server.app_runtime.agent_registry.on_provider_changed(
+            user_id=owner_id, provider_name=body.name
+        )
+    return _row_to_dict(server.services.provider_repo.get(owner_id, pid))
 
 
 @admin_router.patch("/{provider_id}")
@@ -238,13 +279,14 @@ async def admin_patch_provider(
     _: Any = Depends(require_permission("providers")),
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
-    row = server.services.provider_repo.get(provider_id)
+    row = server.services.provider_repo.get_for_admin(provider_id)
     if row is None:
         raise OctopError(ErrorCode.NOT_FOUND, "provider not found")
     import json as _json
 
     models_json = _json.dumps(body.models) if body.models is not None else None
     server.services.provider_repo.update(
+        row.user_id,
         provider_id,
         kind=body.kind,
         base_url=body.base_url,
@@ -258,12 +300,15 @@ async def admin_patch_provider(
         clear_stale_pins_for_provider(
             agent_repo=server.services.agent_repo,
             settings_repo=server.services.settings_repo,
+            user_id=row.user_id,
             provider_name=row.name,
             models=body.models,
         )
     if server.app_runtime and _patch_requires_provider_rehydrate(body):
-        await server.app_runtime.agent_registry.on_provider_changed(provider_name=row.name)
-    return _row_to_dict(server.services.provider_repo.get(provider_id))
+        await server.app_runtime.agent_registry.on_provider_changed(
+            user_id=row.user_id, provider_name=row.name
+        )
+    return _row_to_dict(server.services.provider_repo.get(row.user_id, provider_id))
 
 
 @admin_router.delete("/{provider_id}", status_code=204)
@@ -272,7 +317,7 @@ async def admin_delete_provider(
     _: Any = Depends(require_permission("providers")),
     server: Any = Depends(get_server),
 ) -> None:
-    row = server.services.provider_repo.get(provider_id)
+    row = server.services.provider_repo.get_for_admin(provider_id)
     if row is None:
         raise OctopError(ErrorCode.NOT_FOUND, "provider not found")
     if is_local_runtime_provider(
@@ -284,7 +329,11 @@ async def admin_delete_provider(
             ErrorCode.PROVIDER_LOCAL_PROTECTED,
             "local runtime providers cannot be deleted",
         )
-    refs = server.app_runtime.agent_registry.find_agents_using_provider(row.name)
+    refs = (
+        server.app_runtime.agent_registry.find_agents_using_provider(row.user_id, row.name)
+        if server.app_runtime
+        else []
+    )
     if refs:
         raise OctopError(
             ErrorCode.PROVIDER_REFERENCED,
@@ -292,9 +341,11 @@ async def admin_delete_provider(
             details={"agents": refs},
         )
     name = row.name
-    server.services.provider_repo.delete(provider_id)
+    server.services.provider_repo.delete(row.user_id, provider_id)
     if server.app_runtime:
-        await server.app_runtime.agent_registry.on_provider_changed(provider_name=name)
+        await server.app_runtime.agent_registry.on_provider_changed(
+            user_id=row.user_id, provider_name=name
+        )
 
 
 @admin_router.post("/test-draft", summary="Test unsaved provider draft")
@@ -372,10 +423,13 @@ async def _run_codex_device_poll(
                 continue
             code, verifier = result
             cred = await asyncio.to_thread(exchange_device_code, code, verifier)
-            pid = apply_codex_credentials(server.services, server.services.paths, cred)
+            pid = apply_codex_credentials(
+                server.services, codex_user_paths(server.services, user_id), cred, user_id=user_id
+            )
             if server.app_runtime is not None:
                 await server.app_runtime.agent_registry.on_provider_changed(
                     provider_name=CODEX_PROVIDER_NAME,
+                    user_id=user_id,
                 )
             settings.set(
                 f"codex_oauth.pending.{state_id}",
@@ -454,25 +508,26 @@ async def codex_oauth_pending(
     except json.JSONDecodeError:
         raise OctopError(ErrorCode.INTERNAL_ERROR, "corrupt oauth pending") from None
     flow_user = payload.get("user_id")
-    if flow_user is not None and flow_user != user.id:
+    if flow_user != user.id:
         raise OctopError(ErrorCode.FORBIDDEN, "not your oauth session")
     return cast(dict[str, Any], payload)
 
 
 @admin_router.delete("/codex-oauth", status_code=204, summary="Clear ChatGPT OAuth login")
 async def codex_oauth_logout(
-    _: Any = Depends(require_permission("providers")),
+    user: Any = Depends(require_permission("providers")),
     server: Any = Depends(get_server),
 ) -> None:
     from octop.infra.agents.providers.codex_oauth import delete_codex_token
 
-    delete_codex_token(server.services.paths)
-    row = server.services.provider_repo.get_by_name(CODEX_PROVIDER_NAME)
+    delete_codex_token(codex_user_paths(server.services, user.id))
+    row = server.services.provider_repo.get_by_name(user.id, CODEX_PROVIDER_NAME)
     if row is not None:
-        server.services.provider_repo.update(row.id, api_key=None)
+        server.services.provider_repo.update(user.id, row.id, api_key="")
         if server.app_runtime is not None:
             await server.app_runtime.agent_registry.on_provider_changed(
                 provider_name=CODEX_PROVIDER_NAME,
+                user_id=user.id,
             )
 
 
@@ -485,7 +540,7 @@ async def admin_test_provider(
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     """Probe a provider: chat ping, or ``POST /embeddings`` for embedding models."""
-    row = server.services.provider_repo.get(provider_id)
+    row = server.services.provider_repo.get_for_admin(provider_id)
     if row is None:
         raise OctopError(ErrorCode.NOT_FOUND, "provider not found")
     row = await _maybe_refresh_codex_row(server, row)
@@ -497,3 +552,95 @@ async def admin_test_provider(
         embedding=embedding,
         locale=resolve_request_locale(request),
     )
+
+
+def _require_own_provider(server: Any, user_id: int, provider_id: int) -> None:
+    if server.services.provider_repo.get(user_id, provider_id) is None:
+        raise OctopError(ErrorCode.NOT_FOUND, "provider not found")
+
+
+@router.post("", status_code=201, summary="Create a provider for the signed-in account")
+async def create_provider(
+    body: ProviderCreateBody,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    if body.user_id is not None and body.user_id != user.id:
+        raise OctopError(ErrorCode.FORBIDDEN, "cannot create another account's provider")
+    return await admin_create_provider(body, user=user, server=server)
+
+
+@router.post("/test-draft", summary="Test an unsaved provider configuration")
+async def test_provider_draft(
+    body: ProviderTestDraftBody,
+    request: Request,
+    user: Any = Depends(current_user),
+) -> dict[str, Any]:
+    return await admin_test_provider_draft(body, request=request, _=user)
+
+
+@router.post("/fetch-models", summary="Fetch models for an account provider configuration")
+async def fetch_provider_models(
+    body: ProviderFetchModelsBody,
+    request: Request,
+    user: Any = Depends(current_user),
+) -> dict[str, Any]:
+    return await admin_fetch_provider_models(body, request=request, _=user)
+
+
+@router.post("/codex-oauth/start", summary="Start this account's ChatGPT OAuth login")
+async def user_codex_oauth_start(
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    return await codex_oauth_start(user=user, server=server)
+
+
+@router.get("/codex-oauth/pending/{state_id}", summary="Read this account's OAuth login state")
+async def user_codex_oauth_pending(
+    state_id: str,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    return await codex_oauth_pending(state_id, user=user, server=server)
+
+
+@router.delete("/codex-oauth", status_code=204, summary="Clear this account's ChatGPT OAuth login")
+async def user_codex_oauth_logout(
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> None:
+    await codex_oauth_logout(user=user, server=server)
+
+
+@router.patch("/{provider_id}", summary="Update a provider owned by this account")
+async def patch_provider(
+    provider_id: int,
+    body: ProviderPatchBody,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    _require_own_provider(server, user.id, provider_id)
+    return await admin_patch_provider(provider_id, body, _=user, server=server)
+
+
+@router.delete("/{provider_id}", status_code=204, summary="Delete a provider owned by this account")
+async def delete_provider(
+    provider_id: int,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> None:
+    _require_own_provider(server, user.id, provider_id)
+    await admin_delete_provider(provider_id, _=user, server=server)
+
+
+@router.post("/{provider_id}/test", summary="Test a provider owned by this account")
+async def test_provider(
+    provider_id: int,
+    request: Request,
+    body: ProviderTestBody | None = None,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    _require_own_provider(server, user.id, provider_id)
+    return await admin_test_provider(provider_id, request=request, body=body, _=user, server=server)

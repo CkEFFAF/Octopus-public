@@ -41,6 +41,7 @@ async def env(tmp_octop_home: Path) -> AsyncIterator[Any]:
         admin_auth = await auth_header(c)
         await seed_openai_provider(c, admin_auth)
         users = await ensure_users(c, admin_auth, "alice", "bob")
+        await seed_openai_provider(c, users["alice"], api_key="alice-test-key")
         aid = await create_agent(c, users["alice"])
         yield c, srv, fake, users["alice"], users["bob"], aid
 

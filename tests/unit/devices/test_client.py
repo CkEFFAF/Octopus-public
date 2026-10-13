@@ -132,6 +132,20 @@ async def until(predicate):
 
 
 async def test_heartbeat_and_changed_grants_apply_within_capabilities(tmp_path, monkeypatch):
+    # This tests grant reconciliation, independent of a CI host's display.
+    monkeypatch.setattr(
+        DeviceExecutor,
+        "capabilities",
+        property(
+            lambda _self: [
+                "files_read",
+                "files_write",
+                "command_exec",
+                "desktop_view",
+                "desktop_control",
+            ]
+        ),
+    )
     executor, root = executor_for(tmp_path)
     executor.update_grants(1, ["files_read", "files_write"], list(executor.local_roots.values()))
     (root / "file").write_text("data")

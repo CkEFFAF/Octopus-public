@@ -9,6 +9,7 @@ on:
     - cron: "0 3 * * 1"
 
 permissions:
+  actions: read
   contents: read
   security-events: write
 
@@ -30,4 +31,16 @@ jobs:
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
+        with:
+          output: codeql-results
+          # Private forks without Code Security still run the analysis and
+          # retain SARIF. Uploading to Code Scanning requires explicit opt-in.
+          upload: ${{ (!github.event.repository.private || vars.OCTOP_CODEQL_UPLOAD == 'true') && 'always' || 'never' }}
+
+      - name: Retain CodeQL results
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-results
+          path: codeql-results/*.sarif
+          retention-days: 14
 

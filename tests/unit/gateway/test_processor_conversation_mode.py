@@ -19,10 +19,14 @@ def _processor(*, thread: SimpleNamespace | None) -> GlobalProcessor:
     agent_manager.get_row = MagicMock(return_value=None)
     agent_manager.default_mcp_servers = MagicMock(return_value=[])
     agent_manager.default_knowledge_base_ids = MagicMock(return_value=[])
-    agent_manager.providers = MagicMock()
-    agent_manager.providers.is_model_ref_usable = MagicMock(return_value=False)
-    agent_manager.providers.resolve_explicit_default_model = MagicMock(return_value=None)
-    agent_manager.providers.resolve_model_for_multimodal_turn = MagicMock(
+    agent_manager.providers_for_agent.return_value = MagicMock()
+    agent_manager.providers_for_agent.return_value.is_model_ref_usable = MagicMock(
+        return_value=False
+    )
+    agent_manager.providers_for_agent.return_value.resolve_explicit_default_model = MagicMock(
+        return_value=None
+    )
+    agent_manager.providers_for_agent.return_value.resolve_model_for_multimodal_turn = MagicMock(
         side_effect=lambda ref, **_k: ref
     )
     agent_manager.get_thread_model = MagicMock(return_value=None)

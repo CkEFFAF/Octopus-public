@@ -18,13 +18,12 @@ from octop.infra.devices.protocol import (
 
 def _device_group(ctx: click.Context) -> tuple[click.Context, click.Group]:
     """Resolve the ``device`` Click group even when nested via ctx.invoke."""
-    current = ctx
+    current: click.Context | None = ctx
     while current is not None:
         if isinstance(current.command, click.Group) and current.command.get_command(current, "run"):
             return current, current.command
         current = current.parent
     raise click.ClickException("device command group is unavailable")
-
 
 
 def _prompt_server(server: str | None) -> tuple[str, bool]:
@@ -33,11 +32,14 @@ def _prompt_server(server: str | None) -> tuple[str, bool]:
     from octop.infra.devices.network import validate_relocation_url
 
     default_url = resolve_default_device_server()
-    raw = server or click.prompt(
-        "管理端地址",
-        default=default_url,
-        type=str,
-    ).strip()
+    raw = (
+        server
+        or click.prompt(
+            "管理端地址",
+            default=default_url,
+            type=str,
+        ).strip()
+    )
     url = validate_relocation_url(raw)
     # 0010 DEC-T06: filing-period whitelist skips insecure confirm.
     if is_transition_insecure_allowed(url):
@@ -161,9 +163,7 @@ def join(
         raise click.ClickException(str(exc)) from None
 
 
-def _join_advanced(
-    ctx: click.Context, *, server: str | None, state: Path, system: str
-) -> None:
+def _join_advanced(ctx: click.Context, *, server: str | None, state: Path, system: str) -> None:
     """Legacy permission-profile join; kept for scripts and pair/key enrollment."""
     group_ctx, group = _device_group(ctx)
     run = group.get_command(group_ctx, "run")

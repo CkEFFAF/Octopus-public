@@ -23,6 +23,9 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  PYTEST_JOBS: 4
+
 jobs:
   build:
     name: Build distributions
@@ -66,6 +69,7 @@ jobs:
     name: Publish to PyPI
     needs: build
     runs-on: ubuntu-latest
+    if: github.repository == 'TencentCloud/Octop' || vars.OCTOP_PUBLISH_PYPI == 'true'
     environment: pypi
     steps:
       - name: Download distributions
@@ -81,7 +85,10 @@ jobs:
 
   github-release:
     name: Create GitHub Release
-    needs: publish
+    needs: [build, publish]
+    if: >-
+      always() && needs.build.result == 'success' &&
+      (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -141,6 +148,7 @@ jobs:
   # must fail this workflow so a missed sync is visible.
   sync-develop:
     name: Trigger sync main into develop
+    if: github.repository == 'TencentCloud/Octop' || vars.OCTOP_SYNC_DEVELOP == 'true'
     needs: github-release
     runs-on: ubuntu-latest
     steps:
@@ -157,6 +165,7 @@ jobs:
   # 与 sync-develop 并行。Dispatch 失败必须让本 workflow 变红（PyPI 已发布仍如此）。
   trigger-fnos:
     name: Trigger FnOS FPK build
+    if: github.repository == 'TencentCloud/Octop' || vars.OCTOP_PUBLISH_FNOS == 'true'
     needs: github-release
     runs-on: ubuntu-latest
     steps:

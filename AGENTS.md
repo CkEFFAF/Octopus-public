@@ -250,6 +250,8 @@ name-keyed config (`providers`, `voice_providers`, `storage_backends`); append-o
 (`usage_log`, `audit_log`, `care_push_records`); KV (`settings`, `secrets`); 1:1 extensions
 (`proactive_care_config` keyed by `agent_id`); ephemeral rows (`sso_login_states`).
 
+**Provider ownership (0011):** provider queries require `user_id`; equal names are unique per account. Shared experts resolve their owner's model factory. Provider edits refresh that owner's factories; global plugin model access is disabled until harness supports account-scoped contexts. Upgrade and ACP credential boundaries: `docs/octopus/configuration-ownership.md`.
+
 **Slash commands:** `infra/gateway/slash/dispatcher.py` routes; `handlers/` implements; catalog in `catalog.py`.
 
 **Internationalization (i18n):** Supported locales are **`zh`** and **`en`** (`en` is the fallback). User-facing text produced by the **server** (slash replies, IM/channel status, API error messages, tool display names, CLI output) must come from backend bundles — not hard-coded English in `infra/` when the string is shown to end users.

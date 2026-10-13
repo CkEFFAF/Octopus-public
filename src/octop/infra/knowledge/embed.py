@@ -23,7 +23,9 @@ def embed_knowledge_texts(services: Any, texts: list[str]) -> list[list[float]]:
         return embed_texts(model, texts)
 
     provider_id = (settings.get("knowledge_embedding_provider_id") or "").strip()
-    provider = services.provider_repo.get(int(provider_id)) if provider_id.isdigit() else None
+    provider = (
+        services.provider_repo.get_for_admin(int(provider_id)) if provider_id.isdigit() else None
+    )
     if provider is None or not provider.base_url or not provider.api_key:
         raise RuntimeError("knowledge remote embedding provider is not ready")
     headers: dict[str, str] = {"Authorization": f"Bearer {provider.api_key}"}

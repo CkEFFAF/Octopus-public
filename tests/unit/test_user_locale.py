@@ -36,19 +36,15 @@ def test_user_repo_create_accepts_explicit_locale(db: SqlitePool):
 def test_legacy_users_table_gets_locale_column(tmp_path: Path):
     pool = SqlitePool(tmp_path / "legacy.db")
     with pool.connect() as conn:
+        # Keep the historical control-plane schema consistent, including providers.
+        initial = (
+            Path(__file__).resolve().parents[2] / "src/octop/infra/db/migrations/001_initial.sql"
+        )
+        conn.executescript(initial.read_text(encoding="utf-8"))
+        conn.execute("ALTER TABLE users DROP COLUMN locale")
         conn.executescript(
             """
-            CREATE TABLE users (
-              id            INTEGER PRIMARY KEY AUTOINCREMENT,
-              username      TEXT UNIQUE NOT NULL,
-              password_hash TEXT NOT NULL,
-              role          TEXT NOT NULL,
-              display_name  TEXT,
-              disabled      INTEGER NOT NULL DEFAULT 0,
-              created_at    INTEGER NOT NULL
-            );
-            CREATE TABLE _schema_version (version INTEGER NOT NULL);
-            INSERT INTO _schema_version(version) VALUES (8);
+            UPDATE _schema_version SET version = 8;
             INSERT INTO users(username, password_hash, role, created_at)
             VALUES ('legacy', 'h', 'admin', 0);
             """
