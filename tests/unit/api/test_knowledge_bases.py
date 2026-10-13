@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from starlette.datastructures import Headers, UploadFile
@@ -123,6 +123,8 @@ async def test_enabling_reindexes_documents_when_model_changes(
         settings_set("knowledge_embedding_model", model)
 
     monkeypatch.setattr(knowledge_bases, "set_feature_enabled", set_feature)
+    dependencies = AsyncMock(return_value="ready")
+    monkeypatch.setattr(knowledge_bases, "ensure_local_embedding_deps_async", dependencies)
     monkeypatch.setattr(
         knowledge_bases,
         "reindex_all_documents",
@@ -147,6 +149,7 @@ async def test_enabling_reindexes_documents_when_model_changes(
     )
 
     assert calls == [(server.services, "new-model")]
+    dependencies.assert_awaited_once_with(allow_install=True)
 
 
 @pytest.mark.asyncio

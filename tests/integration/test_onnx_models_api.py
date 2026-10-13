@@ -22,8 +22,10 @@ async def test_enable_without_weights_is_rejected(
 ) -> None:
     """Enabling a model that was never downloaded must not persist enabled=True."""
     client, _server, auth = env
+    from octop.api.routers import onnx_models
     from octop.infra.agents.providers import onnx_service
 
+    monkeypatch.setattr(onnx_models, "ensure_local_embedding_deps_async", _ready)
     monkeypatch.setattr(onnx_service, "ensure_local_embedding_deps_async", _ready)
 
     resp = await client.put(
@@ -42,8 +44,10 @@ async def test_enable_succeeds_once_weights_are_present(
     env: Any, tmp_octop_home: Path, monkeypatch: Any
 ) -> None:
     client, _server, auth = env
+    from octop.api.routers import onnx_models
     from octop.infra.agents.providers import onnx_service
 
+    monkeypatch.setattr(onnx_models, "ensure_local_embedding_deps_async", _ready)
     monkeypatch.setattr(onnx_service, "ensure_local_embedding_deps_async", _ready)
     monkeypatch.setattr(onnx_service, "local_embedding_deps_available", lambda: True)
     _seed_cache(tmp_octop_home, MODEL)
@@ -65,8 +69,10 @@ async def test_activate_reports_downloaded_nested_weights(
 ) -> None:
     """Regression: nested per-tower weights used to fail activation."""
     client, _server, auth = env
+    from octop.api.routers import knowledge_bases
     from octop.infra.agents.providers import onnx_service
 
+    monkeypatch.setattr(knowledge_bases, "ensure_local_embedding_deps_async", _ready)
     monkeypatch.setattr(onnx_service, "ensure_local_embedding_deps_async", _ready)
     monkeypatch.setattr(onnx_service, "local_embedding_deps_available", lambda: True)
 
