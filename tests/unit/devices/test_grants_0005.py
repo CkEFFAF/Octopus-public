@@ -153,7 +153,15 @@ async def test_owner_auto_expands_files_write_when_online(rig: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_command_exec_requires_device_confirm(rig: Any) -> None:
+async def test_command_exec_requires_device_confirm(
+    rig: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Exercise the confirmation protocol without probing the test host's display.
+    monkeypatch.setattr(
+        DeviceExecutor,
+        "capabilities",
+        property(lambda _self: ["files_read", "command_exec", "desktop_view", "desktop_control"]),
+    )
     service, owner, _, tmp = rig
     share = tmp / "share"
     share.mkdir()

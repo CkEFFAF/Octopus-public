@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [1.0.2b7] - 2026-10-13
+
 ### 新增
 
 - Hermes、Grok Build、OpenClaw ACP 预置，默认关闭，可编辑且不可删除；远程执行使用设备本地鉴权。
@@ -14,6 +16,7 @@
 
 - 模型 provider、API Key、默认模型和 Codex OAuth 按账号隔离；共享专家使用所有者模型，同名 provider 的缓存互不影响。
 - 拒绝空 provider 回退宿主环境凭据及无所有者 OAuth 状态；封闭 harness 全局插件模型上下文的跨账号访问。
+- 修复 Linux 对 Windows 专属 API 的类型检查；发布流程支持私有仓库的 GitHub Release 和 Windows／Linux 便携包。
 
 ### 升级提示
 

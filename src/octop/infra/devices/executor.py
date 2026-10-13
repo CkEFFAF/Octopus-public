@@ -178,13 +178,13 @@ def private_state_dir(path: Path) -> Path:
         check=True,
         capture_output=True,
         text=True,
-        creationflags=subprocess.CREATE_NO_WINDOW,
+        creationflags=subprocess.CREATE_NO_WINDOW,  # type: ignore[attr-defined, unused-ignore]
     )
     sid = next(csv.reader([identity.stdout.strip()]))[-1]
     if not sid.startswith("S-1-"):
         raise DeviceExecutionError("cannot protect device state")
-    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
-    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)  # type: ignore[attr-defined, unused-ignore]
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined, unused-ignore]
     descriptor = ctypes.c_void_p()
     advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
         wintypes.LPCWSTR,
@@ -279,7 +279,7 @@ class _WindowsJob:
                 ("peak_job", ctypes.c_size_t),
             ]
 
-        self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined, unused-ignore]
         self.kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
         self.kernel.CreateJobObjectW.restype = wintypes.HANDLE
         self.kernel.SetInformationJobObject.argtypes = [
@@ -308,7 +308,7 @@ class _WindowsJob:
                 raise DeviceExecutionError("cannot contain command process")
             # asyncio exposes the process but not its primary thread handle.
             # Resume only after assigning the still-suspended process to its job.
-            ntdll = ctypes.WinDLL("ntdll")
+            ntdll = ctypes.WinDLL("ntdll")  # type: ignore[attr-defined, unused-ignore]
             ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
             ntdll.NtResumeProcess.restype = ctypes.c_long
             if ntdll.NtResumeProcess(process) != 0:
@@ -1031,7 +1031,7 @@ class DeviceExecutor:
         }
         if os.name == "nt":
             spawn["creationflags"] = (
-                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW | 0x4
+                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW | 0x4  # type: ignore[attr-defined, unused-ignore]
             )
         else:
             spawn["start_new_session"] = True

@@ -36,7 +36,7 @@ class ProcessLock:
             if os.name == "nt":
                 import msvcrt
 
-                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined, unused-ignore]
             else:
                 fcntl = importlib.import_module("fcntl")
                 fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -59,7 +59,7 @@ class ProcessLock:
                 if os.name == "nt":
                     import msvcrt
 
-                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)  # type: ignore[attr-defined, unused-ignore]
                 else:
                     fcntl = importlib.import_module("fcntl")
                     fcntl.flock(stream.fileno(), fcntl.LOCK_UN)

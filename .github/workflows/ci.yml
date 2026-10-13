@@ -10,6 +10,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PYTEST_JOBS: 4
+
 jobs:
   quality:
     name: "Python ${{ matrix.python-version }}"

@@ -3,7 +3,9 @@
 Authoritative requirements: `0011-acp-preset-extensions.md`, revision
 `2026-10-12.3`. Implementation date: 2026-10-13. This PR contains T0 and T1
 code; FU-001's harness source is retained separately as requested by the user.
-No production service or device package was updated during this change.
+Implementation verification originally left production services unchanged.
+The user subsequently authorized the 1.0.2b7 release and cloud hub upgrade;
+the release gate and deployment evidence are recorded below.
 
 ## Completed behavior
 
@@ -58,9 +60,30 @@ No production service or device package was updated during this change.
   headless desktop capabilities and systemd behavior under root; all five were
   reproduced against unchanged `ff869e41` source. No production data, login
   file or running hub service was accessed. Linux CI is still required; this
-  environment's full suite is not reported as green.
+  environment's original full suite was not reported as green.
 - Linux account ownership, migration, provider API, ACP and memory regression
   modules: **56 passed**.
+
+### 1.0.2b7 release gate
+
+- Windows `make all PYTEST_JOBS=4`: **4507 passed, 151 skipped**; Ruff and
+  strict mypy (**593 source files**) pass. No paid model calls.
+- Linux strict mypy passes after narrowing ignores to Windows-only platform
+  APIs. Root/headless fixtures use explicit account and hardware assumptions;
+  the desktop capture test now sets its capability before applying grants.
+  The first release run reached **4648 passed, 2 failed, 8 skipped**; those
+  fixture failures were corrected and their modules rerun: **42 passed**.
+  The final full Linux run passed: **4650 passed, 8 skipped**. Both platform
+  results must also pass PR CI before merge.
+- GitHub Actions syntax validation passes for every changed workflow.
+  Private-fork release publication no longer depends on upstream PyPI secrets;
+  CodeQL still analyzes code and retains SARIF when Code Scanning is unavailable.
+- Migration 025 was rehearsed against a protected cloud-local database copy:
+  both provider records retain their IDs and credentials, other resource counts
+  remain unchanged, and integrity/foreign-key checks pass. The production hub
+  remains on its existing version until release assets and backups are ready.
+
+Release and rollback procedure: `../octopus/release-process.md`.
 
 ## Remaining acceptance and separate harness work
 
@@ -75,8 +98,9 @@ No production service or device package was updated during this change.
   submit the Octopus PR first.
 - **T2.4–T2.5:** wait for a harness release containing that catalog, then bump
   only the harness dependency/lock and verify the Dashboard's xAI presets.
-  This PR intentionally leaves `pyproject.toml` and `uv.lock` unchanged and
-  adds no second provider-template JSON to Octopus.
+  This release updates only Octopus's version in `pyproject.toml` and `uv.lock`;
+  harness dependency pins remain unchanged. It adds no second provider-template
+  JSON to Octopus.
 
 For upgrade steps and the review checklist, see
 `../octopus/configuration-ownership.md`. Back up before migration; rollback

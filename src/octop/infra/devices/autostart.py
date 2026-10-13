@@ -113,7 +113,7 @@ def _run(command: list[str]) -> subprocess.CompletedProcess[str]:
             encoding="utf-8",
             errors="replace",
             timeout=30,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,  # type: ignore[attr-defined, unused-ignore]
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise DeviceExecutionError("startup command unavailable: " + command[0]) from exc

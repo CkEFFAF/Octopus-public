@@ -73,10 +73,14 @@ jobs:
         if: steps.check_tag.outputs.should_publish == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISH_DOCKER: ${{ github.repository == 'TencentCloud/Octop' || vars.OCTOP_PUBLISH_DOCKER == 'true' }}
+          RELEASE_PLATFORMS: ${{ vars.OCTOP_RELEASE_PLATFORMS || (github.repository == 'TencentCloud/Octop' && 'all' || 'windows-amd64,linux-amd64') }}
         run: |
           tag="${{ steps.version.outputs.tag }}"
           gh workflow run release.yml --ref "$tag"
-          gh workflow run docker-publish.yml --ref "$tag"
+          if [[ "$PUBLISH_DOCKER" == "true" ]]; then
+            gh workflow run docker-publish.yml --ref "$tag"
+          fi
           gh workflow run octop-desktop.yml --ref "$tag" \
-            -f platforms=all \
+            -f platforms="$RELEASE_PLATFORMS" \
             -f attach_release=true
