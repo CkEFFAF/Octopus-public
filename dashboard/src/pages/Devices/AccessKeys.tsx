@@ -38,7 +38,11 @@ export default function AccessKeys() {
   };
   return (
     <>
-      <Button icon={<KeyRound size={16} />} onClick={() => setOpen(true)}>
+      <Button
+        type="text"
+        icon={<KeyRound size={16} />}
+        onClick={() => setOpen(true)}
+      >
         {t("devices.accessKeys.title")}
       </Button>
       <Modal

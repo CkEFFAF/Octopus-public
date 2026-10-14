@@ -9,25 +9,24 @@ import {
   InputNumber,
   Modal,
   Drawer,
-  Dropdown,
   Progress,
   Select,
   Segmented,
+  Spin,
   Tag,
 } from "antd";
 import {
   ArrowLeft,
+  ChevronDown,
+  Search,
   Copy,
   Globe,
   History,
   Info,
-  MoreHorizontal,
   Smartphone,
   File,
-  Laptop,
   Link2,
   Monitor,
-  Pencil,
   RefreshCw,
   Shield,
   Terminal,
@@ -52,6 +51,7 @@ import { copyText } from "../../utils/copyText";
 import DeviceDesktop from "./DeviceDesktop";
 import DeviceFiles from "./DeviceFiles";
 import DeviceDetails from "./DeviceDetails";
+import DeviceCard from "./DeviceCard";
 import AccessKeys from "./AccessKeys";
 import {
   canUse,
@@ -285,6 +285,8 @@ export default function DevicesPage() {
   const view = workspaceView(query.get("view"));
   const inWorkspace = Boolean(requestedId && view);
   const [devices, setDevices] = useState<Device[]>([]);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | "online" | "offline">("all");
   const [selected, setSelected] = useState("");
   const [operations, setOperations] = useState<DeviceOperation[]>([]);
   const [error, setError] = useState("");
@@ -495,6 +497,22 @@ export default function DevicesPage() {
         : "devices.offline",
     );
   }
+  const searchTerm = search.trim().toLocaleLowerCase();
+  const onlineCount = devices.filter(
+    (item) => item.online && item.revoked_at === null,
+  ).length;
+  const offlineCount = devices.filter(
+    (item) => !item.online && item.revoked_at === null,
+  ).length;
+  const visibleDevices = devices.filter(
+    (item) =>
+      (filter === "all" ||
+        (item.revoked_at === null &&
+          (filter === "online" ? item.online : !item.online))) &&
+      `${item.name} ${item.platform} ${item.device_id}`
+        .toLocaleLowerCase()
+        .includes(searchTerm),
+  );
   const views = [
     { key: "desktop" as const, icon: Monitor, label: t("devices.desktopTab") },
     { key: "files" as const, icon: File, label: t("devices.filesTab") },
@@ -547,8 +565,9 @@ export default function DevicesPage() {
             )
       }
       actions={
-        <div className="devices-actions">
+        <div className="devices-actions devices-page-actions">
           <Button
+            type="text"
             icon={<History size={16} />}
             onClick={() => setLedgerOpen(true)}
           >
@@ -559,6 +578,7 @@ export default function DevicesPage() {
             <>
               <AccessKeys />
               <Button
+                type="text"
                 icon={<RefreshCw size={16} />}
                 loading={loading}
                 onClick={() => void refresh()}
@@ -735,136 +755,116 @@ export default function DevicesPage() {
         ) : (
           <>
             <div className="devices-management-heading">
-              <h2>
-                {t("devices.myDevices")} <small>{devices.length}</small>
-              </h2>
-              <p className="devices-muted">{t("devices.mobileHint")}</p>
+              <div>
+                <h2>
+                  {t("devices.myDevices")}{" "}
+                  <span className="devices-count">{devices.length}</span>
+                </h2>
+                <p className="devices-muted">{t("devices.mobileHint")}</p>
+              </div>
+              <Input
+                className="devices-search"
+                prefix={<Search size={15} />}
+                placeholder={t("devices.searchDevices")}
+                aria-label={t("devices.searchDevices")}
+                allowClear
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
             </div>
-            {!devices.length && !loading && (
+            <div
+              className="devices-status-filter"
+              role="group"
+              aria-label={t("devices.filterDevices")}
+            >
+              {(
+                [
+                  {
+                    value: "all",
+                    label: t("devices.allDevices"),
+                    count: devices.length,
+                  },
+                  {
+                    value: "online",
+                    label: t("devices.online"),
+                    count: onlineCount,
+                  },
+                  {
+                    value: "offline",
+                    label: t("devices.offline"),
+                    count: offlineCount,
+                  },
+                ] as const
+              ).map((item) => (
+                <Button
+                  key={item.value}
+                  type="text"
+                  size="small"
+                  aria-pressed={filter === item.value}
+                  onClick={() => setFilter(item.value)}
+                >
+                  {item.label}
+                  <span>{item.count}</span>
+                </Button>
+              ))}
+            </div>
+            {loading && !loaded && (
+              <div className="devices-loading">
+                <Spin size="small" />
+                {t("common.loading")}
+              </div>
+            )}
+            {!visibleDevices.length && (!loading || loaded) && (
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={t("devices.noDevices")}
-              />
+                description={
+                  devices.length
+                    ? t("devices.noMatchingDevices")
+                    : t("devices.noDevices")
+                }
+              >
+                {devices.length > 0 && (
+                  <Button
+                    onClick={() => {
+                      setSearch("");
+                      setFilter("all");
+                    }}
+                  >
+                    {t("devices.clearFilters")}
+                  </Button>
+                )}
+              </Empty>
             )}
             <div className="devices-card-grid">
-              {devices.map((item) => (
-                <article className="devices-device-card" key={item.device_id}>
-                  <div className="devices-card-heading">
-                    <div className="devices-card-icon">
-                      {item.platform.toLowerCase().includes("linux") ? (
-                        <Terminal size={22} />
-                      ) : (
-                        <Laptop size={22} />
-                      )}
-                    </div>
-                    <div>
-                      <h2>{item.name}</h2>
-                      <span className="devices-muted">{item.platform}</span>
-                    </div>
-                    <Tag
-                      color={
-                        item.revoked_at !== null
-                          ? "default"
-                          : item.online
-                          ? "green"
-                          : "orange"
-                      }
-                    >
-                      {status(item)}
-                    </Tag>
-                    <Dropdown
-                      overlayClassName="devices-action-menu"
-                      trigger={["click"]}
-                      menu={{
-                        items: [
-                          {
-                            key: "details",
-                            label: t("devices.details"),
-                            icon: <Info size={16} />,
-                          },
-                          {
-                            key: "rename",
-                            label: t("devices.rename"),
-                            icon: <Pencil size={16} />,
-                            disabled: item.revoked_at !== null,
-                          },
-                          {
-                            key: "refresh",
-                            label: t("devices.refresh"),
-                            icon: <RefreshCw size={16} />,
-                          },
-                          { type: "divider" },
-                          {
-                            key: "revoke",
-                            label: t("devices.revoke"),
-                            icon: <Trash2 size={16} />,
-                            danger: true,
-                            disabled: item.revoked_at !== null,
-                          },
-                        ],
-                        onClick: ({ key }) => {
-                          if (key === "details") setDetailsId(item.device_id);
-                          if (key === "rename") {
-                            setRenameId(item.device_id);
-                            setRenameDraft(item.name);
-                          }
-                          if (key === "refresh") void refresh();
-                          if (key === "revoke") confirmRevoke(item);
-                        },
-                      }}
-                    >
-                      <Button
-                        type="text"
-                        icon={<MoreHorizontal size={20} />}
-                        aria-label={t("devices.deviceActions", {
-                          name: item.name,
-                        })}
-                      />
-                    </Dropdown>
-                  </div>
-                  <p className="devices-path">
-                    {t("devices.lastSeen")}:{" "}
-                    {item.last_seen_at
-                      ? formatServerDateTime(item.last_seen_at, serverTimezone)
-                      : t("devices.neverSeen")}
-                  </p>
-                  <div className="devices-roster-grants">
-                    {item.permissions.map((permission) => (
-                      <Tag key={permission}>
-                        {t(`devices.permissions.${permission}`, {
-                          defaultValue: permission,
-                        })}
-                      </Tag>
-                    ))}
-                  </div>
-                  <div className="devices-card-actions">
-                    {views
-                      .filter(({ key }) => supportsWorkspaceView(item, key))
-                      .map(({ key, icon: Icon, label }) => (
-                        <Button
-                          key={key}
-                          icon={<Icon size={16} />}
-                          onClick={() => requestWorkspace(item.device_id, key)}
-                        >
-                          {label}
-                        </Button>
-                      ))}
-                    <Button
-                      icon={<Shield size={16} />}
-                      onClick={() => {
-                        setSelected(item.device_id);
-                        setSettingsOpen(true);
-                      }}
-                    >
-                      {t("devices.settingsTab")}
-                    </Button>
-                  </div>
-                </article>
+              {visibleDevices.map((item) => (
+                <DeviceCard
+                  key={item.device_id}
+                  device={item}
+                  timezone={serverTimezone}
+                  onOpen={(next) => requestWorkspace(item.device_id, next)}
+                  onDetails={() => setDetailsId(item.device_id)}
+                  onSettings={() => {
+                    setSelected(item.device_id);
+                    setSettingsOpen(true);
+                  }}
+                  onRename={() => {
+                    setRenameId(item.device_id);
+                    setRenameDraft(item.name);
+                  }}
+                  onRefresh={() => void refresh()}
+                  onRevoke={() => confirmRevoke(item)}
+                />
               ))}
             </div>
             {hostTools.length > 0 && (
-              <section className="devices-host-tools">
-                <h2>{t("devices.hostTools", "当前管理端的本机工具")}</h2>
+              <details className="devices-host-tools">
+                <summary>
+                  <span>
+                    <Monitor size={16} />
+                    {t("devices.hostTools", "管理端工具")}
+                  </span>
+                  <ChevronDown size={15} aria-hidden />
+                </summary>
                 <p className="devices-muted">
                   {t(
                     "devices.hostToolsHint",
@@ -882,17 +882,24 @@ export default function DevicesPage() {
                     </Button>
                   ))}
                 </div>
-              </section>
+              </details>
             )}
             {base.protocol === "http:" && (
-              <Alert
-                type="warning"
-                showIcon
-                message={t(
-                  "devices.httpWarning",
-                  "当前连接使用 HTTP，内容未加密。跨网络部署请使用受信任的 HTTPS 或 VPN；不要在公共网络传递配对码和密钥。",
-                )}
-              />
+              <details className="devices-connection-note">
+                <summary>
+                  <Shield size={14} />
+                  {t("devices.httpConnection")}
+                  <ChevronDown size={14} aria-hidden />
+                </summary>
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={t(
+                    "devices.httpWarning",
+                    "当前连接使用 HTTP，内容未加密。跨网络部署请使用受信任的 HTTPS 或 VPN；不要在公共网络传递配对码和密钥。",
+                  )}
+                />
+              </details>
             )}
           </>
         )}

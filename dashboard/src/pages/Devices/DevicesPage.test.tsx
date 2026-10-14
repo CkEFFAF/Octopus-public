@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { App } from "antd";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -126,6 +132,7 @@ describe("device management and operator workspace", () => {
     await screen.findByText("Office Windows");
     expect(screen.queryByTestId("remote-desktop")).not.toBeInTheDocument();
     expect(screen.queryByTestId("remote-files")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("管理端工具"));
     expect(
       screen.getByRole("button", { name: "本机终端" }),
     ).toBeInTheDocument();
@@ -144,6 +151,64 @@ describe("device management and operator workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "返回设备" }));
     await screen.findByText("Office Windows");
     expect(screen.queryByTestId("remote-desktop")).not.toBeInTheDocument();
+  });
+
+  it("searches devices, clears empty results and keeps a specific workspace target", async () => {
+    show();
+    await screen.findByText("Office Windows");
+    const search = screen.getByRole("textbox", {
+      name: "devices.searchDevices",
+    });
+    fireEvent.change(search, { target: { value: "HEADLESS" } });
+    expect(screen.queryByText("Office Windows")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("article", { name: "Headless Linux" }),
+    ).toBeInTheDocument();
+    fireEvent.change(search, { target: { value: "missing" } });
+    expect(
+      await screen.findByText("devices.noMatchingDevices"),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "devices.clearFilters" }),
+    );
+    const row = await screen.findByRole("article", { name: "Headless Linux" });
+    fireEvent.click(
+      within(row).getByRole("button", { name: "devices.openWorkspace" }),
+    );
+    expect(await screen.findByTestId("remote-files")).toHaveTextContent(
+      "linux-headless",
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "device=linux-headless&view=files",
+    );
+  });
+
+  it("filters offline devices without treating revoked devices as offline", async () => {
+    list.mockResolvedValue({
+      devices: [
+        windows,
+        { ...linux, online: false },
+        { ...linux, device_id: "revoked", name: "Revoked", revoked_at: 1 },
+      ],
+    });
+    show();
+    await screen.findByText("Office Windows");
+    const filters = within(
+      screen.getByRole("group", { name: "devices.filterDevices" }),
+    );
+    fireEvent.click(filters.getByRole("button", { name: /devices.offline/ }));
+    expect(
+      screen.getByRole("article", { name: "Headless Linux" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Office Windows")).not.toBeInTheDocument();
+    expect(screen.queryByText("Revoked")).not.toBeInTheDocument();
+    fireEvent.click(
+      filters.getByRole("button", { name: /devices.allDevices/ }),
+    );
+    const revoked = screen.getByRole("article", { name: "Revoked" });
+    expect(
+      within(revoked).getByRole("button", { name: "devices.openWorkspace" }),
+    ).toBeDisabled();
   });
 
   it("never substitutes another device for a missing deep-linked target", async () => {
