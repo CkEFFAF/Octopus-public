@@ -432,7 +432,7 @@ class DeviceClient:
                             import sys
 
                             label = ",".join(sorted(set(desired)))
-                            if sys.stdin.isatty():
+                            if sys.stdin is not None and sys.stdin.isatty():
                                 answer = (
                                     input(
                                         f"Control center requests permissions [{label}]. Accept? [y/N] "
@@ -469,7 +469,7 @@ class DeviceClient:
                     import sys
 
                     mode_label = "view+control" if mode == "view_control" else "view"
-                    if sys.stdin.isatty():
+                    if sys.stdin is not None and sys.stdin.isatty():
                         answer = (
                             input(f"Allow desktop takeover by {owner_label} ({mode_label})? [y/N] ")
                             .strip()

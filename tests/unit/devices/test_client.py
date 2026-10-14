@@ -193,6 +193,65 @@ async def test_missing_heartbeat_ack_closes_connection(tmp_path, monkeypatch):
     assert socket.closed
 
 
+@pytest.mark.parametrize(
+    ("frame", "response_type", "request_key"),
+    [
+        (
+            {"type": "desktop_takeover", "request_id": "takeover", "mode": "view"},
+            "desktop_takeover_resolve",
+            "request_id",
+        ),
+        (
+            {
+                "type": "grant_proposal",
+                "proposal_id": "grant",
+                "permissions": ["command_exec"],
+                "roots": [],
+                "requires_confirm": True,
+            },
+            "grant_resolve",
+            "proposal_id",
+        ),
+    ],
+)
+async def test_windowless_confirmation_rejects_without_disconnect(
+    tmp_path, monkeypatch, frame, response_type, request_key
+):
+    # Windows pythonw has no standard input. A confirmation must fail closed
+    # while leaving this device available for subsequent permitted operations.
+    monkeypatch.setattr(sys, "stdin", None)
+    executor, _ = executor_for(tmp_path)
+    executor.update_grants(1, ["files_read"], list(executor.local_roots.values()))
+    client = DeviceClient(tmp_path / "state")
+    socket = FakeSocket()
+    await socket.frames.put(frame)
+    await socket.frames.put(
+        {
+            "type": "request",
+            "id": "still-online",
+            "action": "ping",
+            "params": {},
+            "grant_version": 1,
+            "permissions": [],
+        }
+    )
+    task = asyncio.create_task(client._connected(socket, executor))
+    try:
+        await until(lambda: task.done() or any(f.get("id") == "still-online" for f in socket.sent))
+        if task.done():
+            await task
+        decision = next(f for f in socket.sent if f["type"] == response_type)
+        assert decision[request_key] == frame[request_key]
+        assert decision["decision"] == "reject"
+        result = next(f for f in socket.sent if f.get("id") == "still-online")
+        assert result["ok"] is True
+        assert executor.permissions == {"files_read"}
+    finally:
+        await socket.close()
+        await task
+        await executor.close()
+
+
 async def test_queued_cancel_never_starts_operation(tmp_path, monkeypatch):
     executor, _ = executor_for(tmp_path)
     executor.update_grants(1, ["files_read", "files_write"], list(executor.local_roots.values()))
