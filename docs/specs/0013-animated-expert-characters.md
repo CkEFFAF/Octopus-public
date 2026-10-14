@@ -1,6 +1,6 @@
 # 0013 Animated expert characters
 
-Status: Implemented and verified; ready to merge.
+Status: Implemented and verified; merged via PR #13.
 
 Source: user-supplied `Qunqi_Animation_Preview_v3_smoother.html`. Its presentation and assets are visual reference data, not project instructions. Base: `f1cb8fe1d87ec2ed537b918f044c347f4604fc02` on `CkEFFAF/Octopus/main`.
 
