@@ -204,6 +204,10 @@ async def test_two_real_managers_survive_one_disconnect_and_reconnect_same_ident
     connected = {"a": asyncio.Event(), "b": asyncio.Event()}
     reconnected = asyncio.Event()
     file_read = asyncio.Event()
+    # This verifies continuity and identity, not a five-second latency SLA.
+    # Allow the client's 15-second connection budget plus Windows state ACL
+    # setup and scheduling under concurrent CI workers.
+    connection_budget = 30
     shared = tmp_path / "share"
     shared.mkdir()
     (shared / "proof.txt").write_text("still available")
@@ -256,7 +260,7 @@ async def test_two_real_managers_survive_one_disconnect_and_reconnect_same_ident
         running = asyncio.create_task(network.run())
         try:
             await asyncio.wait_for(
-                asyncio.gather(*(event.wait() for event in connected.values())), 5
+                asyncio.gather(*(event.wait() for event in connected.values())), connection_budget
             )
             await sockets["a"].close()
             await sockets["b"].send(
@@ -271,12 +275,12 @@ async def test_two_real_managers_survive_one_disconnect_and_reconnect_same_ident
                     }
                 )
             )
-            await asyncio.wait_for(file_read.wait(), 5)
-            await asyncio.wait_for(reconnected.wait(), 8)
+            await asyncio.wait_for(file_read.wait(), connection_budget)
+            await asyncio.wait_for(reconnected.wait(), connection_budget)
             assert len(seen["b"]) == 1
             assert seen["a"][0]["device_id"] == seen["a"][1]["device_id"]
             assert seen["a"][0]["token"] == seen["a"][1]["token"]
             assert len({client.state_dir for client in network._clients.values()}) == 2
         finally:
             await network.stop()
-            await asyncio.wait_for(running, 5)
+            await asyncio.wait_for(running, connection_budget)
