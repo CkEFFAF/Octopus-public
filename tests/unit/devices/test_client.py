@@ -252,6 +252,58 @@ async def test_windowless_confirmation_rejects_without_disconnect(
         await executor.close()
 
 
+async def test_stop_during_connect_closes_late_socket_without_starting_session(
+    tmp_path, monkeypatch
+):
+    executor, _ = executor_for(tmp_path)
+    client = DeviceClient(tmp_path / "state")
+    monkeypatch.setattr(
+        client,
+        "load_state",
+        lambda: {
+            "server_url": "http://127.0.0.1:8188",
+            "device_id": "existing-device",
+            "device_token": "odv_test_identity",
+        },
+    )
+    connecting = asyncio.Event()
+    release = asyncio.Event()
+
+    class LateSocket(FakeSocket):
+        async def recv(self):
+            # A connection created after stop must never enter the handshake.
+            await asyncio.Event().wait()
+
+    socket = LateSocket()
+
+    class PendingConnect:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            connecting.set()
+            await release.wait()
+            return socket
+
+        async def __aexit__(self, *args):
+            await socket.close()
+
+    monkeypatch.setattr("websockets.asyncio.client.connect", PendingConnect)
+    running = asyncio.create_task(client.run(executor))
+    try:
+        await asyncio.wait_for(connecting.wait(), 1)
+        await client.stop()
+        release.set()
+        await asyncio.wait_for(running, 1)
+        assert socket.sent == []
+        assert socket.closed
+    finally:
+        release.set()
+        running.cancel()
+        await asyncio.gather(running, return_exceptions=True)
+        await executor.close()
+
+
 async def test_queued_cancel_never_starts_operation(tmp_path, monkeypatch):
     executor, _ = executor_for(tmp_path)
     executor.update_grants(1, ["files_read", "files_write"], list(executor.local_roots.values()))

@@ -306,6 +306,8 @@ class DeviceClient:
                         close_timeout=5,
                         logger=wire_logger,
                     ) as socket:
+                        if self._stop.is_set():
+                            return
                         self._socket = socket
                         await socket.send(
                             json.dumps(
