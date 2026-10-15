@@ -36,7 +36,7 @@ Android / iOS 使用浏览器管理已接入设备；手机原生客户端尚未
 <p align="center">
   <a href="https://www.python.org/downloads/"><img alt="Python 3.12+" src="https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white" /></a>
   <a href="https://github.com/TencentCloud/Octop/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green" /></a>
-  <a href="https://github.com/CkEFFAF/Octopus-public/releases"><img alt="Version" src="https://img.shields.io/badge/version-1.0.2b12-orange" /></a>
+  <a href="https://github.com/CkEFFAF/Octopus-public/releases"><img alt="Version" src="https://img.shields.io/badge/version-1.0.2b13-orange" /></a>
   <a href="https://pypi.org/project/octop/"><img src="https://img.shields.io/pypi/v/octop" alt="PyPI" /></a>
   <a href="https://github.com/astral-sh/ruff"><img alt="Code Style: Ruff" src="https://img.shields.io/badge/code%20style-ruff-000000?logo=ruff&logoColor=white" /></a>
   <a href="https://github.com/TencentCloud/Octop"><img alt="GitHub stars" src="https://img.shields.io/github/stars/TencentCloud/Octop?style=social" /></a>

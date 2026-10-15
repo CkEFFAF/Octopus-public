@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from octop import __version__
 from octop.config import OctopConfig
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.pool import SqlitePool
@@ -29,10 +31,53 @@ from octop.infra.devices.updater import (
     detect_busy,
     download_and_verify,
     health_check,
+    resolve_software_version,
     stage_side_by_side,
     validate_download_url,
 )
 from octop.infra.utils.paths import PathLayout
+
+
+@pytest.mark.parametrize(
+    ("package_name", "file_text", "installed_version", "environment_version", "expected"),
+    [
+        ("octop", " 1.2.3\nignored\n", "2.0.0", "3.0.0", "1.2.3"),
+        ("octop", " \n", "2.0.0", "3.0.0", "2.0.0"),
+        ("octop", None, "2.0.0", "3.0.0", "2.0.0"),
+        ("octop", None, None, "3.0.0", "3.0.0"),
+        ("octop", None, None, None, __version__),
+        ("octop", None, None, "", __version__),
+        ("other-package", None, None, None, "0.0.0"),
+        ("other-package", None, None, "", "0.0.0"),
+        ("other-package", None, None, "3.0.0", "3.0.0"),
+    ],
+)
+def test_resolve_software_version_precedence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    package_name: str,
+    file_text: str | None,
+    installed_version: str | None,
+    environment_version: str | None,
+    expected: str,
+) -> None:
+    def version(name: str) -> str:
+        assert name == package_name
+        if installed_version is None:
+            raise importlib.metadata.PackageNotFoundError(name)
+        return installed_version
+
+    monkeypatch.setattr(importlib.metadata, "version", version)
+    if environment_version is None:
+        monkeypatch.delenv("OCTOP_SOFTWARE_VERSION", raising=False)
+    else:
+        monkeypatch.setenv("OCTOP_SOFTWARE_VERSION", environment_version)
+    version_file = tmp_path / "version.txt"
+    if file_text is not None:
+        version_file.write_text(file_text, encoding="utf-8")
+    assert (
+        resolve_software_version(package_name=package_name, version_file=version_file) == expected
+    )
 
 
 def _services(tmp_path: Path):
