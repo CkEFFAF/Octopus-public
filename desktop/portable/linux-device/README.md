@@ -21,11 +21,11 @@ bash desktop/portable/package-device-linux.sh linux-amd64 --docker
 # ARM64 跨架构需要 Docker 已配置该架构执行能力；脚本不会安装模拟器。
 ```
 
-构建机需要 Bash、tar、curl 和 uv；原生构建自动复用或下载项目固定的 Python 3.12 portable runtime，只安装 `uv.lock` 中带 SHA-256 校验的 click/websockets 二进制轮子，Linux wheel 限定 manylinux 2.17 基线。部署机器无需系统 Python 3.12，无需安装完整 Octop 依赖或先构建界面。输出在 `desktop/portable/release/Octop-device-linux-<arch>-<version>.tar.gz`。
+构建机需要 Bash、tar、curl 和 uv；原生构建自动复用或下载项目固定的 Python 3.12 portable runtime，只安装 `uv.lock` 中带 SHA-256 校验的设备端依赖轮子，包括文件/进程、PTY、能力发现及浏览器驱动。设备依赖使用 manylinux 2.28 兼容基线；Python runtime 本身的较低基线不能代替完整安装包的要求。部署机器无需系统 Python 3.12，无需安装完整 Octop 依赖或先构建界面。输出在 `desktop/portable/release/Octop-device-linux-<arch>-<version>.tar.gz`。
 
 首次在线构建后，可用 `OCTOP_GREEN_OFFLINE=1` 重用同一架构的 runtime 和 `desktop/portable/.cache/uv` 缓存，禁止网络访问；离线 Docker 构建需要镜像本身已安装 uv。Windows Git Bash 可以跨平台组装包，直接保留官方 runtime tar 的 Linux 权限和符号链接，不在 NTFS 上解压 Linux runtime；不会执行 Linux runtime，也不会将其标为原生验收通过。
 
-Ubuntu 20.04 的 glibc 2.31 高于 Python portable GNU/Linux baseline 2.17，预期可运行；仍需匹配 CPU 并在目标机器执行 runtime/CLI/连接验收。[Python-build-standalone 官方运行要求](https://gregoryszorc.com/docs/python-build-standalone/main/running.html#runtime-requirements)说明该 baseline；不能将 Windows 上打包成功等同 Ubuntu 验收。
+Ubuntu 20.04 的 glibc 2.31 高于设备依赖基线 2.28，预期可运行；仍需匹配 CPU 并在目标机器执行 runtime/CLI/连接验收。[Python-build-standalone 官方运行要求](https://gregoryszorc.com/docs/python-build-standalone/main/running.html#runtime-requirements)仅说明 Python 自身的 baseline；不能将 Windows 上打包成功等同 Ubuntu 验收。浏览器二进制按 Playwright 的系统支持要求另外安装和实测；不在包中虚构可用的显示服务或浏览器。
 
 包内 `VERSION.txt` 的 `verification` 区分原生导入/CLI 冒烟通过与尚未原生运行的跨平台组装。包中没有账号、数据库、`device-state`、连接密钥、Windows 二进制或 Web UI。不得把已有 `device-state` 放进分发包。
 

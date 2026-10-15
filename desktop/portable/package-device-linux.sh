@@ -21,8 +21,8 @@ USAGE
 PLAT="${1:-}"
 if [[ "$PLAT" == "-h" || "$PLAT" == "--help" ]]; then usage; exit 0; fi
 case "$PLAT" in
-  linux-amd64) EXPECTED_MACHINE=x86_64; DOCKER_PLATFORM=linux/amd64; WHEEL_PLATFORM=x86_64-manylinux_2_17 ;;
-  linux-arm64) EXPECTED_MACHINE=aarch64; DOCKER_PLATFORM=linux/arm64; WHEEL_PLATFORM=aarch64-manylinux_2_17 ;;
+  linux-amd64) EXPECTED_MACHINE=x86_64; DOCKER_PLATFORM=linux/amd64; WHEEL_PLATFORM=x86_64-manylinux_2_28 ;;
+  linux-arm64) EXPECTED_MACHINE=aarch64; DOCKER_PLATFORM=linux/arm64; WHEEL_PLATFORM=aarch64-manylinux_2_28 ;;
   *) usage >&2; exit 2 ;;
 esac
 if [[ $# -gt 2 || ( $# -eq 2 && "$2" != "--docker" ) ]]; then usage >&2; exit 2; fi
@@ -199,7 +199,7 @@ fi
   echo "octop_version=${VERSION}"
   echo "python=${PBS_PY}"
   echo "pbs_tag=${PBS_TAG}"
-  echo "minimum_glibc=2.17 (PBS baseline; verify on target)"
+  echo "minimum_glibc=2.28 (device dependencies; PBS runtime baseline is 2.17; verify on target)"
   echo "verification=${VERIFICATION}"
 } > "${PAYLOAD}/VERSION.txt"
 
