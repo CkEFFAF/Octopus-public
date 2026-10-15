@@ -7,7 +7,8 @@
 - [快速部署与设备接入](docs/octopus/quick-start.md)
 - [开发与构建](docs/octopus/run-and-build.md)
 - [自有设备执行架构与验收状态](docs/octopus/execution-architecture-progress.md)
-- [私有源码仓库](https://github.com/CkEFFAF/Octopus)
+- [公开源码仓库](https://github.com/CkEFFAF/Octopus-public)
+- [Octopus 发行包](https://github.com/CkEFFAF/Octopus-public/releases)
 
 设备首次运行 `start-device.bat` 或 `./start-device.sh`，按向导加入账户的设备网，
 成功后管理端显示设备；再次运行沿用原身份重连。owner 模式按设备运行账户管理

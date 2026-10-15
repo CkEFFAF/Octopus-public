@@ -6,6 +6,7 @@ import { devicesApi, type Device } from "../../../api/modules/devices";
 
 import {
   getExecutionSelection,
+  getExecutionWorkModeRevision,
   executionScope,
   useExecutionSelection,
   setExecutionSelection,
@@ -34,11 +35,13 @@ export default function DeviceTargetSelect({
   const hydrationBaseline = useRef({
     scope,
     selection: getExecutionSelection(scope),
+    workModeRevision: getExecutionWorkModeRevision(scope),
   });
   if (hydrationBaseline.current.scope !== scope)
     hydrationBaseline.current = {
       scope,
       selection: getExecutionSelection(scope),
+      workModeRevision: getExecutionWorkModeRevision(scope),
     };
   const { deviceId, workingDir } = useExecutionSelection(scope);
   const selectionStatus = useExecutionSelectionStatus(scope);
@@ -106,6 +109,7 @@ export default function DeviceTargetSelect({
     if (!threadId || threadId.startsWith("__")) return;
     let disposed = false;
     const before = hydrationBaseline.current.selection;
+    const workModeRevision = hydrationBaseline.current.workModeRevision;
     const version = changeVersion.current;
     setExecutionSelectionStatus(scope, "loading");
     void devicesApi
@@ -120,7 +124,7 @@ export default function DeviceTargetSelect({
             ...(current.workingDir === before.workingDir
               ? { workingDir: value.working_dir ?? undefined }
               : {}),
-            ...(current.workMode === before.workMode
+            ...(getExecutionWorkModeRevision(scope) === workModeRevision
               ? { workMode: value.work_mode }
               : {}),
           });

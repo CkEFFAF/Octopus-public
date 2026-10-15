@@ -1,13 +1,20 @@
 # Octopus fork releases
 
-Production tags belong to a merged `main` commit. The private Octopus fork uses
+Production tags belong to a merged `main` commit. The Octopus fork uses
 hotfix PRs into `main`; it currently has no `develop` branch. Complete Linux and
 Windows CI before merging, then let `auto-tag-on-release.yml` read the version
 from the merged tree and dispatch release builds.
 
 ## Default artifacts
 
-The private fork creates a GitHub Release containing the Python distribution,
+The public repository is [CkEFFAF/Octopus-public](https://github.com/CkEFFAF/Octopus-public).
+It replaces the private production-source repository for new PRs and releases;
+the original repository is retained. The harness repository was already public.
+Standard hosted runners in this public repository do not consume the private
+repository's included Actions minutes. Artifact/cache storage and optional
+services have separate limits; do not enable paid services implicitly.
+
+The fork creates a GitHub Release containing the Python distribution,
 Windows x64 portable UI/client, Linux x64 portable management UI and Linux x64
 headless device client. Portable dependencies are exported from `uv.lock`.
 Updating the package version does not imply updating the harness dependency.

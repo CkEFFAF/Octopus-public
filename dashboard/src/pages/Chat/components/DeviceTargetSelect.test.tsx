@@ -366,6 +366,64 @@ describe("DeviceTargetSelect", () => {
     expect(getExecutionSelectionStatus(scope)).toBe("ready");
   });
 
+  it("preserves a mode changed away from and back to the hydration baseline", async () => {
+    const scope = executionScope("mode-return-agent", "mode-return-thread");
+    const restoring = deferred<DeviceExecutionSelection>();
+    vi.mocked(devicesApi.executionSelection).mockReturnValue(restoring.promise);
+    render(
+      <DeviceTargetSelect
+        agentId="mode-return-agent"
+        threadId="mode-return-thread"
+      />,
+    );
+    expect(getExecutionSelectionStatus(scope)).toBe("loading");
+    act(() => setExecutionSelection(scope, { workMode: "plan" }));
+    act(() => setExecutionSelection(scope, { workMode: "agentic" }));
+    await act(async () =>
+      restoring.resolve({
+        ...stored("gpu", "/srv/experiment"),
+        work_mode: "debug",
+      }),
+    );
+    expect(getExecutionSelection(scope)).toEqual({
+      deviceId: "gpu",
+      workingDir: "/srv/experiment",
+      workMode: "agentic",
+    });
+    expect(getExecutionSelectionStatus(scope)).toBe("ready");
+  });
+
+  it("starts a fresh mode baseline when switching scopes during hydration", async () => {
+    const oldScope = executionScope("mode-scope-agent", "old-thread");
+    const newScope = executionScope("mode-scope-agent", "new-thread");
+    const first = deferred<DeviceExecutionSelection>();
+    const second = deferred<DeviceExecutionSelection>();
+    vi.mocked(devicesApi.executionSelection)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    setExecutionSelection(newScope, { workMode: "plan" });
+    const { rerender } = render(
+      <DeviceTargetSelect agentId="mode-scope-agent" threadId="old-thread" />,
+    );
+    act(() => setExecutionSelection(oldScope, { workMode: "plan" }));
+    act(() => setExecutionSelection(oldScope, { workMode: "agentic" }));
+    rerender(
+      <DeviceTargetSelect agentId="mode-scope-agent" threadId="new-thread" />,
+    );
+    await act(async () =>
+      second.resolve({ ...stored("laptop"), work_mode: "debug" }),
+    );
+    await act(async () =>
+      first.resolve({ ...stored("gpu"), work_mode: "team" }),
+    );
+    expect(getExecutionSelection(newScope)).toMatchObject({
+      deviceId: "laptop",
+      workMode: "debug",
+    });
+    expect(getExecutionSelection(oldScope).workMode).toBe("agentic");
+    expect(getExecutionSelectionStatus(newScope)).toBe("ready");
+  });
+
   it.each(["expert", "account"] as const)(
     "does not present the %s default as the session target after hydration fails",
     async (fallback) => {
@@ -395,9 +453,12 @@ describe("DeviceTargetSelect", () => {
       expect(getExecutionSelectionStatus(scope)).toBe("error");
       expect(devicesApi.saveExecutionSelection).not.toHaveBeenCalled();
       act(() => setExecutionSelection(scope, { workMode: "plan" }));
-      vi.mocked(devicesApi.executionSelection).mockResolvedValue(
-        stored("gpu", "/restored"),
-      );
+      if (fallback === "account")
+        act(() => setExecutionSelection(scope, { workMode: "agentic" }));
+      vi.mocked(devicesApi.executionSelection).mockResolvedValue({
+        ...stored("gpu", "/restored"),
+        work_mode: "debug",
+      });
       fireEvent.click(
         screen.getByRole("button", { name: "devices.retrySessionSelection" }),
       );
@@ -407,7 +468,7 @@ describe("DeviceTargetSelect", () => {
       expect(getExecutionSelection(scope)).toMatchObject({
         deviceId: "gpu",
         workingDir: "/restored",
-        workMode: "plan",
+        workMode: fallback === "account" ? "agentic" : "plan",
       });
     },
   );

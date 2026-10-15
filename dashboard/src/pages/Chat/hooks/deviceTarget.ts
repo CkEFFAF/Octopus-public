@@ -25,6 +25,7 @@ export type ExecutionSelection = {
 export type ExecutionSelectionSnapshot = ExecutionSelection & { scope: string };
 const empty: ExecutionSelection = { deviceId: "", workMode: "agentic" };
 const selections = new Map<string, ExecutionSelection>();
+const workModeRevisions = new Map<string, number>();
 export type ExecutionSelectionStatus =
   | "unknown"
   | "loading"
@@ -40,6 +41,9 @@ export function executionScope(
 }
 export function getExecutionSelection(scope: string): ExecutionSelection {
   return selections.get(scope) ?? empty;
+}
+export function getExecutionWorkModeRevision(scope: string): number {
+  return workModeRevisions.get(scope) ?? 0;
 }
 export function getExecutionSelectionStatus(
   scope: string,
@@ -81,6 +85,9 @@ export function setExecutionSelection(
   scope: string,
   patch: Partial<ExecutionSelection>,
 ): void {
+  // Count writes even when the mode returns to its previous value.
+  if (patch.workMode !== undefined)
+    workModeRevisions.set(scope, getExecutionWorkModeRevision(scope) + 1);
   selections.set(scope, { ...getExecutionSelection(scope), ...patch });
   listeners.forEach((listener) => listener());
 }
