@@ -310,6 +310,7 @@ class DeviceService:
         close: Close,
         *,
         client_protocol_version: int = 1,
+        software_version: str | None = None,
     ) -> DeviceConnection:
         row = self.authenticate(device_id, token)
         old = self._connections.get(device_id)
@@ -324,6 +325,9 @@ class DeviceService:
             int(client_protocol_version) if isinstance(client_protocol_version, int) else 1
         )
         self.repos.device_repo.touch_seen(device_id)
+        # DEC-002: persist software_version on hello/connect, not only heartbeat.
+        if isinstance(software_version, str) and software_version.strip():
+            self.repos.device_repo.set_software_version(device_id, software_version.strip())
         try:
             await send(
                 {
@@ -351,9 +355,7 @@ class DeviceService:
             raise
         return connection
 
-    async def _maybe_send_update_offer(
-        self, connection: DeviceConnection, row: DeviceRow
-    ) -> None:
+    async def _maybe_send_update_offer(self, connection: DeviceConnection, row: DeviceRow) -> None:
         """Push device_update.offer on heartbeat when Hub policy targets this device."""
         try:
             from octop.infra.devices.protocol import device_update_offer_frame

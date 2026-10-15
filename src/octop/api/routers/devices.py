@@ -490,12 +490,15 @@ async def connect(websocket: WebSocket) -> None:
         client_protocol = hello.get("client_protocol_version", 1)
         if type(client_protocol) is not int:
             client_protocol = 1
+        sw = hello.get("software_version")
+        software_version = sw.strip() if isinstance(sw, str) and sw.strip() else None
         connection = await service.connect(
             device_id,
             token,
             send,
             close,
             client_protocol_version=client_protocol,
+            software_version=software_version,
         )
         while True:
             raw = await asyncio.wait_for(websocket.receive_text(), 60)

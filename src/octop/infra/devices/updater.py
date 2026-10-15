@@ -31,9 +31,30 @@ def sha256_file(path: Path, *, chunk_size: int = 1024 * 1024) -> str:
     return digest.hexdigest()
 
 
+DEFAULT_ALLOWED_DOWNLOAD_HOSTS = frozenset(
+    {
+        "github.com",
+        "www.github.com",
+        "objects.githubusercontent.com",
+        "release-assets.githubusercontent.com",
+        "github-releases.githubusercontent.com",
+    }
+)
 
-def validate_download_url(url: str) -> None:
-    """Reject non-https package URLs (0017 iron rule: Hub-issued official HTTPS only)."""
+
+def allowed_download_hosts() -> frozenset[str]:
+    """GitHub Release hosts by default; extend via OCTOP_DEVICE_UPDATE_ALLOWED_HOSTS."""
+    hosts = set(DEFAULT_ALLOWED_DOWNLOAD_HOSTS)
+    extra = os.environ.get("OCTOP_DEVICE_UPDATE_ALLOWED_HOSTS", "")
+    for part in extra.split(","):
+        host = part.strip().lower().rstrip(".")
+        if host:
+            hosts.add(host)
+    return frozenset(hosts)
+
+
+def validate_download_url(url: str, *, allowed_hosts: frozenset[str] | None = None) -> None:
+    """Reject non-https / non-allowlisted package URLs (0017 iron rule)."""
     parsed = urlsplit(url)
     if parsed.scheme != "https":
         raise ValueError("download URL must be https")
@@ -41,6 +62,10 @@ def validate_download_url(url: str) -> None:
         raise ValueError("download URL missing host")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("download URL must not contain credentials")
+    host = parsed.hostname.lower().rstrip(".")
+    allowed = allowed_hosts if allowed_hosts is not None else allowed_download_hosts()
+    if host not in allowed:
+        raise ValueError(f"download URL host not allowed: {host}")
 
 
 def download_and_verify(
@@ -71,7 +96,6 @@ def download_and_verify(
         raise ValueError(f"sha256 mismatch: expected {expect}, got {actual}")
     tmp.replace(final)
     return final
-
 
 
 def _is_within_directory(base: Path, target: Path) -> bool:
@@ -361,6 +385,8 @@ __all__ = [
     "detect_busy",
     "download_and_verify",
     "validate_download_url",
+    "DEFAULT_ALLOWED_DOWNLOAD_HOSTS",
+    "allowed_download_hosts",
     "health_check",
     "resolve_software_version",
     "rollback_stage",

@@ -171,7 +171,6 @@ class DeviceClient:
                 "invalid device state; use a separate state directory to enroll"
             ) from exc
 
-
     def _device_install_dir(self) -> Path:
         env = os.environ.get("OCTOP_DEVICE_INSTALL_DIR")
         if env:

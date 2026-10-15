@@ -25,6 +25,7 @@ from octop.infra.devices.update_policy import (
     save_policy_to_settings,
 )
 from octop.infra.devices.updater import (
+    allowed_download_hosts,
     detect_busy,
     download_and_verify,
     health_check,
@@ -54,7 +55,7 @@ def test_parse_policy_roundtrip_and_admin_store(tmp_path: Path) -> None:
                     {
                         "platform": "windows-amd64",
                         "kind": "portable",
-                        "url": "https://example.com/a.zip",
+                        "url": "https://github.com/CkEFFAF/Octopus-public/releases/download/v0.0.0/a.zip",
                         "sha256": "abc",
                     }
                 ],
@@ -88,7 +89,7 @@ def test_window_blocks_cutover_outside() -> None:
                     {
                         "platform": "linux-amd64",
                         "kind": "device",
-                        "url": "https://example.com/a.tgz",
+                        "url": "https://github.com/CkEFFAF/Octopus-public/releases/download/v0.0.0/a.tgz",
                         "sha256": "deadbeef",
                     }
                 ]
@@ -113,7 +114,7 @@ def test_busy_skips_cutover() -> None:
                     {
                         "platform": "linux-amd64",
                         "kind": "device",
-                        "url": "https://example.com/a.tgz",
+                        "url": "https://github.com/CkEFFAF/Octopus-public/releases/download/v0.0.0/a.tgz",
                         "sha256": "x",
                     }
                 ]
@@ -152,7 +153,7 @@ def test_download_hash_mismatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
     with pytest.raises(ValueError, match="sha256 mismatch"):
         download_and_verify(
-            "https://example.com/pkg.bin",
+            "https://github.com/CkEFFAF/Octopus-public/releases/download/v0.0.0/pkg.bin",
             expect_sha256="00" * 32,
             dest_dir=tmp_path / "dl",
             opener=fake_open,
@@ -186,7 +187,7 @@ def test_download_verify_and_stage_side_by_side(tmp_path: Path) -> None:
         return _Resp(zpath.read_bytes())
 
     archived = download_and_verify(
-        "https://example.com/next.zip",
+        "https://github.com/CkEFFAF/Octopus-public/releases/download/v0.0.0/next.zip",
         expect_sha256=digest,
         dest_dir=tmp_path / "dl",
         opener=fake_open,
@@ -209,7 +210,7 @@ def test_build_offer_filters_batch_and_platform() -> None:
                     {
                         "platform": "windows-amd64",
                         "kind": "portable",
-                        "url": "https://example.com/a.zip",
+                        "url": "https://github.com/CkEFFAF/Octopus-public/releases/download/v0.0.0/a.zip",
                         "sha256": "ab",
                     }
                 ]
@@ -262,7 +263,7 @@ def test_force_does_not_override_busy() -> None:
                     {
                         "platform": "linux-amd64",
                         "kind": "device",
-                        "url": "https://example.com/a.tgz",
+                        "url": "https://github.com/CkEFFAF/Octopus-public/releases/download/v0.0.0/a.tgz",
                         "sha256": "x",
                     }
                 ]
@@ -324,7 +325,7 @@ def test_client_consumes_pending_update_offer(tmp_path: Path) -> None:
         "deferrable": True,
         "skip_when_busy": True,
         "asset": {
-            "url": "https://example.com/next.zip",
+            "url": "https://github.com/CkEFFAF/Octopus-public/releases/download/v0.0.0/next.zip",
             "sha256": digest,
             "platform": "linux-amd64",
             "kind": "device",
@@ -372,3 +373,82 @@ def test_client_consumes_pending_update_offer(tmp_path: Path) -> None:
     finally:
         updater_mod.download_and_verify = real_download  # type: ignore[assignment]
         updater_mod.health_check = real_health  # type: ignore[assignment]
+
+
+def test_force_does_not_bypass_window() -> None:
+    """force ignores deferrable / enables pre-download, but never cutover outside window."""
+    policy = parse_policy(
+        {
+            "target_version": "1.0.0",
+            "force": True,
+            "deferrable": True,
+            "skip_when_busy": True,
+            "window_local": {"start_hour": 0, "end_hour": 8},
+            "manifest": {
+                "assets": [
+                    {
+                        "platform": "linux-amd64",
+                        "kind": "device",
+                        "url": "https://github.com/CkEFFAF/Octopus-public/releases/download/v0.0.0/a.tgz",
+                        "sha256": "x",
+                    }
+                ]
+            },
+        }
+    )
+    noon = datetime(2026, 10, 15, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    early = datetime(2026, 10, 15, 3, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    assert may_cutover(policy, busy=False, deferred=True, now=noon) is False
+    assert may_cutover(policy, busy=False, deferred=True, now=early) is True
+    # Prior rule still holds: force + in-window + busy + skip_when_busy -> False
+    assert may_cutover(policy, busy=True, deferred=True, now=early) is False
+
+
+def test_reject_non_allowlisted_download_host() -> None:
+    with pytest.raises(ValueError, match="host not allowed"):
+        validate_download_url("https://evil.example/pkg.bin")
+    assert "github.com" in allowed_download_hosts()
+    validate_download_url(
+        "https://github.com/CkEFFAF/Octopus-public/releases/download/v1.0.0/x.zip"
+    )
+
+
+def test_hello_connect_persists_software_version(tmp_path: Path) -> None:
+    import asyncio
+
+    from octop.infra.devices.service import DeviceService
+
+    services = _services(tmp_path)
+    service = DeviceService(services.repos)
+    owner = services.repos.user_repo.create(username="admin", password_hash="x", role="admin")
+    enrolled = service.enroll(
+        pairing_code=service.pairing(owner)["pairing_code"],
+        name="hello-sw",
+        platform="linux",
+        capabilities=["files_read"],
+        permissions=["files_read"],
+        roots=[],
+    )
+    device_id = enrolled["device"]["device_id"]
+    token = enrolled["device_token"]
+    sent: list[dict] = []
+
+    async def send(frame):
+        sent.append(frame)
+
+    async def close():
+        return None
+
+    async def run():
+        return await service.connect(
+            device_id,
+            token,
+            send,
+            close,
+            software_version="1.4.2",
+        )
+
+    asyncio.run(run())
+    row = services.repos.device_repo.get(device_id)
+    assert row is not None
+    assert row.software_version == "1.4.2"

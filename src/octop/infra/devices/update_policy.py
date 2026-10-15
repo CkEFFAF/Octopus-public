@@ -275,13 +275,15 @@ def may_cutover(
 ) -> bool:
     """Whether cutover is allowed now.
 
-    ``force`` only ignores *deferrable* postponement (and out-of-window gating).
-    It never overrides ``skip_when_busy`` when the device is busy — MVP has no
-    ``force_even_when_busy`` (0017 section 2.2).
+    ``force`` only ignores *deferrable* postponement (pre-download outside the
+    window remains allowed via the offer path). It never bypasses the local
+    window gate, and never overrides ``skip_when_busy`` when busy - MVP has no
+    ``force_even_when_busy`` (0017 section 2.2 / AC-003).
     """
     if deferred and policy.deferrable and not policy.force:
         return False
-    if not in_local_window(policy.window_local, now=now, tz_name=tz_name) and not policy.force:
+    # Window gate is absolute: force must NOT allow cutover outside the window.
+    if not in_local_window(policy.window_local, now=now, tz_name=tz_name):
         return False
     # force does NOT bypass busy + skip_when_busy
     return not (policy.skip_when_busy and busy)

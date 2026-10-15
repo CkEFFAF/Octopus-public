@@ -154,7 +154,10 @@ OPENAPI_TAGS: list[dict[str, str]] = [
     },
     {"name": "terminal", "description": "AI-assisted remote terminal sessions."},
     {"name": "update", "description": "In-place server update checks and apply flow."},
-    {"name": "device-update", "description": "Enrolled device zero-downtime update policy (0017; not Hub PyPI /update)."},
+    {
+        "name": "device-update",
+        "description": "Enrolled device zero-downtime update policy (0017; not Hub PyPI /update).",
+    },
     {
         "name": "browser",
         "description": "Remote browser: env/install, harness sessions, live stream, record/replay.",
