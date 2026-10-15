@@ -101,6 +101,9 @@ export function setFocusedChatSession(sessionId: string | null): void {
     }
   }
   if (next && next !== prev) {
+    const nextState = sessionStates.get(next);
+    if (nextState && pendingStreamNotifications.has(nextState))
+      notify(nextState);
     void rebindFocusedSessionIfNeeded(next);
   }
 }
@@ -485,9 +488,38 @@ function getOrCreate(sessionId: string): SessionStreamState {
   return state;
 }
 
-function notify(state: SessionStreamState) {
+// Reduce every frame immediately, but publish stream bursts at most once per
+// window. A timer also runs in hidden tabs where animation frames may pause.
+const STREAM_NOTIFICATION_INTERVAL_MS = 32;
+const pendingStreamNotifications = new WeakMap<
+  SessionStreamState,
+  ReturnType<typeof setTimeout>
+>();
+
+function clearPendingStreamNotification(state: SessionStreamState): void {
+  const timer = pendingStreamNotifications.get(state);
+  if (timer !== undefined) {
+    clearTimeout(timer);
+    pendingStreamNotifications.delete(state);
+  }
+}
+
+function notify(state: SessionStreamState, batchStreamFrame = false) {
   // Rebuild the snapshot reference so useSyncExternalStore sees the change.
+  // Imperative readers always see the latest immutable reduction, even while
+  // subscriber callbacks are waiting for the next publication window.
   state._snapshot = buildSnapshot(state);
+  if (batchStreamFrame) {
+    if (state.listeners.size > 0 && !pendingStreamNotifications.has(state)) {
+      pendingStreamNotifications.set(
+        state,
+        setTimeout(() => notify(state), STREAM_NOTIFICATION_INTERVAL_MS),
+      );
+    }
+    return;
+  }
+  // Lifecycle/terminal updates supersede any queued stream publication.
+  clearPendingStreamNotification(state);
   for (const fn of state.listeners) {
     try {
       fn();
@@ -639,6 +671,7 @@ export function subscribe(sessionId: string, listener: () => void): () => void {
   state.listeners.add(listener);
   return () => {
     state.listeners.delete(listener);
+    if (state.listeners.size === 0) clearPendingStreamNotification(state);
   };
 }
 
@@ -891,7 +924,12 @@ export function cancelStream(sessionId: string) {
       m.status === "streaming" ? { ...m, status: "done" as const } : m,
     );
   }
-  if (hadAbort || hadStreaming || hadStreamingMsgs) {
+  if (
+    hadAbort ||
+    hadStreaming ||
+    hadStreamingMsgs ||
+    pendingStreamNotifications.has(state)
+  ) {
     notify(state);
   }
 }
@@ -901,6 +939,7 @@ export function removeSession(sessionId: string) {
   const state = sessionStates.get(sessionId);
   if (state) {
     state.abortController?.abort();
+    clearPendingStreamNotification(state);
     sessionStates.delete(sessionId);
   }
   pendingResumeBySession.delete(sessionId);
@@ -917,7 +956,11 @@ export function removeSession(sessionId: string) {
  * (cross-thread stream bleed).
  */
 export function detachSessionKey(sessionId: string): void {
+  const state = sessionStates.get(sessionId);
   sessionStates.delete(sessionId);
+  if (state && ![...sessionStates.values()].includes(state)) {
+    clearPendingStreamNotification(state);
+  }
 }
 
 /** Rename a cached session's key (e.g. temp id → real UUID).
@@ -1307,7 +1350,12 @@ function handleHarnessChunk(
       // Debug-only — phase 15 will add a debug toggle that surfaces these.
       break;
   }
-  notify(state);
+  notify(
+    state,
+    chunk.type === "token" ||
+      chunk.type === "reasoning" ||
+      chunk.type === "tool_call_chunk",
+  );
 }
 
 /** Apply one live harness frame (used by WS and unit tests). */

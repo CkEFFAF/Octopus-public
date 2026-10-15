@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { ChevronRight, FilePen, Globe } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { HitlDecisionHandler } from "../../../api/types/hitl";
@@ -76,7 +76,7 @@ function turnHasLiveSpeaker(
   return false;
 }
 
-export default function AssistantTurnView({
+function AssistantTurnView({
   messages,
   agentId: agentIdProp,
   isTurnInProgress = false,
@@ -348,3 +348,5 @@ export default function AssistantTurnView({
     </div>
   );
 }
+
+export default memo(AssistantTurnView);

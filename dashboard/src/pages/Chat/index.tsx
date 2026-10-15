@@ -369,6 +369,10 @@ function ChatPageInner() {
     clearMessages,
     resumeHitl,
   } = useChat(activeThreadId, resolvedAgentId, isTeamChat);
+  // Event handlers read the current messages without invalidating every
+  // completed turn's memoized props for each streamed token.
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const expertAnimation = useExpertAnimation({
     messages,
     running: isStreaming || liveSpeakers.length > 0,
@@ -946,7 +950,7 @@ function ChatPageInner() {
           policy.mode === "allow_tools"
             ? mergeAllowTools(hitlPolicy, policy.tools ?? [])
             : policy;
-        const pending = findAutoResumableApproval(next, messages);
+        const pending = findAutoResumableApproval(next, messagesRef.current);
         if (pending && activeThreadId) {
           autoResumedApprovalRef.current = `${activeThreadId}:${pending.messageId}`;
         }
@@ -956,12 +960,12 @@ function ChatPageInner() {
       }
       resumeHitl(decisions, activeThreadId ?? undefined);
     },
-    [resumeHitl, activeThreadId, handleHitlPolicyChange, hitlPolicy, messages],
+    [resumeHitl, activeThreadId, handleHitlPolicyChange, hitlPolicy],
   );
 
   const handleComposerHitlPolicyChange = useCallback(
     (policy: HitlSessionPolicy) => {
-      const pending = findAutoResumableApproval(policy, messages);
+      const pending = findAutoResumableApproval(policy, messagesRef.current);
       handleHitlPolicyChange(policy, { persist: !pending });
       if (!pending) return;
       if (activeThreadId) {
@@ -974,7 +978,7 @@ function ChatPageInner() {
         policy,
       );
     },
-    [handleHitlPolicyChange, messages, resumeHitl, activeThreadId],
+    [handleHitlPolicyChange, resumeHitl, activeThreadId],
   );
 
   useEffect(() => {
@@ -1045,6 +1049,7 @@ function ChatPageInner() {
         antMessage.warning(t("chat.hitl.finishPendingFirst"));
         return;
       }
+      const messages = messagesRef.current;
       const idx = messages.findIndex((m) => m.id === messageId);
       if (idx < 0) return;
       // Find the user message that preceded this assistant response
@@ -1058,7 +1063,7 @@ function ChatPageInner() {
       if (!userMsg) return;
       wrappedHandleSend(userMsg.content, userMsg.attachments);
     },
-    [messages, wrappedHandleSend, hasPendingHitlPause, t],
+    [wrappedHandleSend, hasPendingHitlPause, t],
   );
 
   // Edit user message: truncate history from that message onwards, replace
@@ -1119,6 +1124,7 @@ function ChatPageInner() {
     async (messageId: string) => {
       const agent = resolvedAgentId;
       if (!agent || !activeThreadId || forkDisabled) return;
+      const messages = messagesRef.current;
       const idx = messages.findIndex((message) => message.id === messageId);
       if (idx < 0) return;
       const assistantMsg = messages[idx];
@@ -1139,14 +1145,7 @@ function ChatPageInner() {
         setForking(false);
       }
     },
-    [
-      activeThreadId,
-      forkDisabled,
-      messages,
-      navigateToForkedThread,
-      resolvedAgentId,
-      t,
-    ],
+    [activeThreadId, forkDisabled, navigateToForkedThread, resolvedAgentId, t],
   );
 
   const handleForkSession = useCallback(
@@ -1225,6 +1224,16 @@ function ChatPageInner() {
     if (!name || name === "New Chat") return t("chatWelcome.newChat");
     return name;
   }, [activeSession, t]);
+
+  const handleOpenSpeakerProfile = useCallback(
+    (agentId?: string) => {
+      setProfileAgentId(
+        agentId && agentId !== resolvedAgentId ? agentId : null,
+      );
+      setAgentProfileOpen(true);
+    },
+    [resolvedAgentId],
+  );
 
   const chatSidebarPanel = (
     <ChatSidebarPanel
@@ -1472,12 +1481,7 @@ function ChatPageInner() {
               ) : (
                 <ChatAgentProfileProvider
                   canOpen={Boolean(resolvedAgentId) && !sharedExpertViewer}
-                  onOpen={(agentId) => {
-                    setProfileAgentId(
-                      agentId && agentId !== resolvedAgentId ? agentId : null,
-                    );
-                    setAgentProfileOpen(true);
-                  }}
+                  onOpen={handleOpenSpeakerProfile}
                   isTeam={isTeamChat}
                 >
                   <MessageList

@@ -93,6 +93,8 @@ export type ChatSendOverrides = {
   executionSelection?: ExecutionSelectionSnapshot;
 };
 
+const EMPTY_TARGET_AGENTS: string[] = [];
+
 export function useChatSend({
   resolvedAgentId,
   activeThreadId,
@@ -101,7 +103,7 @@ export function useChatSend({
   selectedModel,
   selectedConnectors,
   selectedKnowledgeBaseIds,
-  selectedTargetAgents = [],
+  selectedTargetAgents = EMPTY_TARGET_AGENTS,
   reasoningMode,
   reasoningEffort,
   conversationMode = "craft",

@@ -260,11 +260,13 @@ async def test_parent_can_integrate_actual_child_receipt_before_delivery_finishe
         rig.release.set()
         rig.finish.set()
         waiting = rig.tracker.wait_for_task_run(owner, "run-a")
+        # This checks receipt ordering, not wall-clock speed. Parallel Windows
+        # CI can spend more than two seconds committing the SQLite transitions.
         if delivery_fails:
             with pytest.raises(OctopError):
-                await asyncio.wait_for(waiting, 2)
+                await asyncio.wait_for(waiting, 10)
         else:
-            await asyncio.wait_for(waiting, 2)
+            await asyncio.wait_for(waiting, 10)
         assert rig.on_followup.await_count >= 1
         receipts = modes.events.list(owner, "host", "room", run_id="run-a")
         assert [item["status"] for item in receipts if item["kind"] == "dispatch"] == ["completed"]

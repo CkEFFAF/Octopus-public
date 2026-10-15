@@ -155,6 +155,10 @@ function renderMessageGroup(
     lastAssistantGroupIndex: ctx.lastAssistantGroupIndex,
     lastUserGroupIndex: ctx.lastUserGroupIndex,
   });
+  // Speaker liveness belongs to the current user turn. Passing the session's
+  // fresh speaker array to history also made old replies appear live.
+  const liveSpeakers =
+    groupIndex > ctx.lastUserGroupIndex ? ctx.liveSpeakers : undefined;
 
   if (!group.isGroup || group.messages.length === 1) {
     const msg = group.messages[0];
@@ -168,10 +172,10 @@ function renderMessageGroup(
           }}
         >
           <AssistantTurnView
-            messages={[msg]}
+            messages={group.messages}
             agentId={ctx.agentId}
             isTurnInProgress={isTurnInProgress}
-            liveSpeakers={ctx.liveSpeakers}
+            liveSpeakers={liveSpeakers}
             onRegenerate={ctx.onRegenerate}
             onEditUserMessage={ctx.onEditUserMessage}
             onForkAssistantMessage={ctx.onForkAssistantMessage}
@@ -224,7 +228,7 @@ function renderMessageGroup(
         messages={group.messages}
         agentId={ctx.agentId}
         isTurnInProgress={isTurnInProgress}
-        liveSpeakers={ctx.liveSpeakers}
+        liveSpeakers={liveSpeakers}
         onRegenerate={ctx.onRegenerate}
         onEditUserMessage={ctx.onEditUserMessage}
         onForkAssistantMessage={ctx.onForkAssistantMessage}
@@ -295,10 +299,16 @@ export default function MessageList(props: MessageListProps) {
   const [firstItemIndex, setFirstItemIndex] = useState(VIRTUOSO_START_INDEX);
   const prevGroupCountRef = useRef(0);
 
-  const messageGroups = useMemo(
-    () => groupConsecutiveAssistantMessages(messages, agentId ?? undefined),
-    [messages, agentId],
-  );
+  const previousGroupsRef = useRef<MessageGroup[]>([]);
+  const messageGroups = useMemo(() => {
+    const groups = groupConsecutiveAssistantMessages(
+      messages,
+      agentId ?? undefined,
+      previousGroupsRef.current,
+    );
+    previousGroupsRef.current = groups;
+    return groups;
+  }, [messages, agentId]);
 
   const useVirtual =
     useVirtualLocked || messageGroups.length >= VIRTUALIZE_THRESHOLD;

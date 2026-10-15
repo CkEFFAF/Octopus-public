@@ -153,9 +153,23 @@ export function speakerTurnWasInterrupted(
 export function groupConsecutiveAssistantMessages(
   messages: ChatMessage[],
   hostAgentId?: string,
+  previousGroups: MessageGroup[] = [],
 ): MessageGroup[] {
   const groups: MessageGroup[] = [];
   let currentGroup: ChatMessage[] = [];
+  const previousByFirstMessage = new Map(
+    previousGroups.map((group) => [group.messages[0], group]),
+  );
+  const appendGroup = (isGroup: boolean, items: ChatMessage[]) => {
+    const previous = previousByFirstMessage.get(items[0]);
+    groups.push(
+      previous?.isGroup === isGroup &&
+        previous.messages.length === items.length &&
+        items.every((message, index) => message === previous.messages[index])
+        ? previous
+        : { isGroup, messages: items },
+    );
+  };
 
   for (const msg of messages) {
     if (isAssistantTurnRole(msg.role)) {
@@ -167,29 +181,28 @@ export function groupConsecutiveAssistantMessages(
           hostAgentId,
         )
       ) {
-        groups.push({ isGroup: true, messages: currentGroup });
+        appendGroup(true, currentGroup);
         currentGroup = [];
       }
       if (
         currentGroup.length > 0 &&
-        Boolean(msg.teamWrapup) !==
-          currentGroup.some((item) => Boolean(item.teamWrapup))
+        Boolean(msg.teamWrapup) !== Boolean(currentGroup[0].teamWrapup)
       ) {
-        groups.push({ isGroup: true, messages: currentGroup });
+        appendGroup(true, currentGroup);
         currentGroup = [];
       }
       currentGroup.push(msg);
     } else {
       if (currentGroup.length > 0) {
-        groups.push({ isGroup: true, messages: currentGroup });
+        appendGroup(true, currentGroup);
         currentGroup = [];
       }
-      groups.push({ isGroup: false, messages: [msg] });
+      appendGroup(false, [msg]);
     }
   }
 
   if (currentGroup.length > 0) {
-    groups.push({ isGroup: true, messages: currentGroup });
+    appendGroup(true, currentGroup);
   }
 
   return groups;

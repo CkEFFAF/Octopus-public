@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import type { KnowledgeCitation } from "../../utils/parseKnowledgeCitations";
 
 interface ChatFilePreviewContextValue {
@@ -20,10 +20,12 @@ export function ChatFilePreviewProvider({
   openKnowledgeCitation: (citation: KnowledgeCitation) => void;
   children: ReactNode;
 }) {
+  const value = useMemo(
+    () => ({ openFilePreview, openKnowledgeCitation }),
+    [openFilePreview, openKnowledgeCitation],
+  );
   return (
-    <ChatFilePreviewContext.Provider
-      value={{ openFilePreview, openKnowledgeCitation }}
-    >
+    <ChatFilePreviewContext.Provider value={value}>
       {children}
     </ChatFilePreviewContext.Provider>
   );
