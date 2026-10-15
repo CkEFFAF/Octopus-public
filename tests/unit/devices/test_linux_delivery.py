@@ -119,6 +119,68 @@ assert DeviceDesktop.__name__ == 'DeviceDesktop'
     assert result.returncode == 0, result.stderr
 
 
+def test_device_payload_reaches_hello_and_loads_update_policy(device_payload: Path) -> None:
+    code = """
+import asyncio, json, pathlib, sys
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+root = pathlib.Path(sys.argv[1])
+sys.path.insert(0, str(root / 'packages'))
+from octop.infra.devices.client import DeviceClient
+
+class HelloSent(Exception):
+    pass
+
+class Socket:
+    async def send(self, raw):
+        frame = json.loads(raw)
+        assert frame['type'] == 'hello'
+        assert frame['device_id'] == 'packaging-smoke'
+        assert frame['software_version']
+        raise HelloSent
+
+class OfflineConnect:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return Socket()
+
+    async def __aexit__(self, *args):
+        pass
+
+async def main():
+    client = DeviceClient(root / 'smoke-state')
+    state = {
+        'server_url': 'https://packaging.invalid',
+        'device_id': 'packaging-smoke',
+        'device_token': 'odv_fake_packaging_token',
+    }
+    # Execute the real run path up to hello without opening a socket or enrolling.
+    with patch.object(client, 'load_state', return_value=state), patch(
+        'websockets.asyncio.client.connect', OfflineConnect
+    ):
+        try:
+            await client.run(SimpleNamespace(close=AsyncMock()))
+        except HelloSent:
+            pass
+        else:
+            raise AssertionError('device never sent hello')
+
+    assert client._probe_busy(SimpleNamespace()) == (False, [])
+    # An incomplete offer exercises policy/updater imports and stops before download.
+    client._pending_update_offer = {'target_version': 'packaging-smoke'}
+    report = client.consume_pending_update_offer(install_dir=root / 'smoke-install')
+    assert report['status'] == 'failed'
+    assert report['error'] == 'incomplete offer'
+
+asyncio.run(main())
+"""
+    result = _isolated_python(device_payload, ["-c", code, str(device_payload)])
+    assert result.returncode == 0, result.stderr
+
+
 def test_headless_payload_does_not_include_controller_or_account_modules(
     device_payload: Path,
 ) -> None:
