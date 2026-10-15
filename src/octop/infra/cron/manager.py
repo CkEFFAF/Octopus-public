@@ -50,6 +50,7 @@ class CronCreateSpec:
     mcp_servers: list[str] = field(default_factory=list)
     enabled: bool = True
     meta: dict[str, Any] = field(default_factory=dict)
+    kind: str = "user"
     username: str | None = None
 
 
@@ -125,6 +126,15 @@ class CronManager:
             user_id=spec.user_id,
         )
         async with self._lock:
+            kind = (spec.kind or "user").strip() or "user"
+            meta = dict(spec.meta or {})
+            if meta.get("self_reminder") or kind == "self_reminder":
+                kind = "self_reminder"
+                meta["self_reminder"] = True
+                # Self-reminders always continue the same session thought chain.
+                fresh = False
+            else:
+                fresh = spec.fresh_thread
             self._repos.cron_repo.create(
                 cron_id=spec.cron_id,
                 agent_id=spec.agent_id,
@@ -133,11 +143,13 @@ class CronManager:
                 trigger=spec.trigger,
                 prompt=spec.prompt,
                 session_key=session_key,
-                fresh_thread=spec.fresh_thread,
+                fresh_thread=fresh,
                 model=(spec.model or "").strip() or None,
                 task_type=normalize_cron_task_type(spec.task_type),
                 mcp_servers=list(spec.mcp_servers or []),
                 enabled=spec.enabled,
+                kind=kind,
+                meta=meta,
             )
             row = self._repos.cron_repo.get(spec.cron_id)
             assert row is not None
@@ -161,12 +173,18 @@ class CronManager:
         *,
         include_disabled: bool = True,
         user_id: int | None = None,
+        include_self_reminders: bool = False,
     ) -> list[CronJobRow]:
-        return self._repos.cron_repo.list_by_agent(
+        from octop.infra.cron.self_reminder import is_self_reminder_row
+
+        rows = self._repos.cron_repo.list_by_agent(
             agent_id,
             include_disabled=include_disabled,
             user_id=user_id,
         )
+        if include_self_reminders:
+            return rows
+        return [r for r in rows if not is_self_reminder_row(r)]
 
     def list_all(self, *, include_disabled: bool = True) -> list[CronJobRow]:
         return self._repos.cron_repo.list_all(include_disabled=include_disabled)

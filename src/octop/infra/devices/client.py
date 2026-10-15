@@ -141,6 +141,7 @@ class DeviceClient:
     def __init__(self, state_dir: Path) -> None:
         self.state_dir = private_state_dir(state_dir)
         self.state_path = self.state_dir / "device.json"
+        self._pending_update_offer = None
         self._stop = asyncio.Event()
         self._socket: Any = None
 
@@ -388,6 +389,8 @@ class DeviceClient:
                         if self._stop.is_set():
                             return
                         self._socket = socket
+                        from octop.infra.devices.updater import resolve_software_version
+
                         await socket.send(
                             json.dumps(
                                 {
@@ -396,6 +399,7 @@ class DeviceClient:
                                     "client_protocol_version": CLIENT_PROTOCOL_VERSION,
                                     "device_id": state["device_id"],
                                     "token": state["device_token"],
+                                    "software_version": resolve_software_version(),
                                 }
                             )
                         )
@@ -538,7 +542,16 @@ class DeviceClient:
                 if asyncio.get_running_loop().time() - last_heartbeat >= HEARTBEAT_TIMEOUT:
                     await socket.close()
                     return
-                await socket.send(json.dumps({"type": "heartbeat"}))
+                from octop.infra.devices.updater import resolve_software_version
+
+                await socket.send(
+                    json.dumps(
+                        {
+                            "type": "heartbeat",
+                            "software_version": resolve_software_version(),
+                        }
+                    )
+                )
 
         pulse = asyncio.create_task(heartbeat())
         try:
@@ -550,6 +563,9 @@ class DeviceClient:
                     raise DeviceExecutionError("invalid device protocol frame") from exc
                 if kind == "heartbeat_ack":
                     last_heartbeat = asyncio.get_running_loop().time()
+                if kind == "device_update.offer":
+                    # Stash latest offer for the updater task; cutover gated by window/busy.
+                    self._pending_update_offer = frame
                 if kind == "revoked":
                     await asyncio.to_thread(executor.stop_jobs)
                     self._stop.set()

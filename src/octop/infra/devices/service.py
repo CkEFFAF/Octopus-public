@@ -351,6 +351,31 @@ class DeviceService:
             raise
         return connection
 
+    async def _maybe_send_update_offer(
+        self, connection: DeviceConnection, row: DeviceRow
+    ) -> None:
+        """Push device_update.offer on heartbeat when Hub policy targets this device."""
+        try:
+            from octop.infra.devices.protocol import device_update_offer_frame
+            from octop.infra.devices.update_policy import (
+                build_offer,
+                load_policy_from_settings,
+            )
+
+            policy = load_policy_from_settings(self.repos.settings_repo.get)
+            offer = build_offer(
+                policy,
+                device_id=row.device_id,
+                platform=row.platform,
+            )
+            if offer is None:
+                return
+            await connection.send(device_update_offer_frame(offer))
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).debug("device update offer skipped", exc_info=True)
+
     def disconnect(self, connection: DeviceConnection) -> None:
         if self._connections.get(connection.device_id) is connection:
             self._connections.pop(connection.device_id, None)
@@ -372,7 +397,23 @@ class DeviceService:
         self.owned(row.owner_user_id, row.device_id)
         if frame.get("type") == "heartbeat":
             self.repos.device_repo.touch_seen(row.device_id)
+            sw = frame.get("software_version")
+            if isinstance(sw, str) and sw.strip():
+                self.repos.device_repo.set_software_version(row.device_id, sw.strip())
+                row = self.repos.device_repo.get(row.device_id) or row
             await connection.send(self.grants(row, kind="heartbeat_ack"))
+            await self._maybe_send_update_offer(connection, row)
+        elif frame.get("type") == "device_update.report":
+            from octop.infra.devices.protocol import validate_update_report
+
+            report = validate_update_report(frame)
+            self.repos.device_repo.set_update_report(
+                row.device_id,
+                status=report["status"],
+                software_version=report.get("software_version"),
+                error=report.get("error"),
+                stage_version=report.get("stage_version"),
+            )
         elif frame.get("type") == "policy_rejected":
             revision, error = frame.get("policy_revision"), frame.get("error")
             if (

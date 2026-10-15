@@ -169,3 +169,32 @@ def result_status(action: str, value: dict[str, Any]) -> str:
     if action == "command.run" and value.get("returncode") != 0:
         return "failed"
     return "completed"
+
+
+def device_update_offer_frame(offer: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a Hub→Device device_update.offer frame."""
+    return {
+        "type": "device_update.offer",
+        "target_version": offer.get("target_version"),
+        "channel": offer.get("channel", "stable"),
+        "window_local": offer.get("window_local") or {"start_hour": 0, "end_hour": 8},
+        "force": bool(offer.get("force", False)),
+        "deferrable": bool(offer.get("deferrable", True)),
+        "skip_when_busy": bool(offer.get("skip_when_busy", True)),
+        "asset": offer.get("asset") or {},
+    }
+
+
+def validate_update_report(frame: dict[str, Any]) -> dict[str, Any]:
+    """Validate Device→Hub device_update.report fields; raise ValueError on bad input."""
+    status = str(frame.get("status") or "").strip().lower()
+    if not status:
+        raise ValueError("status required")
+    out: dict[str, Any] = {"status": status}
+    if frame.get("software_version") is not None:
+        out["software_version"] = str(frame.get("software_version"))
+    if frame.get("error") is not None:
+        out["error"] = str(frame.get("error"))[:500]
+    if frame.get("stage_version") is not None:
+        out["stage_version"] = str(frame.get("stage_version"))
+    return out

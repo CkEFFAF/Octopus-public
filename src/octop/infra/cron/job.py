@@ -82,20 +82,25 @@ class CronJob:
         ts = int(time.time())
 
         try:
-            await self._delivery_service.deliver(
-                CronDeliveryCommand(
-                    cron_id=self._cron_id,
-                    cron_name=self._name,
-                    agent_id=self._agent_id,
-                    user_id=self._user_id,
-                    session_key=self._session_key,
-                    prompt=self._prompt,
-                    fresh_thread=self._fresh_thread,
-                    task_type=self._task_type,
-                    model=self._model,
-                    mcp_servers=tuple(self._mcp_servers),
-                )
+            from octop.infra.cron.self_reminder import is_self_reminder_row
+
+            row = self._cron_repo.get(self._cron_id)
+            fresh = self._fresh_thread
+            if row is not None and is_self_reminder_row(row):
+                fresh = False
+            command = CronDeliveryCommand(
+                cron_id=self._cron_id,
+                cron_name=self._name,
+                agent_id=self._agent_id,
+                user_id=self._user_id,
+                session_key=self._session_key,
+                prompt=self._prompt,
+                fresh_thread=fresh,
+                task_type=self._task_type,
+                model=self._model,
+                mcp_servers=tuple(self._mcp_servers),
             )
+            await self._delivery_service.deliver(command)
         except Exception as exc:
             METRICS.inc("cron_errors_total")
             logger.exception("cron job %s failed", self._cron_id)
@@ -116,3 +121,22 @@ class CronJob:
             action="cron.run_ok",
             target=self._cron_id,
         )
+        self._maybe_consume_self_reminder()
+
+    def _maybe_consume_self_reminder(self) -> None:
+        """Disable one-shot self-reminders; honor max_fires for interval repeats."""
+        row = self._cron_repo.get(self._cron_id)
+        if row is None:
+            return
+        from octop.infra.cron.self_reminder import MAX_FIRES_HARD_CAP, is_self_reminder_row
+
+        if not is_self_reminder_row(row):
+            return
+        meta = dict(row.meta or {})
+        fires = int(meta.get("fires") or 0) + 1
+        max_fires = int(meta.get("max_fires") or 1)
+        max_fires = max(1, min(max_fires, MAX_FIRES_HARD_CAP))
+        meta["fires"] = fires
+        self._cron_repo.set_meta(self._cron_id, meta)
+        if fires >= max_fires:
+            self._cron_repo.update(self._cron_id, enabled=False)
