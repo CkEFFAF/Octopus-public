@@ -53,7 +53,7 @@ async def _add_default_controller(
         url,
         pairing_code,
         name,
-        ["files_read"],
+        [],
         [],
         desktop_enabled=True,
         control_enabled=True,
@@ -62,6 +62,7 @@ async def _add_default_controller(
         allow_insecure=allow_insecure,
         access_key=access_key,
         account_token=account_token,
+        trust_mode="owner",
     )
 
 

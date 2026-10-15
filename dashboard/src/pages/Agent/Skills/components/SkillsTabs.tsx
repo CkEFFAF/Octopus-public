@@ -45,7 +45,6 @@ export default function SkillsTabs({ agentId }: SkillsTabsProps) {
   const currentUser = useCurrentUser();
   // Hide the skill-packages tab for users without the `skill_packages` permission.
   const canSkillPackages = userCanAny(currentUser, PERM.skillPackages);
-  const canDiscoverServerSkills = currentUser?.role === "admin";
   const remoteAgent = Boolean(agentId?.startsWith("bridge:"));
   const [activeTab, setActiveTab] = useState<SkillsTab>("custom");
   const tabs = useMemo(
@@ -53,13 +52,13 @@ export default function SkillsTabs({ agentId }: SkillsTabsProps) {
       SKILL_TABS.filter(
         (tab) =>
           (tab.key !== "packages" || (canSkillPackages && !remoteAgent)) &&
-          (tab.key !== "external" || (canDiscoverServerSkills && !remoteAgent)),
+          (tab.key !== "external" || !remoteAgent),
       ),
-    [canSkillPackages, canDiscoverServerSkills, remoteAgent],
+    [canSkillPackages, remoteAgent],
   );
   const resolvedTab =
     (activeTab === "packages" && (!canSkillPackages || remoteAgent)) ||
-    (activeTab === "external" && (!canDiscoverServerSkills || remoteAgent))
+    (activeTab === "external" && remoteAgent)
       ? "custom"
       : activeTab;
   const onInstalledTab =

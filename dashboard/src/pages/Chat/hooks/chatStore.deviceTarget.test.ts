@@ -41,7 +41,7 @@ afterEach(() => {
 });
 
 describe("chat target device", () => {
-  it.each(["device-a", undefined])(
+  it.each(["device-a", undefined, ""])(
     "sends only the device selected for this turn: %s",
     async (device) => {
       vi.stubGlobal("WebSocket", Socket);
@@ -64,7 +64,8 @@ describe("chat target device", () => {
         device,
       );
       expect(turns).toHaveLength(1);
-      expect(turns[0].device_id).toBe(device);
+      expect(turns[0].device_id).toBe(device || undefined);
+      if (!device) expect(turns[0].target_kind).toBeUndefined();
       expect(turns[0].messages).toEqual([
         { role: "user", content: "Read shared files" },
       ]);

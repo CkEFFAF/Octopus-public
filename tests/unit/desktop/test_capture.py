@@ -110,3 +110,10 @@ def test_close_releases_mss() -> None:
     cap.close()
     mock_mss.close.assert_called_once()
     assert cap._mss is None
+
+
+def test_missing_display_does_not_invent_monitor_dimensions(monkeypatch) -> None:
+    cap = ScreenCapture()
+    monkeypatch.setattr(cap, "_ensure_mss", lambda: None)
+    monkeypatch.setattr("octop.infra.desktop.capture.shutil.which", lambda _name: None)
+    assert cap.list_monitors() == []

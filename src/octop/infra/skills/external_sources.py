@@ -77,6 +77,11 @@ def load_external_skill(home: Path, source: str, slug: str) -> tuple[ResolvedSki
         package = resolve_skill_package(slug=slug, files=files, source=source)
     except SkillPackageError as exc:
         raise ValueError(str(exc)) from exc
+    return package, external_package_digest(package)
+
+
+def external_package_digest(package: ResolvedSkillPackage) -> str:
+    """Hash the canonical file names and bytes shared by all source adapters."""
     digest = hashlib.sha256()
     for name, data in package.files:
         encoded_name = name.encode("utf-8")
@@ -84,7 +89,7 @@ def load_external_skill(home: Path, source: str, slug: str) -> tuple[ResolvedSki
         digest.update(encoded_name)
         digest.update(len(data).to_bytes(8, "big"))
         digest.update(data)
-    return package, digest.hexdigest()
+    return digest.hexdigest()
 
 
 def discover_external_skills(home: Path) -> list[dict[str, Any]]:

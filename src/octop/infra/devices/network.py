@@ -159,6 +159,7 @@ class DeviceNetwork:
         allow_insecure: bool = False,
         access_key: str | None = None,
         account_token: str | None = None,
+        trust_mode: str = "restricted",
     ) -> dict[str, Any]:
         url = validate_server_url(server_url, allow_insecure=allow_insecure)
         with self.locked():
@@ -181,6 +182,7 @@ class DeviceNetwork:
                 control_enabled=control_enabled,
                 command_enabled=command_enabled,
                 acp_enabled=acp_enabled,
+                trust_mode=trust_mode,
             )
             try:
                 enrolled = await client.enroll(

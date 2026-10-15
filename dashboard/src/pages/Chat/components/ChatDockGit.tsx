@@ -19,6 +19,10 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { request } from "../../../api/request";
+import {
+  executionApi,
+  type ExecutionContext,
+} from "../../../api/modules/execution";
 import { showApiError } from "../../../utils/showApiToast";
 import styles from "./ChatDockGit.module.less";
 import {
@@ -147,7 +151,15 @@ function DiffLines({ value, split }: { value: string; split: boolean }) {
   );
 }
 
-export default function ChatDockGit({ agentId }: { agentId: string }) {
+export default function ChatDockGit({
+  agentId,
+  executionContext,
+  targetName,
+}: {
+  agentId: string;
+  executionContext?: ExecutionContext;
+  targetName?: string;
+}) {
   const { t } = useTranslation();
   const [repository, setRepository] = useState(".");
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -166,12 +178,18 @@ export default function ChatDockGit({ agentId }: { agentId: string }) {
   const refresh = async (selected = repository) => {
     setLoading(true);
     try {
-      const result = await request<Snapshot>(
-        `/agents/${encodeURIComponent(
-          agentId,
-        )}/workspace/git?repository=${encodeURIComponent(selected)}`,
-        { cache: "no-store" },
-      );
+      const result = executionContext
+        ? await executionApi.call<Snapshot>(
+            executionContext.context_id,
+            "git.snapshot",
+            { repository: selected },
+          )
+        : await request<Snapshot>(
+            `/agents/${encodeURIComponent(
+              agentId,
+            )}/workspace/git?repository=${encodeURIComponent(selected)}`,
+            { cache: "no-store" },
+          );
       setSnapshot(result);
       if (result.path) setRepository(result.path);
     } catch (error) {
@@ -187,7 +205,7 @@ export default function ChatDockGit({ agentId }: { agentId: string }) {
     setSelectedPath(null);
     void refresh(".");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentId]);
+  }, [agentId, executionContext?.context_id]);
 
   const files = useMemo(
     () => (snapshot ? parseFiles(snapshot) : []),
@@ -223,17 +241,27 @@ export default function ChatDockGit({ agentId }: { agentId: string }) {
     if (!restoreTarget) return;
     setRestoring(true);
     try {
-      const result = await request<{ recovery_copy: string }>(
-        `/agents/${encodeURIComponent(agentId)}/workspace/git/restore`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            repository,
-            path: restoreTarget.path,
-            expected_hash: restoreTarget.hash,
-          }),
-        },
-      );
+      const result = executionContext
+        ? await executionApi.call<{ recovery_copy: string }>(
+            executionContext.context_id,
+            "git.restore",
+            {
+              repository,
+              path: restoreTarget.path,
+              expected_hash: restoreTarget.hash,
+            },
+          )
+        : await request<{ recovery_copy: string }>(
+            `/agents/${encodeURIComponent(agentId)}/workspace/git/restore`,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                repository,
+                path: restoreTarget.path,
+                expected_hash: restoreTarget.hash,
+              }),
+            },
+          );
       setRecoveryCopy(result.recovery_copy);
       setRestoreTarget(null);
       await refresh();
@@ -292,9 +320,10 @@ export default function ChatDockGit({ agentId }: { agentId: string }) {
             className={styles.repositorySelect}
           />
         )}
-        <Tooltip title={t("chat.git.serverOnly")}>
+        <Tooltip title={targetName ?? t("chat.git.serverOnly")}>
           <span className={styles.branch}>
             <GitBranch size={14} />
+            {targetName ? `${targetName} · ` : ""}
             {branch || repository}
           </span>
         </Tooltip>

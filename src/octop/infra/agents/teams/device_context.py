@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from contextvars import ContextVar
 from copy import deepcopy
 from typing import Any
@@ -62,7 +64,13 @@ def _capture(owner: int) -> dict[str, Any]:
         raise OctopError(ErrorCode.FORBIDDEN, "peer dispatch owner changed")
     snapshot = {
         key: deepcopy(cfg[key])
-        for key in ("octop_device_target", "octop_task_run_id", "conversation_mode")
+        for key in (
+            "octop_device_target",
+            "octop_execution_context",
+            "octop_task_run_id",
+            "conversation_mode",
+            "work_mode",
+        )
         if key in cfg
     }
     for key in ("skills", "mcp_servers"):
@@ -98,6 +106,40 @@ class PeerTaskTracker:
         self.devices = devices
         self.jobs: dict[tuple[int, str, str], tuple[Any, str]] = {}
         self.cancelled_runs: set[tuple[int, str]] = set()
+
+    def _receipt(
+        self,
+        snapshot: dict[str, Any],
+        job_id: str,
+        agent_id: str,
+        thread_id: str | None,
+        target: str,
+        status: str,
+    ) -> None:
+        if self.devices is None or getattr(self.devices, "repos", None) is None or not thread_id:
+            return
+        from octop.infra.execution.events import RunInspectionService
+
+        cfg = snapshot.get("configurable") or {}
+        if not cfg.get("octop_task_run_id"):
+            return
+        receipt = {
+            "event_id": f"dispatch:{job_id}",
+            "owner_user_id": snapshot["owner"],
+            "thread_id": thread_id,
+            "run_id": cfg["octop_task_run_id"],
+            "context_id": (cfg.get("octop_execution_context") or {}).get("context_id"),
+            "created_at": time.time(),
+            "kind": "dispatch",
+            "status": status,
+            "payload": {"job_id": job_id, "target_agent_id": target, "name": "ask_agent"},
+        }
+        try:
+            RunInspectionService(self.devices.repos).tool_receipt(agent_id, receipt)
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "Failed to retain peer dispatch receipt %s", job_id, exc_info=True
+            )
 
     def context(self, metadata: dict[str, Any], owner: Any) -> dict[str, Any] | None:
         saved = metadata.get(_KEY)
@@ -140,6 +182,18 @@ class PeerTaskTracker:
             return
         team._octop_peer_tasks = self
 
+        def child_finished(msg: Any, status: str) -> None:
+            self._receipt(
+                msg.metadata.get(_KEY) or {},
+                msg.id,
+                msg.source_agent_id,
+                msg.source_thread_id,
+                msg.target_agent_id,
+                "completed" if status == "done" else status,
+            )
+
+        inbox.bind_result_observer(child_finished)
+
         def submit_peer(**kwargs: Any) -> Any:
             owner = int(kwargs["user_id"])
             snapshot = _capture(owner)
@@ -150,6 +204,14 @@ class PeerTaskTracker:
             result = submit(**{**kwargs, "metadata": metadata})
             if run_id and result.job_id:
                 self.jobs[(owner, run_id, result.job_id)] = (inbox, "pending")
+                self._receipt(
+                    snapshot,
+                    result.job_id,
+                    kwargs["from_agent_id"],
+                    kwargs.get("source_thread_id"),
+                    kwargs["to_agent_id"],
+                    "accepted",
+                )
             return result
 
         team.submit_peer = submit_peer

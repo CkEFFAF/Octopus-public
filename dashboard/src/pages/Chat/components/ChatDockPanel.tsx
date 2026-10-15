@@ -17,6 +17,7 @@ import {
   FolderOpen,
   GitBranch,
   ListTodo,
+  Monitor,
   Activity,
   Globe,
   Plus,
@@ -44,6 +45,8 @@ import FilePanelContent from "./FilePanelContent";
 import KnowledgeCitationPanelContent from "./KnowledgeCitationPanelContent";
 import ChatDockToolUiContent from "./ChatDockToolUiContent";
 import ChatDockGit from "./ChatDockGit";
+import ChatDockContext from "./ChatDockContext";
+import ExecutionWorkbench from "./ExecutionWorkbench";
 
 const TerminalPage = lazy(() => import("../../Control/Terminal"));
 
@@ -52,6 +55,9 @@ export type ChatDockAddTabHandlers = {
   onOpenBrowser?: () => void;
   onOpenTerminal?: () => void;
   onOpenGit?: () => void;
+  onOpenContext?: () => void;
+  onOpenJobs?: () => void;
+  onOpenDesktop?: () => void;
   onOpenPlan?: () => void;
   onOpenTrajectory?: () => void;
   onOpenFiles?: () => void;
@@ -65,6 +71,9 @@ type AddTabKey =
   | "browser"
   | "terminal"
   | "git"
+  | "context"
+  | "jobs"
+  | "desktop"
   | "plan"
   | "trajectory";
 
@@ -97,7 +106,10 @@ interface ChatDockPanelProps {
 }
 
 function hasOpenKind(tabs: readonly DockTab[], kind: DockTab["kind"]): boolean {
-  return tabs.some((tab) => tab.kind === kind);
+  return tabs.some(
+    (tab) =>
+      tab.kind === kind || (tab.kind === "execution" && tab.surface === kind),
+  );
 }
 
 /** Title-bar + control: open dock tabs that the float rail normally exposes. */
@@ -165,6 +177,28 @@ const DockAddTabButton: React.FC<{
         icon: <ListTodo size={14} />,
       });
     }
+    if (addTab.onOpenContext) {
+      next.push({
+        key: "context",
+        label: t("chat.contextInspect.title"),
+        icon: <Activity size={14} />,
+        extra: check("context"),
+      });
+    }
+    if (addTab.onOpenJobs) {
+      next.push({
+        key: "jobs",
+        label: t("chat.execution.jobs"),
+        icon: <Activity size={14} />,
+      });
+    }
+    if (addTab.onOpenDesktop) {
+      next.push({
+        key: "desktop",
+        label: t("remoteDesktopHub.title"),
+        icon: <Monitor size={14} />,
+      });
+    }
     if (addTab.onOpenTrajectory) {
       next.push({
         key: "trajectory",
@@ -183,6 +217,9 @@ const DockAddTabButton: React.FC<{
         browser: addTab.onOpenBrowser,
         terminal: addTab.onOpenTerminal,
         git: addTab.onOpenGit,
+        context: addTab.onOpenContext,
+        jobs: addTab.onOpenJobs,
+        desktop: addTab.onOpenDesktop,
         plan: addTab.onOpenPlan,
         trajectory: addTab.onOpenTrajectory,
       };
@@ -456,6 +493,41 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
                 <GitBranch size={16} strokeWidth={2} aria-hidden />
                 <span>{t("chat.git.title")}</span>
               </>
+            ) : tab.kind === "context" ? (
+              <>
+                <Activity size={16} aria-hidden />
+                <span>{t("chat.contextInspect.title")}</span>
+              </>
+            ) : tab.kind === "execution" ? (
+              <>
+                <Monitor size={16} aria-hidden />
+                <span
+                  title={`${
+                    tab.context.device_id ?? t("devices.localExecution")
+                  } · ${tab.context.working_dir ?? ""}`}
+                >
+                  {t(
+                    tab.surface === "git"
+                      ? "chat.git.title"
+                      : tab.surface === "jobs"
+                      ? "chat.execution.jobs"
+                      : tab.surface === "terminal"
+                      ? "chat.dockTerminalTitle"
+                      : tab.surface === "browser"
+                      ? "chat.dockBrowserTitle"
+                      : tab.surface === "desktop"
+                      ? "remoteDesktopHub.title"
+                      : "chat.openWorkspace",
+                  )}{" "}
+                  ·{" "}
+                  {tab.context.working_dir
+                    ?.split(/[\\/]/)
+                    .filter(Boolean)
+                    .pop() ??
+                    tab.context.device_id?.slice(-6) ??
+                    t("devices.localExecution")}
+                </span>
+              </>
             ) : tab.kind === "toolUi" ? (
               <>
                 <Puzzle size={16} strokeWidth={2} aria-hidden />
@@ -571,6 +643,34 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
       overlayMenuOpen={addTabMenuOpen}
     >
       <div className={styles.dockTabBodies}>
+        {openTabs
+          .filter(
+            (tab): tab is Extract<DockTab, { kind: "execution" }> =>
+              tab.kind === "execution",
+          )
+          .map((tab) => (
+            <div
+              key={tab.id}
+              className={styles.dockTabBody}
+              style={{ display: activeTab?.id === tab.id ? "flex" : "none" }}
+            >
+              <ExecutionWorkbench
+                context={tab.context}
+                surface={tab.surface}
+                initialFilePath={tab.initialFilePath}
+                visible={surfaceVisible && activeTab?.id === tab.id}
+              />
+            </div>
+          ))}
+        {activeTab?.kind === "context" && (
+          <div className={styles.dockTabBody}>
+            <ChatDockContext
+              agentId={agentId}
+              threadId={threadId}
+              live={isStreamingTurn}
+            />
+          </div>
+        )}
         {openTabs.some((tab) => tab.kind === "files") && (
           <div
             className={styles.dockTabBody}

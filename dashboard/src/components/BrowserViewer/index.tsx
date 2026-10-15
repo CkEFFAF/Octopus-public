@@ -6,6 +6,8 @@ import {
   useRef,
   useState,
   type KeyboardEventHandler,
+  type ClipboardEventHandler,
+  type CompositionEventHandler,
   type ReactNode,
 } from "react";
 import { Button, Input, Tooltip } from "antd";
@@ -64,6 +66,8 @@ interface BrowserViewerProps {
 
   /** Forwarded to the canvas keydown handler (optional). */
   onCanvasKeyDown?: KeyboardEventHandler<HTMLCanvasElement>;
+  onCanvasPaste?: ClipboardEventHandler<HTMLCanvasElement>;
+  onCanvasCompositionEnd?: CompositionEventHandler<HTMLCanvasElement>;
 
   /** Called whenever a frame is painted (parent tracks readiness). */
   onFrameReadyChange?: (ready: boolean) => void;
@@ -108,6 +112,8 @@ export const BrowserViewer = forwardRef<
     addressBarExtra,
     overlay,
     onCanvasKeyDown,
+    onCanvasPaste,
+    onCanvasCompositionEnd,
     onFrameReadyChange,
     onReconnect,
     connectingHint,
@@ -331,6 +337,8 @@ export const BrowserViewer = forwardRef<
             onContextMenu={handleContextMenu}
             onWheel={handleWheel}
             onKeyDown={onCanvasKeyDown}
+            onPaste={onCanvasPaste}
+            onCompositionEnd={onCanvasCompositionEnd}
           />
         )}
         {overlay}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,7 @@ class PreparedDashboardTurn:
     composer_context: dict[str, Any] | None
     inbound_attachments: list[dict[str, str]]
     device_target: dict[str, Any] | None = None
+    execution_context: dict[str, Any] | None = None
 
 
 async def resolve_thread_id(
@@ -295,6 +297,47 @@ async def prepare_dashboard_turn(
     )
     inbound_content = content_parts_from_dashboard_turn(turn)
     inbound_attachments = inbound_attachments_from_parts(inbound_content)
+    execution_context = None
+    agent_config = json.loads(row.config_json or "{}")
+    binding = agent_config.get("device_binding") if isinstance(agent_config, dict) else None
+    from octop.infra.execution.service import ExecutionService
+
+    executions = ExecutionService(server.app_runtime.devices)
+    selection = executions.selection(int(user.id), thread_id)
+    updates: dict[str, Any] = {}
+    if turn.device_id is not None:
+        updates.update(device_id=turn.device_id, working_dir=turn.working_dir)
+    if turn.target_kind is not None:
+        updates.update(
+            target_kind=turn.target_kind, device_id=turn.device_id, working_dir=turn.working_dir
+        )
+    if turn.work_mode is not None:
+        updates["work_mode"] = turn.work_mode
+    if updates:
+        selection = executions.save_selection(int(user.id), thread_id, updates)
+    if (
+        turn.device_id
+        or turn.target_kind == "local"
+        or executions.has_target(selection)
+        or executions.has_target(binding)
+        or executions.has_target(executions.default_target(int(user.id)))
+    ):
+        context = executions.resolve(
+            int(user.id),
+            device_id=turn.device_id,
+            target_kind=turn.target_kind,
+            agent_id=agent_id,
+            thread_id=thread_id,
+            binding=binding,
+            working_dir=turn.working_dir,
+            work_mode=(
+                turn.conversation_mode
+                if turn.conversation_mode in {"ask", "plan"}
+                else turn.work_mode or selection["work_mode"]
+            ),
+        )
+        execution_context = context.public()
+        device_target = {"device_id": context.device_id, "grant_version": context.grant_version}
     return PreparedDashboardTurn(
         thread_id=thread_id,
         session_key=session_key,
@@ -305,6 +348,7 @@ async def prepare_dashboard_turn(
         composer_context=composer_ctx,
         inbound_attachments=inbound_attachments,
         device_target=device_target,
+        execution_context=execution_context,
     )
 
 
@@ -335,12 +379,18 @@ def build_dashboard_inbound(
         metadata["model"] = prepared.model_ref
     if prepared.device_target:
         metadata["octop_device_target"] = prepared.device_target
+    if prepared.execution_context:
+        metadata["octop_execution_context"] = prepared.execution_context
+    if turn.work_mode is not None:
+        metadata["work_mode"] = turn.work_mode
     if turn.reasoning_mode is not None:
         metadata["reasoning_mode"] = turn.reasoning_mode
     if turn.reasoning_effort:
         metadata["reasoning_effort"] = turn.reasoning_effort
     if turn.conversation_mode:
         metadata["conversation_mode"] = turn.conversation_mode
+    if turn.conversation_mode not in {"ask", "plan"} and turn.work_mode in {"ask", "plan"}:
+        metadata["conversation_mode"] = turn.work_mode
     if turn.hitl_policy is not None:
         metadata["hitl_policy"] = turn.hitl_policy.model_dump()
     if prepared.composer_context:

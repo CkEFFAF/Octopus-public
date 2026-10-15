@@ -1,5 +1,7 @@
 # 设备网实现合同（2026-10-09）
 
+> **兼容记录**：下文记录旧版 root-relative、restricted 协议及当时的实现分工，不再是自有设备网的默认执行合同。当前架构以 [0015 revision 3](../specs/0015-device-execution-and-context-inspection.md) 为准：protocol v3 的 owner 策略、desired/applied revision、不可变 ExecutionContext、原生路径和独立 Job；正常文件、命令、桌面操作不逐次审批。旧目录/确认流程仅保留给 restricted 或旧客户端。迁移保留已有设备身份，不能为升级重新登记重复设备。实现/验收与生产部署状态见 [架构进度](execution-architecture-progress.md)。
+
 规格：`docs/specs/0001-account-device-network.md`，本次版本含 iOS 远程端与配对码。
 基线：上游 4b17f1c 加当前未提交的 Octopus 功能；保留现有工作，不重置或提交。
 

@@ -6,10 +6,12 @@
 
 - [快速部署与设备接入](docs/octopus/quick-start.md)
 - [开发与构建](docs/octopus/run-and-build.md)
+- [自有设备执行架构与验收状态](docs/octopus/execution-architecture-progress.md)
 - [私有源码仓库](https://github.com/CkEFFAF/Octopus)
 
-设备首次运行 `start-device.bat` 或 `./start-device.sh`，按向导输入管理端地址、
-确认权限并隐藏输入配对码，成功后管理端自动显示设备。再次运行直接重连。
+设备首次运行 `start-device.bat` 或 `./start-device.sh`，按向导加入账户的设备网，
+成功后管理端显示设备；再次运行沿用原身份重连。owner 模式按设备运行账户管理
+原生文件、命令和桌面，工作目录用于定位项目；旧客户端保留 restricted 兼容状态。
 Android / iOS 使用浏览器管理已接入设备；手机原生客户端尚未交付。
 
 以下保留上游 Octop 说明。上游下载与文档链接指向上游产品，不包含本仓库新增能力。

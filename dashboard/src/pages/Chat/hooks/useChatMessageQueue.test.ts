@@ -4,6 +4,11 @@ import {
   CHAT_QUEUE_MAX_ITEMS,
   useChatMessageQueue,
 } from "./useChatMessageQueue";
+import {
+  executionScope,
+  setExecutionSelection,
+  setExecutionSelectionStatus,
+} from "./deviceTarget";
 
 describe("useChatMessageQueue", () => {
   beforeEach(() => {
@@ -15,6 +20,41 @@ describe("useChatMessageQueue", () => {
   });
 
   const idleStreaming = () => false;
+
+  it("captures a ready explicit target for background flush but leaves unknown selections unresolved", () => {
+    const scope = executionScope("queued-expert", "queued-thread");
+    setExecutionSelection(scope, {
+      deviceId: "gpu",
+      workingDir: "/srv/project",
+      workMode: "debug",
+    });
+    setExecutionSelectionStatus(scope, "ready");
+    const { result } = renderHook(() =>
+      useChatMessageQueue({
+        agentId: "queued-expert",
+        threadId: "queued-thread",
+        isStreaming: true,
+        onFlush: vi.fn(),
+        subscribeStreamEnd: () => () => undefined,
+        isThreadStreaming: idleStreaming,
+      }),
+    );
+    act(() => {
+      result.current.enqueue({ text: "known target" });
+    });
+    expect(result.current.items[0].executionSelection).toEqual({
+      scope,
+      deviceId: "gpu",
+      workingDir: "/srv/project",
+      workMode: "debug",
+    });
+    setExecutionSelectionStatus(scope, "unknown");
+    act(() => {
+      result.current.enqueue({ text: "unknown target" });
+    });
+    expect(result.current.items[1].executionSelection).toBeUndefined();
+    expect(result.current.items[0].executionSelection?.deviceId).toBe("gpu");
+  });
 
   it("enqueues FIFO and enforces the max size", () => {
     const onFlush = vi.fn();

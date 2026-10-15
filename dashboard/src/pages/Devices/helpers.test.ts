@@ -97,4 +97,9 @@ describe("desktop input coordinates", () => {
     expect(desktopPoint(0, 0, bounds, screen)).toBeNull();
     expect(desktopPoint(200, 130, { ...bounds, width: 0 }, screen)).toBeNull();
   });
+  it("retains a monitor's native offset after scaling", () => {
+    expect(
+      desktopPoint(200, 130, bounds, { ...screen, left: -1920, top: -1080 }),
+    ).toEqual({ x: -960, y: -540 });
+  });
 });

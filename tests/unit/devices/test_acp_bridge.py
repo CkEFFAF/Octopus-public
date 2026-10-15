@@ -33,6 +33,10 @@ class DeviceLink:
         assert owner == 7 and device_id == "target-device"
         return self.row
 
+    @staticmethod
+    def owner_trusted(row: Any) -> bool:
+        return False
+
     async def call(
         self,
         owner: int,
@@ -142,6 +146,7 @@ async def test_remote_runner_uses_device_environment_without_forwarding_hub_secr
             assert line.rstrip(b"\r\n") == b"device-local-test-value"
             assert link.open_params == {
                 "root_id": "shared",
+                "cwd": str(root),
                 "runner": runner_name,
                 "command": sys.executable,
                 "args": [str(script)],

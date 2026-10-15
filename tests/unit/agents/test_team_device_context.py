@@ -23,6 +23,7 @@ def peers() -> Any:
     started, release, following, finish = (asyncio.Event() for _ in range(4))
     device = SimpleNamespace(grant_version=7)
     devices = SimpleNamespace(owned=MagicMock(return_value=device))
+    on_followup = AsyncMock()
 
     async def member(request: Any, **_: Any) -> Any:
         requests.append(_chat_request_payload(request, "member"))
@@ -32,6 +33,7 @@ def peers() -> Any:
 
     async def host(request: Any, **_: Any) -> Any:
         requests.append(_chat_request_payload(request, "host"))
+        await on_followup()
         following.set()
         await finish.wait()
         return {"messages": [AIMessage(content="Host finished")]}
@@ -76,6 +78,7 @@ def peers() -> Any:
         following=following,
         finish=finish,
         entries=entries,
+        on_followup=on_followup,
     )
 
 
@@ -191,3 +194,80 @@ async def test_sync_member_inherits_device_without_identity_override(peers: Any)
     finally:
         var_child_runnable_config.reset(token)
         await close(rig)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("delivery_fails", [False, True])
+async def test_parent_can_integrate_actual_child_receipt_before_delivery_finishes(
+    peers: Any, tmp_path: Any, delivery_fails: bool
+) -> None:
+    from octop.infra.db.migrate import run_migrations
+    from octop.infra.db.pool import SqlitePool
+    from octop.infra.db.services import RepoBundle
+    from octop.infra.execution.work_mode import WorkModeService
+
+    rig = peers
+    db = SqlitePool(tmp_path / "team.db")
+    run_migrations(db)
+    repos = RepoBundle.from_pool(db)
+    owner = repos.user_repo.create(username="owner", password_hash="unused", role="admin")
+    assert owner == 1
+    repos.agent_repo.create(agent_id="host", user_id=owner, name="Host")
+    repos.thread_repo.insert(
+        thread_id="room",
+        user_id=owner,
+        agent_id="host",
+        channel_type="dashboard",
+        session_key="work",
+    )
+    rig.tracker.devices.repos = repos
+    modes = WorkModeService(repos)
+    cfg = {"thread_id": "room", "octop_task_run_id": "run-a", "work_mode": "team"}
+
+    def advance(stage: str, evidence: list[str]) -> Any:
+        version = modes.begin(owner, "host", cfg)["payload"]["version"]
+        return modes.step(
+            owner,
+            "host",
+            cfg,
+            version=version,
+            stage=stage,
+            status="completed",
+            report="Observed peer result",
+            evidence_ids=evidence,
+        )
+
+    advance("decompose", [])
+
+    async def integrate() -> None:
+        receipts = modes.events.list(owner, "host", "room", run_id="run-a")
+        completed = [
+            item["event_id"]
+            for item in receipts
+            if item["kind"] == "dispatch" and item["status"] == "completed"
+        ]
+        assert len(completed) == 1
+        if modes.begin(owner, "host", cfg)["status"] != "completed":
+            advance("dispatch", completed)
+            assert advance("integrate", completed)["status"] == "completed"
+        if delivery_fails:
+            raise RuntimeError("parent delivery unavailable")
+
+    rig.on_followup.side_effect = integrate
+    try:
+        dispatch(rig)
+        await asyncio.wait_for(rig.started.wait(), 2)
+        rig.release.set()
+        rig.finish.set()
+        waiting = rig.tracker.wait_for_task_run(owner, "run-a")
+        if delivery_fails:
+            with pytest.raises(OctopError):
+                await asyncio.wait_for(waiting, 2)
+        else:
+            await asyncio.wait_for(waiting, 2)
+        assert rig.on_followup.await_count >= 1
+        receipts = modes.events.list(owner, "host", "room", run_id="run-a")
+        assert [item["status"] for item in receipts if item["kind"] == "dispatch"] == ["completed"]
+    finally:
+        await close(rig)
+        db.close()

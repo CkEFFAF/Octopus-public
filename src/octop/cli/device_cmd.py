@@ -19,6 +19,30 @@ def device() -> None:
     """Connect this Windows/Linux device to independently trusted management hosts."""
 
 
+@device.command("approvals")
+@click.option(
+    "--state", type=click.Path(exists=True, file_okay=False, path_type=Path), required=True
+)
+@click.option("--request-id", help="Request to resolve after reviewing its printed details.")
+@click.option("--decision", type=click.Choice(["accept", "reject"]))
+def approvals(state: Path, request_id: str | None, decision: str | None) -> None:
+    """Inspect/approve requests on this device; STATE is the controller's saved state directory."""
+    from octop.infra.devices.consent import decide_consent, pending_consents
+
+    requests = pending_consents(state)
+    if request_id is None:
+        click.echo(json.dumps(requests, ensure_ascii=False, indent=2))
+        return
+    item = next((r for r in requests if r["request_id"] == request_id), None)
+    if item is None or decision is None:
+        raise click.ClickException("select a pending request and --decision accept|reject")
+    click.echo(item["details"])
+    if decision == "accept" and not click.confirm("Approve this exact request on this device?"):
+        return
+    decide_consent(state, request_id, accept=decision == "accept")
+    click.echo("Decision submitted to the running device client.")
+
+
 @device.command("connect")
 @click.option(
     "--server",

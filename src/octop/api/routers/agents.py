@@ -396,17 +396,39 @@ async def patch_agent(
         )
         binding = body.config.get("device_binding")
         if binding is not None:
-            if not isinstance(binding, dict) or set(binding) != {"device_id", "root_id"}:
+            if not isinstance(binding, dict) or not set(binding) <= {
+                "device_id",
+                "target_kind",
+                "root_id",
+                "working_dir",
+            }:
                 raise OctopError(ErrorCode.FORBIDDEN, "invalid expert device binding")
             device_id, root_id = binding.get("device_id"), binding.get("root_id")
-            if not isinstance(device_id, str) or not isinstance(root_id, str):
+            local = binding.get("target_kind") == "local"
+            if (not local and not isinstance(device_id, str)) or (
+                root_id is not None and not isinstance(root_id, str)
+            ):
                 raise OctopError(ErrorCode.FORBIDDEN, "invalid expert device binding")
-            device = server.app_runtime.devices.owned(row.user_id, device_id)
-            root = next((item for item in device.roots if item["id"] == root_id), None)
-            if root is None or not root.get("read") or not root.get("write"):
-                raise OctopError(
-                    ErrorCode.FORBIDDEN, "expert device requires a writable shared root"
-                )
+            if local:
+                if device_id or root_id:
+                    raise OctopError(
+                        ErrorCode.FORBIDDEN, "local target cannot select a device root"
+                    )
+                server.app_runtime.execution.local_backend(row.user_id)
+            else:
+                if binding.get("target_kind", "device") != "device":
+                    raise OctopError(ErrorCode.FORBIDDEN, "invalid expert target kind")
+                device = server.app_runtime.devices.owned(row.user_id, device_id)
+                root = next((item for item in device.roots if item["id"] == root_id), None)
+                if device.trust_mode != "owner" and (root is None or not root.get("read")):
+                    raise OctopError(
+                        ErrorCode.FORBIDDEN, "expert device requires a readable shared root"
+                    )
+            directory = binding.get("working_dir")
+            if directory is not None and (
+                not isinstance(directory, str) or "\x00" in directory or not directory.strip()
+            ):
+                raise OctopError(ErrorCode.FORBIDDEN, "invalid expert working directory")
     updates = {
         key: value
         for key, value in body.model_dump(exclude_unset=True).items()

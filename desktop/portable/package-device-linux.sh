@@ -92,7 +92,8 @@ trap 'rm -rf "$STAGE"' EXIT
 PACKAGE_NAME="Octop-device-${PLAT}"
 PAYLOAD="${STAGE}/${PACKAGE_NAME}"
 mkdir -p "${PAYLOAD}/packages/octop/cli" "${PAYLOAD}/packages/octop/infra/devices" \
-  "${PAYLOAD}/packages/octop/infra/utils"
+  "${PAYLOAD}/packages/octop/infra/utils" "${PAYLOAD}/packages/octop/i18n/domains" "${PAYLOAD}/packages/octop/infra/skills" \
+  "${PAYLOAD}/packages/octop/infra/desktop"
 if [[ -z "$RUNTIME_ARCHIVE" ]]; then cp -a "$RUNTIME" "${PAYLOAD}/runtime"; fi
 
 # Explicit module allowlist: copying the whole workspace can leak runtime data.
@@ -103,9 +104,28 @@ MODULES=(
   infra/devices/executor.py infra/devices/network.py infra/devices/autostart.py
   infra/devices/acp_process.py infra/devices/protocol.py
   infra/devices/first_run.py
+  infra/devices/consent.py infra/utils/locale.py
+  infra/devices/filesystem.py
+  infra/devices/transfers.py
+  infra/devices/jobs.py infra/devices/job_worker.py infra/devices/process_scope.py
+  infra/devices/terminal.py infra/devices/terminal_worker.py
+  infra/devices/capabilities.py infra/skills/__init__.py
+  infra/devices/browser.py
+  infra/devices/resources.py
+  infra/devices/state_io.py
+  infra/devices/desktop.py infra/desktop/__init__.py infra/desktop/capture.py infra/desktop/input.py
+  infra/skills/external_sources.py infra/skills/skill_packages.py infra/utils/frontmatter.py
+  infra/utils/git_workbench.py
+  i18n/__init__.py i18n/loader.py i18n/domains/__init__.py
+  i18n/domains/channel.py i18n/domains/errors.py i18n/domains/skills.py i18n/domains/tools.py
+  i18n/domains/agents.py i18n/domains/attachment.py i18n/domains/slash.py i18n/domains/stream.py
 )
 for module in "${MODULES[@]}"; do
   cp "${REPO_ROOT}/src/octop/${module}" "${PAYLOAD}/packages/octop/${module}"
+done
+DATA_FILES=(i18n/en.json i18n/zh.json)
+for data in "${DATA_FILES[@]}"; do
+  cp "${REPO_ROOT}/src/octop/${data}" "${PAYLOAD}/packages/octop/${data}"
 done
 cp "${REPO_ROOT}/desktop/portable/start-device.sh" "${PAYLOAD}/start-device.sh"
 cp "${REPO_ROOT}/desktop/portable/open-device.sh" "${PAYLOAD}/open-device.sh"
@@ -135,7 +155,7 @@ REQ="${STAGE}/requirements.txt"
 import pathlib, sys, tomllib
 root, output = map(pathlib.Path, sys.argv[1:])
 lock = tomllib.loads((root / "uv.lock").read_text(encoding="utf-8"))
-wanted = {"click", "websockets"}
+wanted = {"click", "websockets", "psutil", "ptyprocess", "pyyaml", "playwright", "pyee", "greenlet", "typing-extensions"}
 dependencies = {p["name"]: p for p in lock["package"] if p["name"] in wanted}
 if set(dependencies) != wanted:
     raise SystemExit("Device dependencies missing from uv.lock")

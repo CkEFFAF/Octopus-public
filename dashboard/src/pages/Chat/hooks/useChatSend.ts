@@ -1,7 +1,15 @@
 import { useCallback, useEffect } from "react";
 import type { TFunction } from "i18next";
 import { useNavigate } from "react-router-dom";
-import { getSelectedDeviceId } from "./deviceTarget";
+import {
+  executionScope,
+  getExecutionSelection,
+  setExecutionSelection,
+  executionSelectionReady,
+  setExecutionSelectionStatus,
+  type ExecutionSelectionSnapshot,
+} from "./deviceTarget";
+import type { WorkMode } from "../utils/workMode";
 import type { ChatAttachment, UserComposerContext } from "./useChat";
 import {
   isPendingThread,
@@ -51,6 +59,8 @@ interface UseChatSendParams {
     conversationMode?: "ask" | "plan" | "craft" | null,
     hitlPolicy?: HitlSessionPolicy | null,
     deviceId?: string | null,
+    workMode?: WorkMode,
+    workingDir?: string,
   ) => void;
   createSession: () => { session: Session; resolvedId: Promise<string> };
   renameSession: (id: string, name: string) => void;
@@ -77,6 +87,10 @@ export type ChatSendOverrides = {
   agentId?: string | null;
   conversationMode?: "ask" | "plan" | "craft";
   hitlPolicy?: HitlSessionPolicy;
+  deviceId?: string;
+  workMode?: WorkMode;
+  workingDir?: string;
+  executionSelection?: ExecutionSelectionSnapshot;
 };
 
 export function useChatSend({
@@ -115,7 +129,35 @@ export function useChatSend({
       }
 
       const trimmed = text.trim();
-      const deviceId = getSelectedDeviceId();
+      const selectionThreadId =
+        overrides?.threadId !== undefined ? overrides.threadId : activeThreadId;
+      const scope = executionScope(agent, selectionThreadId);
+      const frozenSelection = overrides?.executionSelection;
+      const snapshot =
+        frozenSelection?.scope === scope && frozenSelection.deviceId
+          ? frozenSelection
+          : undefined;
+      if (!executionSelectionReady(scope, selectionThreadId) && !snapshot) {
+        message.warning(t("devices.sessionSelectionUnavailable"));
+        return false;
+      }
+      const selection = getExecutionSelection(scope);
+      const deviceId =
+        snapshot?.deviceId ?? overrides?.deviceId ?? selection.deviceId;
+      const mode =
+        overrides?.conversationMode ??
+        (snapshot
+          ? snapshot.workMode === "ask" || snapshot.workMode === "plan"
+            ? snapshot.workMode
+            : "craft"
+          : conversationMode);
+      const workMode =
+        mode === "ask" || mode === "plan"
+          ? mode
+          : snapshot?.workMode ?? overrides?.workMode ?? selection.workMode;
+      const workingDir = snapshot
+        ? snapshot.workingDir
+        : overrides?.workingDir ?? selection.workingDir;
       if (!trimmed && !(attachments && attachments.length > 0)) return false;
 
       const maybeRenameNewThread = (tid: string, hadMessages: boolean) => {
@@ -125,7 +167,6 @@ export function useChatSend({
         }
       };
 
-      const mode = overrides?.conversationMode ?? conversationMode;
       const policy = overrides?.hitlPolicy ?? hitlPolicy;
       const restricted = mode === "ask" || mode === "plan";
       const connectors = restricted
@@ -178,6 +219,8 @@ export function useChatSend({
           mode,
           policy,
           deviceId,
+          workMode,
+          workingDir,
         );
       };
 
@@ -224,6 +267,12 @@ export function useChatSend({
         // created thread has no title yet — rename it straight away.
         if (!hadMessages) renameSession(tid, deriveThreadTitle(trimmed));
         if (policy) syncSessionHitlPolicy(tid, policy);
+        setExecutionSelection(executionScope(agent, tid), {
+          deviceId,
+          workMode,
+          workingDir,
+        });
+        setExecutionSelectionStatus(executionScope(agent, tid), "ready");
         chatStore.sendTurn(
           tid,
           trimmed,
@@ -241,6 +290,8 @@ export function useChatSend({
           mode,
           policy,
           deviceId,
+          workMode,
+          workingDir,
         );
         navigate(`/chat/${agent}/${tid}`, { replace: true });
       });

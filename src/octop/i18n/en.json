@@ -374,6 +374,7 @@
     "DEVICE_OFFLINE": "Device offline or connection interrupted.",
     "TASK_BOARD_INVALID": "Task operation rejected. Check execution state, dependencies and input.",
     "TASK_BOARD_CONFLICT": "The task board changed. Refresh and retry.",
+    "WORKFLOW_CONFLICT": "The workflow changed. Refresh and retry.",
     "TASK_BOARD_PIN_REQUIRED": "Confirm the current executor configuration before running.",
     "AUTH_FAILED": "Authentication failed.",
     "TOKEN_EXPIRED": "Session expired. Please sign in again.",
@@ -504,6 +505,16 @@
     "SKILL_PACKAGE_LOCKED": "This skill was copied from a locked skill package and cannot be edited in the workspace."
   },
   "desktop": {
+    "consent": {
+      "title": "Octop · Device confirmation",
+      "allow": "Allow this request",
+      "reject": "Reject",
+      "timeout": "Automatically rejected in {seconds}s; closing also rejects.",
+      "grants": "Requested device permissions: {permissions}\n{roots}\nCommands and ACP run as this OS user and may access files outside shared directories.",
+      "takeover": "{owner} requests desktop takeover\nOperation: {mode}",
+      "view": "View screen",
+      "view_control": "View screen and control keyboard/mouse"
+    },
     "install_log_deps": "Installing Python dependencies…",
     "install_log_build_deps": "Installing Python build dependencies…",
     "install_log_system": "Installing virtual desktop services…",

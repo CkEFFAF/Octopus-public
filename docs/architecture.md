@@ -1,7 +1,7 @@
 # Architecture
 
 Octop is a self-hosted AI assistant platform for multiple users and agents,
-delivered as a single Python process.
+delivered as a Python management process with optional enrolled device runtimes.
 It glues three reusable libraries — `octop-harness` (LangGraph-based
 chat runtime), `octop-gateway` (IM channel pipeline), and a React
 + TypeScript dashboard — into one wheel that ships with a CLI, an
@@ -29,9 +29,33 @@ HTTP/WebSocket API, and a web UI.
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-The whole stack is one process. There is no separate worker, no
-external queue, no required external services beyond whatever LLM
-provider the user configures.
+The management stack is one process and requires no external queue or service
+beyond the configured LLM provider. Native execution uses an explicitly selected
+local or enrolled-device backend. Persistent Jobs and interactive terminals use
+device-side helper processes so their lifetime is independent of a chat or
+control-channel connection.
+
+### Native execution and inspection
+
+[Spec 0015 revision 3](specs/0015-device-execution-and-context-inspection.md)
+defines the current execution contract. `infra/execution/` resolves and freezes
+account/expert/thread target, native working directory, work mode and policy
+revision. `infra/devices/` implements authenticated transport and OS operations;
+API routers remain adapters. Unselected or unavailable devices never imply
+management-host execution. Local execution is a distinct, explicit admin target.
+
+AgentStore retains expert configuration, memory and runtime persistence; the
+request-scoped project backend handles native files, commands, Git, terminals,
+browser/localhost preview and desktop. Owner trust permits the enrolled OS user's
+normal access without repeated operation approval; the default directory is a
+navigation choice. Restricted legacy clients retain their shared-root policy.
+
+Jobs persist identity, bounded logs and observed state on the executing machine.
+The controller reconciles receipts without replaying commands. RunEvents and
+final-provider RequestSnapshots persist the execution evidence, source references,
+usage and actual compression observations used by the optional workbench/Context
+panels. Implementation evidence and unverified fleet behavior are recorded in
+[architecture progress](octopus/execution-architecture-progress.md).
 
 ## 2. Process model
 

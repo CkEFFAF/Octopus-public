@@ -25,6 +25,67 @@ from octop.infra.errors import ErrorCode, OctopError
 router = APIRouter()
 
 
+class ExecutionSelectionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    device_id: str | None = Field(default=None, max_length=120)
+    target_kind: str | None = Field(default=None, pattern="^(device|local)$")
+    working_dir: str | None = Field(default=None, max_length=4096)
+    work_mode: str | None = None
+
+
+class ExecutionDefaultBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    device_id: str | None = Field(default=None, max_length=120)
+    target_kind: str = Field(default="device", pattern="^(device|local)$")
+    working_dir: str | None = Field(default=None, max_length=4096)
+
+
+@router.get("/execution-local")
+async def local_execution_available(
+    user: Any = Depends(current_user), service: Any = Depends(get_server)
+) -> dict[str, bool]:
+    return {"available": user.is_admin and service.app_runtime.devices.local_execution is not None}
+
+
+@router.get("/execution-default", summary="Inspect the account's explicit default execution device")
+async def execution_default(
+    user: Any = Depends(current_user), server: Any = Depends(get_server)
+) -> Any:
+    return await asyncio.to_thread(server.app_runtime.execution.default_target, user.id)
+
+
+@router.put("/execution-default", summary="Set or clear the account's default execution device")
+async def save_execution_default(
+    body: ExecutionDefaultBody, user: Any = Depends(current_user), server: Any = Depends(get_server)
+) -> Any:
+    return await asyncio.to_thread(
+        server.app_runtime.execution.save_default_target,
+        user.id,
+        body.device_id,
+        body.working_dir,
+        body.target_kind,
+    )
+
+
+@router.get("/devices/execution-selection/{thread_id}")
+async def execution_selection(
+    thread_id: str, user: Any = Depends(current_user), service: Any = Depends(get_server)
+) -> Any:
+    return service.app_runtime.execution.selection(user.id, thread_id)
+
+
+@router.put("/devices/execution-selection/{thread_id}")
+async def save_execution_selection(
+    thread_id: str,
+    body: ExecutionSelectionBody,
+    user: Any = Depends(current_user),
+    service: Any = Depends(get_server),
+) -> Any:
+    return service.app_runtime.execution.save_selection(
+        user.id, thread_id, body.model_dump(exclude_unset=True)
+    )
+
+
 def device_service(server: Any = Depends(get_server)) -> DeviceService:
     return cast(DeviceService, server.app_runtime.devices)
 
@@ -49,6 +110,22 @@ class EnrollBody(StrictBody):
     capabilities: list[str] = Field(max_length=6)
     permissions: list[str] = Field(max_length=6)
     roots: list[RootBody] = Field(default_factory=list, max_length=20)
+    trust_mode: str = Field(default="restricted", pattern="^(owner|restricted)$")
+
+
+class TrustPolicyBody(StrictBody):
+    trust_mode: str = Field(pattern="^(owner|restricted)$")
+    permissions: list[str] | None = Field(default=None, max_length=6)
+    working_dir: str | None = Field(default=None, max_length=4096)
+
+
+class ExecutionContextBody(StrictBody):
+    device_id: str | None = None
+    target_kind: str | None = Field(default=None, pattern="^(device|local)$")
+    agent_id: str | None = None
+    thread_id: str | None = None
+    working_dir: str | None = Field(default=None, max_length=4096)
+    work_mode: str | None = None
 
 
 class UpdateBody(StrictBody):
@@ -154,6 +231,7 @@ async def enroll(
         permissions=payload["permissions"],
         roots=roots,
         client_ip=resolve_client_ip(request),
+        trust_mode=body.trust_mode,
     )
 
 
@@ -311,6 +389,61 @@ async def submit(
     service: DeviceService = Depends(device_service),
 ) -> dict[str, Any]:
     return service.submit(int(user.id), device_id, body.action, body.params, agent_id=body.agent_id)
+
+
+@router.put("/devices/{device_id}/trust-policy")
+async def set_trust_policy(
+    device_id: str,
+    body: TrustPolicyBody,
+    user: Any = Depends(current_user),
+    service: DeviceService = Depends(device_service),
+) -> dict[str, Any]:
+    return await service.set_policy(int(user.id), device_id, **body.model_dump())
+
+
+@router.post("/execution-contexts", status_code=201)
+async def create_execution_context(
+    body: ExecutionContextBody,
+    user: Any = Depends(current_user),
+    service: DeviceService = Depends(device_service),
+) -> dict[str, Any]:
+    from octop.infra.execution.service import ExecutionService
+
+    return ExecutionService(service).resolve(int(user.id), **body.model_dump()).public()
+
+
+@router.get("/execution-contexts/{context_id}")
+async def get_execution_context(
+    context_id: str,
+    user: Any = Depends(current_user),
+    service: DeviceService = Depends(device_service),
+) -> dict[str, Any]:
+    from octop.infra.execution.service import ExecutionService
+
+    return ExecutionService(service).get(int(user.id), context_id).public()
+
+
+@router.post("/execution-contexts/{context_id}/call")
+async def call_execution_context(
+    context_id: str,
+    body: CallBody,
+    user: Any = Depends(current_user),
+    service: DeviceService = Depends(device_service),
+) -> dict[str, Any]:
+    from octop.infra.execution.service import ExecutionService
+
+    return await ExecutionService(service).call(int(user.id), context_id, body.action, body.params)
+
+
+@router.get("/execution-contexts/{context_id}/target")
+async def execution_target(
+    context_id: str,
+    user: Any = Depends(current_user),
+    service: DeviceService = Depends(device_service),
+) -> dict[str, Any]:
+    from octop.infra.execution.service import ExecutionService
+
+    return ExecutionService(service).target(int(user.id), context_id)
 
 
 @router.post("/devices/{device_id}/call")

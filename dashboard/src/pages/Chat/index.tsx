@@ -29,6 +29,7 @@ import { formatRunUsage, assistantTurnsFromEnd } from "./utils/chatMessages";
 import { useChatSidebarState } from "./hooks/useChatSidebarState";
 import { useChatHistoryRail } from "./hooks/useChatHistoryRail";
 import { useChatDockPanel } from "./hooks/useChatDockPanel";
+import { targetOption } from "./hooks/deviceTarget";
 import { useChatSend, type ChatSendOverrides } from "./hooks/useChatSend";
 import {
   useChatMessageQueue,
@@ -422,6 +423,9 @@ function ChatPageInner() {
     openBrowserTab,
     openTerminalTab,
     openGitTab,
+    openJobsTab,
+    openDesktopTab,
+    openContextTab,
     toggleBrowserPanel,
     toggleWorkspacePanel,
     toggleTerminalPanel,
@@ -429,7 +433,16 @@ function ChatPageInner() {
     focusToolUiTab,
     closeTab: closeDockTab,
     setActiveTab: setDockActiveTab,
-  } = useChatDockPanel(isMobile, resolvedAgentId);
+  } = useChatDockPanel(
+    isMobile,
+    resolvedAgentId,
+    activeThreadId,
+    targetOption(
+      activeAgent?.config?.device_binding as
+        | { device_id?: string; target_kind?: string }
+        | undefined,
+    ),
+  );
 
   const chromeCheckInFlightRef = useRef(false);
   const bridgeConnectionId =
@@ -501,6 +514,7 @@ function ChatPageInner() {
   const dockAddTab = useMemo((): ChatDockAddTabHandlers => {
     const handlers: ChatDockAddTabHandlers = {
       onOpenBrowser: handleOpenBrowserTab,
+      onOpenContext: activeThreadId ? openContextTab : undefined,
     };
     if (!sharedExpertViewer) {
       handlers.onOpenWorkspace = openWorkspaceTab;
@@ -509,6 +523,8 @@ function ChatPageInner() {
       handlers.onOpenFiles = openFileList;
       if (!resolvedAgentId?.startsWith("bridge:")) {
         handlers.onOpenGit = openGitTab;
+        handlers.onOpenJobs = openJobsTab;
+        handlers.onOpenDesktop = openDesktopTab;
       }
       if (pendingPlanPath) {
         handlers.onOpenPlan = () => openFileAt(pendingPlanPath);
@@ -527,7 +543,10 @@ function ChatPageInner() {
     handleOpenBrowserTab,
     openFileList,
     openGitTab,
+    openJobsTab,
+    openDesktopTab,
     resolvedAgentId,
+    openContextTab,
     openFileAt,
     pendingPlanPath,
     trajectoryEnabled,
@@ -825,6 +844,10 @@ function ChatPageInner() {
         selectedTargetAgents: item.composerContext?.targetAgents,
         threadId: ctx.threadId,
         agentId: ctx.agentId || undefined,
+        deviceId: item.deviceId,
+        workMode: item.workMode,
+        workingDir: item.workingDir,
+        executionSelection: item.executionSelection,
       });
       if (!ok) {
         antMessage.error(t("chat.queue.flushFailed"));
@@ -1664,7 +1687,6 @@ function ChatPageInner() {
               )}
 
             <div className={styles.composerContextBar}>
-              <DeviceTargetSelect />
               <ChatComposerChrome sessionUsageLabel={sessionUsageLabel} />
             </div>
             {pendingAsk ? (
@@ -1801,6 +1823,20 @@ function ChatPageInner() {
               defaultModel={activeAgent?.default_model ?? null}
               contextUsedTokens={contextUsedTokens}
               contextMaxTokens={contextMaxTokens}
+              onInspectContext={openContextTab}
+              deviceControl={
+                !sharedExpertViewer ? (
+                  <DeviceTargetSelect
+                    agentId={resolvedAgentId}
+                    threadId={activeThreadId}
+                    defaultDeviceId={targetOption(
+                      activeAgent?.config?.device_binding as
+                        | { device_id?: string; target_kind?: string }
+                        | undefined,
+                    )}
+                  />
+                ) : undefined
+              }
             />
           </div>
 

@@ -209,6 +209,64 @@ async def test_agent_target_cannot_override_or_cross_account(rig: Any) -> None:
     await service.shutdown()
 
 
+async def test_bound_expert_reads_device_files_with_default_root(rig: Any) -> None:
+    service, owner, _, tmp = rig
+    (tmp / "experiment.txt").write_text("real device result")
+    root = {"id": "workspace", "name": "Workspace", "path": str(tmp), "read": True, "write": False}
+    item = enroll(service, owner, roots=[root], permissions=["files_read"])
+    executor = DeviceExecutor(["files_read"], [root])
+    await connected(service, item, executor)
+    bound = item["device"]["device_id"]
+    tools = {t.name: t for t in build_device_tools(service, "writer", bound, "workspace")}
+    token = var_child_runnable_config.set({"configurable": {"user": str(owner)}})
+    try:
+        result = await tools["device_call"].ainvoke(
+            {
+                "device_id": "",
+                "action": "files.list",
+                "params": {"path": ""},
+            }
+        )
+        assert "experiment.txt" in result
+        assert bound in tools["device_call"].description
+        denied = await tools["device_call"].ainvoke(
+            {
+                "device_id": "another-device",
+                "action": "files.list",
+                "params": {},
+            }
+        )
+        assert '"code": "FORBIDDEN"' in denied
+    finally:
+        var_child_runnable_config.reset(token)
+        await service.shutdown()
+        await executor.close()
+
+
+async def test_new_trust_zone_requires_device_approval(rig: Any) -> None:
+    service, owner, other, tmp = rig
+    item = enroll(service, owner, permissions=["files_read"])
+    await connected(service, item, DeviceExecutor(["files_read"], []))
+    device_id = item["device"]["device_id"]
+    service._client_protocol[device_id] = 2
+    root = {"id": "requested", "name": "Workspace", "path": str(tmp), "read": True, "write": False}
+    proposed = await service.create_grant_proposal(
+        owner, device_id, permissions=["files_read"], roots=[root]
+    )
+    proposal_id = proposed["pending_proposal"]["proposal_id"]
+    assert proposed["roots"] == []
+    assert proposed["pending_proposal"]["requires_confirm"]
+    with pytest.raises(OctopError, match="DEVICE_CONFIRM_REQUIRED"):
+        await service.resolve_grant_proposal(device_id, proposal_id, accept=True, owner=owner)
+    with pytest.raises(OctopError):
+        await service.create_grant_proposal(
+            other, device_id, permissions=["files_read"], roots=[root]
+        )
+    await service.resolve_grant_proposal(device_id, proposal_id, accept=False, owner=owner)
+    assert service.owned(owner, device_id).roots == []
+    await service.shutdown()
+
+
 @pytest.mark.asyncio
 async def test_disconnect_unknown_no_automatic_replay_and_reconcile(rig: Any) -> None:
     service, owner, _, _ = rig

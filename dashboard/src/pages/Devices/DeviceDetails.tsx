@@ -9,6 +9,7 @@ import {
 } from "../../api/modules/devices";
 import { useServerTimezone } from "../../hooks/useServerTimezone";
 import { formatServerDateTime } from "../../utils/formatMessageTime";
+import DeviceCapabilities from "./DeviceCapabilities";
 
 export default function DeviceDetails({ device }: { device: Device }) {
   const { t } = useTranslation();
@@ -147,8 +148,65 @@ export default function DeviceDetails({ device }: { device: Device }) {
             ))
           : t("devices.none")}
       </div>
-      <h3>{t("devices.sharedRoots")}</h3>
-      {device.roots.length ? (
+      <DeviceCapabilities device={device} />
+      <h3>
+        {t(
+          device.trust_mode === "owner"
+            ? "devices.trust.title"
+            : "devices.sharedRoots",
+        )}
+      </h3>
+      <dl className="devices-detail-list">
+        <div>
+          <dt>{t("devices.trust.desired")}</dt>
+          <dd>
+            {t(
+              device.trust_mode === "owner"
+                ? "devices.trust.owner"
+                : "devices.trust.restricted",
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>{t("devices.trust.applied")}</dt>
+          <dd>
+            {device.applied_trust_mode
+              ? t(`devices.trust.${device.applied_trust_mode}`)
+              : t("devices.notReported")}
+          </dd>
+        </div>
+        <div>
+          <dt>{t("devices.trust.revision")}</dt>
+          <dd>
+            {device.policy_revision ?? "—"} /{" "}
+            {device.applied_policy_revision ?? "—"}
+          </dd>
+        </div>
+        <div>
+          <dt>{t("devices.trust.osUser")}</dt>
+          <dd>{device.runtime?.os_user ?? t("devices.notReported")}</dd>
+        </div>
+        <div>
+          <dt>{t("devices.trust.protocol")}</dt>
+          <dd>
+            {device.runtime?.client_protocol_version ??
+              t("devices.notReported")}
+          </dd>
+        </div>
+      </dl>
+      {device.trust_mode === "owner" ? (
+        <>
+          <p>{t("devices.trust.ownerHint")}</p>
+          <div className="devices-detail-root">
+            <strong>{t("devices.trust.workingDir")}</strong>
+            <code>
+              {device.working_dir ??
+                device.runtime?.working_dir ??
+                t("devices.notReported")}
+            </code>
+          </div>
+        </>
+      ) : device.roots.length ? (
         device.roots.map((root) => (
           <div className="devices-detail-root" key={root.id}>
             <strong>{root.name}</strong>

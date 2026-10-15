@@ -66,6 +66,8 @@ class CaptureFrame:
     jpeg_b64: str
     width: int
     height: int
+    left: int = 0
+    top: int = 0
 
 
 class ScreenCapture:
@@ -103,6 +105,7 @@ class ScreenCapture:
         if self._mss is not None:
             return self._mss
         for backend in _MSS_BACKENDS:
+            sct = None
             try:
                 from mss import MSS
 
@@ -127,8 +130,8 @@ class ScreenCapture:
                 return sct
             except Exception:
                 with contextlib.suppress(Exception):
-                    if self._mss is not None:
-                        self._mss.close()
+                    if sct is not None:
+                        sct.close()
                 self._mss = None
                 continue
         return None
@@ -150,7 +153,13 @@ class ScreenCapture:
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=quality, optimize=True)
                 data = base64.b64encode(buf.getvalue()).decode("ascii")
-                return CaptureFrame(jpeg_b64=data, width=shot.width, height=shot.height)
+                return CaptureFrame(
+                    jpeg_b64=data,
+                    width=shot.width,
+                    height=shot.height,
+                    left=int(monitors[idx]["left"]),
+                    top=int(monitors[idx]["top"]),
+                )
             except Exception:
                 self.close()
                 return None
@@ -263,4 +272,4 @@ class ScreenCapture:
                                 ]
                 except (OSError, subprocess.TimeoutExpired):
                     pass
-            return [{"id": 0, "left": 0, "top": 0, "width": 1920, "height": 1080}]
+            return []

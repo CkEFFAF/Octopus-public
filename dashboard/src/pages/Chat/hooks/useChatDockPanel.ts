@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PanelMode } from "../../../components/BrowserWorkspace";
 import {
+  executionApi,
+  type ExecutionContext,
+} from "../../../api/modules/execution";
+import {
+  executionScope,
+  getExecutionSelection,
+  targetFields,
+  executionSelectionReady,
+} from "./deviceTarget";
+import { useTranslation } from "react-i18next";
+import { showApiError } from "../../../utils/showApiToast";
+import {
   canonicalizeDockFilePath,
   dockFileTabId,
   isHostAbsolutePath,
@@ -25,6 +37,20 @@ export type DockTab =
   | { id: "browser"; kind: "browser" }
   | { id: "terminal"; kind: "terminal" }
   | { id: "git"; kind: "git" }
+  | { id: "context"; kind: "context" }
+  | {
+      id: string;
+      kind: "execution";
+      surface:
+        | "workspace"
+        | "git"
+        | "jobs"
+        | "terminal"
+        | "browser"
+        | "desktop";
+      context: ExecutionContext;
+      initialFilePath?: string;
+    }
   | { id: string; kind: "file"; path: string; agentId?: string }
   | {
       id: string;
@@ -113,7 +139,16 @@ function fallbackActiveId(
 /**
  * Shared chat dock with tabbed file list / file viewers / browser / terminal.
  */
-export function useChatDockPanel(isMobile: boolean, agentId?: string | null) {
+export function useChatDockPanel(
+  isMobile: boolean,
+  agentId?: string | null,
+  threadId?: string | null,
+  defaultDeviceId?: string,
+) {
+  const { t } = useTranslation();
+  const scope = executionScope(agentId, threadId);
+  const currentScope = useRef(scope);
+  currentScope.current = scope;
   const [dockOpen, setDockOpen] = useState(false);
   const [dockMode, setDockMode] = useState<PanelMode>(loadPanelMode);
   const [openTabs, setOpenTabs] = useState<DockTab[]>([]);
@@ -162,20 +197,92 @@ export function useChatDockPanel(isMobile: boolean, agentId?: string | null) {
     openDock();
   }, [openDock]);
 
+  const openExecutionTab = useCallback(
+    async (
+      surface:
+        | "workspace"
+        | "git"
+        | "jobs"
+        | "terminal"
+        | "browser"
+        | "desktop",
+      initialFilePath?: string,
+    ) => {
+      const selection = getExecutionSelection(scope);
+      if (!agentId) return false;
+      if (!executionSelectionReady(scope, threadId)) {
+        showApiError(
+          new Error(t("devices.sessionSelectionUnavailable")),
+          t("devices.sessionSelectionUnavailable"),
+          t,
+        );
+        return true;
+      }
+      try {
+        const context = await executionApi.createContext({
+          ...targetFields(selection.deviceId),
+          agent_id: agentId,
+          thread_id:
+            threadId && !threadId.startsWith("__") ? threadId : undefined,
+          working_dir: selection.workingDir,
+          work_mode: selection.workMode,
+        });
+        if (currentScope.current !== scope) return true;
+        const id = JSON.stringify([
+          "execution",
+          scope,
+          surface,
+          context.target_kind,
+          context.device_id,
+          context.working_dir,
+          context.policy_revision,
+          context.grant_version,
+          context.work_mode,
+          initialFilePath ?? "",
+        ]);
+        setOpenTabs((tabs) =>
+          tabs.some((tab) => tab.id === id)
+            ? tabs
+            : [
+                ...tabs,
+                { id, kind: "execution", surface, context, initialFilePath },
+              ],
+        );
+        setActiveTabId(id);
+        openDock();
+      } catch (error) {
+        showApiError(error, t("devices.loadFailed"), t);
+      }
+      return true;
+    },
+    [scope, agentId, threadId, defaultDeviceId, openDock, t],
+  );
+
   const openFileAt = useCallback(
     (path?: string | null, fileAgentId?: string | null) => {
       if (!path?.trim()) {
         openFileList();
         return;
       }
+      if (
+        agentId &&
+        !path.startsWith("/.agent/") &&
+        (!fileAgentId || fileAgentId === agentId)
+      ) {
+        void openExecutionTab("workspace", path);
+        return;
+      }
       const ownerId = (fileAgentId || agentId || "").trim() || null;
-      const hostAbs = normalizeDockFilePath(path);
+      const addressedPath = path.startsWith("/.agent/")
+        ? path.slice("/.agent".length)
+        : path;
+      const hostAbs = normalizeDockFilePath(addressedPath);
       // Keep host-absolute tool paths. Collapsing ``~/.octop/agents/<id>/…`` to a
       // relative key breaks virtual ``root_dir`` nests (bytes live under
       // ``{root}/Users/…/.octop/agents/<id>/…``, not the real agent home).
       const tabPath = isHostAbsolutePath(hostAbs)
         ? hostAbs
-        : canonicalizeDockFilePath(path, ownerId);
+        : canonicalizeDockFilePath(addressedPath, ownerId);
       if (!tabPath) {
         openFileList();
         return;
@@ -196,42 +303,40 @@ export function useChatDockPanel(isMobile: boolean, agentId?: string | null) {
       setActiveTabId(id);
       openDock();
     },
-    [agentId, openDock, openFileList],
+    [agentId, openDock, openFileList, scope, defaultDeviceId, openExecutionTab],
   );
 
   const openWorkspaceTab = useCallback(() => {
-    setOpenTabs((prev) => {
-      if (prev.some((t) => t.id === "workspace")) return prev;
-      return [...prev, { id: "workspace", kind: "workspace" }];
-    });
-    setActiveTabId("workspace");
-    openDock();
-  }, [openDock]);
+    void openExecutionTab("workspace");
+  }, [openExecutionTab]);
 
   const openBrowserTab = useCallback(() => {
-    setOpenTabs((prev) => {
-      if (prev.some((t) => t.id === "browser")) return prev;
-      return [...prev, { id: "browser", kind: "browser" }];
-    });
-    setActiveTabId("browser");
-    openDock();
-  }, [openDock]);
+    void openExecutionTab("browser");
+  }, [openExecutionTab]);
 
   const openTerminalTab = useCallback(() => {
-    setOpenTabs((prev) => {
-      if (prev.some((t) => t.id === "terminal")) return prev;
-      return [...prev, { id: "terminal", kind: "terminal" }];
-    });
-    setActiveTabId("terminal");
-    openDock();
-  }, [openDock]);
+    void openExecutionTab("terminal");
+  }, [openExecutionTab]);
 
   const openGitTab = useCallback(() => {
-    setOpenTabs((prev) => {
-      if (prev.some((t) => t.id === "git")) return prev;
-      return [...prev, { id: "git", kind: "git" }];
-    });
-    setActiveTabId("git");
+    void openExecutionTab("git");
+  }, [openExecutionTab]);
+
+  const openJobsTab = useCallback(() => {
+    void openExecutionTab("jobs");
+  }, [openExecutionTab]);
+
+  const openDesktopTab = useCallback(() => {
+    void openExecutionTab("desktop");
+  }, [openExecutionTab]);
+
+  const openContextTab = useCallback(() => {
+    setOpenTabs((prev) =>
+      prev.some((t) => t.id === "context")
+        ? prev
+        : [...prev, { id: "context", kind: "context" }],
+    );
+    setActiveTabId("context");
     openDock();
   }, [openDock]);
 
@@ -288,38 +393,17 @@ export function useChatDockPanel(isMobile: boolean, agentId?: string | null) {
     [openDock],
   );
 
-  /** Toggle dock open/closed around a dedicated tab. */
-  const toggleDockTab = useCallback(
-    (tab: Extract<DockTab, { kind: "browser" | "terminal" | "workspace" }>) => {
-      setDockOpen((prevOpen) => {
-        if (prevOpen && activeTabId === tab.id) {
-          return false;
-        }
-        setOpenTabs((prev) => {
-          if (prev.some((t) => t.id === tab.id)) return prev;
-          return [...prev, tab];
-        });
-        setActiveTabId(tab.id);
-        return true;
-      });
-      if (isMobile) {
-        setDockMode("bottom");
-      }
-    },
-    [activeTabId, isMobile],
-  );
-
   const toggleWorkspacePanel = useCallback(() => {
-    toggleDockTab({ id: "workspace", kind: "workspace" });
-  }, [toggleDockTab]);
+    void openExecutionTab("workspace");
+  }, [openExecutionTab]);
 
   const toggleBrowserPanel = useCallback(() => {
-    toggleDockTab({ id: "browser", kind: "browser" });
-  }, [toggleDockTab]);
+    void openExecutionTab("browser");
+  }, [openExecutionTab]);
 
   const toggleTerminalPanel = useCallback(() => {
-    toggleDockTab({ id: "terminal", kind: "terminal" });
-  }, [toggleDockTab]);
+    void openExecutionTab("terminal");
+  }, [openExecutionTab]);
 
   const closeTab = useCallback((id: DockTabId) => {
     setOpenTabs((prev) => {
@@ -384,6 +468,9 @@ export function useChatDockPanel(isMobile: boolean, agentId?: string | null) {
     toggleBrowserPanel,
     openTerminalTab,
     openGitTab,
+    openJobsTab,
+    openDesktopTab,
+    openContextTab,
     toggleTerminalPanel,
     openToolUiTab,
     focusToolUiTab,

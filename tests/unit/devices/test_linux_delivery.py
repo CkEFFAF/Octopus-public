@@ -35,13 +35,21 @@ def device_payload(tmp_path: Path, repo_root: Path) -> Path:
         target = packages / "octop" / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
-    for dependency in ("click", "websockets"):
+    data_match = re.search(r"^DATA_FILES=\((.*?)\)", script, re.MULTILINE)
+    assert data_match is not None
+    for data in data_match.group(1).split():
+        relative = Path(data)
+        assert relative.suffix == ".json" and ".." not in relative.parts
+        shutil.copyfile(repo_root / "src/octop" / relative, packages / "octop" / relative)
+    for dependency in ("click", "websockets", "psutil", "yaml"):
         spec = importlib.util.find_spec(dependency)
         assert spec is not None and spec.origin is not None
         shutil.copytree(
             Path(spec.origin).parent,
             packages / dependency,
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyd", "*.so"),
+            ignore=shutil.ignore_patterns(
+                "__pycache__", "*.pyc", *([] if dependency == "psutil" else ["*.pyd", "*.so"])
+            ),
         )
     (payload / "launch.py").write_text(launch_match.group(1) + "\n", encoding="utf-8")
     return payload
@@ -95,6 +103,20 @@ print(json.dumps(runtime_command(root / 'device-state')))
     assert Path(command[1]) == device_payload / "launch.py"
     assert command[2:5] == ["device", "run", "--state"]
     assert Path(command[5]) == device_payload / "device-state"
+
+
+def test_native_desktop_import_does_not_require_controller_install_services(
+    device_payload: Path,
+) -> None:
+    code = """
+import pathlib, sys
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]) / 'packages'))
+from octop.infra.devices.desktop import DeviceDesktop
+assert 'octop.infra.desktop.setup' not in sys.modules
+assert DeviceDesktop.__name__ == 'DeviceDesktop'
+"""
+    result = _isolated_python(device_payload, ["-c", code, str(device_payload)])
+    assert result.returncode == 0, result.stderr
 
 
 def test_headless_payload_does_not_include_controller_or_account_modules(

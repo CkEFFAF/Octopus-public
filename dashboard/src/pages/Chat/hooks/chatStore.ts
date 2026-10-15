@@ -2511,6 +2511,8 @@ async function sendTurnWebSocket(
   conversationMode?: "ask" | "plan" | "craft" | null,
   hitlPolicy?: { mode: string; tools?: string[] } | null,
   deviceId?: string | null,
+  workMode?: import("../utils/workMode").WorkMode,
+  workingDir?: string,
 ): Promise<boolean> {
   const state = getOrCreate(sessionId);
   const resolvedThreadId = (threadId || sessionId).trim();
@@ -2592,7 +2594,13 @@ async function sendTurnWebSocket(
       if (reasoningEffort) payload.reasoning_effort = reasoningEffort;
       if (conversationMode) payload.conversation_mode = conversationMode;
       if (hitlPolicy) payload.hitl_policy = hitlPolicy;
-      if (deviceId) payload.device_id = deviceId;
+      if (deviceId === "@local") payload.target_kind = "local";
+      else if (deviceId) {
+        payload.device_id = deviceId;
+        payload.target_kind = "device";
+      }
+      if (workMode) payload.work_mode = workMode;
+      if (workingDir) payload.working_dir = workingDir;
       ws.send(JSON.stringify(payload));
     };
 
@@ -2728,6 +2736,8 @@ export async function sendTurn(
   conversationMode?: "ask" | "plan" | "craft" | null,
   hitlPolicy?: { mode: string; tools?: string[] } | null,
   deviceId?: string | null,
+  workMode?: import("../utils/workMode").WorkMode,
+  workingDir?: string,
 ): Promise<void> {
   const state = getOrCreate(sessionId);
   rememberRoomAgent(state, agentId);
@@ -2817,6 +2827,8 @@ export async function sendTurn(
     conversationMode,
     hitlPolicy,
     deviceId,
+    workMode,
+    workingDir,
   );
   if (!wsOk) {
     state.messages = [

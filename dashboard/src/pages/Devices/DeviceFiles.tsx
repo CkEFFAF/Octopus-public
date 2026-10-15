@@ -24,10 +24,34 @@ import {
   parentPath,
   sha256,
 } from "./helpers";
+import NativeDeviceFiles from "./NativeDeviceFiles";
 
 const CHUNK_SIZE = 1024 * 1024;
 
 export default function DeviceFiles({
+  device,
+  devices,
+  onError,
+  onOperation,
+}: {
+  device: Device;
+  devices: Device[];
+  onError: (error: unknown) => void;
+  onOperation: (operation: DeviceOperation) => void;
+}) {
+  return device.trust_mode === "owner" ? (
+    <NativeDeviceFiles device={device} onError={onError} />
+  ) : (
+    <RestrictedDeviceFiles
+      device={device}
+      devices={devices}
+      onError={onError}
+      onOperation={onOperation}
+    />
+  );
+}
+
+function RestrictedDeviceFiles({
   device,
   devices,
   onError,

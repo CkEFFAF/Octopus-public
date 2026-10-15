@@ -28,7 +28,12 @@ import type { AgentSubagentSummary } from "../../../api/modules/subagents";
 import MentionPickerMenu from "./MentionPickerMenu";
 import ChatInputPreviewBar from "./ChatInputPreviewBar";
 import ChatInputActionsRow from "./ChatInputActionsRow";
-import { applyWorkMode, type WorkMode } from "../utils/workMode";
+import { type WorkMode } from "../utils/workMode";
+import {
+  executionScope,
+  setExecutionSelection,
+  useExecutionSelection,
+} from "../hooks/deviceTarget";
 import ChatQueuedMessages from "./ChatQueuedMessages";
 import { useVoiceInput } from "../../../hooks/useVoiceInput";
 import { useChatAttachments } from "../hooks/useChatAttachments";
@@ -134,6 +139,8 @@ interface ChatInputProps {
   defaultModel?: string | null;
   contextUsedTokens?: number | null;
   contextMaxTokens?: number;
+  onInspectContext?: () => void;
+  deviceControl?: React.ReactNode;
 }
 
 const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
@@ -187,12 +194,16 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       defaultModel,
       contextUsedTokens = null,
       contextMaxTokens = 128_000,
+      onInspectContext,
+      deviceControl,
     },
     ref,
   ) {
     const { t, i18n } = useTranslation();
-    const [selectedWorkMode, setSelectedWorkMode] =
-      useState<WorkMode>("agentic");
+    const scope = executionScope(agentId, threadId);
+    const { workMode: selectedWorkMode } = useExecutionSelection(scope);
+    const setSelectedWorkMode = (mode: WorkMode) =>
+      setExecutionSelection(scope, { workMode: mode });
     const workMode: WorkMode =
       conversationMode === "craft"
         ? selectedWorkMode === "plan" || selectedWorkMode === "ask"
@@ -543,9 +554,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       }
       // Preserve server-handled slash commands verbatim. Prefixing a work-mode
       // instruction would stop the command parser from recognizing them.
-      const wireText = slashItem
-        ? rawText
-        : applyWorkMode(rawText, workMode, i18n.language);
+      const wireText = rawText;
       const ta = textareaRef.current;
       const prevHeight = ta ? ta.getBoundingClientRect().height : 0;
 
@@ -903,6 +912,8 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             threadId={threadId}
             contextUsedTokens={contextUsedTokens}
             contextMaxTokens={contextMaxTokens}
+            onInspectContext={onInspectContext}
+            deviceControl={deviceControl}
             availableModels={availableModels}
             selectedModel={selectedModel}
             onModelChange={onModelChange}

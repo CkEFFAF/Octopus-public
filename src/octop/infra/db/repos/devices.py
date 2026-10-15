@@ -29,6 +29,12 @@ class DeviceRow:
     revoked_at: float | None
     created_at: float
     updated_at: float
+    trust_mode: str = "restricted"
+    applied_trust_mode: str = "restricted"
+    policy_revision: int = 0
+    applied_policy_revision: int = 0
+    working_dir: str | None = None
+    runtime_metadata: dict[str, Any] | None = None
 
     @classmethod
     def from_row(cls, row: DbRow) -> DeviceRow:
@@ -50,6 +56,12 @@ class DeviceRow:
             revoked_at=(float(row["revoked_at"]) if row["revoked_at"] is not None else None),
             created_at=float(row["created_at"]),
             updated_at=float(row["updated_at"]),
+            trust_mode=str(row["trust_mode"]),
+            applied_trust_mode=str(row["applied_trust_mode"]),
+            policy_revision=int(row["policy_revision"]),
+            applied_policy_revision=int(row["applied_policy_revision"]),
+            working_dir=row["working_dir"],
+            runtime_metadata=json.loads(row["runtime_metadata"]),
         )
 
     def public(self, *, online: bool = False) -> dict[str, Any]:
@@ -65,6 +77,12 @@ class DeviceRow:
             "online": online and self.revoked_at is None,
             "last_seen_at": self.last_seen_at,
             "revoked_at": self.revoked_at,
+            "trust_mode": self.trust_mode,
+            "applied_trust_mode": self.applied_trust_mode,
+            "policy_revision": self.policy_revision,
+            "applied_policy_revision": self.applied_policy_revision,
+            "working_dir": self.working_dir,
+            "runtime": deepcopy(self.runtime_metadata or {}),
         }
 
 
@@ -223,6 +241,45 @@ class DeviceRepo:
                 "UPDATE devices SET last_seen_at = ?, updated_at = ? "
                 "WHERE device_id = ? AND revoked_at IS NULL",
                 (ts, ts, device_id),
+            )
+
+    def set_policy(
+        self, device_id: str, *, trust_mode: str, permissions: list[str], working_dir: str | None
+    ) -> DeviceRow:
+        with self._db.transaction() as conn:
+            conn.execute(
+                "UPDATE devices SET trust_mode = ?, permissions = ?, working_dir = ?, "
+                "policy_revision = policy_revision + 1, grant_version = grant_version + 1, "
+                "updated_at = ? WHERE device_id = ? AND revoked_at IS NULL",
+                (trust_mode, json.dumps(permissions), working_dir, time.time(), device_id),
+            )
+        row = self.get(device_id)
+        assert row is not None
+        return row
+
+    def report_policy(
+        self, device_id: str, *, revision: int, trust_mode: str, metadata: dict[str, Any]
+    ) -> DeviceRow:
+        with self._db.transaction() as conn:
+            conn.execute(
+                "UPDATE devices SET applied_policy_revision = ?, applied_trust_mode = ?, "
+                "runtime_metadata = ? WHERE device_id = ? AND policy_revision = ? "
+                "AND trust_mode = ? AND revoked_at IS NULL",
+                (revision, trust_mode, json.dumps(metadata), device_id, revision, trust_mode),
+            )
+        row = self.get(device_id)
+        assert row is not None
+        return row
+
+    def policy_failed(self, device_id: str, revision: int, error: str) -> None:
+        row = self.get(device_id)
+        if row is None or row.policy_revision != revision:
+            return
+        metadata = {**(row.runtime_metadata or {}), "policy_error": error[:500]}
+        with self._db.transaction() as conn:
+            conn.execute(
+                "UPDATE devices SET runtime_metadata = ? WHERE device_id = ? AND policy_revision = ?",
+                (json.dumps(metadata), device_id, revision),
             )
 
     def revoke(self, device_id: str) -> DeviceRow | None:

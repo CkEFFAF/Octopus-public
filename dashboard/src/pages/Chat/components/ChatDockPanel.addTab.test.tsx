@@ -50,6 +50,10 @@ vi.mock("./ChatDockToolUiContent", () => ({
   default: () => <div data-testid="tool-ui" />,
 }));
 
+vi.mock("./ExecutionWorkbench", () => ({
+  default: () => <div data-testid="execution-workbench" />,
+}));
+
 vi.mock("../../Control/Terminal", () => ({
   default: () => <div data-testid="terminal-page" />,
 }));
@@ -68,6 +72,36 @@ const baseProps = {
 };
 
 describe("ChatDockPanel add-tab menu", () => {
+  it("labels a local execution tab with its host and native directory", () => {
+    render(
+      <ChatDockPanel
+        {...baseProps}
+        openTabs={[
+          {
+            id: "local-project",
+            kind: "execution",
+            surface: "workspace",
+            context: {
+              context_id: "local-context",
+              target_kind: "local",
+              device_id: null,
+              working_dir: "C:\\Users\\operator\\project",
+              work_mode: "agentic",
+              policy_revision: 1,
+              grant_version: 1,
+            },
+          },
+        ]}
+        activeTabId="local-project"
+      />,
+    );
+    expect(
+      screen.getByTitle(
+        "devices.localExecution · C:\\Users\\operator\\project",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("shows a + control that opens workspace / browser / files / terminal", async () => {
     const user = userEvent.setup();
     const onOpenWorkspace = vi.fn();
