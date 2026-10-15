@@ -14,6 +14,7 @@ from octop.config import OctopConfig
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.pool import SqlitePool
 from octop.infra.db.services import build_shared_services
+from octop.infra.devices.client import DeviceClient
 from octop.infra.devices.update_policy import (
     batch_eligible,
     build_offer,
@@ -28,6 +29,7 @@ from octop.infra.devices.updater import (
     download_and_verify,
     health_check,
     stage_side_by_side,
+    validate_download_url,
 )
 from octop.infra.utils.paths import PathLayout
 
@@ -192,7 +194,9 @@ def test_download_verify_and_stage_side_by_side(tmp_path: Path) -> None:
     staged = stage_side_by_side(archived, current_dir=current, version="1.2.3")
     assert staged.resolve() != current.resolve()
     assert (staged / "app.txt").read_text(encoding="utf-8") == "new"
-    assert health_check(staged) is True
+    # No expected binary → health must fail (not weak "dir non-empty").
+    assert health_check(staged) is False
+    assert health_check(staged, probe_argv=["python", "-c", "raise SystemExit(0)"]) is True
 
 
 def test_build_offer_filters_batch_and_platform() -> None:
@@ -242,3 +246,129 @@ def test_device_repo_update_report(tmp_path: Path) -> None:
     assert updated.update_status == "ok"
     pub = updated.public()
     assert pub["software_version"] == "1.2.3"
+
+
+def test_force_does_not_override_busy() -> None:
+    """force ignores deferrable, but busy+skip_when_busy still blocks cutover."""
+    policy = parse_policy(
+        {
+            "target_version": "1.0.0",
+            "force": True,
+            "deferrable": True,
+            "skip_when_busy": True,
+            "window_local": {"start_hour": 0, "end_hour": 24},
+            "manifest": {
+                "assets": [
+                    {
+                        "platform": "linux-amd64",
+                        "kind": "device",
+                        "url": "https://example.com/a.tgz",
+                        "sha256": "x",
+                    }
+                ]
+            },
+        }
+    )
+    now = datetime(2026, 10, 15, 3, 0, tzinfo=ZoneInfo("UTC"))
+    assert may_cutover(policy, busy=True, deferred=True, now=now) is False
+    assert may_cutover(policy, busy=False, deferred=True, now=now) is True
+
+
+def test_reject_non_https_download_url(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="https"):
+        validate_download_url("http://example.com/pkg.bin")
+    with pytest.raises(ValueError, match="https"):
+        download_and_verify(
+            "http://example.com/pkg.bin",
+            expect_sha256="00" * 32,
+            dest_dir=tmp_path / "dl",
+            opener=lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not open")),
+        )
+
+
+def test_client_consumes_pending_update_offer(tmp_path: Path) -> None:
+    install = tmp_path / "current"
+    install.mkdir()
+    (install / "keep.txt").write_text("old", encoding="utf-8")
+    zpath = tmp_path / "next.zip"
+    with zipfile.ZipFile(zpath, "w") as zf:
+        zf.writestr("pkg/octop", "payload")
+    digest = hashlib.sha256(zpath.read_bytes()).hexdigest()
+
+    class _Resp:
+        def __init__(self, data: bytes) -> None:
+            self._data = data
+
+        def read(self, n: int = -1) -> bytes:
+            out, self._data = self._data, b""
+            return out
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def fake_open(url: str, timeout: float = 120):
+        return _Resp(zpath.read_bytes())
+
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    client = DeviceClient(state_dir)
+    client._pending_update_offer = {
+        "type": "device_update.offer",
+        "target_version": "1.2.3",
+        "channel": "stable",
+        "window_local": {"start_hour": 0, "end_hour": 24},
+        "force": False,
+        "deferrable": True,
+        "skip_when_busy": True,
+        "asset": {
+            "url": "https://example.com/next.zip",
+            "sha256": digest,
+            "platform": "linux-amd64",
+            "kind": "device",
+        },
+    }
+
+    import octop.infra.devices.updater as updater_mod
+
+    real_download = updater_mod.download_and_verify
+    real_health = updater_mod.health_check
+
+    def wrapped(url, *, expect_sha256, dest_dir, filename=None, opener=None):
+        return real_download(
+            url,
+            expect_sha256=expect_sha256,
+            dest_dir=dest_dir,
+            filename=filename,
+            opener=fake_open,
+        )
+
+    updater_mod.download_and_verify = wrapped  # type: ignore[assignment]
+    updater_mod.health_check = lambda *a, **k: True  # type: ignore[assignment]
+    try:
+        now = datetime(2026, 10, 15, 3, 0, tzinfo=ZoneInfo("UTC"))
+        # Busy → stage only, offer kept for retry
+        report = client.consume_pending_update_offer(
+            busy=True,
+            install_dir=install,
+            now=now,
+        )
+        assert report is not None
+        assert report["status"] == "staged"
+        assert client._pending_update_offer is not None
+
+        # Idle → cutover completes and clears pending offer
+        report2 = client.consume_pending_update_offer(
+            busy=False,
+            install_dir=install,
+            now=now,
+        )
+        assert report2 is not None
+        assert report2["status"] == "ok"
+        assert report2["software_version"] == "1.2.3"
+        assert client._pending_update_offer is None
+    finally:
+        updater_mod.download_and_verify = real_download  # type: ignore[assignment]
+        updater_mod.health_check = real_health  # type: ignore[assignment]

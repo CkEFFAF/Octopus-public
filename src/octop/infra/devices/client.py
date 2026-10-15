@@ -8,6 +8,7 @@ import getpass
 import ipaddress
 import json
 import logging
+import os
 import platform
 import random
 import urllib.error
@@ -141,7 +142,9 @@ class DeviceClient:
     def __init__(self, state_dir: Path) -> None:
         self.state_dir = private_state_dir(state_dir)
         self.state_path = self.state_dir / "device.json"
-        self._pending_update_offer = None
+        self._pending_update_offer: dict[str, Any] | None = None
+        self._update_deferred = False
+        self._update_task_lock = asyncio.Lock()
         self._stop = asyncio.Event()
         self._socket: Any = None
 
@@ -167,6 +170,97 @@ class DeviceClient:
             raise DeviceExecutionError(
                 "invalid device state; use a separate state directory to enroll"
             ) from exc
+
+
+    def _device_install_dir(self) -> Path:
+        env = os.environ.get("OCTOP_DEVICE_INSTALL_DIR")
+        if env:
+            return Path(env)
+        # Portable layout: <root>/current next to private state dir.
+        return self.state_dir.parent / "current"
+
+    def _probe_busy(self, executor: DeviceExecutor, inflight: int = 0) -> tuple[bool, list[str]]:
+        from octop.infra.devices.updater import detect_busy
+
+        acp_n = 0
+        acp = getattr(executor, "_acp", None)
+        if acp is not None:
+            acp_n = len(getattr(acp, "_sessions", {}) or {})
+        transfers_n = 0
+        transfers = getattr(executor, "_transfers", None)
+        if transfers is not None:
+            transfers_n = len(getattr(transfers, "_streams", {}) or {})
+        active_n = len(getattr(executor, "_active", {}) or {})
+        return detect_busy(
+            active_acp_sessions=acp_n,
+            pending_commands=active_n + max(0, inflight),
+            desktop_control_active=False,
+            active_transfers=transfers_n,
+        )
+
+    def consume_pending_update_offer(
+        self,
+        *,
+        busy: bool | None = None,
+        deferred: bool | None = None,
+        install_dir: Path | None = None,
+        busy_probe: Any = None,
+        now: Any = None,
+    ) -> dict[str, Any] | None:
+        """Apply stashed device_update.offer via DeviceUpdater (0017 S2-S4).
+
+        Returns a device_update.report payload, or None when nothing is pending.
+        Keeps the offer stashed while status is ``staged`` so cutover can retry.
+        """
+        offer = self._pending_update_offer
+        if not isinstance(offer, dict):
+            return None
+        from octop.infra.devices.update_policy import DeviceUpdatePolicy, WindowLocal, may_cutover
+        from octop.infra.devices.updater import DeviceUpdater
+
+        window_raw = offer.get("window_local") or {"start_hour": 0, "end_hour": 8}
+        try:
+            start = int(window_raw.get("start_hour", 0))
+            end = int(window_raw.get("end_hour", 8))
+            if not (0 <= start < end <= 24):
+                raise ValueError("invalid window_local on offer")
+        except (TypeError, ValueError, AttributeError) as exc:
+            self._pending_update_offer = None
+            return {"type": "device_update.report", "status": "failed", "error": str(exc)}
+
+        policy = DeviceUpdatePolicy(
+            target_version=str(offer.get("target_version") or ""),
+            channel=str(offer.get("channel") or "stable"),
+            window_local=WindowLocal(start, end),
+            force=bool(offer.get("force", False)),
+            deferrable=bool(offer.get("deferrable", True)),
+            skip_when_busy=bool(offer.get("skip_when_busy", True)),
+        )
+        is_busy = bool(busy) if busy is not None else False
+        is_deferred = self._update_deferred if deferred is None else bool(deferred)
+        allow = may_cutover(policy, busy=is_busy, deferred=is_deferred, now=now)
+        root = install_dir or self._device_install_dir()
+        root.mkdir(parents=True, exist_ok=True)
+        updater = DeviceUpdater(
+            install_dir=root,
+            download_dir=self.state_dir / "update-cache",
+            busy_probe=busy_probe or (lambda: (is_busy, ["busy"] if is_busy else [])),
+        )
+        result = updater.apply_offer(offer, allow_cutover=allow)
+        status = str(result.get("status") or "failed")
+        if status in {"ok", "failed", "rolled_back"}:
+            self._pending_update_offer = None
+            if status == "ok":
+                self._update_deferred = False
+        report: dict[str, Any] = {"type": "device_update.report", "status": status}
+        for key in ("software_version", "error", "stage_version"):
+            if result.get(key) is not None:
+                report[key] = result[key]
+        if result.get("busy"):
+            report["busy"] = True
+            if result.get("busy_reasons"):
+                report["busy_reasons"] = result["busy_reasons"]
+        return report
 
     async def enroll(
         self,
@@ -553,7 +647,28 @@ class DeviceClient:
                     )
                 )
 
+        async def apply_pending_update() -> None:
+            async with self._update_task_lock:
+                if self._pending_update_offer is None:
+                    return
+                busy, _reasons = self._probe_busy(executor, inflight=len(tasks))
+                report = await asyncio.to_thread(
+                    self.consume_pending_update_offer,
+                    busy=busy,
+                )
+                if report is None:
+                    return
+                with contextlib.suppress(Exception):
+                    await socket.send(json.dumps(report, ensure_ascii=False))
+
+        async def update_loop() -> None:
+            # Close S2-S4: poll stashed offers (also pushed on heartbeat_ack path).
+            while True:
+                await asyncio.sleep(HEARTBEAT_INTERVAL)
+                await apply_pending_update()
+
         pulse = asyncio.create_task(heartbeat())
+        updater_pulse = asyncio.create_task(update_loop())
         try:
             async for raw in socket:
                 try:
@@ -564,8 +679,9 @@ class DeviceClient:
                 if kind == "heartbeat_ack":
                     last_heartbeat = asyncio.get_running_loop().time()
                 if kind == "device_update.offer":
-                    # Stash latest offer for the updater task; cutover gated by window/busy.
+                    # Stash latest offer; updater task runs download/stage/health/cutover.
                     self._pending_update_offer = frame
+                    asyncio.create_task(apply_pending_update())
                 if kind == "revoked":
                     await asyncio.to_thread(executor.stop_jobs)
                     self._stop.set()
@@ -686,7 +802,8 @@ class DeviceClient:
                     tasks[operation_id] = asyncio.create_task(send_result(frame))
         finally:
             pulse.cancel()
+            updater_pulse.cancel()
             remaining = [*tasks.values(), *confirmations.values()]
             for task in remaining:
                 task.cancel()
-            await asyncio.gather(pulse, *remaining, return_exceptions=True)
+            await asyncio.gather(pulse, updater_pulse, *remaining, return_exceptions=True)

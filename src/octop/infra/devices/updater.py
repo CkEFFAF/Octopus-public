@@ -12,6 +12,7 @@ import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 from urllib.request import urlopen
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,18 @@ def sha256_file(path: Path, *, chunk_size: int = 1024 * 1024) -> str:
     return digest.hexdigest()
 
 
+
+def validate_download_url(url: str) -> None:
+    """Reject non-https package URLs (0017 iron rule: Hub-issued official HTTPS only)."""
+    parsed = urlsplit(url)
+    if parsed.scheme != "https":
+        raise ValueError("download URL must be https")
+    if not parsed.hostname:
+        raise ValueError("download URL missing host")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("download URL must not contain credentials")
+
+
 def download_and_verify(
     url: str,
     *,
@@ -39,6 +52,7 @@ def download_and_verify(
     opener: Callable[..., Any] | None = None,
 ) -> Path:
     """Download *url* into *dest_dir* and verify SHA256. Raises ValueError on mismatch."""
+    validate_download_url(url)
     dest_dir.mkdir(parents=True, exist_ok=True)
     name = filename or url.rstrip("/").split("/")[-1] or "package.bin"
     tmp = dest_dir / f".{name}.partial"
@@ -59,6 +73,48 @@ def download_and_verify(
     return final
 
 
+
+def _is_within_directory(base: Path, target: Path) -> bool:
+    try:
+        target.resolve().relative_to(base.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _safe_zip_extract(zf: zipfile.ZipFile, dest: Path) -> None:
+    for info in zf.infolist():
+        name = info.filename
+        if not name or name.endswith("/"):
+            continue
+        target = (dest / name).resolve()
+        if not _is_within_directory(dest, target):
+            raise ValueError(f"zip path traversal blocked: {name}")
+    zf.extractall(dest)
+
+
+def _safe_tar_extract(tf: tarfile.TarFile, dest: Path) -> None:
+    for member in tf.getmembers():
+        name = member.name
+        if not name:
+            continue
+        target = (dest / name).resolve()
+        if not _is_within_directory(dest, target):
+            raise ValueError(f"tar path traversal blocked: {name}")
+        if member.issym() or member.islnk():
+            link = member.linkname or ""
+            if Path(link).is_absolute():
+                raise ValueError(f"tar link traversal blocked: {name}")
+            link_target = (dest / Path(name).parent / link).resolve()
+            if not _is_within_directory(dest, link_target):
+                raise ValueError(f"tar link traversal blocked: {name}")
+    # Prefer filter="data" (3.11.4+/3.12+) to block .. / abs / specials.
+    try:
+        tf.extractall(dest, filter="data")
+    except TypeError:
+        tf.extractall(dest)
+
+
 def stage_side_by_side(
     archive: Path,
     *,
@@ -76,10 +132,10 @@ def stage_side_by_side(
     stage.mkdir(parents=True, exist_ok=True)
     if zipfile.is_zipfile(archive):
         with zipfile.ZipFile(archive) as zf:
-            zf.extractall(stage)
+            _safe_zip_extract(zf, stage)
     elif tarfile.is_tarfile(archive):
         with tarfile.open(archive) as tf:
-            tf.extractall(stage)
+            _safe_tar_extract(tf, stage)
     else:
         # Treat as a single binary/dir payload: copy into stage root.
         target = stage / archive.name
@@ -113,8 +169,8 @@ def health_check(
         ]
         binary = next((c for c in candidates if c.exists()), None)
         if binary is None:
-            # No binary found — treat presence of any file as weak health for unit tests.
-            return any(staged_dir.iterdir())
+            logger.warning("health_check: no expected binary under %s", staged_dir)
+            return False
         probe_argv = [str(binary), "--version"]
     try:
         completed = subprocess.run(
@@ -270,7 +326,9 @@ class DeviceUpdater:
             rollback_stage(staged)
             return {"status": "failed", "error": "health", "stage_version": version}
         busy, reasons = self.busy_probe()
-        if offer.get("skip_when_busy") and busy and not allow_cutover:
+        # Defense in depth: skip_when_busy always blocks cutover even if caller
+        # passed allow_cutover=True (force must not override busy — 0017).
+        if offer.get("skip_when_busy") and busy:
             return {
                 "status": "staged",
                 "stage_version": version,
@@ -302,6 +360,7 @@ __all__ = [
     "cutover",
     "detect_busy",
     "download_and_verify",
+    "validate_download_url",
     "health_check",
     "resolve_software_version",
     "rollback_stage",
