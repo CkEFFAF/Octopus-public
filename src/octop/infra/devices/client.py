@@ -445,7 +445,15 @@ class DeviceClient:
             def process_redirect(self, exc: Exception) -> Exception:
                 # A device credential must not follow a control center redirect
                 # to a different origin or a less protected transport.
-                return DeviceExecutionError("device WebSocket redirects are not allowed")
+                if (
+                    isinstance(exc, websockets.exceptions.InvalidStatus)
+                    and exc.response.status_code in {300, 301, 302, 303, 307, 308}
+                    and "Location" in exc.response.headers
+                ):
+                    return DeviceExecutionError("device WebSocket redirects are not allowed")
+                # websockets also calls this hook for non-redirect handshake
+                # failures; retain their type so the reconnect loop can retry.
+                return exc
 
         state = self.load_state()
         if state is None:

@@ -688,26 +688,43 @@ export function parseStructuredToolOutput(
 }
 
 const IMAGE_EXT = "(?:png|jpe?g|gif|webp|bmp|svg)";
+const IMAGE_EXT_RE = new RegExp(`\\.${IMAGE_EXT}`, "i");
 
 /** Pull a filesystem image path from plain tool output (browser screenshot, send_file). */
 export function extractImagePathFromText(text: string): string | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
+  if (!IMAGE_EXT_RE.test(trimmed)) return null;
 
-  const patterns = [
+  // Consume a whole candidate before checking its extension. Retrying a
+  // slash-prefixed pattern at every slash makes large plain tool logs quadratic.
+  const labeledImage = trimmed.match(
     new RegExp(
       `(?:saved to|written to|file(?:\\s+path)?[:\\s]+)\\s*([^\\s(]+\\.${IMAGE_EXT})`,
       "i",
     ),
-    new RegExp(`(file://[^\\s"'()]+\\.${IMAGE_EXT})`, "i"),
-    new RegExp(`(/[^\\s"'()]+/outbound/[^\\s"'()]+\\.${IMAGE_EXT})`, "i"),
-    new RegExp(`(/Users/[^\\s"'()]+\\.${IMAGE_EXT})`, "i"),
-    new RegExp(`(/tmp/[^\\s"'()]+\\.${IMAGE_EXT})`, "i"),
-  ];
+  );
+  if (labeledImage) return labeledImage[1];
 
-  for (const re of patterns) {
-    const match = trimmed.match(re);
-    if (match?.[1]) return match[1];
+  const patterns = [
+    ["file://", new RegExp(`^(file://[^\\s"'()]+\\.${IMAGE_EXT})`, "i")],
+    [
+      "/",
+      new RegExp(`^(/[^\\s"'()]+/outbound/[^\\s"'()]+\\.${IMAGE_EXT})`, "i"),
+    ],
+    ["/users/", new RegExp(`^(/Users/[^\\s"'()]+\\.${IMAGE_EXT})`, "i")],
+    ["/tmp/", new RegExp(`^(/tmp/[^\\s"'()]+\\.${IMAGE_EXT})`, "i")],
+  ] as const;
+  // Keep the original pattern priority even when different path kinds coexist.
+  for (const [prefix, pattern] of patterns) {
+    for (const token of trimmed.matchAll(/[^\s"'()]+/g)) {
+      const start = token[0].toLowerCase().indexOf(prefix);
+      if (start < 0) continue;
+      const candidate = token[0].slice(start);
+      if (!IMAGE_EXT_RE.test(candidate)) continue;
+      const match = pattern.exec(candidate);
+      if (match?.[1]) return match[1];
+    }
   }
   return null;
 }

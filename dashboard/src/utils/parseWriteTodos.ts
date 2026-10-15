@@ -20,6 +20,11 @@ export interface WriteTodosMessageSource {
   status?: string;
 }
 
+const messageTodosCache = new WeakMap<
+  WriteTodosMessageSource,
+  TodoListItem[]
+>();
+
 function toolNameBase(name: string): string {
   const trimmed = name.trim();
   const slash = trimmed.lastIndexOf("/");
@@ -141,12 +146,15 @@ export function collectWriteTodosFromMessages(
   for (const msg of messages) {
     const td = msg.toolData;
     if (!td || !isWriteTodosToolName(td.name)) continue;
-    const allowPartial = msg.status === "streaming";
-    const items = parseWriteTodosToolData(
-      td.arguments,
-      td.output,
-      allowPartial,
-    );
+    let items = messageTodosCache.get(msg);
+    if (!items) {
+      items = parseWriteTodosToolData(
+        td.arguments,
+        td.output,
+        msg.status === "streaming",
+      );
+      messageTodosCache.set(msg, items);
+    }
     for (const item of items) {
       byId.set(item.id, item);
     }

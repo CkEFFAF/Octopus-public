@@ -8,8 +8,34 @@ import {
   parseStructuredToolOutput,
   parseToolExecutionFeedback,
   toMediaPreviewSource,
+  extractImagePathFromText,
   workspaceDownloadUrl,
 } from "./toolMediaBlocks";
+
+describe("extractImagePathFromText", () => {
+  it.each([
+    ["Screenshot saved to generated/shot.PNG (1200x800)", "generated/shot.PNG"],
+    ["File path: relative/chart.svg", "relative/chart.svg"],
+    ["file saved to relative/chart.png", "relative/chart.png"],
+    ['written to "relative/chart.png"', '"relative/chart.png'],
+    ["/Users/person/a.png file:///tmp/b.png", "///tmp/b.png"],
+    ["/tmp/a.png /home/user/outbound/b.png", "/home/user/outbound/b.png"],
+    ["See (/tmp/chart.png)", "/tmp/chart.png"],
+    ["No image path in this output", null],
+  ])("preserves path priority for %s", (text, expected) => {
+    expect(extractImagePathFromText(text)).toBe(expected);
+  });
+
+  it("finds an image after a large slash-heavy plain log", () => {
+    const text = `${"/tmp/part".repeat(8000)}\n/Users/person/result.png`;
+    const start = performance.now();
+    expect(extractImagePathFromText(text)).toBe("/Users/person/result.png");
+    console.info("plain tool media benchmark", {
+      outputBytes: text.length,
+      elapsedMs: performance.now() - start,
+    });
+  });
+});
 
 describe("workspaceDownloadUrl", () => {
   it("keeps host-absolute paths as-is", () => {
