@@ -691,6 +691,8 @@ def test_build_harness_config_includes_cronjob_tools_when_cron_manager_set(
         "cronjob_update",
         "cronjob_delete",
         "cronjob_run_now",
+        "schedule_self_check",
+        "cancel_self_check",
         "search_knowledge",
         "work_step",
     }
