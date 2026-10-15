@@ -16,6 +16,22 @@ from octop.infra.devices import browser
 from octop.infra.devices.executor import DeviceExecutor
 
 
+def test_browser_prefers_paired_chromium_and_retains_system_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache = tmp_path / "playwright"
+    paired = cache / "chromium-1234/chrome-win64/chrome.exe"
+    paired.parent.mkdir(parents=True)
+    paired.touch()
+    system = tmp_path / "system-chrome.exe"
+    system.touch()
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(cache))
+    monkeypatch.setattr(browser.shutil, "which", lambda _name: str(system))
+    assert browser.browser_runtime()["executable"] == str(paired)
+    paired.unlink()
+    assert browser.browser_runtime()["executable"] == str(system)
+
+
 async def test_native_browser_localhost_websocket_input_and_reattachment(tmp_path: Path) -> None:
     if not browser.browser_runtime()["available"]:
         pytest.skip("native Chromium and Playwright are required")

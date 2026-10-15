@@ -42,13 +42,19 @@ def browser_runtime() -> dict[str, Any]:
             else str(Path.home() / ".cache/ms-playwright")
         )
     )
+    bundled: list[str] = []
     for pattern in (
         "chromium-*/chrome-win*/chrome.exe",
         "chromium-*/chrome-linux*/chrome",
         "chromium-*/chrome-mac*/Chromium.app/Contents/MacOS/Chromium",
     ):
-        candidates.extend(str(path) for path in sorted(cache.glob(pattern), reverse=True))
-    binary = next((value for value in candidates if value and Path(value).is_file()), None)
+        bundled.extend(str(path) for path in sorted(cache.glob(pattern), reverse=True))
+    # Prefer the browser paired with Playwright. Branded system installations
+    # can override --user-data-dir through policy and reject automation even
+    # with an explicit isolated profile (notably on Windows runner images).
+    binary = next(
+        (value for value in [*bundled, *candidates] if value and Path(value).is_file()), None
+    )
     return {
         "dependency_available": dependency,
         "executable": binary,

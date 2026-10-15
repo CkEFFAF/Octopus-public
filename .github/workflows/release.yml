@@ -56,7 +56,12 @@ jobs:
         run: make install
 
       - name: Run tests
-        run: make test
+        # Exercise the native browser against the pinned Playwright runtime,
+        # rather than depending on the hosted image's branded Chrome policy.
+        # Linux needs the system libraries too; no test is skipped on failure.
+        run: |
+          uv run python -m playwright install --with-deps chromium
+          make test
 
       - name: Build package
         run: make build
