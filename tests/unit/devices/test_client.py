@@ -407,6 +407,158 @@ async def test_queued_cancel_never_starts_operation(tmp_path, monkeypatch):
     assert executed == []
 
 
+@pytest.mark.parametrize("failure_status", [503, 200])
+async def test_real_websocket_retries_handshake_failure_after_disconnect(
+    tmp_path, monkeypatch, failure_status
+):
+    executor, _ = executor_for(tmp_path)
+    client = DeviceClient(tmp_path / "state")
+    attempts, hellos = [], []
+    recovered = asyncio.Event()
+
+    def handshake(connection, request):
+        attempts.append(request.path)
+        if len(attempts) == 2:
+            return connection.respond(failure_status, "temporarily unavailable")
+
+    async def controller(socket):
+        hellos.append(json.loads(await socket.recv()))
+        await socket.send(
+            json.dumps(
+                {
+                    "type": "hello_ack",
+                    "protocol": 1,
+                    "grant_version": 1,
+                    "permissions": sorted(executor.local_permissions),
+                    "roots": list(executor.local_roots.values()),
+                }
+            )
+        )
+        if len(hellos) == 1:
+            await socket.close()
+            return
+        await socket.send(
+            json.dumps(
+                {
+                    "type": "request",
+                    "id": "after-recovery",
+                    "action": "ping",
+                    "params": {},
+                    "grant_version": 1,
+                    "permissions": [],
+                }
+            )
+        )
+        async for raw in socket:
+            frame = json.loads(raw)
+            if frame.get("id") == "after-recovery":
+                assert frame["ok"] is True
+                recovered.set()
+                await socket.wait_closed()
+                return
+
+    async with websockets.serve(controller, "127.0.0.1", 0, process_request=handshake) as server:
+        port = server.sockets[0].getsockname()[1]
+        monkeypatch.setattr(
+            client,
+            "load_state",
+            lambda: {
+                "server_url": f"http://127.0.0.1:{port}",
+                "device_id": "stable-id",
+                "device_token": "odv_stable_identity",
+            },
+        )
+        running = asyncio.create_task(client.run(executor))
+        try:
+            async with asyncio.timeout(10):
+                while not recovered.is_set():
+                    if running.done():
+                        await running
+                    await asyncio.sleep(0.01)
+        finally:
+            await client.stop()
+            await asyncio.wait_for(running, 5)
+
+    assert attempts == ["/api/devices/connect/ws"] * 3
+    assert len(hellos) == 2
+    assert {hello["device_id"] for hello in hellos} == {"stable-id"}
+    assert {hello["token"] for hello in hellos} == {"odv_stable_identity"}
+
+
+@pytest.mark.parametrize("redirect_status", [300, 301, 302, 303, 307, 308])
+async def test_real_websocket_redirect_never_connects_to_credential_destination(
+    tmp_path, monkeypatch, redirect_status
+):
+    executor, _ = executor_for(tmp_path)
+    client = DeviceClient(tmp_path / "state")
+    source_requests, destination_requests, destination_frames = [], [], []
+
+    def destination_handshake(connection, request):
+        destination_requests.append(request)
+
+    async def destination(socket):
+        async for raw in socket:
+            destination_frames.append(raw)
+
+    async with websockets.serve(
+        destination, "127.0.0.1", 0, process_request=destination_handshake
+    ) as target:
+        target_port = target.sockets[0].getsockname()[1]
+
+        def redirect(connection, request):
+            source_requests.append(request)
+            response = connection.respond(redirect_status, "redirect")
+            response.headers["Location"] = f"ws://127.0.0.1:{target_port}/capture"
+            return response
+
+        async with websockets.serve(
+            destination, "127.0.0.1", 0, process_request=redirect
+        ) as source:
+            source_port = source.sockets[0].getsockname()[1]
+            monkeypatch.setattr(
+                client,
+                "load_state",
+                lambda: {
+                    "server_url": f"http://127.0.0.1:{source_port}",
+                    "device_id": "private-device",
+                    "device_token": "odv_never_forward",
+                },
+            )
+            with pytest.raises(DeviceExecutionError, match="redirects are not allowed"):
+                await asyncio.wait_for(client.run(executor), 2)
+
+    assert len(source_requests) == 1
+    assert destination_requests == []
+    assert destination_frames == []
+
+
+async def test_real_websocket_authentication_rejection_remains_fatal(tmp_path, monkeypatch):
+    executor, _ = executor_for(tmp_path)
+    client = DeviceClient(tmp_path / "state")
+    hellos = []
+
+    async def controller(socket):
+        hellos.append(json.loads(await socket.recv()))
+        await socket.send(json.dumps({"type": "error", "error": "authentication failed"}))
+        await socket.wait_closed()
+
+    async with websockets.serve(controller, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        monkeypatch.setattr(
+            client,
+            "load_state",
+            lambda: {
+                "server_url": f"http://127.0.0.1:{port}",
+                "device_id": "revoked-device",
+                "device_token": "odv_revoked",
+            },
+        )
+        with pytest.raises(DeviceExecutionError, match="authentication failed"):
+            await asyncio.wait_for(client.run(executor), 2)
+
+    assert len(hellos) == 1
+
+
 @pytest.mark.parametrize("large_output", [False, True])
 async def test_real_outbound_websocket_reconnect_keeps_identity_and_reconciles(
     tmp_path, monkeypatch, caplog, large_output
