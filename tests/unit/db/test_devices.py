@@ -91,6 +91,8 @@ def test_public_device_hides_authentication_and_copies_grants(
         "applied_policy_revision",
         "working_dir",
         "runtime",
+        "software_version",
+        "update_status",
     }
     assert public["online"] is True
     assert public["roots"][0]["path"] == "C:\\Shared"
@@ -276,7 +278,7 @@ def test_migration_preserves_rows_when_applied_again(
     assert repo.get(device.device_id) == device
     assert repo.get_operation(operation.operation_id) == operation
     with db.connect() as conn:
-        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 26
+        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 27
 
 
 def test_device_repo_is_wired_into_services(db: SqlitePool, tmp_path: Path) -> None:
