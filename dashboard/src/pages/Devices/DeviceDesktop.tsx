@@ -8,14 +8,30 @@ import {
   type DeviceInput,
 } from "../../api/modules/devices";
 import { canUse, desktopPoint } from "./helpers";
+import {
+  executionApi,
+  type ExecutionContext,
+  type ExecutionTarget,
+} from "../../api/modules/execution";
+import styles from "./DeviceDesktop.module.less";
 
-export default function DeviceDesktop({
-  device,
-  onError,
-}: {
-  device: Device;
+type Props = {
+  device: Device | ExecutionTarget;
   onError: (error: unknown) => void;
-}) {
+  context?: ExecutionContext;
+  visible?: boolean;
+};
+
+export default function DeviceDesktop(props: Props) {
+  return (
+    <DesktopSession
+      key={`${props.device.device_id}:${props.context?.context_id ?? "device"}`}
+      {...props}
+    />
+  );
+}
+
+function DesktopSession({ device, onError, context, visible = true }: Props) {
   const { t } = useTranslation();
   const [viewing, setViewing] = useState(false);
   const [controlling, setControlling] = useState(false);
@@ -23,6 +39,8 @@ export default function DeviceDesktop({
     jpeg_b64: string;
     width: number;
     height: number;
+    left?: number;
+    top?: number;
   } | null>(null);
   const [text, setText] = useState("");
   const [key, setKey] = useState("enter");
@@ -30,12 +48,25 @@ export default function DeviceDesktop({
   const [inputBusy, setInputBusy] = useState(false);
   const inputPending = useRef(false);
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
+  const lastPoint = useRef<{ x: number; y: number } | null>(null);
   const reportError = useRef(onError);
   reportError.current = onError;
+  const alive = useRef(true);
+  const inputController = useRef<AbortController | null>(null);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      inputController.current?.abort();
+    };
+  }, []);
   const viewAllowed = canUse(device, "desktop_view");
-  const controlAllowed = canUse(device, "desktop_control");
+  const controlAllowed =
+    canUse(device, "desktop_control") &&
+    context?.work_mode !== "plan" &&
+    context?.work_mode !== "ask";
   const inputEnabled =
-    viewing && controlling && controlAllowed && Boolean(frame);
+    visible && viewing && controlling && controlAllowed && Boolean(frame);
 
   useEffect(() => {
     if (!viewAllowed) {
@@ -48,7 +79,7 @@ export default function DeviceDesktop({
   }, [viewAllowed, controlAllowed]);
 
   useEffect(() => {
-    if (!viewing || !viewAllowed) return;
+    if (!visible || !viewing || !viewAllowed) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController | undefined;
@@ -61,12 +92,19 @@ export default function DeviceDesktop({
       controller = new AbortController();
       const timeout = setTimeout(() => controller?.abort(), 20000);
       try {
-        const next = await devicesApi.call(
-          device.device_id,
-          "desktop.capture",
-          { quality: 65 },
-          controller.signal,
-        );
+        const next = context
+          ? await executionApi.call<NonNullable<typeof frame>>(
+              context.context_id,
+              "desktop.capture",
+              { quality: 65 },
+              controller.signal,
+            )
+          : await devicesApi.call(
+              device.device_id ?? "",
+              "desktop.capture",
+              { quality: 65 },
+              controller.signal,
+            );
         if (active) setFrame(next);
       } catch (error) {
         if (active) {
@@ -87,36 +125,57 @@ export default function DeviceDesktop({
       clearTimeout(timer);
       controller?.abort();
     };
-  }, [device.device_id, viewAllowed, viewing]);
+  }, [context?.context_id, device.device_id, viewAllowed, viewing, visible]);
 
   async function input(params: DeviceInput) {
     if (!inputEnabled || inputPending.current) return;
     inputPending.current = true;
     setInputBusy(true);
     const controller = new AbortController();
+    inputController.current = controller;
     const timeout = setTimeout(() => controller.abort(), 20000);
     try {
-      await devicesApi.call(
-        device.device_id,
-        "desktop.input",
-        params,
-        controller.signal,
-      );
-      if (params.kind === "type") setText("");
+      if (context)
+        await executionApi.call(
+          context.context_id,
+          "desktop.input",
+          { ...params },
+          controller.signal,
+        );
+      else
+        await devicesApi.call(
+          device.device_id ?? "",
+          "desktop.input",
+          params,
+          controller.signal,
+        );
+      if (alive.current && params.kind === "type") setText("");
     } catch (error) {
-      onError(error);
-      setControlling(false);
+      if (alive.current) {
+        onError(error);
+        setControlling(false);
+      }
     } finally {
       clearTimeout(timeout);
       inputPending.current = false;
-      setInputBusy(false);
+      inputController.current = null;
+      if (alive.current) setInputBusy(false);
     }
   }
 
+  function scroll(dy: number) {
+    if (!frame) return;
+    const point = lastPoint.current ?? {
+      x: (frame.left ?? 0) + Math.floor(frame.width / 2),
+      y: (frame.top ?? 0) + Math.floor(frame.height / 2),
+    };
+    void input({ kind: "scroll", ...point, dy });
+  }
+
   return (
-    <div className="devices-tool">
+    <div className={styles.root}>
       <Alert type="info" showIcon message={t("devices.desktopHint")} />
-      <div className="devices-actions">
+      <div className={styles.actions}>
         <Button
           icon={
             viewing && viewAllowed ? <Square size={16} /> : <Eye size={16} />
@@ -125,6 +184,7 @@ export default function DeviceDesktop({
           onClick={() => {
             setViewing(!viewing);
             setFrame(null);
+            lastPoint.current = null;
             setControlling(false);
           }}
         >
@@ -134,7 +194,7 @@ export default function DeviceDesktop({
               : "devices.startViewing",
           )}
         </Button>
-        <label className="devices-control-toggle">
+        <label className={styles.control}>
           <MousePointer2 size={16} />
           {t("devices.enableInput")}
           <Switch
@@ -144,7 +204,10 @@ export default function DeviceDesktop({
           />
         </label>
       </div>
-      <div className="devices-screen" aria-label={t("devices.desktopScreen")}>
+      <div
+        className={`${styles.screen} devices-screen`}
+        aria-label={t("devices.desktopScreen")}
+      >
         {frame && viewing && viewAllowed ? (
           <img
             src={`data:image/jpeg;base64,${frame.jpeg_b64}`}
@@ -172,7 +235,10 @@ export default function DeviceDesktop({
                 event.currentTarget.getBoundingClientRect(),
                 frame,
               );
-              if (point) void input({ kind: "click", ...point, button });
+              if (point) {
+                lastPoint.current = point;
+                void input({ kind: "click", ...point, button });
+              }
             }}
           />
         ) : (
@@ -185,8 +251,8 @@ export default function DeviceDesktop({
           </span>
         )}
       </div>
-      <p className="devices-muted">{t("devices.touchHint")}</p>
-      <div className="devices-actions">
+      <p className={styles.hint}>{t("devices.touchHint")}</p>
+      <div className={styles.actions}>
         <Select
           aria-label={t("devices.mouseButton")}
           value={button}
@@ -199,19 +265,19 @@ export default function DeviceDesktop({
         <Button
           disabled={!inputEnabled || inputBusy}
           icon={<ArrowUp size={16} />}
-          onClick={() => void input({ kind: "scroll", dy: 3 })}
+          onClick={() => scroll(-120)}
         >
           {t("devices.scrollUp")}
         </Button>
         <Button
           disabled={!inputEnabled || inputBusy}
           icon={<ArrowDown size={16} />}
-          onClick={() => void input({ kind: "scroll", dy: -3 })}
+          onClick={() => scroll(120)}
         >
           {t("devices.scrollDown")}
         </Button>
       </div>
-      <label className="devices-field">
+      <label className={styles.field}>
         <span>{t("devices.typeText")}</span>
         <Input.TextArea
           value={text}
@@ -220,7 +286,7 @@ export default function DeviceDesktop({
           disabled={!inputEnabled}
         />
       </label>
-      <div className="devices-actions">
+      <div className={styles.actions}>
         <Button
           disabled={!inputEnabled || inputBusy || !text}
           loading={inputBusy}

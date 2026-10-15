@@ -13,6 +13,7 @@ import type {
 import type { HitlSessionPolicy } from "../../../api/types/hitl";
 import type { ThreadArtifact } from "../../../api/modules/octopThreads";
 import * as chatStore from "./chatStore";
+import type { WorkMode } from "../utils/workMode";
 import { shouldBlockHistoryRefresh } from "./wsResumeGate";
 import {
   generateId,
@@ -887,6 +888,8 @@ export function useChat(
       conversationMode?: "ask" | "plan" | "craft" | null,
       hitlPolicy?: HitlSessionPolicy | null,
       deviceId?: string | null,
+      workMode?: WorkMode,
+      workingDir?: string,
     ) => {
       const key = storeKey || stableSessionId;
 
@@ -922,6 +925,8 @@ export function useChat(
         conversationMode,
         hitlPolicy,
         deviceId,
+        workMode,
+        workingDir,
       );
     },
     [stableSessionId],

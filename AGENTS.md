@@ -119,6 +119,8 @@ cli/ ──► launch.py ──► api/ + infra/
 | `infra/users/` | Users, roles, password hashing, `UserManager` | `server.py`, `api/routers/auth.py`, `users.py` |
 | `infra/errors.py` | `OctopError`, `ErrorCode` — shared exception types | everywhere in `infra/` and `api/` |
 | `infra/metrics.py` | In-process counters (`METRICS`) | lazy-import inside hot paths |
+| `infra/execution/` | Immutable execution contexts, explicit local/device backends, Job reconciliation, modes and durable request/run inspection (0015) | `api/`, `agents/`, `devices/`, `server.py` |
+| `infra/devices/` | Device transport, versioned owner/restricted policies, native files/transfers, browser/desktop/PTY runtimes and durable process Jobs | `execution/`, `api/routers/devices.py`, device CLI |
 | `infra/server.py` | `OctopServer.start()` — wires infra singletons | `launch.py`, `api/app.py` |
 
 ### `launch.py`
@@ -208,6 +210,8 @@ make build-frontend                     # dashboard/ → src/octop/dashboard/
 
 **Agent workspace I/O:** All reads/writes of agent workspace **content files** go through `HarnessAgent.workspace` (`BackendWorkspace` from `octop-harness`). Do **not** use `agent.backend` directly, `resolve_harness_backend`, or `Path.write_text` / `read_text` on `~/.octop/agents/<id>/` for workspace content. Do **not** branch on backend type or `virtual_mode` in Octop — path rules live in `BackendWorkspace`.
 
+**Native project execution (0015 revision 3):** expert content stays in `agent.agent_store` (`/.agent/` in graph tools); project operations use `agent.project_backend` and a persisted authenticated ExecutionContext. Do not resolve project paths through the expert store or mutate a shared agent target. Empty device IDs never select the host: local execution requires explicit `target_kind=local` and current admin authority. The context's working directory is not an owner-mode sandbox. Device native runtimes intentionally own their capture/PTY worker threads and durable Job processes; controller orchestration stays asynchronous. See `docs/specs/0015-device-execution-and-context-inspection.md`.
+
 New agents additionally keep system-scoped files under `{workspace}/.octop/` (e.g. sessions/sqlite, skills/agents system trees, auth tokens under `.octop/auth`). `system_files_path` is internal and not user-configurable; the `.octop` directory is created on first harness workspace init. Legacy agents keep auth at `{workspace}/.octop-auth`.
 
 | Context | Entry |
@@ -222,7 +226,7 @@ New agents additionally keep system-scoped files under `{workspace}/.octop/` (e.
 
 **Database:** SQLite and PostgreSQL share one schema. Add or change tables via a numbered pair
 `infra/db/migrations/00N_description.sql` **and** `00N_description.pg.sql`, then bump the
-version assertion in `tests/unit/db/test_db_pool.py` (currently `v == 20`). Rebuilds that SQLite
+version assertion in `tests/unit/db/test_db_pool.py` (currently `v == 26`). Rebuilds that SQLite
 cannot express as `ALTER` live in `infra/db/migrate.py` helpers and must stay idempotent.
 
 Unreleased schema work on `develop` **folds into the current unreleased `00N`**, not a new

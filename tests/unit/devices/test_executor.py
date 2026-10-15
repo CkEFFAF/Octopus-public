@@ -566,3 +566,4 @@ async def test_capture_is_not_persisted_and_duplicate_does_not_capture_again(tmp
     with pytest.raises(DeviceExecutionError, match="not retained"):
         await call(executor, "desktop.capture", {}, "capture")
     assert captured == [1]
+    await executor.close()

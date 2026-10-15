@@ -1,13 +1,20 @@
 # Octopus fork releases
 
-Production tags belong to a merged `main` commit. The private Octopus fork uses
+Production tags belong to a merged `main` commit. The Octopus fork uses
 hotfix PRs into `main`; it currently has no `develop` branch. Complete Linux and
 Windows CI before merging, then let `auto-tag-on-release.yml` read the version
 from the merged tree and dispatch release builds.
 
 ## Default artifacts
 
-The private fork creates a GitHub Release containing the Python distribution,
+The public repository is [CkEFFAF/Octopus-public](https://github.com/CkEFFAF/Octopus-public).
+It replaces the private production-source repository for new PRs and releases;
+the original repository is retained. The harness repository was already public.
+Standard hosted runners in this public repository do not consume the private
+repository's included Actions minutes. Artifact/cache storage and optional
+services have separate limits; do not enable paid services implicitly.
+
+The fork creates a GitHub Release containing the Python distribution,
 Windows x64 portable UI/client, Linux x64 portable management UI and Linux x64
 headless device client. Portable dependencies are exported from `uv.lock`.
 Updating the package version does not imply updating the harness dependency.
@@ -18,6 +25,24 @@ variables `OCTOP_PUBLISH_PYPI`, `OCTOP_PUBLISH_DOCKER`, `OCTOP_PUBLISH_FNOS` or
 `OCTOP_SYNC_DEVELOP`, each set to `true`, and configure the required credentials
 and branches. `OCTOP_RELEASE_PLATFORMS` can override the fork's default
 `windows-amd64,linux-amd64` portable matrix.
+
+Fork builds keep CI validation independent of Actions artifact storage quotas.
+Each native package runner builds the dashboard from the same checkout. PRs
+build and smoke-test packages without uploading temporary binaries. On a merged
+version tag, Python distributions and native packages attach directly to the
+same GitHub Release; upstream artifact/PyPI paths remain available. Historical
+`attach_from_run` still supports previously retained artifacts.
+
+CodeQL analysis remains mandatory. A readable finding summary and complete
+gzip/base64 SARIF copies are retained in the job summary, independently of the
+optional artifact copy. Missing or oversized reports fail the retention step
+instead of silently losing results. This does not enable or bypass private
+repository Code Scanning permissions.
+
+The Linux device package now requires glibc 2.28 for its locked native
+dependencies (including greenlet), rather than assuming the PBS interpreter's
+2.17 baseline covers every dependency. Ubuntu 20.04's glibc 2.31 meets that
+baseline; native runtime/CLI/connection checks are still required on target.
 
 Private repositories without Code Security still run CodeQL analysis and retain
 SARIF as an Actions artifact. Set `OCTOP_CODEQL_UPLOAD=true` only after enabling

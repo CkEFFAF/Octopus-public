@@ -30,6 +30,8 @@ jobs:
   build:
     name: Build distributions
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v4
@@ -54,16 +56,30 @@ jobs:
         run: make install
 
       - name: Run tests
-        run: make test
+        # Exercise the native browser against the pinned Playwright runtime,
+        # rather than depending on the hosted image's branded Chrome policy.
+        # Linux needs the system libraries too; no test is skipped on failure.
+        run: |
+          uv run python -m playwright install --with-deps chromium
+          make test
 
       - name: Build package
         run: make build
 
       - name: Upload distributions
+        if: github.repository == 'TencentCloud/Octop' || vars.OCTOP_PUBLISH_PYPI == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist/
+
+      - name: Attach fork distributions directly to merged-tag release
+        if: github.repository != 'TencentCloud/Octop' && vars.OCTOP_PUBLISH_PYPI != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: false
 
   publish:
     name: Publish to PyPI
@@ -73,6 +89,7 @@ jobs:
     environment: pypi
     steps:
       - name: Download distributions
+        if: github.repository == 'TencentCloud/Octop' || vars.OCTOP_PUBLISH_PYPI == 'true'
         uses: actions/download-artifact@v4
         with:
           name: dist
@@ -96,6 +113,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download distributions
+        if: github.repository == 'TencentCloud/Octop' || vars.OCTOP_PUBLISH_PYPI == 'true'
         uses: actions/download-artifact@v4
         with:
           name: dist
@@ -137,7 +155,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body_path: .release-notes.md
-          files: dist/*
+          files: ${{ (github.repository == 'TencentCloud/Octop' || vars.OCTOP_PUBLISH_PYPI == 'true') && 'dist/*' || '' }}
           generate_release_notes: true
 
   # workflow_run / release:published are unreliable when Release itself was

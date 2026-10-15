@@ -41,6 +41,9 @@ jobs:
       - name: Type check
         run: make typecheck
 
+      - name: Install matching browser for native integration tests
+        run: uv run python -m playwright install --with-deps chromium
+
       - name: Test
         run: make test
 
@@ -64,6 +67,9 @@ jobs:
 
       - name: Type check
         run: make typecheck
+
+      - name: Install matching browser for native integration tests
+        run: uv run python -m playwright install chromium
 
       - name: Test
         run: make test

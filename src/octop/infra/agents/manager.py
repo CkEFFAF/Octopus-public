@@ -2692,28 +2692,24 @@ class AgentManager:
 
         key = str(agent._workspace_path)
         binding = self._agent_config_dict(row).get("device_binding")
-        if not binding:
+        if self._device_service is None or row.user_id is None:
             close_acp_service(key)
             return
-        if (
+        if binding is not None and (
             not isinstance(binding, dict)
             or not isinstance(binding.get("device_id"), str)
-            or not isinstance(binding.get("root_id"), str)
-            or self._device_service is None
-            or row.user_id is None
+            or (binding.get("root_id") is not None and not isinstance(binding.get("root_id"), str))
         ):
             raise ValueError("invalid expert device binding")
-        from octop.infra.devices.acp_bridge import RemoteACPService, bind_remote_acp_service
+        from octop.infra.devices.acp_bridge import RequestACPService, bind_remote_acp_service
 
         bind_remote_acp_service(
             key,
-            RemoteACPService(
+            RequestACPService(
                 config=ACPConfig(runners=dict(cfg.acp_runners)),
                 devices=self._device_service,
                 owner=row.user_id,
                 agent_id=row.agent_id,
-                device_id=binding["device_id"],
-                root_id=binding["root_id"],
             ),
         )
 
@@ -3118,7 +3114,86 @@ class AgentManager:
             configurable = dict(req.get("configurable") or {})
             configurable["plugin_tool_configs"] = tool_configs
             req["configurable"] = configurable
-        return apply_agent_runtime_to_stream_request(req, agent_cfg)
+        req = apply_agent_runtime_to_stream_request(req, agent_cfg)
+        request_cfg = dict(req.get("configurable") or {})
+        request_cfg.setdefault("octop_turn_id", new_short_id())
+        request_cfg.setdefault("octop_task_run_id", new_short_id())
+        request_cfg["conversation_mode_extra_read_tools"] = ["job_status", "job_logs", "work_step"]
+        requested_mode = (
+            req.get("conversation_mode")
+            if req.get("conversation_mode") in {"ask", "plan"}
+            else request_cfg.get("work_mode")
+        )
+        if requested_mode in {"ask", "plan"}:
+            req["conversation_mode"] = requested_mode
+            request_cfg["conversation_mode"] = requested_mode
+        req["configurable"] = request_cfg
+        if self._device_service is not None:
+            from octop.infra.execution.service import ExecutionService
+
+            cfg = dict(req.get("configurable") or {})
+            supplied = cfg.get("octop_execution_context")
+            owner = int(req.get("user") or cfg.get("user") or 0)
+            executions = ExecutionService(self._device_service)
+            if isinstance(supplied, dict):
+                context = executions.for_run(
+                    owner,
+                    str(supplied.get("context_id") or ""),
+                    agent_id=agent_id,
+                    thread_id=str(req.get("thread_id") or "") or None,
+                    run_id=str(cfg["octop_task_run_id"]),
+                    observe_mode=str(requested_mode) if requested_mode else None,
+                )
+            else:
+                selected = cfg.get("octop_device_target") or {}
+                binding = agent_cfg.get("device_binding") or {}
+                thread_id = str(req.get("thread_id") or "") or None
+                saved = executions.selection(owner, thread_id) if thread_id else {}
+                cfg["work_mode"] = requested_mode or saved.get("work_mode") or "agentic"
+                if cfg["work_mode"] in {"ask", "plan"}:
+                    req["conversation_mode"] = cfg["work_mode"]
+                    cfg["conversation_mode"] = cfg["work_mode"]
+                req["configurable"] = cfg
+                if not (
+                    executions.has_target(selected)
+                    or executions.has_target(saved)
+                    or executions.has_target(binding)
+                    or executions.has_target(executions.default_target(owner))
+                ):
+                    return req
+                context = executions.resolve(
+                    owner,
+                    agent_id=agent_id,
+                    thread_id=thread_id,
+                    device_id=selected.get("device_id"),
+                    target_kind=selected.get("target_kind"),
+                    binding=binding,
+                    working_dir=selected.get("working_dir"),
+                    work_mode=(
+                        req.get("conversation_mode")
+                        if req.get("conversation_mode") in {"ask", "plan"}
+                        else cfg.get("work_mode")
+                    ),
+                    run_id=cfg.get("octop_task_run_id"),
+                )
+                context = executions.for_run(
+                    owner,
+                    context.context_id,
+                    agent_id=agent_id,
+                    thread_id=thread_id,
+                    run_id=str(cfg["octop_task_run_id"]),
+                )
+            cfg["work_mode"] = context.work_mode
+            if context.work_mode in {"ask", "plan"}:
+                req["conversation_mode"] = context.work_mode
+                cfg["conversation_mode"] = context.work_mode
+            cfg["octop_execution_context"] = context.public()
+            cfg["octop_device_target"] = {
+                "device_id": context.device_id,
+                "grant_version": context.grant_version,
+            }
+            req["configurable"] = cfg
+        return req
 
     def _build_harness_config(self, row: AgentRow) -> HarnessAgentConfig:
         """Convert an AgentRow into a HarnessAgentConfig."""
@@ -3185,7 +3260,12 @@ class AgentManager:
             else None
         )
         device_tools = (
-            build_device_tools(self._device_service, row.agent_id, bound_device_id)
+            build_device_tools(
+                self._device_service,
+                row.agent_id,
+                bound_device_id,
+                device_binding.get("root_id") if isinstance(device_binding, dict) else None,
+            )
             if self._device_service is not None and not team_host
             else []
         )
@@ -3286,13 +3366,17 @@ class AgentManager:
 
         from octop.infra.agents.middleware.binary_read_guard import BinaryReadGuardMiddleware
         from octop.infra.agents.middleware.browser_profile import BrowserProfileMiddleware
+        from octop.infra.agents.middleware.device_target import DeviceTargetMiddleware
         from octop.infra.agents.middleware.octop_ui_offload import OctopUiOffloadMiddleware
         from octop.infra.agents.middleware.reasoning import ReasoningRequestMiddleware
         from octop.infra.agents.middleware.thread_artifacts import ThreadArtifactsMiddleware
         from octop.infra.agents.middleware.token_quota import TokenQuotaMiddleware
+        from octop.infra.agents.middleware.work_mode import WorkModeMiddleware
         from octop.infra.agents.middleware.workspace_image import (
             WorkspaceImageMaterializeMiddleware,
         )
+        from octop.infra.execution.service import ExecutionService
+        from octop.infra.execution.work_mode import WorkModeService, build_work_mode_tools
         from octop.infra.knowledge.hint import KnowledgeSearchHintMiddleware
 
         # FilesystemGuard + ModelSettings live in octop-harness (auto-mounted).
@@ -3309,8 +3393,20 @@ class AgentManager:
                 usage_repo=self._repos.usage_repo,
             ),
             ReasoningRequestMiddleware(),
+            WorkModeMiddleware(WorkModeService(self._repos), row.agent_id),
+            DeviceTargetMiddleware(
+                self._device_service,
+                bound_device_id,
+                device_binding.get("root_id") if isinstance(device_binding, dict) else None,
+                routed_backend="execution_backend" in HarnessAgentConfig.__dataclass_fields__,
+            ),
             KnowledgeSearchHintMiddleware(),
-            BrowserProfileMiddleware(),
+            BrowserProfileMiddleware(
+                ExecutionService(self._device_service)
+                if self._device_service is not None
+                else None,
+                row.agent_id,
+            ),
             BinaryReadGuardMiddleware(),
             WorkspaceImageMaterializeMiddleware(workspace=ws),
             ThreadArtifactsMiddleware(
@@ -3321,7 +3417,24 @@ class AgentManager:
             OctopUiOffloadMiddleware(),
         ]
 
-        merged_tools: list[Any] = [*board_tools, *device_tools]
+        merged_tools: list[Any] = [
+            *board_tools,
+            *device_tools,
+            *build_work_mode_tools(WorkModeService(self._repos), row.agent_id),
+        ]
+        if (
+            self._device_service is not None
+            and "execution_backend" in HarnessAgentConfig.__dataclass_fields__
+        ):
+            from octop.infra.execution.backend import RequestExecutionBackend
+            from octop.infra.execution.job_tools import build_job_tools
+            from octop.infra.execution.service import ExecutionService
+
+            merged_tools.extend(
+                build_job_tools(
+                    RequestExecutionBackend(ExecutionService(self._device_service), row.agent_id)
+                )
+            )
         if team_host:
             from octop.infra.agents.teams.attachments import build_room_attachment_tool
             from octop.infra.utils.locale import resolve_user_locale
@@ -3518,10 +3631,39 @@ class AgentManager:
                     *(applied.middleware or []),
                 ],
             )
-        return replace(
-            applied,
-            tool_guard_rules_dir=str(self._tool_guard_rules.rules_dir),
-        )
+        applied = replace(applied, tool_guard_rules_dir=str(self._tool_guard_rules.rules_dir))
+        if "run_event_sink" in HarnessAgentConfig.__dataclass_fields__:
+            from octop.infra.execution.events import RunInspectionService
+
+            applied = replace(
+                applied,
+                run_event_sink=lambda event: RunInspectionService(self._repos).tool_receipt(
+                    row.agent_id, {**event, "owner_user_id": row.user_id}
+                ),
+            )
+        if "request_snapshot_sink" in HarnessAgentConfig.__dataclass_fields__:
+            from octop.infra.execution.inspection import RequestInspectionService
+
+            applied = replace(
+                applied,
+                request_snapshot_sink=lambda snapshot: RequestInspectionService(self._repos).record(
+                    row.agent_id, snapshot
+                ),
+            )
+        if (
+            self._device_service is not None
+            and "execution_backend" in HarnessAgentConfig.__dataclass_fields__
+        ):
+            from octop.infra.execution.backend import RequestExecutionBackend
+            from octop.infra.execution.service import ExecutionService
+
+            applied = replace(
+                applied,
+                execution_backend=RequestExecutionBackend(
+                    ExecutionService(self._device_service), row.agent_id
+                ),
+            )
+        return applied
 
     def _install_team_host_dispatch(self) -> None:
         """Team hosts always enqueue inbox work, even on harness 1.0.8 (default sync)."""

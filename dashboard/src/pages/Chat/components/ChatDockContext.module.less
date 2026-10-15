@@ -1,0 +1,253 @@
+.panel {
+  overflow: auto;
+  min-width: 0;
+  width: 100%;
+  padding: 22px;
+  color: var(--text-primary);
+  header {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  h2 {
+    font-size: 18px;
+    margin: 0 0 6px;
+  }
+  h3 {
+    font-size: 14px;
+    margin: 0 0 14px;
+  }
+  p {
+    color: var(--text-tertiary);
+    font-size: 12px;
+    line-height: 1.6;
+    margin: 8px 0 0;
+  }
+  section {
+    border: 1px solid var(--border-primary, #e5e7eb);
+    border-radius: 12px;
+    padding: 18px;
+    margin-top: 14px;
+  }
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  > div {
+    border: 1px solid var(--border-primary, #e5e7eb);
+    padding: 14px;
+    border-radius: 10px;
+  }
+  span {
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+  strong {
+    display: block;
+    font-size: 22px;
+    margin-top: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+}
+.occupancy {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  strong {
+    font-size: 25px;
+  }
+  small {
+    color: var(--text-tertiary);
+    font-size: 13px;
+    font-weight: 400;
+  }
+  b {
+    font-size: 14px;
+  }
+}
+.bar {
+  display: flex;
+  height: 14px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--bg-secondary, #f2f3f5);
+  i {
+    flex-shrink: 0;
+  }
+}
+.legend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 20px;
+  margin-top: 16px;
+  > div {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    font-size: 11px;
+  }
+  i {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  span {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  b {
+    font-weight: 500;
+  }
+}
+.trend {
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  height: 130px;
+  gap: 5px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-primary, #e5e7eb);
+  button {
+    position: relative;
+    display: flex;
+    justify-content: end;
+    align-items: center;
+    flex-direction: column;
+    width: 28px;
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+  }
+  i {
+    display: block;
+    width: 18px;
+    background: #16ae9a;
+    border-radius: 3px 3px 0 0;
+    opacity: 0.8;
+  }
+  small {
+    font-size: 9px;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+  }
+  .selected i {
+    outline: 2px solid #7164e8;
+    opacity: 1;
+  }
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+  overflow: auto;
+  > :nth-child(2) {
+    max-width: 260px;
+  }
+}
+.browser {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.requestHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 0 14px;
+  h3 {
+    margin: 0;
+  }
+  :global(.ant-select) {
+    min-width: 0;
+    flex: 1;
+    max-width: 340px;
+  }
+}
+.componentDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.event {
+  border: 1px solid var(--border-primary, #e5e7eb);
+  border-radius: 8px;
+  overflow: hidden;
+  summary {
+    display: flex;
+    cursor: pointer;
+    align-items: center;
+    gap: 8px;
+    padding: 11px;
+    font-size: 12px;
+  }
+  summary::before {
+    content: "›";
+    color: var(--text-tertiary);
+  }
+  &[open] summary::before {
+    content: "⌄";
+  }
+  span {
+    color: var(--text-tertiary);
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+  b {
+    flex: 1;
+    font-weight: 500;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  small {
+    color: var(--text-tertiary);
+  }
+  pre {
+    font-size: 11px;
+    margin: 0;
+    max-height: 420px;
+    overflow: auto;
+    padding: 14px;
+    background: var(--bg-secondary, #f6f7f8);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+@media (max-width: 640px) {
+  .panel {
+    padding: 14px;
+  }
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.receiptFields {
+  display: grid;
+  gap: 8px;
+  div {
+    display: grid;
+    grid-template-columns: 100px minmax(0, 1fr);
+    gap: 12px;
+  }
+  dt {
+    color: var(--fn-color-text-secondary);
+  }
+  dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+}

@@ -11,6 +11,7 @@ from octop.infra.utils.locale import Locale, normalize_locale
 
 
 class ErrorCode(StrEnum):
+    WORKFLOW_CONFLICT = "WORKFLOW_CONFLICT"
     DEVICE_INVALID = "DEVICE_INVALID"
     DEVICE_OFFLINE = "DEVICE_OFFLINE"
     TASK_BOARD_INVALID = "TASK_BOARD_INVALID"
@@ -146,6 +147,7 @@ class ErrorCode(StrEnum):
 
 
 _DEFAULT_STATUS: dict[ErrorCode, int] = {
+    ErrorCode.WORKFLOW_CONFLICT: 409,
     ErrorCode.DEVICE_INVALID: 400,
     ErrorCode.DEVICE_OFFLINE: 503,
     ErrorCode.TASK_BOARD_INVALID: 400,

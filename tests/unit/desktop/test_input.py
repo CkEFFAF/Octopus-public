@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from octop.infra.desktop.input import InputInjector
 
 
@@ -54,3 +56,11 @@ def test_virtual_display_does_not_init_pynput_on_click(monkeypatch) -> None:
 
     inj.click(1, 2)
     controllers.assert_not_called()
+
+
+def test_failed_native_input_is_not_reported_as_success(monkeypatch) -> None:
+    _force_linux(monkeypatch)
+    monkeypatch.setattr("octop.infra.desktop.input.shutil.which", lambda name: "/usr/bin/xdotool")
+    monkeypatch.setattr("octop.infra.desktop.input._run_xdotool", lambda *_a: False)
+    with pytest.raises(OSError, match="xdotool failed"):
+        InputInjector(display=":99").click(1, 2)

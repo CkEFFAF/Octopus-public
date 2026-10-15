@@ -34,10 +34,16 @@ jobs:
         with:
           output: codeql-results
           # Private forks without Code Security still run the analysis and
-          # retain SARIF. Uploading to Code Scanning requires explicit opt-in.
+          # retain SARIF in the job summary. Code Scanning requires opt-in.
           upload: ${{ (!github.event.repository.private || vars.OCTOP_CODEQL_UPLOAD == 'true') && 'always' || 'never' }}
 
-      - name: Retain CodeQL results
+      - name: Retain complete CodeQL report in job summary
+        run: python3 scripts/retain_codeql_summary.py
+
+      - name: Retain optional CodeQL artifact copy
+        # Summary retention above is mandatory; an additional artifact copy
+        # must not turn a successful analysis red when storage is exhausted.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: codeql-results

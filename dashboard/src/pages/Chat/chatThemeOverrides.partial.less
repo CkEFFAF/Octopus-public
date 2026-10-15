@@ -713,6 +713,59 @@
   font-size: 12px;
 }
 
+.deviceTargetButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  height: 30px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 7px;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  svg {
+    flex-shrink: 0;
+  }
+  &:hover {
+    background: var(--bg-tertiary, #f3f4f6);
+    color: var(--text-primary);
+  }
+}
+.deviceTargetSummary {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-tertiary);
+}
+.deviceTargetDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 16px 0;
+}
+.deviceTargetRoot {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border: 1px solid var(--border-primary, #e5e7eb);
+  border-radius: 10px;
+  padding: 12px;
+  code {
+    overflow-wrap: anywhere;
+    font-size: 12px;
+  }
+  small {
+    color: var(--text-tertiary);
+  }
+}
+
 .deviceTargetPicker {
   flex: 1 1 190px;
   min-width: 0;

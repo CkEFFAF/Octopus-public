@@ -22,12 +22,20 @@ import signal
 import stat
 import subprocess
 import tempfile
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from octop.infra.devices.acp_process import DeviceACPProcesses
+from octop.infra.devices.process_scope import ProcessScopeError, WindowsJob
+
+if TYPE_CHECKING:
+    from octop.infra.devices.browser import DeviceBrowsers
+    from octop.infra.devices.desktop import DeviceDesktop
+    from octop.infra.devices.terminal import DeviceTerminals
+    from octop.infra.devices.transfers import NativeTransfers
 
 CHUNK_SIZE = 1024 * 1024
 JOURNAL_LIMIT = 512
@@ -225,6 +233,8 @@ def private_state_dir(path: Path) -> Path:
 
 
 def save_private_json(path: Path, data: dict[str, Any]) -> None:
+    from octop.infra.devices.state_io import retry_file_lock
+
     _reject_links(path)
     fd, temporary = tempfile.mkstemp(prefix=".state-", dir=path.parent)
     try:
@@ -234,7 +244,7 @@ def save_private_json(path: Path, data: dict[str, Any]) -> None:
             os.fsync(stream.fileno())
         if os.name != "nt":
             os.chmod(temporary, 0o600)
-        os.replace(temporary, path)
+        retry_file_lock(lambda: os.replace(temporary, path))
     finally:
         with contextlib.suppress(FileNotFoundError):
             os.unlink(temporary)
@@ -250,82 +260,6 @@ class _Upload:
     offset: int = 0
 
 
-class _WindowsJob:
-    """Contain a suspended child and kill its descendants when the job closes."""
-
-    def __init__(self, pid: int) -> None:
-        from ctypes import wintypes
-
-        class BasicLimits(ctypes.Structure):
-            _fields_ = [
-                ("per_process", ctypes.c_int64),
-                ("per_job", ctypes.c_int64),
-                ("flags", wintypes.DWORD),
-                ("minimum", ctypes.c_size_t),
-                ("maximum", ctypes.c_size_t),
-                ("active", wintypes.DWORD),
-                ("affinity", ctypes.c_size_t),
-                ("priority", wintypes.DWORD),
-                ("scheduling", wintypes.DWORD),
-            ]
-
-        class ExtendedLimits(ctypes.Structure):
-            _fields_ = [
-                ("basic", BasicLimits),
-                ("io", ctypes.c_uint64 * 6),
-                ("process_memory", ctypes.c_size_t),
-                ("job_memory", ctypes.c_size_t),
-                ("peak_process", ctypes.c_size_t),
-                ("peak_job", ctypes.c_size_t),
-            ]
-
-        self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined, unused-ignore]
-        self.kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
-        self.kernel.CreateJobObjectW.restype = wintypes.HANDLE
-        self.kernel.SetInformationJobObject.argtypes = [
-            wintypes.HANDLE,
-            ctypes.c_int,
-            ctypes.c_void_p,
-            wintypes.DWORD,
-        ]
-        self.kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-        self.kernel.OpenProcess.restype = wintypes.HANDLE
-        self.kernel.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
-        self.kernel.CloseHandle.argtypes = [wintypes.HANDLE]
-        self.handle = self.kernel.CreateJobObjectW(None, None)
-        if not self.handle:
-            raise DeviceExecutionError("cannot contain command process")
-        limits = ExtendedLimits()
-        limits.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-        process = None
-        try:
-            if not self.kernel.SetInformationJobObject(
-                self.handle, 9, ctypes.byref(limits), ctypes.sizeof(limits)
-            ):
-                raise DeviceExecutionError("cannot contain command process")
-            process = self.kernel.OpenProcess(0x0100 | 0x0001 | 0x0800, False, pid)
-            if not process or not self.kernel.AssignProcessToJobObject(self.handle, process):
-                raise DeviceExecutionError("cannot contain command process")
-            # asyncio exposes the process but not its primary thread handle.
-            # Resume only after assigning the still-suspended process to its job.
-            ntdll = ctypes.WinDLL("ntdll")  # type: ignore[attr-defined, unused-ignore]
-            ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
-            ntdll.NtResumeProcess.restype = ctypes.c_long
-            if ntdll.NtResumeProcess(process) != 0:
-                raise DeviceExecutionError("cannot start contained command")
-        except BaseException:
-            self.close()
-            raise
-        finally:
-            if process:
-                self.kernel.CloseHandle(process)
-
-    def close(self) -> None:
-        if self.handle:
-            self.kernel.CloseHandle(self.handle)
-            self.handle = None
-
-
 class DeviceExecutor:
     def __init__(
         self,
@@ -337,9 +271,12 @@ class DeviceExecutor:
         control_enabled: bool = False,
         command_enabled: bool = False,
         acp_enabled: bool = False,
+        trust_mode: str = "restricted",
+        working_dir: str | None = None,
     ) -> None:
-        if not set(permissions) <= CAPABILITIES:
+        if trust_mode not in {"owner", "restricted"} or not set(permissions) <= CAPABILITIES:
             raise DeviceExecutionError("invalid local permissions")
+        self._policy_lock = threading.RLock()
         self.local_permissions = set(permissions)
         self.local_permissions -= {"desktop_view", "desktop_control", "command_exec", "acp_run"}
         if desktop_enabled:
@@ -356,8 +293,9 @@ class DeviceExecutor:
             if not root_id or root_id in self.local_roots:
                 raise DeviceExecutionError("invalid shared root")
             path = Path(root["path"]).absolute()
-            _reject_links(path)
-            if not path.is_dir():
+            if trust_mode != "owner":
+                _reject_links(path)
+            if trust_mode != "owner" and not path.is_dir():
                 raise DeviceExecutionError("shared root must be an existing directory")
             self.local_roots[root_id] = {
                 "id": root_id,
@@ -369,12 +307,40 @@ class DeviceExecutor:
         self.permissions = set(self.local_permissions)
         self.roots = dict(self.local_roots)
         self.grant_version = 0
+        self.trust_mode = "restricted"
+        self.working_dir = Path(
+            working_dir or (roots[0]["path"] if roots else Path.home())
+        ).resolve()
+        if trust_mode == "owner":
+            # A saved default directory may have been renamed while offline.
+            # Identity and connectivity must survive so policy can be repaired.
+            self.trust_mode = trust_mode
+            self.local_permissions = set(permissions) & set(self.capabilities)
+            self.permissions = set(self.local_permissions)
         self._uploads: dict[str, _Upload] = {}
         self._active: dict[str, asyncio.Task[Any]] = {}
-        self._capture: Any = None
-        self._injector: Any = None
+        self._desktop: DeviceDesktop | None = None
         self._acp: DeviceACPProcesses | None = None
+        self._terminals: DeviceTerminals | None = None
+        self._browsers: DeviceBrowsers | None = None
+        self._transfers: NativeTransfers | None = None
+        self._transfer_reaper: asyncio.Task[None] | None = None
         self.state_dir = private_state_dir(state_dir) if state_dir is not None else None
+        from octop.infra.devices.jobs import JobSupervisor
+
+        self._job_supervisor = JobSupervisor(self.state_dir / "jobs") if self.state_dir else None
+        self._private_paths: list[Path] = []
+        if self.state_dir is not None:
+            state_root = self.state_dir
+            if state_root.parent.name == "controllers":
+                state_root = state_root.parent.parent
+            self._private_paths.append(state_root.resolve())
+        # Remote file writes must not replace the running consent implementation.
+        package_root = Path(__file__).resolve().parents[2]
+        runtime_root = package_root.parent
+        if runtime_root.name == "packages" and (runtime_root.parent / "launch.py").is_file():
+            runtime_root = runtime_root.parent
+        self._private_paths.append(runtime_root)
         self._journal: dict[str, Any] = {}
         if self.state_dir is not None:
             journal = self.state_dir / "operations.json"
@@ -440,6 +406,47 @@ class DeviceExecutor:
             for root in self.local_roots.values()
         ]
 
+    def apply_policy(
+        self, trust_mode: str, permissions: list[str], working_dir: str | None
+    ) -> None:
+        if trust_mode not in {"owner", "restricted"} or not set(permissions) <= CAPABILITIES:
+            raise DeviceExecutionError("invalid device policy")
+        directory = Path(working_dir).expanduser() if working_dir else self.working_dir
+        if not directory.is_absolute() or not directory.is_dir():
+            raise DeviceExecutionError("working directory must be an existing absolute directory")
+        with self._policy_lock:
+            if self._job_supervisor is not None and (
+                trust_mode != "owner" or "command_exec" not in permissions
+            ):
+                self._job_supervisor.cancel_active()
+            self.working_dir = directory.resolve()
+            self.trust_mode = trust_mode
+            self.local_permissions = set(permissions) & set(self.capabilities)
+            self.permissions = set(self.local_permissions)
+
+    def command_directory(self, params: dict[str, Any]) -> Path:
+        root = self.roots.get(str(params.get("root_id", "")))
+        if self.trust_mode == "owner":
+            raw = params.get("cwd") or (root["path"] if root is not None else str(self.working_dir))
+            if not isinstance(raw, str):
+                raise DeviceExecutionError("invalid command working directory")
+            path = Path(raw).expanduser()
+            if not path.is_absolute():
+                path = self.working_dir / path
+            if not path.is_dir():
+                raise DeviceExecutionError("command working directory unavailable")
+            return path.resolve()
+        if root is None:
+            raise DeviceExecutionError("command root unavailable")
+        path = Path(root["path"])
+        _reject_links(path)
+        return path
+
+    def stop_jobs(self) -> None:
+        """Request cancellation after explicit revocation, not socket closure."""
+        if self._job_supervisor is not None:
+            self._job_supervisor.cancel_active()
+
     def update_grants(
         self, grant_version: int, permissions: list[str], roots: list[dict[str, Any]]
     ) -> None:
@@ -461,23 +468,46 @@ class DeviceExecutor:
                 "read": local["read"] and bool(remote.get("read")),
                 "write": local["write"] and bool(remote.get("write")),
             }
-        self.grant_version = grant_version
-        # 0005: remote grants may expand up to capabilities; grow local consent accordingly.
-        self.local_permissions |= incoming
-        self.permissions = incoming
-        self.roots = effective
+        with self._policy_lock:
+            if "command_exec" in self.permissions and "command_exec" not in incoming:
+                self.stop_jobs()
+            self.grant_version = grant_version
+            # 0005: remote grants may expand up to capabilities; grow local consent accordingly.
+            self.local_permissions |= incoming
+            self.permissions = incoming
+            self.roots = effective
 
-    def apply_grant_proposal(self, permissions: list[str], roots: list[dict[str, Any]]) -> None:
+    def apply_grant_proposal(
+        self, permissions: list[str], roots: list[dict[str, Any]], *, allow_new_roots: bool = False
+    ) -> None:
         """Local confirm path: accept desired grants within capabilities."""
         caps = set(self.capabilities)
         if not set(permissions) <= caps:
             raise DeviceExecutionError("unsupported grant proposal capability")
+        approved = {}
         for remote in roots:
             local = self.local_roots.get(str(remote.get("id", "")))
-            if local is None:
+            if local is None and not allow_new_roots:
                 raise DeviceExecutionError("ROOT_NOT_ALLOWED")
-            if os.path.normcase(str(remote.get("path"))) != os.path.normcase(local["path"]):
+            if (
+                not allow_new_roots
+                and local is not None
+                and os.path.normcase(str(remote.get("path"))) != os.path.normcase(local["path"])
+            ):
                 raise DeviceExecutionError("ROOT_MKDIR_FORBIDDEN")
+            if allow_new_roots:
+                path = Path(remote["path"])
+                if not path.is_absolute():
+                    raise DeviceExecutionError("shared root must be absolute")
+                _reject_links(path)
+                if not path.is_dir():
+                    raise DeviceExecutionError("shared root must be an existing directory")
+                if self._is_private(path):
+                    raise DeviceExecutionError(
+                        "device credentials, approvals and runtime are private"
+                    )
+                approved[remote["id"]] = {**remote, "path": str(path)}
+        self.local_roots.update(approved)
         self.local_permissions |= set(permissions) & caps
 
     def _authorize(self, action: str, grant_version: int, permissions: list[str]) -> None:
@@ -488,6 +518,15 @@ class DeviceExecutor:
             required = set()
         elif action in {"files.list", "files.stat", "files.read"}:
             required = {"files_read"}
+        elif action.startswith(("fs.", "git.")):
+            if self.trust_mode != "owner":
+                raise DeviceExecutionError("native filesystem requires device trust")
+            required = {
+                "files_read"
+                if action in {"fs.list", "fs.stat", "fs.read", "fs.glob", "fs.grep", "git.snapshot"}
+                or action.startswith("fs.download.")
+                else "files_write"
+            }
         elif action.startswith("files.write_"):
             required = {"files_write"}
         elif action == "desktop.capture":
@@ -496,6 +535,24 @@ class DeviceExecutor:
             required = {"desktop_view", "desktop_control"}
         elif action == "command.run":
             required = {"command_exec"}
+        elif action.startswith("jobs."):
+            if self.trust_mode != "owner" or self._job_supervisor is None:
+                raise DeviceExecutionError("Jobs require a trusted device with durable storage")
+            required = {"command_exec" if action in {"jobs.start", "jobs.cancel"} else "files_read"}
+        elif action.startswith("terminal."):
+            if self.trust_mode != "owner":
+                raise DeviceExecutionError("native terminal requires device trust")
+            required = {"command_exec"}
+        elif action.startswith("browser."):
+            if self.trust_mode != "owner" or self.state_dir is None:
+                raise DeviceExecutionError(
+                    "device browser requires device trust and private storage"
+                )
+            required = {"command_exec"}
+        elif action in {"capabilities.discover", "capabilities.skill.inspect"}:
+            if self.trust_mode != "owner":
+                raise DeviceExecutionError("device capability discovery requires device trust")
+            required = {"files_read"}
         elif action.startswith("acp."):
             required = {"acp_run"}
         else:
@@ -525,7 +582,13 @@ class DeviceExecutor:
         _reject_links(path)
         if not path.resolve().is_relative_to(base.resolve()):
             raise DeviceExecutionError("path must stay inside the shared root")
+        if self._is_private(path):
+            raise DeviceExecutionError("device credentials, approvals and runtime are private")
         return path
+
+    def _is_private(self, path: Path) -> bool:
+        resolved = path.resolve()
+        return any(resolved.is_relative_to(private) for private in self._private_paths)
 
     def _persist(self) -> None:
         # Older journals may contain output that fit the raw read budget but
@@ -615,7 +678,7 @@ class DeviceExecutor:
         self._authorize(action, grant_version, permissions)
         # ACP stdio is an ephemeral stream. Neither prompts nor output belong
         # in the durable operation journal or reconnect reconciliation.
-        if action.startswith("acp."):
+        if action.startswith(("acp.", "terminal.", "browser.")):
             try:
                 return await self._execute(action, params)
             except ValueError as exc:
@@ -642,6 +705,8 @@ class DeviceExecutor:
             return dict(existing["result"])
         current = asyncio.current_task()
         assert current is not None
+        if action == "jobs.start":
+            params = {**params, "idempotency_key": params.get("idempotency_key") or operation_id}
         self._active[operation_id] = current
         self._journal[operation_id] = {
             "fingerprint": fingerprint,
@@ -655,6 +720,28 @@ class DeviceExecutor:
         try:
             result = await self._execute(action, params)
             receipt = result
+            if action in {
+                "files.read",
+                "fs.read",
+                "fs.grep",
+                "jobs.logs",
+                "git.snapshot",
+                "fs.download.chunk",
+            }:
+                receipt = {
+                    key: result[key]
+                    for key in (
+                        "path",
+                        "size",
+                        "offset",
+                        "next_offset",
+                        "job_id",
+                        "status",
+                        "truncated",
+                    )
+                    if key in result
+                }
+                self._journal[operation_id]["result_retained"] = False
             if action == "desktop.capture":
                 receipt = {"captured": True, "width": result["width"], "height": result["height"]}
                 self._journal[operation_id]["result_retained"] = False
@@ -806,18 +893,167 @@ class DeviceExecutor:
             self._persist_uploads()
 
     async def _execute(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
+        if action.startswith("browser."):
+            from octop.infra.devices.browser import DeviceBrowsers
+
+            if self._browsers is None:
+                assert self.state_dir is not None
+                self._browsers = DeviceBrowsers(self.state_dir / "browser")
+            try:
+                return await self._browsers.call(action, params)
+            except Exception as exc:
+                raise DeviceExecutionError(str(exc)[:1000]) from exc
+        if action in {"capabilities.discover", "capabilities.skill.inspect"}:
+            from octop.infra.devices.capabilities import discover, inspect_skill
+
+            if action == "capabilities.discover":
+                return await asyncio.to_thread(discover)
+            return await asyncio.to_thread(
+                inspect_skill,
+                str(params.get("source") or ""),
+                str(params.get("slug") or ""),
+                str(params.get("digest") or ""),
+            )
+        if action.startswith("terminal."):
+            from octop.infra.devices.terminal import DeviceTerminals
+
+            if self._terminals is None:
+                self._terminals = DeviceTerminals()
+            directory = (
+                self.command_directory(params) if action == "terminal.open" else self.working_dir
+            )
+            return await self._terminals.call(action, params, directory)
+        if action.startswith("jobs."):
+            supervisor = self._job_supervisor
+            if supervisor is None:
+                raise DeviceExecutionError("Job storage unavailable")
+            version, permissions = self.grant_version, list(self.permissions)
+
+            def run_job_operation() -> dict[str, Any]:
+                if action == "jobs.start":
+                    # Freeze authorization and launch under the same policy lock.
+                    with self._policy_lock:
+                        self._authorize(action, version, permissions)
+                        return supervisor.start(params, self.command_directory(params))
+                if action == "jobs.list":
+                    return supervisor.list(params.get("offset", 0), params.get("limit", 200))
+                job_id = str(params.get("job_id") or "")
+                if action == "jobs.status":
+                    return supervisor.status(job_id)
+                if action == "jobs.logs":
+                    return supervisor.logs(
+                        job_id, params.get("offset", 0), params.get("length", 65536)
+                    )
+                if action == "jobs.cancel":
+                    return supervisor.cancel(job_id)
+                raise DeviceExecutionError("unsupported Job action")
+
+            worker = asyncio.create_task(asyncio.to_thread(run_job_operation))
+            try:
+                return await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                # Cancellation of the transport cannot mislabel an accepted Job
+                # or implicitly terminate it. Preserve its real launch receipt.
+                while not worker.done():
+                    try:
+                        await asyncio.shield(worker)
+                    except asyncio.CancelledError:
+                        continue
+                return worker.result()
+            except (OSError, ValueError) as exc:
+                raise DeviceExecutionError(str(exc)) from exc
+        if action.startswith(("fs.", "git.")):
+            from octop.infra.devices.filesystem import NativeFileSystem
+
+            if action.startswith(("fs.upload.", "fs.download.")) and self._transfers is None:
+                from octop.infra.devices.transfers import NativeTransfers
+
+                if self.state_dir is None:
+                    raise DeviceExecutionError("native transfers require private runtime storage")
+                self._transfers = NativeTransfers(self.state_dir)
+                self._transfer_reaper = asyncio.create_task(self._reap_transfers())
+
+            cancelled = threading.Event()
+            version, permissions = self.grant_version, list(self.permissions)
+
+            @contextlib.contextmanager
+            def commit() -> Any:
+                with self._policy_lock:
+                    if cancelled.is_set():
+                        raise DeviceExecutionError("operation cancelled before file commit")
+                    self._authorize(action, version, permissions)
+                    yield
+
+            raw = params.get("cwd") or str(self.working_dir)
+            if not isinstance(raw, str) or "\x00" in raw:
+                raise DeviceExecutionError("invalid filesystem working directory")
+            directory = Path(raw).expanduser()
+            if not directory.is_absolute():
+                directory = self.working_dir / directory
+
+            def native_operation() -> dict[str, Any]:
+                if action.startswith(("fs.upload.", "fs.download.")):
+                    assert self._transfers is not None
+                    return self._transfers.execute(action, params, directory, commit)
+                if action.startswith("git."):
+                    from octop.infra.utils.git_workbench import git_snapshot, restore_file
+
+                    repository = str(params.get("repository") or ".")
+                    if action == "git.snapshot":
+                        return git_snapshot(directory, repository, native=True)
+                    if action == "git.restore" and self.state_dir:
+                        backup = restore_file(
+                            directory,
+                            repository,
+                            str(params.get("path") or ""),
+                            str(params.get("expected_hash") or ""),
+                            self.state_dir / "recovery",
+                            native=True,
+                            commit=commit,
+                        )
+                        return {"recovery_copy": backup}
+                    raise DeviceExecutionError(
+                        "unsupported Git action or recovery storage unavailable"
+                    )
+                return NativeFileSystem(directory, commit=commit).execute(action, params)
+
+            worker = asyncio.create_task(asyncio.to_thread(native_operation))
+            try:
+                try:
+                    return await asyncio.shield(worker)
+                except asyncio.CancelledError:
+                    cancelled.set()
+                    # Threads cannot be killed. Wait for their actual outcome:
+                    # a completed commit is completed, never a cancelled receipt.
+                    while not worker.done():
+                        try:
+                            await asyncio.shield(worker)
+                        except asyncio.CancelledError:
+                            continue
+                        except DeviceExecutionError:
+                            break
+                    try:
+                        return worker.result()
+                    except DeviceExecutionError as exc:
+                        if "cancelled before file commit" in str(exc):
+                            raise asyncio.CancelledError from exc
+                        raise
+            except (OSError, ValueError, KeyError) as exc:
+                raise DeviceExecutionError(str(exc)) from exc
         if action.startswith("acp."):
             if self._acp is None:
                 self._acp = DeviceACPProcesses()
             session_id = str(params.get("session_id", ""))
             if action == "acp.open":
                 root = self.roots.get(str(params.get("root_id", "")))
-                if root is None or not root["read"] or not root["write"]:
+                if self.trust_mode != "owner" and (
+                    root is None or not root["read"] or not root["write"]
+                ):
                     raise DeviceExecutionError("ACP requires a writable shared root")
                 return await self._acp.open(
                     cast(str, params.get("command")),
                     cast(list[str], params.get("args")),
-                    Path(root["path"]),
+                    self.command_directory(params),
                 )
             if action == "acp.write":
                 return await self._acp.write(session_id, cast(str, params.get("data_b64")))
@@ -831,6 +1067,8 @@ class DeviceExecutor:
                 "platform": platform.system().lower(),
                 "hostname": platform.node(),
                 "capabilities": self.capabilities,
+                "trust_mode": self.trust_mode,
+                "working_dir": str(self.working_dir),
                 **({"system": _system_details()} if action == "status" else {}),
             }
         if action in {"files.list", "files.stat", "files.read", "files.write_begin"}:
@@ -841,7 +1079,7 @@ class DeviceExecutor:
                 entries = []
                 for item in sorted(path.iterdir(), key=lambda entry: entry.name.casefold()):
                     # Links are neither followed nor advertised as accessible files.
-                    if _is_link(item):
+                    if _is_link(item) or self._is_private(item):
                         continue
                     entries.append(
                         {
@@ -914,8 +1152,8 @@ class DeviceExecutor:
                         or offset + len(data) > upload.size
                     ):
                         raise DeviceExecutionError("upload chunks must be ordered and bounded")
-                    with upload.temporary.open("ab") as stream:
-                        stream.write(data)
+                    with upload.temporary.open("ab") as upload_stream:
+                        upload_stream.write(data)
                     upload.offset += len(data)
                     return {"bytes_done": upload.offset}
                 if action != "files.write_commit":
@@ -927,79 +1165,53 @@ class DeviceExecutor:
             except BaseException:
                 self._abort(upload_id)
                 raise
-        if action == "desktop.capture":
-            from octop.infra.desktop.capture import ScreenCapture
-
-            quality = self._number(params, "quality", 80, maximum=100)
-            if quality < 1:
-                raise DeviceExecutionError("invalid quality")
-            if self._capture is None:
-                self._capture = ScreenCapture()
-            # Keep the mss context and capture on the same thread.
-            frame = self._capture.capture_jpeg(quality=quality)
-            if frame is None:
-                raise DeviceExecutionError("desktop capture unavailable")
-            return {"jpeg_b64": frame.jpeg_b64, "width": frame.width, "height": frame.height}
-        if action == "desktop.input":
-            return self._input(params)
+        if action.startswith("desktop."):
+            return await self._desktop_operation(action, params)
         if action == "command.run":
             return await self._command(params)
         raise DeviceExecutionError("unsupported device action")
 
-    def _input(self, params: dict[str, Any]) -> dict[str, Any]:
-        from octop.infra.desktop.input import InputInjector
+    async def _desktop_operation(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
+        from octop.infra.devices.desktop import DeviceDesktop
 
-        if self._injector is None:
-            self._injector = InputInjector()
-        kind = params.get("kind")
-        if kind in {"click", "move", "scroll"}:
-            x, y = self._number(params, "x"), self._number(params, "y")
-            if kind == "click":
-                button = params.get("button", "left")
-                if button not in {"left", "right", "middle"}:
-                    raise DeviceExecutionError("invalid mouse button")
-                self._injector.click(x, y, button=button)
-            elif kind == "move":
-                self._injector.mouse_move(x, y)
-            else:
-                dy = params.get("dy", 0)
-                if type(dy) not in {int, float} or abs(dy) > 10000:
-                    raise DeviceExecutionError("invalid scroll delta")
-                self._injector.scroll(x, y, delta_x=0, delta_y=dy)
-        elif kind == "type":
-            value = params.get("text")
-            if not isinstance(value, str) or len(value) > 10000:
-                raise DeviceExecutionError("invalid input text")
-            self._injector.type_text(value)
-        elif kind == "key":
-            key = params.get("key")
-            valid = {
-                "Enter",
-                "Backspace",
-                "Tab",
-                "Escape",
-                "Delete",
-                "ArrowUp",
-                "ArrowDown",
-                "ArrowLeft",
-                "ArrowRight",
-                "Home",
-                "End",
-                "PageUp",
-                "PageDown",
-                "Control",
-                "Shift",
-                "Alt",
-                "Meta",
-                *(f"F{i}" for i in range(1, 13)),
-            }
-            if not isinstance(key, str) or not (len(key) == 1 or key in valid):
-                raise DeviceExecutionError("invalid input key")
-            self._injector.key_down(key)
-            self._injector.key_up(key)
-        else:
-            raise DeviceExecutionError("unsupported input kind")
-        return {"ok": True}
+        if self._desktop is None:
+            self._desktop = DeviceDesktop()
+        cancelled = threading.Event()
+        version, permissions = self.grant_version, list(self.permissions)
+
+        @contextlib.contextmanager
+        def guard() -> Any:
+            with self._policy_lock:
+                if cancelled.is_set():
+                    raise DeviceExecutionError(
+                        "desktop operation cancelled before input or frame delivery"
+                    )
+                self._authorize(action, version, permissions)
+                yield
+
+        worker = asyncio.create_task(self._desktop.call(action, params, guard))
+        try:
+            try:
+                return await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                cancelled.set()
+                # Reject queued input; if OS input has already completed, keep
+                # its real receipt and never replay it after a transport timeout.
+                while not worker.done():
+                    try:
+                        await asyncio.shield(worker)
+                    except asyncio.CancelledError:
+                        continue
+                    except (ValueError, DeviceExecutionError):
+                        break
+                try:
+                    return worker.result()
+                except DeviceExecutionError as exc:
+                    if cancelled.is_set() and "cancelled before" in str(exc):
+                        raise asyncio.CancelledError from exc
+                    raise
+        except ValueError as exc:
+            raise DeviceExecutionError(str(exc)) from exc
 
     async def _command(self, params: dict[str, Any]) -> dict[str, Any]:
         argv = params.get("argv")
@@ -1017,13 +1229,7 @@ class DeviceExecutor:
         timeout = self._number(params, "timeout", 60, maximum=3600)
         if timeout < 1:
             raise DeviceExecutionError("invalid timeout")
-        root = self.roots.get(str(params.get("root_id", "")))
-        if root is None:
-            raise DeviceExecutionError("command root unavailable")
-        # command_exec is a separate permission: read-only roots do not pretend
-        # to sandbox commands that can write or access other OS resources.
-        cwd = Path(root["path"])
-        _reject_links(cwd)
+        cwd = self.command_directory(params)
         spawn: dict[str, Any] = {
             "cwd": cwd,
             "stdout": asyncio.subprocess.PIPE,
@@ -1049,7 +1255,7 @@ class DeviceExecutor:
                 process.kill()
             await process.wait()
             raise
-        job: _WindowsJob | None = None
+        job: WindowsJob | None = None
         drains: list[asyncio.Task[tuple[bytes, bool]]] = []
 
         def stop_tree() -> None:
@@ -1080,7 +1286,10 @@ class DeviceExecutor:
 
         try:
             if os.name == "nt":
-                job = _WindowsJob(process.pid)
+                try:
+                    job = WindowsJob(process.pid)
+                except ProcessScopeError as exc:
+                    raise DeviceExecutionError(str(exc)) from exc
             drains = [
                 asyncio.create_task(drain(process.stdout)),
                 asyncio.create_task(drain(process.stderr)),
@@ -1120,11 +1329,29 @@ class DeviceExecutor:
         for upload_id in list(self._uploads):
             self._abort(upload_id)
 
-    async def close(self) -> None:
+    async def _reap_transfers(self) -> None:
+        while True:
+            await asyncio.sleep(60)
+            if self._transfers is not None:
+                with contextlib.suppress(OSError):
+                    await asyncio.to_thread(self._transfers.reap)
+
+    async def close(self, *, preserve_terminals: bool = False) -> None:
+        if self._browsers is not None and not preserve_terminals:
+            await self._browsers.close_all()
+        if self._terminals is not None and not preserve_terminals:
+            await self._terminals.close_all()
         if self._acp is not None:
             await self._acp.close_all()
         for operation_id in list(self._active):
             await self.cancel(operation_id)
+        if not preserve_terminals and self._transfers is not None:
+            if self._transfer_reaper is not None:
+                self._transfer_reaper.cancel()
+                await asyncio.gather(self._transfer_reaper, return_exceptions=True)
+                self._transfer_reaper = None
+            await asyncio.to_thread(self._transfers.close)
         self.abort_uploads()
-        if self._capture is not None:
-            self._capture.close()
+        if self._desktop is not None:
+            await self._desktop.close()
+            self._desktop = None

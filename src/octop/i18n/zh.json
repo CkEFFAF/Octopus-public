@@ -374,6 +374,7 @@
     "DEVICE_OFFLINE": "设备离线或连接已中断。",
     "TASK_BOARD_INVALID": "任务操作未满足要求，请检查执行状态、父子关系及输入内容。",
     "TASK_BOARD_CONFLICT": "任务看板已更新，请刷新后重试。",
+    "WORKFLOW_CONFLICT": "工作阶段已更新，请刷新后重试。",
     "TASK_BOARD_PIN_REQUIRED": "执行人或配置已变更，请先确认当前执行配置。",
     "AUTH_FAILED": "认证失败。",
     "TOKEN_EXPIRED": "登录已过期，请重新登录。",
@@ -504,6 +505,16 @@
     "SKILL_PACKAGE_LOCKED": "此技能复制自锁定策略的技能包，无法在工作区编辑。"
   },
   "desktop": {
+    "consent": {
+      "title": "Octop · 设备确认",
+      "allow": "允许此次请求",
+      "reject": "拒绝",
+      "timeout": "{seconds} 秒后自动拒绝；关闭窗口也会拒绝。",
+      "grants": "请求设备授权：{permissions}\n{roots}\n命令和 ACP 以本机用户权限运行，可访问共享目录之外的内容。",
+      "takeover": "{owner} 请求接管桌面\n操作：{mode}",
+      "view": "查看屏幕",
+      "view_control": "查看屏幕并控制键鼠"
+    },
     "install_log_deps": "正在安装 Python 依赖…",
     "install_log_build_deps": "正在安装 Python 编译依赖…",
     "install_log_system": "正在安装虚拟桌面服务…",

@@ -127,6 +127,10 @@ class InputInjector:
     def _use_xdotool(self) -> bool:
         return is_linux_virtual_display(self._display) and shutil.which("xdotool") is not None
 
+    def _xdotool(self, args: list[str]) -> None:
+        if not _run_xdotool(self._display, args):
+            raise OSError("desktop input unavailable: xdotool failed")
+
     def _controllers(self) -> tuple[Any, Any]:
         if self._mouse is None or self._keyboard is None:
             with display_env(self._display):
@@ -154,7 +158,7 @@ class InputInjector:
             if clicks > 1:
                 args.extend(["--repeat", str(clicks)])
             args.append(btn)
-            _run_xdotool(self._display, args)
+            self._xdotool(args)
             return
 
         def _do() -> None:
@@ -167,8 +171,7 @@ class InputInjector:
     def mouse_down(self, x: int, y: int, *, button: str = "left") -> None:
         if self._use_xdotool():
             btn = _XDOTOOL_BUTTON.get(button, "1")
-            _run_xdotool(
-                self._display,
+            self._xdotool(
                 ["mousemove", str(x), str(y), "mousedown", btn],
             )
             return
@@ -183,8 +186,7 @@ class InputInjector:
     def mouse_up(self, x: int, y: int, *, button: str = "left") -> None:
         if self._use_xdotool():
             btn = _XDOTOOL_BUTTON.get(button, "1")
-            _run_xdotool(
-                self._display,
+            self._xdotool(
                 ["mousemove", str(x), str(y), "mouseup", btn],
             )
             return
@@ -198,7 +200,7 @@ class InputInjector:
 
     def mouse_move(self, x: int, y: int) -> None:
         if self._use_xdotool():
-            _run_xdotool(self._display, ["mousemove", str(x), str(y)])
+            self._xdotool(["mousemove", str(x), str(y)])
             return
 
         def _do() -> None:
@@ -209,17 +211,17 @@ class InputInjector:
 
     def scroll(self, x: int, y: int, *, delta_x: float, delta_y: float) -> None:
         if self._use_xdotool():
-            _run_xdotool(self._display, ["mousemove", str(x), str(y)])
+            self._xdotool(["mousemove", str(x), str(y)])
             if abs(delta_y) >= 0.5:
                 btn = "5" if delta_y > 0 else "4"
                 steps = max(1, int(abs(delta_y) / 40))
                 for _ in range(steps):
-                    _run_xdotool(self._display, ["click", btn])
+                    self._xdotool(["click", btn])
             if abs(delta_x) >= 0.5:
                 btn = "6" if delta_x > 0 else "7"
                 steps = max(1, int(abs(delta_x) / 40))
                 for _ in range(steps):
-                    _run_xdotool(self._display, ["click", btn])
+                    self._xdotool(["click", btn])
             return
 
         def _do() -> None:
@@ -234,7 +236,7 @@ class InputInjector:
 
     def type_text(self, text: str) -> None:
         if self._use_xdotool():
-            _run_xdotool(self._display, ["type", "--delay", "0", "--", text])
+            self._xdotool(["type", "--delay", "0", "--", text])
             return
 
         def _do() -> None:
@@ -245,7 +247,7 @@ class InputInjector:
 
     def key_down(self, key: str) -> None:
         if self._use_xdotool():
-            _run_xdotool(self._display, ["keydown", _xdotool_key_name(key)])
+            self._xdotool(["keydown", _xdotool_key_name(key)])
             return
 
         def _do() -> None:
@@ -261,7 +263,7 @@ class InputInjector:
 
     def key_up(self, key: str) -> None:
         if self._use_xdotool():
-            _run_xdotool(self._display, ["keyup", _xdotool_key_name(key)])
+            self._xdotool(["keyup", _xdotool_key_name(key)])
             return
 
         def _do() -> None:

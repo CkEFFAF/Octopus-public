@@ -36,6 +36,7 @@ interface ContextWindowRingProps {
   threadId?: string | null;
   selectedConnectors?: string[];
   isMobile?: boolean;
+  onInspect?: () => void;
 }
 
 export default function ContextWindowRing({
@@ -45,6 +46,7 @@ export default function ContextWindowRing({
   threadId,
   selectedConnectors = [],
   isMobile = false,
+  onInspect,
 }: ContextWindowRingProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -312,6 +314,20 @@ export default function ContextWindowRing({
 
   if (!agentId || !threadId) {
     return ring;
+  }
+
+  if (onInspect) {
+    return (
+      <button
+        type="button"
+        className={styles.contextRingBtn}
+        aria-label={t("chat.contextInspect.title")}
+        title={tooltip}
+        onClick={onInspect}
+      >
+        {ringInner}
+      </button>
+    );
   }
 
   if (isMobile) {

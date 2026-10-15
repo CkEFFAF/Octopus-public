@@ -1,0 +1,133 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  width: 100%;
+  min-height: 420px;
+  color: var(--text-primary);
+  header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    span:last-child {
+      color: var(--text-tertiary);
+      font-size: 12px;
+    }
+  }
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  :global(.ant-input) {
+    min-width: 0;
+    flex: 1;
+    font-family: ui-monospace, monospace;
+  }
+}
+.content {
+  display: grid;
+  grid-template-columns: minmax(190px, 28%) minmax(0, 1fr);
+  border: 1px solid var(--border-primary, #e5e7eb);
+  border-radius: 12px;
+  overflow: hidden;
+  flex: 1;
+  min-height: 360px;
+}
+.files {
+  padding: 8px;
+  border-right: 1px solid var(--border-primary, #e5e7eb);
+  max-height: 560px;
+  overflow: auto;
+  .entry > button:first-child {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 0;
+    border-radius: 6px;
+    padding: 10px 8px;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    span {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+    }
+    small {
+      color: var(--text-tertiary);
+      font-size: 10px;
+    }
+    svg {
+      flex-shrink: 0;
+    }
+    &:hover,
+    &.selected {
+      background: var(--bg-secondary, #f5f6f8);
+    }
+    &:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+  }
+}
+.entry {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  > button:first-child {
+    flex: 1;
+    min-width: 0;
+  }
+}
+.editor {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  > :global(.ant-empty) {
+    margin: auto;
+    padding: 30px;
+  }
+  :global(textarea.ant-input) {
+    flex: 1;
+    min-height: 300px;
+    resize: none;
+    border: 0;
+    border-radius: 0;
+    padding: 18px;
+    font:
+      12px/1.75 ui-monospace,
+      monospace;
+  }
+}
+.fileHeading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-primary, #e5e7eb);
+  padding: 12px;
+  code {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+  }
+}
+@media (max-width: 700px) {
+  .content {
+    grid-template-columns: 1fr;
+  }
+  .files {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-primary, #e5e7eb);
+    max-height: 200px;
+  }
+}

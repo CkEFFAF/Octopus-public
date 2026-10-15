@@ -12,8 +12,9 @@ import contextlib
 import socket
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import PurePosixPath, PureWindowsPath
-from typing import Any
+from typing import Any, cast
 
+from langgraph.config import get_config
 from octop_harness.acp.client import ACPHostedClient
 from octop_harness.acp.models import ACPConfig, ACPRunnerConfig, ACPSessionError
 from octop_harness.acp.permissions import BLOCKED_COMMAND_PATTERNS, ACPPermissionAdapter
@@ -65,14 +66,43 @@ class _RemotePermissionAdapter(ACPPermissionAdapter):
 
 class _RemoteHostedClient(ACPHostedClient):
     def __init__(
-        self, *, runner_name: str, runner_config: ACPRunnerConfig, cwd: str, platform: str
+        self,
+        *,
+        runner_name: str,
+        runner_config: ACPRunnerConfig,
+        cwd: str,
+        platform: str,
+        owner_trusted: bool = False,
+        validate: Any = None,
     ) -> None:
         self._platform = platform
+        self._owner_trusted = owner_trusted
+        self._validate = validate
         super().__init__(runner_name=runner_name, runner_config=runner_config, cwd=cwd)
         self.update_cwd(cwd)
 
     def update_cwd(self, cwd: str) -> None:
         self._permission_adapter = _RemotePermissionAdapter(cwd, self._platform)
+
+    async def request_permission(
+        self, options: list[Any], session_id: str, tool_call: Any, **kwargs: Any
+    ) -> Any:
+        if not self._owner_trusted:
+            return await super().request_permission(options, session_id, tool_call, **kwargs)
+        # The owner policy has already authorized execution on this device.
+        # ACP's tool prompts must not introduce a second cwd sandbox or popup.
+        if self._validate is not None:
+            self._validate()
+        request = self._permission_adapter.build_suspended_permission(
+            runner=self.runner_name, tool_call=tool_call, options=options
+        )
+        selected = next(
+            (item for item in request.options if item.get("kind") == "allow_once"), None
+        )
+        selected = selected or next(
+            (item for item in request.options if item.get("kind") == "allow_always"), None
+        )
+        return self._permission_adapter.selected_response(selected)
 
 
 class _RemoteProcess:
@@ -90,8 +120,10 @@ class RemoteACPService(ACPService):
         devices: DeviceService,
         owner: int,
         agent_id: str,
-        device_id: str,
-        root_id: str,
+        device_id: str | None,
+        root_id: str | None = None,
+        working_dir: str | None = None,
+        context_id: str | None = None,
     ) -> None:
         super().__init__(config=config)
         self.devices = devices
@@ -99,9 +131,45 @@ class RemoteACPService(ACPService):
         self.agent_id = agent_id
         self.device_id = device_id
         self.root_id = root_id
+        self.working_dir = working_dir
+        self.context_id = context_id
 
     def _binding(self) -> tuple[str, str, int]:
+        if self.context_id is not None:
+            from octop.infra.execution.service import ExecutionService
+
+            context = ExecutionService(self.devices).get(self.owner, self.context_id)
+            if context.target_kind == "local":
+                if context.work_mode in {"ask", "plan"}:
+                    raise ACPSessionError("execution mode only permits observation")
+                target = ExecutionService(self.devices).target(self.owner, self.context_id)
+                return (
+                    str(self.working_dir or target["working_dir"]),
+                    target["platform"],
+                    context.grant_version,
+                )
+            assert self.device_id is not None
+            current = self.devices.owned(self.owner, self.device_id)
+            if (
+                current.policy_revision != context.policy_revision
+                or current.grant_version != context.grant_version
+            ):
+                raise ACPSessionError("device execution policy changed")
+            if context.work_mode in {"ask", "plan"}:
+                raise ACPSessionError("execution mode only permits observation")
+        assert self.device_id is not None
         row = self.devices.owned(self.owner, self.device_id)
+        if self.devices.owner_trusted(row):
+            if "acp_run" not in row.permissions:
+                raise ACPSessionError("device ACP capability is disabled")
+            directory = (
+                self.working_dir
+                or row.working_dir
+                or (row.runtime_metadata or {}).get("working_dir")
+            )
+            if not directory:
+                raise ACPSessionError("device working directory unavailable")
+            return str(directory), row.platform, row.grant_version
         root = next((item for item in row.roots if item["id"] == self.root_id), None)
         if root is None or not root.get("read") or not root.get("write"):
             raise ACPSessionError("bound device no longer shares a writable ACP directory")
@@ -114,9 +182,16 @@ class RemoteACPService(ACPService):
         return await super().run_turn(**{**kwargs, "cwd": cwd})
 
     async def _call(self, action: str, params: dict[str, Any], version: int) -> dict[str, Any]:
+        if self.context_id:
+            from octop.infra.execution.service import ExecutionService
+
+            response = await ExecutionService(self.devices).call(
+                self.owner, self.context_id, action, params, actor_agent_id=self.agent_id
+            )
+            return cast(dict[str, Any], response["result"])
         return await self.devices.call(
             self.owner,
-            self.device_id,
+            self.device_id or "",
             action,
             params,
             agent_id=self.agent_id,
@@ -135,6 +210,7 @@ class RemoteACPService(ACPService):
             "acp.open",
             {
                 "root_id": self.root_id,
+                "cwd": self._binding()[0],
                 "runner": runner_name,
                 "command": runner_config.command,
                 "args": list(runner_config.args),
@@ -219,6 +295,9 @@ class RemoteACPService(ACPService):
             runner_config=runner_config,
             cwd=remote_cwd,
             platform=platform,
+            owner_trusted=self.device_id is None
+            or self.devices.owner_trusted(self.devices.owned(self.owner, self.device_id)),
+            validate=self._binding,
         )
         stack = AsyncExitStack()
         try:
@@ -261,11 +340,100 @@ class RemoteACPService(ACPService):
         await conversation.exit_stack.aclose()
 
 
-def bind_remote_acp_service(service_key: str, service: RemoteACPService) -> None:
-    """Install before harness builds its ACP tool for this agent workspace."""
-    from octop_harness.acp import service as harness_service
+class RequestACPService(ACPService):
+    """Select ACP transport per authenticated request, retaining session targets."""
 
-    previous = harness_service._services.get(service_key)
-    harness_service._services[service_key] = service
-    if previous is not None:
-        harness_service._schedule_close(previous)
+    def __init__(
+        self, *, config: ACPConfig, devices: DeviceService, owner: int, agent_id: str
+    ) -> None:
+        super().__init__(config=config)
+        self.devices, self.owner, self.agent_id = devices, owner, agent_id
+        self._targets: dict[
+            tuple[str | None, str | None, int, int, str, str], RemoteACPService
+        ] = {}
+        self._session_targets: dict[tuple[str, str], RemoteACPService] = {}
+
+    def resolve_cwd(self, cwd: str, workspace_dir: Any) -> str:
+        # Remote native paths must never be expanded with the controller OS.
+        return cwd
+
+    def _selected(self, cwd: str | None = None) -> RemoteACPService:
+        from octop.infra.execution.service import ExecutionService
+
+        cfg = get_config().get("configurable") or {}
+        supplied = cfg.get("octop_execution_context")
+        if int(cfg.get("user") or 0) != self.owner or not isinstance(supplied, dict):
+            raise ACPSessionError("choose an execution target for ACP")
+        context = ExecutionService(self.devices).get(
+            self.owner, str(supplied.get("context_id") or "")
+        )
+        directory = context.working_dir if not cwd or cwd == "." else cwd
+        key = (
+            context.device_id,
+            directory,
+            context.policy_revision,
+            context.grant_version,
+            context.work_mode,
+            context.context_id,
+        )
+        if key not in self._targets:
+            self._targets[key] = RemoteACPService(
+                config=self.config,
+                devices=self.devices,
+                owner=self.owner,
+                agent_id=self.agent_id,
+                device_id=context.device_id,
+                working_dir=directory,
+                context_id=context.context_id,
+            )
+        service = self._targets[key]
+        service._binding()
+        return service
+
+    async def run_turn(self, **kwargs: Any) -> dict[str, Any]:
+        service = self._selected(str(kwargs.get("cwd") or "."))
+        self._session_targets[(str(kwargs["thread_id"]), str(kwargs["runner"]))] = service
+        # Each service retains the device/default cwd that created its sessions.
+        if kwargs.get("cwd"):
+            kwargs["cwd"] = str(kwargs["cwd"])
+        return await service.run_turn(**kwargs)
+
+    async def get_session(self, thread_id: str, runner: str) -> _Conversation | None:
+        service = self._session_targets.get((thread_id, runner))
+        return await service.get_session(thread_id, runner) if service else None
+
+    async def get_pending_permission(self, *, thread_id: str, runner: str) -> Any | None:
+        service = self._session_targets.get((thread_id, runner))
+        return (
+            await service.get_pending_permission(thread_id=thread_id, runner=runner)
+            if service
+            else None
+        )
+
+    async def close_thread_session(self, *, thread_id: str, runner: str) -> None:
+        service = self._session_targets.pop((thread_id, runner), None)
+        if service:
+            await service.close_thread_session(thread_id=thread_id, runner=runner)
+
+    async def cancel_turn(self, *, thread_id: str, runner: str) -> bool:
+        service = self._session_targets.get((thread_id, runner))
+        return await service.cancel_turn(thread_id=thread_id, runner=runner) if service else False
+
+    async def resume_permission(self, **kwargs: Any) -> dict[str, Any]:
+        service = self._session_targets.get((str(kwargs["thread_id"]), str(kwargs["runner"])))
+        if service is None:
+            raise ACPSessionError("ACP session unavailable")
+        return await service.resume_permission(**kwargs)
+
+    async def close_all_sessions(self) -> None:
+        for service in self._targets.values():
+            await service.close_all_sessions()
+        self._targets.clear()
+        self._session_targets.clear()
+
+
+def bind_remote_acp_service(service_key: str, service: ACPService) -> None:
+    """Install before harness builds its ACP tool for this agent workspace."""
+    from octop_harness.acp.service import register_acp_service
+
+    register_acp_service(service_key, service)

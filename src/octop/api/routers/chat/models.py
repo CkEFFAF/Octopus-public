@@ -71,6 +71,22 @@ class ChatTurnBody(BaseModel):
     )
     text: str | None = Field(default=None, description="Plain-text user message (WS shorthand).")
     device_id: str | None = Field(default=None, max_length=120)
+    target_kind: Literal["device", "local"] | None = None
+    working_dir: str | None = Field(default=None, max_length=4096)
+    work_mode: (
+        Literal[
+            "agentic",
+            "plan",
+            "ask",
+            "debug",
+            "multitask",
+            "cowork",
+            "computer_use",
+            "deep_research",
+            "team",
+        ]
+        | None
+    ) = None
 
     @classmethod
     def from_ws_payload(cls, payload: dict[str, Any]) -> ChatTurnBody:
@@ -81,6 +97,9 @@ class ChatTurnBody(BaseModel):
             messages = [{"role": "user", "content": text}] if text else []
         model = payload.get("model") or payload.get("default_model")
         return cls(
+            target_kind=payload.get("target_kind"),
+            work_mode=payload.get("work_mode"),
+            working_dir=payload.get("working_dir"),
             device_id=payload.get("device_id")
             if isinstance(payload.get("device_id"), str)
             else None,

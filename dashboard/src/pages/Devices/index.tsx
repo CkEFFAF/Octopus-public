@@ -52,6 +52,7 @@ import DeviceDesktop from "./DeviceDesktop";
 import DeviceFiles from "./DeviceFiles";
 import DeviceDetails from "./DeviceDetails";
 import DeviceCard from "./DeviceCard";
+import DeviceAccessRequest from "./DeviceAccessRequest";
 import AccessKeys from "./AccessKeys";
 import {
   canUse,
@@ -78,6 +79,15 @@ function DeviceSettings({
   const { modal } = App.useApp();
   const [name, setName] = useState(device.name);
   const [permissions, setPermissions] = useState(device.permissions);
+  const [trustMode, setTrustMode] = useState<"owner" | "restricted">(
+    device.trust_mode ?? "restricted",
+  );
+  const [workingDir, setWorkingDir] = useState(
+    device.working_dir ??
+      device.runtime?.working_dir ??
+      device.roots[0]?.path ??
+      "",
+  );
   const [busy, setBusy] = useState(false);
   return (
     <div className="devices-tool">
@@ -90,10 +100,42 @@ function DeviceSettings({
           onChange={(event) => setName(event.target.value)}
         />
       </label>
-      <h3>{t("devices.permissionsTitle")}</h3>
+      <h3>{t("devices.trust.title")}</h3>
+      <Segmented
+        value={trustMode}
+        options={[
+          { value: "owner", label: t("devices.trust.owner") },
+          { value: "restricted", label: t("devices.trust.restricted") },
+        ]}
+        onChange={(value) => {
+          setTrustMode(value as "owner" | "restricted");
+          if (value === "owner") setPermissions(device.capabilities);
+        }}
+        disabled={device.revoked_at !== null}
+      />
       <p className="devices-muted">
-        {t("devices.grantHint", t("devices.reduceHint"))}
+        {trustMode === "owner"
+          ? t("devices.trust.ownerHint")
+          : t("devices.grantHint", t("devices.reduceHint"))}
       </p>
+      {device.runtime?.policy_error && (
+        <Alert type="error" showIcon message={device.runtime.policy_error} />
+      )}
+      {(device.policy_revision ?? 0) !==
+        (device.applied_policy_revision ?? 0) && (
+        <Alert type="info" showIcon message={t("devices.trust.pending")} />
+      )}
+      {trustMode === "owner" && (
+        <label className="devices-field">
+          <span>{t("devices.trust.workingDir")}</span>
+          <Input
+            value={workingDir}
+            onChange={(event) => setWorkingDir(event.target.value)}
+            placeholder={t("devices.trust.defaultDir")}
+          />
+        </label>
+      )}
+      <h3>{t("devices.permissionsTitle")}</h3>
       {device.pending_proposal && (
         <Alert type="info" showIcon message={t("devices.pendingGrant")} />
       )}
@@ -136,12 +178,27 @@ function DeviceSettings({
         onClick={async () => {
           setBusy(true);
           try {
-            onChanged(
-              await devicesApi.update(device.device_id, {
-                name: name.trim(),
-                permissions,
-              }),
-            );
+            const nativePolicy =
+              trustMode === "owner" ||
+              device.trust_mode === "owner" ||
+              (device.runtime?.client_protocol_version ?? 0) >= 3;
+            if (nativePolicy) {
+              await devicesApi.update(device.device_id, { name: name.trim() });
+              onChanged(
+                await devicesApi.setTrustPolicy(device.device_id, {
+                  trust_mode: trustMode,
+                  permissions,
+                  working_dir: workingDir.trim() || null,
+                }),
+              );
+            } else {
+              onChanged(
+                await devicesApi.update(device.device_id, {
+                  name: name.trim(),
+                  permissions,
+                }),
+              );
+            }
           } catch (error) {
             onError(error);
           } finally {
@@ -151,20 +208,29 @@ function DeviceSettings({
       >
         {t("devices.saveDevice")}
       </Button>
-      <h3>{t("devices.sharedRoots")}</h3>
-      {device.roots.length === 0 && (
-        <p className="devices-muted">{t("devices.noRoots")}</p>
+      {trustMode === "restricted" && (
+        <>
+          <h3>{t("devices.sharedRoots")}</h3>
+          <DeviceAccessRequest
+            device={device}
+            onChanged={onChanged}
+            onError={onError}
+          />
+          {device.roots.length === 0 && (
+            <p className="devices-muted">{t("devices.noRoots")}</p>
+          )}
+          {device.roots.map((root) => (
+            <div className="devices-root" key={root.id}>
+              <strong>{root.name}</strong>
+              <span className="devices-path">{root.path}</span>
+              <div>
+                {root.read && <Tag>{t("devices.read")}</Tag>}
+                {root.write && <Tag>{t("devices.write")}</Tag>}
+              </div>
+            </div>
+          ))}
+        </>
       )}
-      {device.roots.map((root) => (
-        <div className="devices-root" key={root.id}>
-          <strong>{root.name}</strong>
-          <span className="devices-path">{root.path}</span>
-          <div>
-            {root.read && <Tag>{t("devices.read")}</Tag>}
-            {root.write && <Tag>{t("devices.write")}</Tag>}
-          </div>
-        </div>
-      ))}
       <Button
         danger
         icon={<Trash2 size={16} />}
@@ -205,22 +271,47 @@ function DeviceCommand({
   const { t } = useTranslation();
   const [rootId, setRootId] = useState(device.roots[0]?.id ?? "");
   const [argv, setArgv] = useState('["python", "script.py"]');
+  const [workingDir, setWorkingDir] = useState(
+    device.working_dir ?? device.runtime?.working_dir ?? "",
+  );
   const [timeout, setTimeoutValue] = useState(60);
   const [busy, setBusy] = useState(false);
   return (
     <div className="devices-tool">
-      <Alert type="info" showIcon message={t("devices.commandHint")} />
+      <Alert
+        type="info"
+        showIcon
+        message={t(
+          device.trust_mode === "owner"
+            ? "devices.trust.commandHint"
+            : "devices.commandHint",
+        )}
+      />
       <label className="devices-field">
-        <span>{t("devices.workingRoot")}</span>
-        <Select
-          aria-label={t("devices.workingRoot")}
-          value={rootId || undefined}
-          onChange={setRootId}
-          options={device.roots.map((root) => ({
-            value: root.id,
-            label: root.name,
-          }))}
-        />
+        <span>
+          {t(
+            device.trust_mode === "owner"
+              ? "devices.trust.workingDir"
+              : "devices.workingRoot",
+          )}
+        </span>
+        {device.trust_mode === "owner" ? (
+          <Input
+            aria-label={t("devices.trust.workingDir")}
+            value={workingDir}
+            onChange={(event) => setWorkingDir(event.target.value)}
+          />
+        ) : (
+          <Select
+            aria-label={t("devices.workingRoot")}
+            value={rootId || undefined}
+            onChange={setRootId}
+            options={device.roots.map((root) => ({
+              value: root.id,
+              label: root.name,
+            }))}
+          />
+        )}
       </label>
       <label className="devices-field">
         <span>{t("devices.argv")}</span>
@@ -240,7 +331,10 @@ function DeviceCommand({
         />
       </label>
       <Button
-        disabled={!canUse(device, "command_exec") || !rootId}
+        disabled={
+          !canUse(device, "command_exec") ||
+          (device.trust_mode !== "owner" && !rootId)
+        }
         loading={busy}
         onClick={async () => {
           setBusy(true);
@@ -255,7 +349,9 @@ function DeviceCommand({
               throw new Error(t("devices.invalidArgv"));
             onOperation(
               await devicesApi.submit(device.device_id, "command.run", {
-                root_id: rootId,
+                ...(device.trust_mode === "owner"
+                  ? { cwd: workingDir || undefined }
+                  : { root_id: rootId }),
                 argv: parsed,
                 timeout,
               }),

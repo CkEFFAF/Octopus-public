@@ -240,6 +240,7 @@ async def test_windowless_confirmation_rejects_without_disconnect(
         await until(lambda: task.done() or any(f.get("id") == "still-online" for f in socket.sent))
         if task.done():
             await task
+        await until(lambda: any(f["type"] == response_type for f in socket.sent))
         decision = next(f for f in socket.sent if f["type"] == response_type)
         assert decision[request_key] == frame[request_key]
         assert decision["decision"] == "reject"
@@ -250,6 +251,79 @@ async def test_windowless_confirmation_rejects_without_disconnect(
         await socket.close()
         await task
         await executor.close()
+
+
+@pytest.mark.parametrize("accept", [True, False])
+async def test_background_takeover_keeps_processing_while_waiting(tmp_path, monkeypatch, accept):
+    executor, _ = executor_for(tmp_path)
+    client = DeviceClient(tmp_path / "state")
+    monkeypatch.setattr(client, "load_state", lambda: {"server_url": "https://trusted.test"})
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def confirmation(_state, **request):
+        assert request["server_url"] == "https://trusted.test"
+        entered.set()
+        await release.wait()
+        return accept
+
+    monkeypatch.setattr("octop.infra.devices.client.confirm", confirmation)
+    socket = FakeSocket()
+    running = asyncio.create_task(client._connected(socket, executor))
+    try:
+        await socket.frames.put(
+            {
+                "type": "desktop_takeover",
+                "request_id": "view",
+                "mode": "view_control",
+                "expires_at": 9999999999,
+            }
+        )
+        await asyncio.wait_for(entered.wait(), 2)
+        await socket.frames.put(
+            {
+                "type": "request",
+                "id": "ping-during-consent",
+                "action": "ping",
+                "params": {},
+                "grant_version": executor.grant_version,
+                "permissions": [],
+            }
+        )
+        await until(lambda: any(f.get("id") == "ping-during-consent" for f in socket.sent))
+        assert not any(f["type"] == "desktop_takeover_resolve" for f in socket.sent)
+        release.set()
+        await until(lambda: any(f["type"] == "desktop_takeover_resolve" for f in socket.sent))
+        assert socket.sent[-1]["decision"] == ("accept" if accept else "reject")
+        assert executor.permissions == {"files_read", "files_write"}
+    finally:
+        await socket.close()
+        await running
+        await executor.close()
+
+
+async def test_disconnect_cancels_pending_confirmation(tmp_path, monkeypatch):
+    executor, _ = executor_for(tmp_path)
+    client = DeviceClient(tmp_path / "state")
+    monkeypatch.setattr(client, "load_state", lambda: {"server_url": "https://trusted.test"})
+    entered, cancelled = asyncio.Event(), asyncio.Event()
+
+    async def confirmation(_state, **_request):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr("octop.infra.devices.client.confirm", confirmation)
+    socket = FakeSocket()
+    running = asyncio.create_task(client._connected(socket, executor))
+    await socket.frames.put({"type": "desktop_takeover", "request_id": "view", "mode": "view"})
+    await asyncio.wait_for(entered.wait(), 2)
+    await socket.close()
+    await asyncio.wait_for(running, 2)
+    assert cancelled.is_set()
+    assert not any(f["type"] == "desktop_takeover_resolve" for f in socket.sent)
+    await executor.close()
 
 
 async def test_stop_during_connect_closes_late_socket_without_starting_session(

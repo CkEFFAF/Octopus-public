@@ -8,6 +8,9 @@ This is the implementation contract for spec `0011`, revision `2026-10-12.3`.
 | Provider preset catalog | Read-only data from `octop-harness`; enabling a preset creates an account-owned instance. |
 | ACP command, arguments, environment, enabled state | One runner definition per account on the management instance. Each expert only stores its ACP tool switch. |
 | Expert device binding | Account/expert record on the management instance; the process runs on the selected device. |
+| Session execution selection and frozen run target | Account/expert/thread on the management instance. Explicit session selection takes precedence over the expert default, then the account default; existing runs and interactive tabs retain their original context. |
+| Device trust, native OS identity and project files | Trust policy belongs to the enrolled controller/account/device relationship. Owner mode uses the device OS user's access; the starting working directory is not a shared-folder boundary. |
+| Expert internal storage | AgentStore on the configured expert storage backend; project target changes do not relocate its credentials, memory or checkpoints. |
 | CLI installation, CLI login, Gateway tokens for remote runners | Executing device. The management instance does not distribute these credentials. |
 | Device connection credentials | Device state, limited to connection/authentication. It must not contain account provider keys or management-side runner environment. |
 
@@ -56,9 +59,11 @@ same-name providers owned by multiple users.
 
 ## ACP credential boundary
 
-Remote `acp.open` sends exactly `root_id`, `runner`, `command`, and `args`.
-It sends no runner environment. The child inherits the **device process
-environment** and runs in the granted writable shared root. For remote
+Remote `acp.open` sends the runner command/arguments plus its validated execution
+context and native working directory; the legacy adapter also retains `root_id`.
+It sends no management runner environment. The child inherits the **device process
+environment**. Owner mode uses the frozen context's native working directory;
+restricted clients retain writable shared-root validation. For remote
 OpenClaw, configure the Gateway token on that device or use a device-local
 `--token-file`; putting it in the Dashboard environment applies only when the
 management host executes the runner locally. Never put the token itself in
@@ -76,9 +81,9 @@ Actual CLI authentication and an OpenClaw Gateway are separate prerequisites.
   accounts' credentials or substitute the caller for a shared expert's owner.
 - Agent model factories, caches, provider reloads and stale-model pin cleanup
   remain within the owner, even when provider names match.
-- Runner settings remain user-scoped; expert tool switches remain expert-scoped.
+- Runner settings remain user-scoped; expert tool switches remain expert-scoped. Request-scoped target resolution must not mutate another thread's ACP service or fall back to management execution when its selected device is unavailable.
 - Remote runner payloads exclude hub environment and device state excludes hub
-  API keys. Grants and writable roots are checked before execution.
+  API keys. Current grants and frozen context are checked before execution; shared-root checks apply to the restricted compatibility adapter.
 - Built-in defaults contain no credential arguments or automatic-approval flag.
 - The model catalog remains in the harness source repository. An installed
   package or portable bundle is not a source-of-truth edit target.

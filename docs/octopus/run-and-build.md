@@ -6,12 +6,14 @@ SQLite/PostgreSQL 和既有 Wails 桌面壳。新增功能从当前源码构建�
 
 ## 获取与开发
 
-计划将功能分支发布为 `feature/octopus-device-network`；上游来源提交为
-`4b17f1c`。发布前以本地工作区源码为准。
+当前公开主仓为 `CkEFFAF/Octopus-public`，功能与发行通过 PR 合入 `main`。
+源码保留上游及 Octopus 的提交历史，发行包从本仓库 Releases 获取。
 依赖与工程边界见根目录 `AGENTS.md`。需要 Python 3.12+、uv、Node.js/npm；
 Makefile 使用 Bash，Windows 开发环境还需要 Git Bash 和 GNU Make。
 
 ```bash
+git clone https://github.com/CkEFFAF/Octopus-public.git
+cd Octopus-public
 uv sync --frozen
 cd dashboard
 npm ci
@@ -19,7 +21,7 @@ npm run build
 cd ..
 ```
 
-私有仓库需要你自己的 GitHub 授权。运行管理服务前按 Octop 首次向导创建
+公开源码和发行包可直接下载。运行管理服务前按 Octop 首次向导创建
 账号、配置模型；不要把生产管理端数据复制进源码树，也不要同时运行同一实例
 的两份可写副本。
 

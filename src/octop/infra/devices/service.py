@@ -11,6 +11,7 @@ import secrets
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from octop.infra.auth.access_keys import AccessKeyService
@@ -22,10 +23,12 @@ from octop.infra.devices.protocol import (
     CLIENT_PROTOCOL_VERSION,
     DEFAULT_REMOTE_GRANT_MODE,
     DESKTOP_TAKEOVER_MODES,
+    GRANT_PROTOCOL_VERSION,
     HIGH_RISK_PERMISSIONS,
     PENDING_GRANT_TTL_SECONDS,
     PENDING_TAKEOVER_TTL_SECONDS,
     REMOTE_GRANT_MODES,
+    TRUST_MODES,
     device_error,
     ledger_result,
     merge_enroll_permissions,
@@ -49,9 +52,19 @@ class DeviceConnection:
 
 
 class DeviceService:
-    def __init__(self, repos: RepoBundle) -> None:
+    def __init__(self, repos: RepoBundle, *, local_state_dir: Path | None = None) -> None:
         self.repos = repos
+        from octop.infra.execution.targets import LocalExecutionBackend
+
+        self.local_execution = (
+            LocalExecutionBackend(local_state_dir, self) if local_state_dir else None
+        )
         self.access_keys = AccessKeyService(repos)
+        controller_id = repos.settings_repo.get("execution.controller_id")
+        if controller_id is None:
+            controller_id = new_ulid()
+            repos.settings_repo.set("execution.controller_id", controller_id)
+        self.controller_id = controller_id
         self._connections: dict[str, DeviceConnection] = {}
         self._pairings: dict[str, tuple[int, float]] = {}
         self._pending: dict[str, tuple[DeviceConnection, asyncio.Future[dict[str, Any]]]] = {}
@@ -68,11 +81,20 @@ class DeviceService:
         self.repos.device_repo.recover_incomplete_operations()
 
     def replace_repos(self, repos: RepoBundle) -> None:
-        if self._connections or self._jobs:
+        if (
+            self._connections
+            or self._jobs
+            or (self.local_execution and self.local_execution.active)
+        ):
             raise device_error("restart required to replace active device persistence", status=409)
         self.repos = repos
         self.access_keys = AccessKeyService(repos)
         self._pairings.clear()
+        controller_id = repos.settings_repo.get("execution.controller_id")
+        if controller_id is None:
+            controller_id = new_ulid()
+            repos.settings_repo.set("execution.controller_id", controller_id)
+        self.controller_id = controller_id
         repos.device_repo.recover_incomplete_operations()
 
     def _user(self, owner: int) -> None:
@@ -103,6 +125,7 @@ class DeviceService:
         capabilities: list[str],
         permissions: list[str],
         roots: list[dict[str, Any]],
+        trust_mode: str = "restricted",
     ) -> dict[str, Any]:
         # Exactly one enrollment credential: pairing code, access key, or account session.
         provided = sum(
@@ -129,6 +152,10 @@ class DeviceService:
             raise device_error("invalid device capabilities")
         # REQ-007: force-include default grants that the client can support.
         effective_permissions = merge_enroll_permissions(capabilities, permissions)
+        if trust_mode not in TRUST_MODES:
+            raise device_error("invalid device trust mode")
+        if trust_mode == "owner":
+            effective_permissions = sorted(set(capabilities))
         if (
             "desktop_control" in effective_permissions
             and "desktop_view" not in effective_permissions
@@ -149,6 +176,13 @@ class DeviceService:
             roots,
             hashlib.sha256(token.encode()).hexdigest(),
         )
+        if trust_mode == "owner":
+            row = self.repos.device_repo.set_policy(
+                row.device_id,
+                trust_mode="owner",
+                permissions=effective_permissions,
+                working_dir=None,
+            )
         return {"device": row.public(), "device_token": token}
 
     def owned(self, owner: int, device_id: str, *, active: bool = True) -> DeviceRow:
@@ -190,7 +224,50 @@ class DeviceService:
             "permissions": row.permissions,
             "roots": row.roots,
             "remote_grant_mode": row.remote_grant_mode,
+            "trust_mode": row.trust_mode,
+            "policy_revision": row.policy_revision,
+            "working_dir": row.working_dir,
+            "controller_id": self.controller_id,
         }
+
+    def owner_trusted(self, row: DeviceRow) -> bool:
+        return (
+            row.trust_mode == row.applied_trust_mode == "owner"
+            and row.policy_revision == row.applied_policy_revision
+            and self._client_protocol.get(row.device_id, 1) >= CLIENT_PROTOCOL_VERSION
+        )
+
+    async def set_policy(
+        self,
+        owner: int,
+        device_id: str,
+        *,
+        trust_mode: str,
+        permissions: list[str] | None = None,
+        working_dir: str | None = None,
+    ) -> dict[str, Any]:
+        row = self.owned(owner, device_id)
+        if trust_mode not in TRUST_MODES:
+            raise device_error("invalid device trust mode")
+        if (
+            device_id in self._connections
+            and self._client_protocol[device_id] < CLIENT_PROTOCOL_VERSION
+        ):
+            raise device_error("CLIENT_OUTDATED: upgrade to device protocol v3", status=409)
+        desired = sorted(set(row.capabilities if permissions is None else permissions))
+        if not set(desired) <= set(row.capabilities):
+            raise device_error("device capability unavailable")
+        if "desktop_control" in desired and "desktop_view" not in desired:
+            raise device_error("desktop control requires view permission")
+        if working_dir is not None and (not working_dir.strip() or "\x00" in working_dir):
+            raise device_error("invalid working directory")
+        row = self.repos.device_repo.set_policy(
+            device_id, trust_mode=trust_mode, permissions=desired, working_dir=working_dir
+        )
+        connection = self._connections.get(device_id)
+        if connection is not None:
+            await connection.send(self.grants(row))
+        return self.public(self.owned(owner, device_id))
 
     def _purge_proposals(self) -> None:
         now = time.time()
@@ -257,7 +334,7 @@ class DeviceService:
                 }
             )
             pending = self._pending_for(device_id)
-            if pending is not None and self._client_protocol[device_id] >= CLIENT_PROTOCOL_VERSION:
+            if pending is not None and self._client_protocol[device_id] >= GRANT_PROTOCOL_VERSION:
                 await send(
                     {
                         "type": "grant_proposal",
@@ -296,6 +373,51 @@ class DeviceService:
         if frame.get("type") == "heartbeat":
             self.repos.device_repo.touch_seen(row.device_id)
             await connection.send(self.grants(row, kind="heartbeat_ack"))
+        elif frame.get("type") == "policy_rejected":
+            revision, error = frame.get("policy_revision"), frame.get("error")
+            if (
+                type(revision) is not int
+                or revision != row.policy_revision
+                or not isinstance(error, str)
+            ):
+                raise device_error("invalid device policy rejection")
+            self.repos.device_repo.policy_failed(row.device_id, revision, error)
+        elif frame.get("type") == "policy_applied":
+            revision, mode, metadata = (
+                frame.get("policy_revision"),
+                frame.get("trust_mode"),
+                frame.get("runtime"),
+            )
+            if (
+                self._client_protocol[row.device_id] < CLIENT_PROTOCOL_VERSION
+                or type(revision) is not int
+                or revision != row.policy_revision
+                or mode != row.trust_mode
+                or not isinstance(metadata, dict)
+            ):
+                raise device_error("invalid device policy acknowledgement")
+            safe = {
+                key: metadata[key]
+                for key in (
+                    "os_user",
+                    "working_dir",
+                    "hostname",
+                    "client_protocol_version",
+                    "job_protocol_version",
+                    "workbench_protocol_version",
+                    "terminal_protocol_version",
+                    "capability_protocol_version",
+                    "browser_protocol_version",
+                    "desktop_protocol_version",
+                    "transfer_protocol_version",
+                )
+                if key in metadata
+            }
+            if any(not isinstance(value, (str, int)) for value in safe.values()):
+                raise device_error("invalid device runtime metadata")
+            self.repos.device_repo.report_policy(
+                row.device_id, revision=revision, trust_mode=mode, metadata=safe
+            )
         elif frame.get("type") == "result":
             self._result(connection, frame)
         elif frame.get("type") == "reconcile":
@@ -326,6 +448,7 @@ class DeviceService:
                         status="unknown",
                         error="unconfirmed device outcome",
                     )
+                self._record_execution_receipt(op.operation_id, op.owner_user_id)
         elif frame.get("type") == "grant_resolve":
             proposal_id = frame.get("proposal_id")
             decision = frame.get("decision")
@@ -352,6 +475,26 @@ class DeviceService:
 
     def _result(self, connection: DeviceConnection, frame: dict[str, Any]) -> None:
         pending = self._pending.get(str(frame.get("id", "")))
+        if pending is None:
+            op = self.repos.device_repo.get_operation(str(frame.get("id", "")))
+            row = self.repos.device_repo.get(connection.device_id)
+            if (
+                op
+                and row
+                and op.device_id == connection.device_id
+                and op.grant_version == row.grant_version
+                and op.status == "unknown"
+                and frame.get("ok") is True
+                and isinstance(frame.get("result"), dict)
+            ):
+                self.repos.device_repo.update_operation(
+                    op.operation_id,
+                    status=result_status(op.action, frame["result"]),
+                    result=ledger_result(op.action, frame["result"]),
+                    expected_statuses=("unknown",),
+                )
+                self._record_execution_receipt(op.operation_id, op.owner_user_id)
+            return
         if pending is None or pending[0] is not connection or pending[1].done():
             return
         future = pending[1]
@@ -445,7 +588,7 @@ class DeviceService:
 
         if expanding and not reduced_only:
             client_proto = self._client_protocol.get(device_id, 1)
-            if client_proto < CLIENT_PROTOCOL_VERSION and device_id in self._connections:
+            if client_proto < GRANT_PROTOCOL_VERSION and device_id in self._connections:
                 raise OctopError(
                     ErrorCode.DEVICE_INVALID,
                     "CLIENT_OUTDATED: upgrade the device client to accept expanded grants",
@@ -516,6 +659,18 @@ class DeviceService:
                 ErrorCode.DEVICE_INVALID,
                 "UNSUPPORTED_CAPABILITY: permission not in device capabilities",
             )
+        if len(roots) > 20 or len({r.get("id") for r in roots}) != len(roots):
+            raise device_error("invalid shared roots")
+        for root in roots:
+            if (
+                not isinstance(root.get("id"), str)
+                or not root["id"]
+                or not isinstance(root.get("path"), str)
+                or not root["path"]
+                or len(root["path"]) > 4096
+                or any(ord(c) < 32 for c in root["path"])
+            ):
+                raise device_error("invalid shared root")
         self._purge_proposals()
         # Replace any prior pending proposal for this device.
         for pid, item in list(self._proposals.items()):
@@ -523,7 +678,16 @@ class DeviceService:
                 self._proposals.pop(pid, None)
         proposal_id = new_ulid()
         added = set(permissions) - set(row.permissions)
-        requires_confirm = bool(added & HIGH_RISK_PERMISSIONS) or row.remote_grant_mode == "confirm"
+        known = {r["id"]: r for r in row.roots}
+        new_paths = any(
+            r["id"] not in known
+            or r["path"] != known[r["id"]]["path"]
+            or (r.get("write") and not known[r["id"]].get("write"))
+            for r in roots
+        )
+        requires_confirm = (
+            bool(added & HIGH_RISK_PERMISSIONS) or row.remote_grant_mode == "confirm" or new_paths
+        )
         proposal = {
             "proposal_id": proposal_id,
             "device_id": device_id,
@@ -542,7 +706,7 @@ class DeviceService:
         connection = self._connections.get(device_id)
         if connection is not None:
             client_proto = self._client_protocol.get(device_id, 1)
-            if client_proto < CLIENT_PROTOCOL_VERSION:
+            if client_proto < GRANT_PROTOCOL_VERSION:
                 self._proposals.pop(proposal_id, None)
                 raise OctopError(
                     ErrorCode.DEVICE_INVALID,
@@ -603,7 +767,14 @@ class DeviceService:
             if row is None:
                 raise OctopError(ErrorCode.NOT_FOUND, "device not found")
             added = set(proposal["permissions"]) - set(row.permissions)
-            if added & HIGH_RISK_PERMISSIONS:
+            known = {r["id"]: r for r in row.roots}
+            new_paths = any(
+                r["id"] not in known
+                or r["path"] != known[r["id"]]["path"]
+                or (r.get("write") and not known[r["id"]].get("write"))
+                for r in proposal["roots"]
+            )
+            if added & HIGH_RISK_PERMISSIONS or new_paths:
                 raise OctopError(
                     ErrorCode.FORBIDDEN,
                     "DEVICE_CONFIRM_REQUIRED: command_exec/acp_run require "
@@ -743,6 +914,19 @@ class DeviceService:
             raise OctopError(ErrorCode.DEVICE_OFFLINE, "device offline")
 
         current = self._desktop_targets.get(owner)
+        if self.owner_trusted(row):
+            self._desktop_targets[owner] = to_device_id
+            result = {
+                "request_id": None,
+                "status": "accepted",
+                "from_device_id": current,
+                "to_device_id": to_device_id,
+                "mode": mode,
+                "current_device_id": to_device_id,
+                "owner_user_id": owner,
+            }
+            self._record_takeover_event(result, "accepted")
+            return result
         if current == to_device_id:
             return {
                 "request_id": None,
@@ -842,6 +1026,9 @@ class DeviceService:
         await self._interrupt_device(device_id)
         connection = self._connections.get(device_id)
         if connection is not None:
+            if self._client_protocol.get(device_id, 1) >= CLIENT_PROTOCOL_VERSION:
+                with contextlib.suppress(Exception):
+                    await connection.send({"type": "revoked"})
             self.disconnect(connection)
             await connection.close()
         return self.public(row)
@@ -886,15 +1073,60 @@ class DeviceService:
     ) -> DeviceRow:
         row = self.owned(owner, device_id)
         required = validate_action(action, params)
+        if device_id not in self._connections:
+            raise OctopError(ErrorCode.DEVICE_OFFLINE, "device offline")
+        if action not in {"ping", "status"} and row.policy_revision != row.applied_policy_revision:
+            raise device_error("POLICY_PENDING: device has not applied its policy", status=409)
+        if action.startswith("fs.") and not self.owner_trusted(row):
+            raise OctopError(
+                ErrorCode.FORBIDDEN, "native filesystem requires trusted device protocol v3"
+            )
+        if action.startswith(("fs.upload.", "fs.download.")) and (
+            (row.runtime_metadata or {}).get("transfer_protocol_version") != 1
+        ):
+            raise device_error(
+                "CLIENT_OUTDATED: device does not support native file transfers", status=409
+            )
+        if action.startswith("jobs.") and (
+            not self.owner_trusted(row)
+            or (row.runtime_metadata or {}).get("job_protocol_version") != 1
+        ):
+            raise device_error(
+                "CLIENT_OUTDATED: device does not support persistent Jobs", status=409
+            )
         if required and (required not in row.permissions or required not in row.capabilities):
             raise OctopError(ErrorCode.FORBIDDEN, "device capability not granted")
+        if action.startswith("capabilities.") and (
+            not self.owner_trusted(row)
+            or (row.runtime_metadata or {}).get("capability_protocol_version") != 1
+        ):
+            raise device_error(
+                "CLIENT_OUTDATED: device does not support capability discovery", status=409
+            )
+        if action.startswith("git.") and (
+            not self.owner_trusted(row)
+            or (row.runtime_metadata or {}).get("workbench_protocol_version") != 1
+        ):
+            raise device_error("CLIENT_OUTDATED: device does not support native Git", status=409)
+        if action.startswith("terminal.") and (
+            not self.owner_trusted(row)
+            or (row.runtime_metadata or {}).get("terminal_protocol_version") != 1
+        ):
+            raise device_error(
+                "CLIENT_OUTDATED: device does not support native terminal", status=409
+            )
+        if action.startswith("browser.") and (
+            not self.owner_trusted(row)
+            or (row.runtime_metadata or {}).get("browser_protocol_version") != 1
+        ):
+            raise device_error(
+                "CLIENT_OUTDATED: device does not support device browser", status=409
+            )
         if agent_id:
             agent = self.repos.agent_repo.get(agent_id)
             if agent is None or agent.user_id != owner:
                 raise OctopError(ErrorCode.FORBIDDEN, "agent cannot use this device")
-        if device_id not in self._connections:
-            raise OctopError(ErrorCode.DEVICE_OFFLINE, "device offline")
-        if (
+        if not self.owner_trusted(row) and (
             action.startswith("files.")
             and action in {"files.list", "files.stat", "files.read", "files.write_begin"}
             or action == "command.run"
@@ -922,8 +1154,26 @@ class DeviceService:
         expected_version: int | None = None,
         allow_command: bool = False,
         allow_acp: bool = False,
+        record_operation: bool = False,
+        execution_context_id: str | None = None,
     ) -> dict[str, Any]:
-        if action == "command.run" and not allow_command:
+        if action.startswith("browser."):
+            from octop.infra.execution.service import ExecutionService
+
+            if execution_context_id is None:
+                raise OctopError(ErrorCode.FORBIDDEN, "browser calls require an execution context")
+            context, params = ExecutionService(self)._prepare(
+                owner, execution_context_id, action, params, actor_agent_id=agent_id
+            )
+            if context.target_kind != "device" or context.device_id != device_id:
+                raise OctopError(ErrorCode.FORBIDDEN, "browser context targets another device")
+            agent_id = context.agent_id
+            expected_version = context.grant_version
+        if (
+            action == "command.run"
+            and not allow_command
+            and not self.owner_trusted(self.owned(owner, device_id))
+        ):
             raise OctopError(ErrorCode.FORBIDDEN, "command requires human confirmation")
         if action.startswith("acp.") and not allow_acp:
             raise OctopError(ErrorCode.FORBIDDEN, "ACP calls require an expert device binding")
@@ -933,7 +1183,19 @@ class DeviceService:
         if expected_version is not None and row.grant_version != expected_version:
             raise OctopError(ErrorCode.FORBIDDEN, "device permission changed")
         connection = self._connections[device_id]
-        audit = request_id is None and action in {
+        audit = (record_operation or request_id is None) and action in {
+            "command.run",
+            "jobs.start",
+            "jobs.cancel",
+            "git.restore",
+            "fs.write",
+            "fs.edit",
+            "fs.mkdir",
+            "fs.move",
+            "fs.remove",
+            "fs.upload.begin",
+            "fs.upload.commit",
+            "fs.upload.abort",
             "desktop.input",
             "files.write_begin",
             "files.write_commit",
@@ -944,10 +1206,19 @@ class DeviceService:
         request_id = request_id or new_ulid()
         if audit:
             audit_params = (
-                {"root_id": params.get("root_id"), "runner": params.get("runner")}
+                {
+                    "root_id": params.get("root_id"),
+                    "runner": params.get("runner"),
+                    "execution_context_id": params.get("execution_context_id"),
+                }
                 if action == "acp.open"
                 else {}
                 if action == "acp.close"
+                else {
+                    "kind": params.get("kind"),
+                    "execution_context_id": params.get("execution_context_id"),
+                }
+                if action == "desktop.input"
                 else {
                     key: value for key, value in params.items() if key not in {"text", "data_b64"}
                 }
@@ -977,10 +1248,14 @@ class DeviceService:
             )
             # Allow the device's own deadline plus process cleanup and delivery.
             wait_timeout = int(params.get("timeout", 60)) + 15 if action == "command.run" else 30
+            if action in {"fs.upload.begin", "fs.download.begin", "fs.upload.commit"}:
+                wait_timeout = 1800  # Streaming checksum preparation; heartbeats stay independent.
             result = await asyncio.wait_for(future, wait_timeout)
             if audit:
                 self.repos.device_repo.update_operation(
-                    request_id, status="completed", result=ledger_result(action, result)
+                    request_id,
+                    status=result_status(action, result),
+                    result=ledger_result(action, result),
                 )
             return result
         except (TimeoutError, OSError, asyncio.CancelledError) as exc:
@@ -1035,6 +1310,10 @@ class DeviceService:
     ) -> dict[str, Any]:
         if action.startswith("acp."):
             raise OctopError(ErrorCode.FORBIDDEN, "ACP streams cannot be submitted as operations")
+        if action.startswith("browser."):
+            raise OctopError(
+                ErrorCode.FORBIDDEN, "browser streams require the immediate execution context API"
+            )
         if len(self._jobs) >= 32:
             raise device_error("device operation capacity reached", status=429)
         row = self.authorize(owner, device_id, action, params, agent_id=agent_id)
@@ -1047,11 +1326,31 @@ class DeviceService:
             agent_id=agent_id,
             task_run_id=task_run_id,
             grant_version=row.grant_version,
-            status="pending_confirmation" if action == "command.run" else "queued",
+            status="pending_confirmation"
+            if action == "command.run" and not self.owner_trusted(row)
+            else "queued",
         )
         if op.status == "queued":
             self._launch(op)
         return op.public()
+
+    def _record_execution_receipt(self, operation_id: str, owner: int) -> None:
+        from octop.infra.db.repos.execution import ExecutionContextRepo
+        from octop.infra.execution.events import STREAM_ACTIONS, RunInspectionService
+
+        op = self.repos.device_repo.get_operation(operation_id, owner)
+        if op is None or op.action in STREAM_ACTIONS:
+            return
+        context_id = op.params.get("execution_context_id")
+        context = (
+            ExecutionContextRepo(self.repos.db).get(owner, context_id)
+            if isinstance(context_id, str)
+            else None
+        )
+        if context and context.device_id == op.device_id and context.agent_id == op.agent_id:
+            RunInspectionService(self.repos).device_receipt(
+                context, operation_id, op.action, op.status, op.params, op.result
+            )
 
     def _launch(self, op: OperationRow) -> None:
         task = asyncio.create_task(self._execute(op), name=f"device-op-{op.operation_id}")
@@ -1064,6 +1363,7 @@ class DeviceService:
         )
         if started is None or started.status != "running":
             return
+        self._record_execution_receipt(op.operation_id, op.owner_user_id)
         try:
             if op.action == "files.transfer":
                 value = await self._transfer(op)
@@ -1105,6 +1405,9 @@ class DeviceService:
                 else "unconfirmed device outcome",
                 expected_statuses=("queued", "running", "unknown"),
             )
+
+        finally:
+            self._record_execution_receipt(op.operation_id, op.owner_user_id)
 
     def confirm(self, owner: int, operation_id: str) -> dict[str, Any]:
         op = self.operation(owner, operation_id)
@@ -1266,6 +1569,8 @@ class DeviceService:
                 await target("files.write_abort", {"upload_id": upload_id})
 
     async def shutdown(self) -> None:
+        if self.local_execution is not None:
+            await self.local_execution.close()
         for task in list(self._jobs.values()):
             task.cancel()
         await asyncio.gather(*list(self._jobs.values()), return_exceptions=True)

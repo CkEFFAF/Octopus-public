@@ -1396,6 +1396,12 @@ class GlobalProcessor:
             request.setdefault("configurable", {})["octop_device_target"] = meta[
                 "octop_device_target"
             ]
+        if isinstance(meta.get("octop_execution_context"), dict):
+            request.setdefault("configurable", {})["octop_execution_context"] = meta[
+                "octop_execution_context"
+            ]
+        if isinstance(meta.get("work_mode"), str):
+            request.setdefault("configurable", {})["work_mode"] = meta["work_mode"]
         self.teams.stamp_host_runtime(request, agent_id)
         self._attach_turn_knowledge_config(
             request,

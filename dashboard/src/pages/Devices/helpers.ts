@@ -45,7 +45,13 @@ export function supportsWorkspaceView(
   );
 }
 
-export function canUse(device: Device, permission: DevicePermission): boolean {
+export function canUse(
+  device: Pick<
+    Device,
+    "online" | "revoked_at" | "capabilities" | "permissions"
+  >,
+  permission: DevicePermission,
+): boolean {
   return (
     device.online &&
     device.revoked_at === null &&
@@ -68,7 +74,7 @@ export function desktopPoint(
   clientX: number,
   clientY: number,
   bounds: { left: number; top: number; width: number; height: number },
-  screen: { width: number; height: number },
+  screen: { width: number; height: number; left?: number; top?: number },
 ): { x: number; y: number } | null {
   if (
     bounds.width <= 0 ||
@@ -82,14 +88,18 @@ export function desktopPoint(
   )
     return null;
   return {
-    x: Math.min(
-      screen.width - 1,
-      Math.floor(((clientX - bounds.left) / bounds.width) * screen.width),
-    ),
-    y: Math.min(
-      screen.height - 1,
-      Math.floor(((clientY - bounds.top) / bounds.height) * screen.height),
-    ),
+    x:
+      (screen.left ?? 0) +
+      Math.min(
+        screen.width - 1,
+        Math.floor(((clientX - bounds.left) / bounds.width) * screen.width),
+      ),
+    y:
+      (screen.top ?? 0) +
+      Math.min(
+        screen.height - 1,
+        Math.floor(((clientY - bounds.top) / bounds.height) * screen.height),
+      ),
   };
 }
 

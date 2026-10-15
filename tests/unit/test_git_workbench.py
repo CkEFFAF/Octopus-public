@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from octop.infra.backend.git_workbench import git_snapshot, restore_file
+from octop.infra.devices.executor import DeviceExecutor
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git unavailable")
 
@@ -134,3 +135,59 @@ def test_restore_treats_special_filename_as_literal(tmp_path: Path) -> None:
     assert Path(backup).read_text() == "after\n"
     assert (tmp_path / "a.txt").read_text() == "after\n"
     assert (tmp_path / "b.txt").read_text() == "after\n"
+
+
+async def test_owner_device_git_inspects_and_restores_native_repository(tmp_path: Path) -> None:
+    workspace = tmp_path / "default-directory"
+    workspace.mkdir()
+    root = tmp_path / "outside-repository"
+    root.mkdir()
+    _git(root, "init")
+    file = root / "note.txt"
+    file.write_text("before\n")
+    _git(root, "add", ".")
+    _git(root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "start")
+    file.write_text("after\n")
+    permissions = ["files_read", "files_write"]
+    executor = DeviceExecutor(
+        permissions,
+        [],
+        trust_mode="owner",
+        working_dir=str(workspace),
+        state_dir=tmp_path / "state",
+    )
+    try:
+        snapshot = await executor.execute(
+            "inspect",
+            "git.snapshot",
+            {"repository": str(root)},
+            grant_version=0,
+            permissions=permissions,
+        )
+        assert snapshot["path"] == str(root.resolve())
+        assert "after" in snapshot["diff"]
+        assert executor._journal["inspect"]["result_retained"] is False
+        result = await executor.execute(
+            "restore",
+            "git.restore",
+            {
+                "repository": str(root),
+                "path": "note.txt",
+                "expected_hash": hashlib.sha256(file.read_bytes()).hexdigest(),
+            },
+            grant_version=0,
+            permissions=permissions,
+        )
+        assert file.read_text() == "before\n"
+        assert Path(result["recovery_copy"]).read_text() == "after\n"
+    finally:
+        await executor.close()
+
+
+def test_native_git_resolves_repository_above_default_directory(tmp_path: Path) -> None:
+    _git(tmp_path, "init")
+    nested = tmp_path / "data"
+    nested.mkdir()
+    snapshot = git_snapshot(nested, native=True)
+    assert snapshot["available"] is True
+    assert snapshot["path"] == str(tmp_path.resolve())

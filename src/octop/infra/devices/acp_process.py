@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from octop.infra.devices.process_scope import WindowsJob
+
 
 class ACPProcessError(ValueError):
     """Invalid or unavailable local ACP process."""
@@ -51,7 +53,7 @@ class DeviceACPProcesses:
             raise ACPProcessError("invalid ACP runner command")
         if len(self._sessions) >= 4:
             raise ACPProcessError("too many ACP sessions on device")
-        from octop.infra.devices.executor import _reject_links, _WindowsJob
+        from octop.infra.devices.executor import _reject_links
 
         _reject_links(cwd)
         if not cwd.is_dir():
@@ -88,7 +90,7 @@ class DeviceACPProcesses:
         job = None
         try:
             if os.name == "nt":
-                job = _WindowsJob(process.pid)
+                job = WindowsJob(process.pid)
             stdout, stderr = process.stdout, process.stderr
             assert stdout is not None and stderr is not None
             output: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=32)

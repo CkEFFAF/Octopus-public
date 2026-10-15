@@ -53,7 +53,9 @@ def resolve_default_device_server() -> str:
 
 # Wire protocol: v1 = legacy reduce-only clients; v2 = grant proposals / expand.
 DEVICE_PROTOCOL_VERSION = 1
-CLIENT_PROTOCOL_VERSION = 2
+CLIENT_PROTOCOL_VERSION = 3
+GRANT_PROTOCOL_VERSION = 2
+TRUST_MODES = frozenset({"owner", "restricted"})
 PENDING_GRANT_TTL_SECONDS = 72 * 3600
 # 0008 MVP-S1: controlled-device must confirm desktop target switch (DEC-001).
 PENDING_TAKEOVER_TTL_SECONDS = 60
@@ -89,8 +91,47 @@ ACTION_PERMISSION = {
     "acp.write": "acp_run",
     "acp.poll": "acp_run",
     "acp.close": "acp_run",
+    "fs.list": "files_read",
+    "fs.stat": "files_read",
+    "fs.read": "files_read",
+    "fs.write": "files_write",
+    "fs.mkdir": "files_write",
+    "fs.move": "files_write",
+    "fs.remove": "files_write",
+    "fs.edit": "files_write",
+    "fs.glob": "files_read",
+    "fs.grep": "files_read",
+    "fs.download.begin": "files_read",
+    "fs.download.chunk": "files_read",
+    "fs.download.close": "files_read",
+    "fs.upload.begin": "files_write",
+    "fs.upload.chunk": "files_write",
+    "fs.upload.commit": "files_write",
+    "fs.upload.abort": "files_write",
+    "fs.upload.status": "files_write",
+    "jobs.start": "command_exec",
+    "jobs.cancel": "command_exec",
+    "jobs.list": "files_read",
+    "jobs.status": "files_read",
+    "jobs.logs": "files_read",
+    "git.snapshot": "files_read",
+    "git.restore": "files_write",
+    "terminal.open": "command_exec",
+    "terminal.poll": "command_exec",
+    "terminal.input": "command_exec",
+    "terminal.resize": "command_exec",
+    "terminal.close": "command_exec",
+    "capabilities.discover": "files_read",
+    "capabilities.skill.inspect": "files_read",
+    "browser.open": "command_exec",
+    "browser.close": "command_exec",
+    "browser.action": "command_exec",
+    "browser.state": "command_exec",
+    "browser.capture": "command_exec",
+    "browser.observe": "command_exec",
 }
 CHUNK_SIZE = 1024 * 1024
+JOB_READ_ACTIONS = frozenset({"jobs.status", "jobs.list", "jobs.logs"})
 MAX_FRAME = 4 * 1024 * 1024
 
 
@@ -118,7 +159,9 @@ def validate_action(action: str, params: dict[str, Any]) -> str:
 
 
 def ledger_result(action: str, value: dict[str, Any]) -> dict[str, Any]:
-    """Keep private desktop frames and file bytes out of the durable ledger."""
+    """Keep browser contents, desktop frames and file bytes out of the ledger."""
+    if action.startswith("browser."):
+        return {}
     return {k: v for k, v in value.items() if k not in {"jpeg_b64", "data_b64", "session_id"}}
 
 

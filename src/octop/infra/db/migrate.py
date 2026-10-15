@@ -2002,8 +2002,34 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
             conn.execute("UPDATE _schema_version SET version = ?", (version,))
         return
     sql = path.read_text(encoding="utf-8")
+    if version == 26:
+        # Restored databases may have a lower watermark with these columns already present.
+        additions = re.findall(r"ALTER TABLE devices ADD COLUMN (\w+) ([^;]+);", sql)
+        for column, ddl in additions:
+            _ensure_column(db, "devices", column, ddl)
+        sql = re.sub(r"ALTER TABLE devices ADD COLUMN \w+ [^;]+;", "", sql)
     with db.connect() as conn:
         conn.executescript(sql)
+
+
+def _ensure_execution_schema(db: DatabasePool) -> None:
+    """Reconcile folded, unreleased v26 DDL without lowering its watermark."""
+    if _current_version(db) < 26:
+        return
+    suffix = ".pg.sql" if db.dialect == "postgresql" else ".sql"
+    sql = (_MIGRATIONS_DIR / f"026_execution_context{suffix}").read_text(encoding="utf-8")
+    sql = re.sub(r"UPDATE _schema_version SET version = 26;", "", sql)
+    if db.dialect == "sqlite":
+        for column, ddl in re.findall(r"ALTER TABLE devices ADD COLUMN (\w+) ([^;]+);", sql):
+            _ensure_column(db, "devices", column, ddl)
+        sql = re.sub(r"ALTER TABLE devices ADD COLUMN \w+ [^;]+;", "", sql)
+        with db.connect() as conn:
+            conn.executescript(sql)
+    else:
+        with db.connect() as conn, conn.transaction():
+            _apply_postgresql_migration(conn, sql)
+    for table in ("execution_contexts", "thread_execution_settings"):
+        _ensure_column(db, table, "target_kind", "TEXT NOT NULL DEFAULT 'device'")
 
 
 def run_migrations(db: DatabasePool) -> None:
@@ -2061,3 +2087,4 @@ def run_migrations(db: DatabasePool) -> None:
     _ensure_sso_provider_kind_schema(db)
     _ensure_user_role_schema(db)
     _ensure_bridge_connections_schema(db)
+    _ensure_execution_schema(db)

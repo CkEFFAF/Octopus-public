@@ -45,7 +45,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from octop.api.common.agent import require_agent_owner_row, require_agent_row
-from octop.api.deps import current_user, get_server, require_admin, require_permission
+from octop.api.deps import current_user, get_server, require_permission
 from octop.infra.agents.manager import (
     skill_package_ids_list,
 )
@@ -760,6 +760,7 @@ class ImportExternalSkillBody(BaseModel):
     source: str
     slug: str
     digest: str
+    execution_context_id: str | None = None
 
 
 @router.get(
@@ -768,15 +769,44 @@ class ImportExternalSkillBody(BaseModel):
 )
 async def discover_external_skill_sources(
     agent_id: str,
+    execution_context_id: str | None = None,
     as_user: int | None = None,
-    user: Any = Depends(require_admin()),
+    user: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> list[dict[str, Any]]:
-    """Read candidates from the server host; no capability is enabled here."""
+    """Read candidates from an explicit device context or an admin-selected host."""
     await _ctx(agent_id, user=user, as_user=as_user, server=server)
+    if execution_context_id:
+        from octop.infra.execution.skills import ExecutionSkillService
+
+        return await ExecutionSkillService(server.app_runtime.execution).discover(
+            int(user.id), execution_context_id, agent_id
+        )
+    if user.role != "admin":
+        raise OctopError(
+            ErrorCode.FORBIDDEN, "choose a device source; host discovery requires admin"
+        )
     from octop.infra.skills.external_sources import discover_external_skills  # noqa: PLC0415
 
     return await asyncio.to_thread(discover_external_skills, Path.home())
+
+
+@router.get("/agents/{agent_id}/skills/external/inspect", summary="Inspect a device skill snapshot")
+async def inspect_external_device_skill(
+    agent_id: str,
+    execution_context_id: str,
+    source: str,
+    slug: str,
+    digest: str,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    from octop.infra.execution.skills import ExecutionSkillService
+
+    await _ctx(agent_id, user=user, as_user=None, server=server)
+    return await ExecutionSkillService(server.app_runtime.execution).inspect(
+        int(user.id), execution_context_id, agent_id, source, slug, digest
+    )
 
 
 @router.post(
@@ -788,7 +818,7 @@ async def import_external_skill(
     agent_id: str,
     body: ImportExternalSkillBody,
     as_user: int | None = None,
-    user: Any = Depends(require_admin()),
+    user: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     """Import the exact candidate snapshot reviewed by the caller."""
@@ -796,9 +826,24 @@ async def import_external_skill(
     from octop.infra.skills.external_sources import load_external_skill  # noqa: PLC0415
 
     try:
-        package, digest = await asyncio.to_thread(
-            load_external_skill, Path.home(), body.source, body.slug
-        )
+        if body.execution_context_id:
+            from octop.infra.execution.skills import ExecutionSkillService
+
+            package = await ExecutionSkillService(server.app_runtime.execution).package(
+                int(user.id),
+                body.execution_context_id,
+                agent_id,
+                body.source,
+                body.slug,
+                body.digest,
+            )
+            digest = body.digest
+        else:
+            if user.role != "admin":
+                raise OctopError(ErrorCode.FORBIDDEN, "host import requires admin")
+            package, digest = await asyncio.to_thread(
+                load_external_skill, Path.home(), body.source, body.slug
+            )
     except (OSError, ValueError) as exc:
         raise OctopError(ErrorCode.SLASH_BAD_ARGS, str(exc)) from exc
     if digest != body.digest:

@@ -40,9 +40,9 @@ sudo apt install -y git curl build-essential
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source "$HOME/.local/bin/env" 2>/dev/null || true
 
-# 3) Deploy Key：在 CkEFFAF/Octopus 配只读 Deploy Key，私钥仅放云机 ~/.ssh/
+# 3) 获取公开主仓；下载源码不需要 Deploy Key
 #    当前云上下文示例（root）：
-git clone git@github.com:CkEFFAF/Octopus.git /root/octopus
+git clone https://github.com/CkEFFAF/Octopus-public.git /root/octopus
 cd /root/octopus
 
 # 4) 同步依赖（前端按需）

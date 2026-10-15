@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import getpass
 import ipaddress
 import json
 import logging
+import platform
 import random
 import urllib.error
 import urllib.parse
@@ -14,6 +16,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from octop.i18n import DEFAULT_LOCALE, tr
+from octop.infra.devices.consent import confirm
 from octop.infra.devices.executor import (
     DeviceExecutionError,
     DeviceExecutor,
@@ -196,6 +200,7 @@ class DeviceClient:
             "capabilities": executor.capabilities,
             "permissions": allowed,
             "roots": list(executor.local_roots.values()),
+            "trust_mode": executor.trust_mode,
         }
         authorization: str | None = None
         if access_key:
@@ -238,6 +243,9 @@ class DeviceClient:
                 "command_enabled": "command_exec" in executor.local_permissions,
                 "acp_enabled": "acp_run" in executor.local_permissions,
                 "remote_grant_mode": "owner_auto",
+                "trust_mode": executor.trust_mode,
+                "working_dir": str(executor.working_dir),
+                "policy_revision": device.get("policy_revision", 0),
             },
         }
         save_private_json(self.state_path, state)
@@ -256,6 +264,77 @@ class DeviceClient:
             control_enabled=policy.get("control_enabled") is True,
             command_enabled=policy.get("command_enabled") is True,
             acp_enabled=policy.get("acp_enabled") is True,
+            trust_mode=policy.get("trust_mode", "restricted"),
+            working_dir=policy.get("working_dir"),
+        )
+
+    async def apply_policy_frame(
+        self, socket: Any, executor: DeviceExecutor, frame: dict[str, Any]
+    ) -> None:
+        revision = frame.get("policy_revision", 0)
+        if type(revision) is not int or revision < 0:
+            raise DeviceExecutionError("invalid policy revision")
+        state = self.load_state()
+        if state is None or revision == 0:
+            return
+        controller_id = frame.get("controller_id")
+        if not isinstance(controller_id, str) or not controller_id:
+            raise DeviceExecutionError("missing controller identity")
+        if state.get("controller_id") not in {None, controller_id}:
+            raise DeviceExecutionError("control center identity changed")
+        state["controller_id"] = controller_id
+        policy = state["policy"]
+        if revision < policy.get("policy_revision", 0):
+            raise DeviceExecutionError("stale device policy")
+        try:
+            await asyncio.to_thread(
+                executor.apply_policy,
+                frame["trust_mode"],
+                frame["permissions"],
+                frame.get("working_dir"),
+            )
+        except DeviceExecutionError as exc:
+            await socket.send(
+                json.dumps(
+                    {"type": "policy_rejected", "policy_revision": revision, "error": str(exc)}
+                )
+            )
+            return
+        policy.update(
+            trust_mode=executor.trust_mode,
+            working_dir=str(executor.working_dir),
+            policy_revision=revision,
+            permissions=sorted(executor.local_permissions),
+        )
+        for option, permission in (
+            ("desktop_enabled", "desktop_view"),
+            ("control_enabled", "desktop_control"),
+            ("command_enabled", "command_exec"),
+            ("acp_enabled", "acp_run"),
+        ):
+            policy[option] = permission in executor.local_permissions
+        save_private_json(self.state_path, state)
+        await socket.send(
+            json.dumps(
+                {
+                    "type": "policy_applied",
+                    "trust_mode": executor.trust_mode,
+                    "policy_revision": revision,
+                    "runtime": {
+                        "os_user": getpass.getuser(),
+                        "working_dir": str(executor.working_dir),
+                        "hostname": platform.node(),
+                        "client_protocol_version": CLIENT_PROTOCOL_VERSION,
+                        "job_protocol_version": 1 if executor.state_dir else 0,
+                        "workbench_protocol_version": 1,
+                        "terminal_protocol_version": 1,
+                        "capability_protocol_version": 1,
+                        "browser_protocol_version": 1,
+                        "desktop_protocol_version": 1,
+                        "transfer_protocol_version": 1,
+                    },
+                }
+            )
         )
 
     async def stop(self) -> None:
@@ -323,6 +402,7 @@ class DeviceClient:
                         hello = json.loads(await asyncio.wait_for(socket.recv(), 10))
                         if hello.get("type") != "hello_ack" or hello.get("protocol") != 1:
                             raise DeviceExecutionError("device authentication failed")
+                        await self.apply_policy_frame(socket, executor, hello)
                         executor.update_grants(
                             hello["grant_version"], hello["permissions"], hello["roots"]
                         )
@@ -345,7 +425,7 @@ class DeviceClient:
                     pass
                 finally:
                     self._socket = None
-                    await executor.close()
+                    await executor.close(preserve_terminals=not self._stop.is_set())
                 if not self._stop.is_set():
                     with contextlib.suppress(TimeoutError):
                         await asyncio.wait_for(
@@ -357,7 +437,75 @@ class DeviceClient:
 
     async def _connected(self, socket: Any, executor: DeviceExecutor) -> None:
         tasks: dict[str, asyncio.Task[None]] = {}
+        confirmations: dict[str, asyncio.Task[None]] = {}
         last_heartbeat = asyncio.get_running_loop().time()
+
+        async def resolve_confirmation(frame: dict[str, Any]) -> None:
+            kind = frame["type"]
+            is_grant = kind == "grant_proposal"
+            key = "proposal_id" if is_grant else "request_id"
+            request_id = frame[key]
+            decision = "reject"
+            try:
+                state = self.load_state()
+                if state is not None:
+                    if is_grant:
+                        roots_label = "\n".join(
+                            f"{r['path']} (read={r.get('read')}, write={r.get('write')})"
+                            for r in frame["roots"]
+                        )
+                        details = tr(
+                            "desktop.consent.grants",
+                            DEFAULT_LOCALE,
+                            permissions=", ".join(frame["permissions"]),
+                            roots=roots_label,
+                        )
+                    else:
+                        details = tr(
+                            "desktop.consent.takeover",
+                            DEFAULT_LOCALE,
+                            owner=frame.get("owner_label", "owner"),
+                            mode=tr("desktop.consent." + frame["mode"], DEFAULT_LOCALE),
+                        )
+                    accepted = await confirm(
+                        self.state_dir,
+                        request_id=request_id,
+                        server_url=state["server_url"],
+                        details=details,
+                        expires_at=frame.get("expires_at"),
+                    )
+                    if accepted:
+                        if is_grant:
+                            executor.apply_grant_proposal(
+                                frame["permissions"], frame["roots"], allow_new_roots=True
+                            )
+                            policy = state["policy"]
+                            policy["permissions"] = sorted(executor.local_permissions)
+                            policy["roots"] = list(executor.local_roots.values())
+                            for option, permission in (
+                                ("desktop_enabled", "desktop_view"),
+                                ("control_enabled", "desktop_control"),
+                                ("command_enabled", "command_exec"),
+                                ("acp_enabled", "acp_run"),
+                            ):
+                                policy[option] = permission in executor.local_permissions
+                            save_private_json(self.state_path, state)
+                        decision = "accept"
+            except (OSError, ValueError, KeyError, TypeError):
+                decision = "reject"
+            finally:
+                confirmations.pop(request_id, None)
+            with contextlib.suppress(Exception):
+                await socket.send(
+                    json.dumps(
+                        {
+                            "type": "grant_resolve" if is_grant else "desktop_takeover_resolve",
+                            key: request_id,
+                            "decision": decision,
+                        },
+                        ensure_ascii=False,
+                    )
+                )
 
         async def send_result(frame: dict[str, Any]) -> None:
             operation_id = frame["id"]
@@ -402,15 +550,24 @@ class DeviceClient:
                     raise DeviceExecutionError("invalid device protocol frame") from exc
                 if kind == "heartbeat_ack":
                     last_heartbeat = asyncio.get_running_loop().time()
+                if kind == "revoked":
+                    await asyncio.to_thread(executor.stop_jobs)
+                    self._stop.set()
+                    await socket.close()
+                    return
                 if kind in {"grants", "heartbeat_ack"} and "grant_version" in frame:
                     if frame["grant_version"] != executor.grant_version:
                         # First stop work accepted under the superseded grant.
-                        superseded = list(tasks.values())
+                        superseded = [*tasks.values(), *confirmations.values()]
                         for task in superseded:
                             task.cancel()
                         await asyncio.gather(*superseded, return_exceptions=True)
                         tasks.clear()
+                        confirmations.clear()
                         await executor.close()
+                    if frame.get("policy_revision", 0) > 0:
+                        await self.apply_policy_frame(socket, executor, frame)
+                    if frame["grant_version"] != executor.grant_version:
                         executor.update_grants(
                             frame["grant_version"], frame["permissions"], frame["roots"]
                         )
@@ -426,28 +583,36 @@ class DeviceClient:
                     ):
                         raise DeviceExecutionError("invalid grant_proposal")
                     high_risk = bool(set(desired) & HIGH_RISK_PERMISSIONS)
-                    requires = frame.get("requires_confirm") is True or high_risk
+                    new_root = any(
+                        r.get("id") not in executor.local_roots
+                        or r.get("path") != executor.local_roots[r["id"]]["path"]
+                        or (r.get("write") and not executor.local_roots[r["id"]]["write"])
+                        for r in roots
+                    )
+                    requires = frame.get("requires_confirm") is True or high_risk or new_root
+                    if requires:
+                        if executor.trust_mode == "owner":
+                            frame["requires_confirm"] = False
+                            executor.apply_grant_proposal(desired, roots, allow_new_roots=True)
+                            await socket.send(
+                                json.dumps(
+                                    {
+                                        "type": "grant_resolve",
+                                        "proposal_id": proposal_id,
+                                        "decision": "accept",
+                                    }
+                                )
+                            )
+                            continue
+                        if proposal_id not in confirmations and len(confirmations) < 4:
+                            confirmations[proposal_id] = asyncio.create_task(
+                                resolve_confirmation(frame)
+                            )
+                        continue
                     decision = "reject"
                     try:
-                        if requires:
-                            # Interactive CLI confirm for high-risk / confirm mode.
-                            import sys
-
-                            label = ",".join(sorted(set(desired)))
-                            if sys.stdin is not None and sys.stdin.isatty():
-                                answer = (
-                                    input(
-                                        f"Control center requests permissions [{label}]. Accept? [y/N] "
-                                    )
-                                    .strip()
-                                    .lower()
-                                )
-                                decision = "accept" if answer in {"y", "yes"} else "reject"
-                            else:
-                                decision = "reject"
-                        else:
-                            executor.apply_grant_proposal(desired, roots)
-                            decision = "accept"
+                        executor.apply_grant_proposal(desired, roots)
+                        decision = "accept"
                     except DeviceExecutionError:
                         decision = "reject"
                     await socket.send(
@@ -464,30 +629,11 @@ class DeviceClient:
                     # 0008 DEC-001: must prompt Allow takeover; never auto-accept (AC-004).
                     request_id = frame.get("request_id")
                     mode = frame.get("mode") or "view"
-                    owner_label = frame.get("owner_label") or "owner"
-                    if not isinstance(request_id, str):
+                    if not isinstance(request_id, str) or mode not in {"view", "view_control"}:
                         raise DeviceExecutionError("invalid desktop_takeover")
-                    decision = "reject"
-                    import sys
-
-                    mode_label = "view+control" if mode == "view_control" else "view"
-                    if sys.stdin is not None and sys.stdin.isatty():
-                        answer = (
-                            input(f"Allow desktop takeover by {owner_label} ({mode_label})? [y/N] ")
-                            .strip()
-                            .lower()
-                        )
-                        decision = "accept" if answer in {"y", "yes"} else "reject"
-                    await socket.send(
-                        json.dumps(
-                            {
-                                "type": "desktop_takeover_resolve",
-                                "request_id": request_id,
-                                "decision": decision,
-                            },
-                            ensure_ascii=False,
-                        )
-                    )
+                    frame["mode"] = mode
+                    if request_id not in confirmations and len(confirmations) < 4:
+                        confirmations[request_id] = asyncio.create_task(resolve_confirmation(frame))
                 elif kind == "cancel":
                     operation_id = str(frame.get("id", ""))
                     pending = tasks.get(operation_id)
@@ -524,6 +670,7 @@ class DeviceClient:
                     tasks[operation_id] = asyncio.create_task(send_result(frame))
         finally:
             pulse.cancel()
-            for task in list(tasks.values()):
+            remaining = [*tasks.values(), *confirmations.values()]
+            for task in remaining:
                 task.cancel()
-            await asyncio.gather(pulse, *list(tasks.values()), return_exceptions=True)
+            await asyncio.gather(pulse, *remaining, return_exceptions=True)

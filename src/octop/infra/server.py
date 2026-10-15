@@ -223,6 +223,7 @@ class AppRuntime:
     bridge_manager: Any | None = None
     task_board: Any | None = None
     devices: Any | None = None
+    execution: Any | None = None
 
     def replace_services(self, services: SharedServices, config: OctopConfig) -> None:
         """Retarget all runtime singletons onto a new SharedServices / config.
@@ -515,7 +516,13 @@ class OctopServer:
         task_board.recover()
         from octop.infra.devices.service import DeviceService
 
-        devices = DeviceService(self.services.repos)
+        devices = DeviceService(self.services.repos, local_state_dir=self.paths.root / "execution")
+        from octop.infra.execution.service import ExecutionService
+
+        execution = ExecutionService(devices)
+        from octop.infra.execution.reconciliation import ExecutionReconciler
+
+        execution_reconciler = ExecutionReconciler(devices)
         registry.set_device_service(devices)
         task_board.set_device_service(devices)
         task_board.set_peer_service(gateway.processor.teams)
@@ -544,6 +551,9 @@ class OctopServer:
 
         await registry.boot()
         cron_mgr.schedule_system_job("task-board-tick", trigger="interval:15", func=task_board.tick)
+        cron_mgr.schedule_system_job(
+            "execution-reconcile", trigger="interval:15", func=execution_reconciler.tick
+        )
         await gateway.refresh_media_backends()
 
         user_mgr = UserManager(self.services)
@@ -590,6 +600,7 @@ class OctopServer:
             bridge_manager=bridge_mgr,
             task_board=task_board,
             devices=devices,
+            execution=execution,
         )
         from octop.infra.knowledge.jobs import resume_pending_index_jobs  # noqa: PLC0415
 

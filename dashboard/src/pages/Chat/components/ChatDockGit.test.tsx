@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import ChatDockGit from "./ChatDockGit";
 import { request } from "../../../api/request";
 import { showApiError } from "../../../utils/showApiToast";
+import { executionApi } from "../../../api/modules/execution";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -13,6 +14,9 @@ vi.mock("react-i18next", () => ({
 }));
 vi.mock("../../../api/request", () => ({ request: vi.fn() }));
 vi.mock("../../../utils/showApiToast", () => ({ showApiError: vi.fn() }));
+vi.mock("../../../api/modules/execution", () => ({
+  executionApi: { call: vi.fn() },
+}));
 
 const snapshot = {
   available: true,
@@ -31,6 +35,31 @@ beforeEach(() => {
 });
 
 describe("ChatDockGit", () => {
+  it("loads a device repository through the frozen context", async () => {
+    vi.mocked(executionApi.call).mockResolvedValue(snapshot);
+    render(
+      <ChatDockGit
+        agentId="agent-a"
+        targetName="GPU"
+        executionContext={{
+          context_id: "frozen-context",
+          device_id: "gpu",
+          working_dir: "/work",
+          work_mode: "agentic",
+          policy_revision: 1,
+          grant_version: 2,
+        }}
+      />,
+    );
+    expect(await screen.findByText("new text")).toBeInTheDocument();
+    expect(executionApi.call).toHaveBeenCalledWith(
+      "frozen-context",
+      "git.snapshot",
+      { repository: "." },
+    );
+    expect(request).not.toHaveBeenCalled();
+    expect(screen.getByText(/GPU ·/)).toBeInTheDocument();
+  });
   it("matches quoted and Chinese file names to their diff and restore target", async () => {
     const user = userEvent.setup();
     vi.mocked(request).mockResolvedValue({

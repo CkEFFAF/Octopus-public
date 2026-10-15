@@ -2,6 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { generateId } from "../../../utils/messageParser";
 import type { ChatAttachment, UserComposerContext } from "./sseHelpers";
 import * as chatStore from "./chatStore";
+import {
+  executionScope,
+  getExecutionSelection,
+  executionSelectionReady,
+  type ExecutionSelectionSnapshot,
+} from "./deviceTarget";
+import type { WorkMode } from "../utils/workMode";
 
 export const CHAT_QUEUE_MAX_ITEMS = 10;
 
@@ -12,6 +19,10 @@ export type QueuedChatItem = {
   composerContext?: UserComposerContext;
   modelRef?: string | null;
   createdAt: number;
+  deviceId?: string;
+  workingDir?: string;
+  workMode?: WorkMode;
+  executionSelection?: ExecutionSelectionSnapshot;
 };
 
 export type EnqueueChatItemInput = {
@@ -146,7 +157,13 @@ export function useChatMessageQueue({
       const latest = queuesRef.current[key] ?? [];
       if (latest.length >= CHAT_QUEUE_MAX_ITEMS) return "full";
 
+      const scope = executionScope(agentId, threadId);
+      const selection = getExecutionSelection(scope);
       const item: QueuedChatItem = {
+        ...selection,
+        ...(executionSelectionReady(scope, threadId) && selection.deviceId
+          ? { executionSelection: { ...selection, scope } }
+          : {}),
         id: generateId(),
         text: trimmed,
         attachments:

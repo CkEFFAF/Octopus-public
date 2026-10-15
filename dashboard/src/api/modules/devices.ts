@@ -1,4 +1,5 @@
 import { request } from "../request";
+import type { WorkMode } from "./execution";
 
 export type DevicePermission =
   | "desktop_view"
@@ -25,6 +26,23 @@ export interface Device {
   roots: DeviceRoot[];
   grant_version: number;
   remote_grant_mode?: "confirm" | "owner_auto";
+  trust_mode?: "owner" | "restricted";
+  applied_trust_mode?: "owner" | "restricted";
+  policy_revision?: number;
+  applied_policy_revision?: number;
+  working_dir?: string | null;
+  runtime?: {
+    os_user?: string;
+    working_dir?: string;
+    hostname?: string;
+    client_protocol_version?: number;
+    job_protocol_version?: number;
+    terminal_protocol_version?: number;
+    workbench_protocol_version?: number;
+    transfer_protocol_version?: number;
+    capability_protocol_version?: number;
+    policy_error?: string;
+  };
   pending_proposal?: {
     proposal_id: string;
     permissions: string[];
@@ -119,6 +137,7 @@ export interface DeviceInput {
   text?: string;
   key?: string;
   dy?: number;
+  dx?: number;
 }
 
 interface DeviceCalls {
@@ -153,7 +172,13 @@ interface DeviceCalls {
   };
   "desktop.capture": {
     params: { quality?: number };
-    result: { jpeg_b64: string; width: number; height: number };
+    result: {
+      jpeg_b64: string;
+      width: number;
+      height: number;
+      left?: number;
+      top?: number;
+    };
   };
   "desktop.input": { params: DeviceInput; result: { ok: boolean } };
 }
@@ -182,7 +207,38 @@ async function boundedCall<T>(
   }
 }
 
+export interface DeviceExecutionSelection {
+  device_id: string | null;
+  working_dir: string | null;
+  work_mode: WorkMode;
+  target_kind?: "device" | "local";
+}
+
 export const devicesApi = {
+  executionSelection: (threadId: string) =>
+    request<DeviceExecutionSelection>(
+      `/devices/execution-selection/${encodeURIComponent(threadId)}`,
+    ),
+  saveExecutionSelection: (
+    threadId: string,
+    selection: Partial<DeviceExecutionSelection>,
+  ) =>
+    request<DeviceExecutionSelection>(
+      `/devices/execution-selection/${encodeURIComponent(threadId)}`,
+      { method: "PUT", body: JSON.stringify(selection) },
+    ),
+  setTrustPolicy: (
+    id: string,
+    policy: {
+      trust_mode: "owner" | "restricted";
+      working_dir: string | null;
+      permissions: string[];
+    },
+  ) =>
+    request<Device>(`${devicePath(id)}/trust-policy`, {
+      method: "PUT",
+      body: JSON.stringify(policy),
+    }),
   desktopTarget: () => request<DesktopTargetState>("/devices/desktop-target"),
   switchDesktopTarget: (
     device_id: string,
@@ -208,6 +264,10 @@ export const devicesApi = {
       method: "PATCH",
       body: JSON.stringify(changes),
     }),
+  requestAccess: (
+    id: string,
+    changes: { permissions: string[]; roots: DeviceRoot[] },
+  ) => post<Device>(`${devicePath(id)}/grant-proposals`, changes),
   revoke: (id: string) => post<Device>(`${devicePath(id)}/revoke`, {}),
   operations: (deviceId?: string, signal?: AbortSignal) =>
     request<{ operations: DeviceOperation[] }>(

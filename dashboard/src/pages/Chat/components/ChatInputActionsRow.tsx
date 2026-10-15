@@ -113,6 +113,8 @@ interface ChatInputActionsRowProps {
   threadId?: string | null;
   contextUsedTokens?: number | null;
   contextMaxTokens?: number;
+  onInspectContext?: () => void;
+  deviceControl?: React.ReactNode;
   availableModels?: ResolvedModel[];
   selectedModel?: string | null;
   defaultModel?: string | null;
@@ -177,6 +179,8 @@ export default function ChatInputActionsRow({
   threadId,
   contextUsedTokens = null,
   contextMaxTokens = 128_000,
+  onInspectContext,
+  deviceControl,
   availableModels,
   selectedModel,
   onModelChange,
@@ -1099,7 +1103,10 @@ export default function ChatInputActionsRow({
       className={styles.actionsRow}
       data-layout={useCompactControls ? "compact" : "expanded"}
     >
-      <div className={styles.secondaryActions}>{renderSecondaryActions()}</div>
+      <div className={styles.secondaryActions}>
+        {renderSecondaryActions()}
+        {deviceControl}
+      </div>
       <div className={styles.inputActions}>
         <ContextWindowRing
           usedTokens={contextUsedTokens}
@@ -1108,6 +1115,7 @@ export default function ChatInputActionsRow({
           threadId={threadId}
           selectedConnectors={selectedConnectors}
           isMobile={isMobile}
+          onInspect={onInspectContext}
         />
         {/* Mobile keeps new chat close to the composer when the sidebar is hidden. */}
         {useCompactControls ? (
