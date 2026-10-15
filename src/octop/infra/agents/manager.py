@@ -3271,9 +3271,15 @@ class AgentManager:
         )
         cron_tools: list[Any] | None = None
         if not team_host and self._cron_manager is not None:
-            from octop.infra.cron.tools import build_cronjob_tools  # noqa: PLC0415
+            from octop.infra.cron.tools import (  # noqa: PLC0415
+                build_cronjob_tools,
+                build_self_reminder_tools,
+            )
 
-            cron_tools = build_cronjob_tools(self._cron_manager)
+            cron_tools = [
+                *build_cronjob_tools(self._cron_manager),
+                *build_self_reminder_tools(self._cron_manager),
+            ]
 
         from types import SimpleNamespace  # noqa: PLC0415
 

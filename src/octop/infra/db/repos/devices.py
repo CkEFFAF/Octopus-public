@@ -35,9 +35,21 @@ class DeviceRow:
     applied_policy_revision: int = 0
     working_dir: str | None = None
     runtime_metadata: dict[str, Any] | None = None
+    software_version: str | None = None
+    update_status: str | None = None
 
     @classmethod
     def from_row(cls, row: DbRow) -> DeviceRow:
+        def _opt_str(key: str) -> str | None:
+            try:
+                value = row[key]
+            except (KeyError, IndexError):
+                return None
+            if value is None:
+                return None
+            text = str(value).strip()
+            return text or None
+
         return cls(
             pk=int(row["id"]),
             device_id=str(row["device_id"]),
@@ -62,6 +74,8 @@ class DeviceRow:
             applied_policy_revision=int(row["applied_policy_revision"]),
             working_dir=row["working_dir"],
             runtime_metadata=json.loads(row["runtime_metadata"]),
+            software_version=_opt_str("software_version"),
+            update_status=_opt_str("update_status"),
         )
 
     def public(self, *, online: bool = False) -> dict[str, Any]:
@@ -83,6 +97,8 @@ class DeviceRow:
             "applied_policy_revision": self.applied_policy_revision,
             "working_dir": self.working_dir,
             "runtime": deepcopy(self.runtime_metadata or {}),
+            "software_version": self.software_version,
+            "update_status": self.update_status,
         }
 
 
@@ -292,6 +308,52 @@ class DeviceRepo:
             )
             row = conn.execute("SELECT * FROM devices WHERE device_id = ?", (device_id,)).fetchone()
         return DeviceRow.from_row(row) if row is not None else None
+
+    def list_all(self) -> list[DeviceRow]:
+        with self._db.connect() as conn:
+            rows = conn.execute("SELECT * FROM devices ORDER BY id DESC").fetchall()
+        return map_rows(rows, DeviceRow)
+
+    def set_update_report(
+        self,
+        device_id: str,
+        *,
+        status: str,
+        software_version: str | None = None,
+        error: str | None = None,
+        stage_version: str | None = None,
+    ) -> DeviceRow:
+        row = self.get(device_id)
+        if row is None:
+            raise KeyError(device_id)
+        metadata = dict(row.runtime_metadata or {})
+        if error:
+            metadata["update_error"] = error[:500]
+        elif "update_error" in metadata and status in {"ok", "idle", "staged", "healthy"}:
+            metadata.pop("update_error", None)
+        if stage_version:
+            metadata["stage_version"] = stage_version
+        fields = ["update_status = ?", "runtime_metadata = ?", "updated_at = ?"]
+        params: list[object] = [status, json.dumps(metadata), time.time()]
+        if software_version is not None and str(software_version).strip():
+            fields.append("software_version = ?")
+            params.append(str(software_version).strip())
+        params.append(device_id)
+        with self._db.transaction() as conn:
+            conn.execute(
+                f"UPDATE devices SET {', '.join(fields)} WHERE device_id = ?",
+                params,
+            )
+        out = self.get(device_id)
+        assert out is not None
+        return out
+
+    def set_software_version(self, device_id: str, software_version: str) -> None:
+        with self._db.transaction() as conn:
+            conn.execute(
+                "UPDATE devices SET software_version = ?, updated_at = ? WHERE device_id = ?",
+                (software_version, time.time(), device_id),
+            )
 
     def create_operation(
         self,

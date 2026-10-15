@@ -255,6 +255,8 @@ def _ensure_cron_jobs_schema(db: DatabasePool) -> None:
         "mcp_servers",
         "TEXT NOT NULL DEFAULT '[]'",
     )
+    _ensure_column(db, "cron_jobs", "kind", "TEXT NOT NULL DEFAULT 'user'")
+    _ensure_column(db, "cron_jobs", "meta", "TEXT NOT NULL DEFAULT '{}'")
 
 
 def _collapse_legacy_agent_welcome_columns(db: DatabasePool) -> None:
@@ -2012,6 +2014,14 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
         conn.executescript(sql)
 
 
+def _ensure_device_update_schema(db: DatabasePool) -> None:
+    """0017: software_version / update_status on devices."""
+    if not _table_exists(db, "devices"):
+        return
+    _ensure_column(db, "devices", "software_version", "TEXT")
+    _ensure_column(db, "devices", "update_status", "TEXT")
+
+
 def _ensure_execution_schema(db: DatabasePool) -> None:
     """Reconcile folded, unreleased v26 DDL without lowering its watermark."""
     if _current_version(db) < 26:
@@ -2040,6 +2050,15 @@ def run_migrations(db: DatabasePool) -> None:
             continue
         if version == 25:
             _migrate_provider_ownership(db)
+            continue
+        if version == 27:
+            _ensure_device_update_schema(db)
+            _ensure_cron_jobs_schema(db)
+            with db.connect() as conn:
+                if db.dialect == "postgresql":
+                    conn.execute("UPDATE _schema_version SET version = %s", (version,))
+                else:
+                    conn.execute("UPDATE _schema_version SET version = ?", (version,))
             continue
         # v18 touches optional ``user_invites``; use the idempotent helper for both
         # dialects so restores from pre-invite physical schemas do not fail.
@@ -2088,3 +2107,4 @@ def run_migrations(db: DatabasePool) -> None:
     _ensure_user_role_schema(db)
     _ensure_bridge_connections_schema(db)
     _ensure_execution_schema(db)
+    _ensure_device_update_schema(db)

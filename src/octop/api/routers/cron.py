@@ -109,16 +109,22 @@ async def cron_examples(
 @router.get("/agents/{agent_id}/cron", summary="List cron jobs")
 async def list_cron(
     agent_id: str,
+    include_self_reminders: bool = False,
     user: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> list[dict[str, Any]]:
-    """List scheduled jobs for an agent."""
+    """List scheduled jobs for an agent.
+
+    Self-reminders (0018) are hidden by default; pass include_self_reminders=true to show them.
+    """
     agent_row = require_agent_row(agent_id, user=user, as_user=None, server=server)
     if not _user_may_manage_agent_cron(agent_row=agent_row, user=user):
         return []
     return [
         r.to_public_dict(include_agent=True)
-        for r in _get_cron_manager(server).list_by_agent(agent_id)
+        for r in _get_cron_manager(server).list_by_agent(
+            agent_id, include_self_reminders=include_self_reminders
+        )
     ]
 
 

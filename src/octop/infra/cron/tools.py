@@ -105,7 +105,11 @@ def build_cronjob_tools(cron_manager: CronManager) -> list[StructuredTool]:
             agent_id, user_id, _session_key = _tool_ctx()
             if not _user_owns_agent(mgr, agent_id, user_id):
                 return _ok([])
-            rows = mgr.list_by_agent(agent_id, include_disabled=include_disabled)
+            rows = mgr.list_by_agent(
+                agent_id,
+                include_disabled=include_disabled,
+                include_self_reminders=False,
+            )
             return _ok([r.to_public_dict() for r in rows])
         except Exception as exc:
             return _err(exc)
@@ -262,5 +266,113 @@ def build_cronjob_tools(cron_manager: CronManager) -> list[StructuredTool]:
             coroutine=cronjob_run_now,
             name="cronjob_run_now",
             description="Trigger one immediate run of a cron job.",
+        ),
+    ]
+
+
+def build_self_reminder_tools(cron_manager: CronManager) -> list[StructuredTool]:
+    """Session-bound self-check reminders (0018). Not product cron UI jobs."""
+    mgr = cron_manager
+
+    _SCHEDULE_DESC = (
+        "Schedule a wall-clock self-check reminder for the CURRENT session "
+        "(same thought chain). Use wall-clock time — not model/token time. "
+        "Provide exactly one of: at (ISO8601), in_seconds, or in_minutes. "
+        "purpose describes why you are waking yourself. "
+        "Optional repeat_every_seconds creates an interval reminder (capped fires)."
+    )
+
+    async def schedule_self_check(
+        purpose: Annotated[
+            str,
+            Field(description="Short reason for this self-check (max 200 chars)."),
+        ] = "",
+        at: Annotated[
+            str | None,
+            Field(description="Absolute wall-clock fire time as ISO8601."),
+        ] = None,
+        in_seconds: Annotated[
+            int | None,
+            Field(description="Fire after N wall-clock seconds."),
+        ] = None,
+        in_minutes: Annotated[
+            int | None,
+            Field(description="Fire after N wall-clock minutes (converted to date: trigger)."),
+        ] = None,
+        repeat_every_seconds: Annotated[
+            int | None,
+            Field(description="Optional interval seconds for limited repeats."),
+        ] = None,
+    ) -> str:
+        try:
+            from octop.infra.cron.self_reminder import (
+                SELF_REMINDER_KIND,
+                build_trigger,
+                build_wakeup_prompt,
+                resolve_fire_at,
+            )
+
+            agent_id, user_id, session_key = _tool_ctx()
+            _require_agent_owner(mgr, agent_id, user_id)
+            fire_at = resolve_fire_at(at=at, in_seconds=in_seconds, in_minutes=in_minutes)
+            trigger, meta = build_trigger(
+                fire_at=fire_at, repeat_every_seconds=repeat_every_seconds
+            )
+            purpose_clean = (purpose or "").strip()[:200]
+            prompt = build_wakeup_prompt(purpose=purpose_clean)
+            cron_id = new_cron_id()
+            label = purpose_clean[:40] or "progress"
+            spec = CronCreateSpec(
+                cron_id=cron_id,
+                agent_id=agent_id,
+                user_id=user_id,
+                name=f"self-check:{label}",
+                trigger=trigger,
+                prompt=prompt,
+                session_key=session_key,
+                fresh_thread=False,
+                task_type="agent",
+                enabled=True,
+                kind=SELF_REMINDER_KIND,
+                meta=meta,
+            )
+            row = await mgr.create(spec)
+            return _ok(
+                {
+                    "reminder_id": row.cron_id,
+                    "fire_at": fire_at.isoformat(),
+                    "purpose": purpose_clean,
+                    "session_key": session_key,
+                    "trigger": row.trigger,
+                }
+            )
+        except Exception as exc:
+            return _err(exc)
+
+    async def cancel_self_check(reminder_id: str) -> str:
+        try:
+            from octop.infra.cron.self_reminder import is_self_reminder_row
+
+            agent_id, user_id, session_key = _tool_ctx()
+            row = _get_owned(mgr, reminder_id, agent_id, user_id)
+            if not is_self_reminder_row(row):
+                raise ValueError("not a self-reminder job")
+            if row.session_key != session_key:
+                raise ValueError("self-reminder belongs to a different session")
+            await mgr.delete(reminder_id)
+            return _ok({"cancelled": reminder_id})
+        except Exception as exc:
+            return _err(exc)
+
+    return [
+        StructuredTool.from_function(
+            coroutine=schedule_self_check,
+            name="schedule_self_check",
+            description=_SCHEDULE_DESC,
+        ),
+        StructuredTool.from_function(
+            coroutine=cancel_self_check,
+            name="cancel_self_check",
+            description="Cancel a previously scheduled session self-check reminder by reminder_id.",
         ),
     ]

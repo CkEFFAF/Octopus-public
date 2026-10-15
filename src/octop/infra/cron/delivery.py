@@ -320,6 +320,13 @@ class CronDeliveryService:
 
 def command_from_row(row: Any) -> CronDeliveryCommand:
     """Build a delivery command from a persisted cron row."""
+    from octop.infra.cron.self_reminder import is_self_reminder_row
+
+    fresh = bool(row.fresh_thread)
+    if is_self_reminder_row(row):
+        # DEC-002: self-reminders always continue the same session thought chain.
+        # Gateway run_in_session already serializes behind a running turn (pending queue).
+        fresh = False
     return CronDeliveryCommand(
         cron_id=str(row.cron_id),
         cron_name=str(row.name),
@@ -327,7 +334,7 @@ def command_from_row(row: Any) -> CronDeliveryCommand:
         user_id=int(row.user_id),
         session_key=str(row.session_key),
         prompt=str(row.prompt),
-        fresh_thread=bool(row.fresh_thread),
+        fresh_thread=fresh,
         task_type=normalize_cron_task_type(str(row.task_type)),
         model=str(row.model) if row.model else None,
         mcp_servers=tuple(str(name) for name in row.mcp_servers),

@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from octop.infra.cron.self_reminder import decode_meta, encode_meta
 from octop.infra.cron.task_type import (
     DEFAULT_CRON_TASK_TYPE,
     CronTaskType,
@@ -81,9 +82,19 @@ class CronJobRow:
     last_error: str | None
     created_at: int
     updated_at: int
+    kind: str = "user"
+    meta: dict[str, Any] | None = None
 
     @classmethod
     def from_row(cls, r: DbRow) -> CronJobRow:
+        try:
+            kind_raw = r["kind"]
+        except (KeyError, IndexError):
+            kind_raw = "user"
+        try:
+            meta_raw = r["meta"]
+        except (KeyError, IndexError):
+            meta_raw = "{}"
         return cls(
             id=r["id"],
             cron_id=r["cron_id"],
@@ -103,6 +114,8 @@ class CronJobRow:
             last_error=r["last_error"],
             created_at=r["created_at"],
             updated_at=r["updated_at"],
+            kind=(str(kind_raw).strip() if kind_raw else "user") or "user",
+            meta=decode_meta(meta_raw),
         )
 
     def to_public_dict(self, *, include_agent: bool = False) -> dict[str, Any]:
@@ -119,6 +132,10 @@ class CronJobRow:
             "mcp_servers": list(self.mcp_servers),
             "last_run_at": self.last_run_at,
             "last_status": self.last_status,
+            "kind": self.kind,
+            "meta": dict(self.meta or {}),
+            "self_reminder": (self.kind == "self_reminder")
+            or bool((self.meta or {}).get("self_reminder")),
         }
         if include_agent:
             out["agent_id"] = self.agent_id
@@ -145,14 +162,16 @@ class CronJobRepo:
         mcp_servers: list[str] | None = None,
         enabled: bool = True,
         name: str | None = None,
+        kind: str = "user",
+        meta: dict[str, Any] | None = None,
     ) -> str:
         ts = now_ts()
         with self._db.transaction() as conn:
             conn.execute(
                 "INSERT INTO cron_jobs(cron_id, name, agent_id, user_id, schedule_spec, prompt, "
                 "session_key, model, fresh_thread, task_type, mcp_servers, enabled, "
-                "created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "kind, meta, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     cron_id,
                     (name or "").strip() or default_cron_name(prompt, cron_id),
@@ -166,6 +185,8 @@ class CronJobRepo:
                     task_type,
                     _encode_mcp_servers(mcp_servers),
                     bool_int(enabled),
+                    (kind or "user").strip() or "user",
+                    encode_meta(meta),
                     ts,
                     ts,
                 ),
@@ -264,6 +285,13 @@ class CronJobRepo:
         params.append(cron_id)
         with self._db.transaction() as conn:
             conn.execute(f"UPDATE cron_jobs SET {', '.join(fields)} WHERE cron_id = ?", params)
+
+    def set_meta(self, cron_id: str, meta: dict[str, Any]) -> None:
+        with self._db.transaction() as conn:
+            conn.execute(
+                "UPDATE cron_jobs SET meta = ?, updated_at = ? WHERE cron_id = ?",
+                (encode_meta(meta), now_ts(), cron_id),
+            )
 
     def delete(self, cron_id: str) -> None:
         with self._db.transaction() as conn:
