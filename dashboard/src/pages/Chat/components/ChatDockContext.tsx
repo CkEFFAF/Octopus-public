@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Empty, Input, Segmented, Spin } from "antd";
+import { Alert, Button, Empty, Input, Segmented, Spin, Tag } from "antd";
 import { RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -12,19 +12,17 @@ import {
   type TrajectoryMetrics,
 } from "../../../api/modules/trajectory";
 import { apiErrorMessage } from "../../../utils/apiError";
+import {
+  isCompactMark,
+  mapTrajectoryKind,
+  MAPPED_KIND_FILTERS,
+  type MappedContextKind,
+} from "../contextInsights/mapEventKind";
+import { CONTEXT_SEGMENT_COLORS } from "../contextInsights/segmentColors";
 import styles from "./ChatDockContext.module.less";
 import ContextRequestBrowser from "./ContextRequestBrowser";
 import RunReceiptBrowser from "./RunReceiptBrowser";
 
-const colors: Record<string, string> = {
-  system_prompt: "#7164e8",
-  tool_definitions: "#e9a222",
-  rules: "#a376d5",
-  skills: "#a376d5",
-  mcp: "#db689e",
-  subagent_definitions: "#6581c9",
-  conversation: "#16ae9a",
-};
 const number = (v: number | null | undefined) =>
   v == null
     ? "—"
@@ -32,6 +30,9 @@ const number = (v: number | null | undefined) =>
         notation: "compact",
         maximumFractionDigits: 1,
       }).format(v);
+
+type TrendMetric = "total" | "delta";
+type TrendGrain = "step" | "turn";
 
 export default function ChatDockContext({
   agentId,
@@ -51,9 +52,11 @@ export default function ChatDockContext({
   const [cursor, setCursor] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState<MappedContextKind | "all">("all");
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
+  const [trendMetric, setTrendMetric] = useState<TrendMetric>("total");
+  const [trendGrain, setTrendGrain] = useState<TrendGrain>("step");
   const epoch = useRef(0);
   const inflight = useRef(false);
   const paged = useRef(false);
@@ -126,30 +129,80 @@ export default function ChatDockContext({
     );
     return () => clearInterval(timer);
   }, [refresh, live]);
-  const points = useMemo(
-    () => events.filter((e) => Number(e.payload.input_tokens) > 0),
-    [events],
-  );
+
+  const trendPoints = useMemo(() => {
+    const withTokens = events.filter((e) => Number(e.payload.input_tokens) > 0);
+    if (trendGrain === "step") {
+      return withTokens.map((e, index, all) => {
+        const tokens = Number(e.payload.input_tokens);
+        const prev = index > 0 ? Number(all[index - 1].payload.input_tokens) : null;
+        return {
+          key: e.event_id,
+          event: e,
+          total: tokens,
+          delta: prev == null ? null : tokens - prev,
+          label: e.request_seq ?? e.seq,
+          scissors: isCompactMark(e.kind, e.payload),
+        };
+      });
+    }
+    const byTurn = new Map<string, TrajectoryEvent>();
+    for (const e of withTokens) {
+      const turnKey = e.turn_id || `seq:${e.request_seq ?? e.seq}`;
+      byTurn.set(turnKey, e);
+    }
+    const ordered = [...byTurn.values()].sort((a, b) => a.seq - b.seq);
+    return ordered.map((e, index, all) => {
+      const tokens = Number(e.payload.input_tokens);
+      const prev = index > 0 ? Number(all[index - 1].payload.input_tokens) : null;
+      return {
+        key: e.event_id,
+        event: e,
+        total: tokens,
+        delta: prev == null ? null : tokens - prev,
+        label: e.request_seq ?? e.seq,
+        scissors: isCompactMark(e.kind, e.payload),
+      };
+    });
+  }, [events, trendGrain]);
+
   const maxPoint = Math.max(
     1,
-    ...points.map((e) => Number(e.payload.input_tokens)),
+    ...trendPoints.map((p) =>
+      trendMetric === "total" ? p.total : Math.abs(p.delta ?? 0),
+    ),
   );
   const selected = events.find((e) => e.event_id === picked);
-  const visible = events.filter(
-    (e) =>
-      (filter === "all" || e.kind === filter) &&
-      (!selected ||
-        selected.request_seq == null ||
-        e.request_seq === selected.request_seq) &&
-      (!search ||
-        JSON.stringify(e).toLowerCase().includes(search.toLowerCase())),
-  );
+  const visible = events.filter((e) => {
+    const mapped = mapTrajectoryKind(e.kind, e.payload);
+    if (filter !== "all" && mapped !== filter && e.kind !== filter) return false;
+    if (
+      selected &&
+      selected.request_seq != null &&
+      e.request_seq !== selected.request_seq
+    )
+      return false;
+    if (
+      search &&
+      !JSON.stringify(e).toLowerCase().includes(search.toLowerCase())
+    )
+      return false;
+    return true;
+  });
   const pct =
     usage && usage.max_tokens > 0
       ? Math.min(100, (usage.used_tokens / usage.max_tokens) * 100)
       : 0;
   const segmentTotal =
     usage?.segments.reduce((sum, s) => sum + Math.max(s.tokens, 0), 0) ?? 0;
+
+  const pickTrend = (event: TrajectoryEvent) => {
+    setPicked(picked === event.event_id ? null : event.event_id);
+    if (event.request_seq != null) {
+      // Link Trend → Browser: focus matching request when id is available later via receipt.
+    }
+  };
+
   if (!threadId)
     return <Empty description={t("chat.contextInspect.noThread")} />;
   return (
@@ -173,6 +226,7 @@ export default function ChatDockContext({
           threadId={threadId}
           live={live}
           focusRequestId={focusRequestId}
+          highlightRequestSeq={selected?.request_seq ?? null}
         />
       </div>
       <RunReceiptBrowser
@@ -237,7 +291,7 @@ export default function ChatDockContext({
                     width: `${
                       segmentTotal ? (pct * s.tokens) / segmentTotal : 0
                     }%`,
-                    background: colors[s.key],
+                    background: CONTEXT_SEGMENT_COLORS[s.key],
                   }}
                 />
               ))}
@@ -245,43 +299,95 @@ export default function ChatDockContext({
             <div className={styles.legend}>
               {usage?.segments.map((s) => (
                 <div key={s.key}>
-                  <i style={{ background: colors[s.key] }} />
+                  <i style={{ background: CONTEXT_SEGMENT_COLORS[s.key] }} />
                   <span>{t(`chat.contextWindow.segments.${s.key}`)}</span>
                   <b>≈{number(s.tokens)}</b>
                 </div>
               ))}
             </div>
             <p>{t("chat.contextInspect.estimates")}</p>
+            <p className={styles.hint}>{t("chat.contextInspect.meterSame")}</p>
           </section>
           <section>
-            <h3>{t("chat.contextInspect.trend")}</h3>
-            {points.length ? (
+            <div className={styles.requestHeading}>
+              <h3>{t("chat.contextInspect.trend")}</h3>
+              <div className={styles.trendControls}>
+                <Segmented
+                  size="small"
+                  value={trendMetric}
+                  onChange={(v) => setTrendMetric(v as TrendMetric)}
+                  options={[
+                    {
+                      value: "total",
+                      label: t("chat.contextInspect.trendTotal"),
+                    },
+                    {
+                      value: "delta",
+                      label: t("chat.contextInspect.trendDelta"),
+                    },
+                  ]}
+                />
+                <Segmented
+                  size="small"
+                  value={trendGrain}
+                  onChange={(v) => setTrendGrain(v as TrendGrain)}
+                  options={[
+                    {
+                      value: "step",
+                      label: t("chat.contextInspect.trendStep"),
+                    },
+                    {
+                      value: "turn",
+                      label: t("chat.contextInspect.trendTurn"),
+                    },
+                  ]}
+                />
+              </div>
+            </div>
+            {trendPoints.length ? (
               <div className={styles.trend}>
-                {points.map((e) => (
-                  <button
-                    key={e.event_id}
-                    aria-label={`${t("chat.contextInspect.input")} ${number(
-                      Number(e.payload.input_tokens),
-                    )}`}
-                    title={`${e.summary.slice(0, 80)} · ${number(
-                      Number(e.payload.input_tokens),
-                    )}`}
-                    className={picked === e.event_id ? styles.selected : ""}
-                    onClick={() =>
-                      setPicked(picked === e.event_id ? null : e.event_id)
-                    }
-                  >
-                    <i
-                      style={{
-                        height: `${Math.max(
-                          3,
-                          (Number(e.payload.input_tokens) / maxPoint) * 100,
-                        )}%`,
-                      }}
-                    />
-                    <small>{e.request_seq ?? e.seq}</small>
-                  </button>
-                ))}
+                {trendPoints.map((point) => {
+                  const value =
+                    trendMetric === "total"
+                      ? point.total
+                      : Math.abs(point.delta ?? 0);
+                  const height = Math.max(3, (value / maxPoint) * 100);
+                  return (
+                    <button
+                      key={point.key}
+                      aria-label={`${t("chat.contextInspect.input")} ${number(
+                        trendMetric === "total"
+                          ? point.total
+                          : point.delta ?? 0,
+                      )}`}
+                      title={`${point.event.summary.slice(0, 80)} · ${number(
+                        trendMetric === "total"
+                          ? point.total
+                          : point.delta ?? 0,
+                      )}${point.scissors ? " ✂" : ""}`}
+                      className={
+                        picked === point.event.event_id ? styles.selected : ""
+                      }
+                      onClick={() => pickTrend(point.event)}
+                    >
+                      {point.scissors && (
+                        <em className={styles.scissors} aria-hidden>
+                          ✂
+                        </em>
+                      )}
+                      <i
+                        style={{
+                          height: `${height}%`,
+                          background:
+                            trendMetric === "delta" && (point.delta ?? 0) < 0
+                              ? "#db689e"
+                              : undefined,
+                        }}
+                      />
+                      <small>{point.label}</small>
+                    </button>
+                  );
+                })}
               </div>
             ) : (
               <Empty
@@ -292,23 +398,15 @@ export default function ChatDockContext({
             <p>{t("chat.contextInspect.retained")}</p>
           </section>
           <section>
-            <h3>{t("chat.contextInspect.browser")}</h3>
+            <h3>{t("chat.contextInspect.events")}</h3>
             <div className={styles.controls}>
               <Segmented
                 size="small"
                 value={filter}
-                onChange={(v) => setFilter(String(v))}
-                options={[
-                  "all",
-                  "system",
-                  "context",
-                  "user",
-                  "assistant",
-                  "tool",
-                  "compacted",
-                ].map((k) => ({
+                onChange={(v) => setFilter(String(v) as MappedContextKind | "all")}
+                options={MAPPED_KIND_FILTERS.map((k) => ({
                   value: k,
-                  label: t(`chat.contextInspect.kinds.${k}`),
+                  label: t(`chat.contextInspect.mappedKinds.${k}`),
                 }))}
               />
               <Input
@@ -330,6 +428,10 @@ export default function ChatDockContext({
                   event={e}
                   agentId={agentId}
                   threadId={threadId}
+                  active={picked === e.event_id}
+                  onPick={() =>
+                    setPicked(picked === e.event_id ? null : e.event_id)
+                  }
                 />
               ))}
             </div>
@@ -355,18 +457,24 @@ function ContextEvent({
   event,
   agentId,
   threadId,
+  active,
+  onPick,
 }: {
   event: TrajectoryEvent;
   agentId: string;
   threadId: string;
+  active?: boolean;
+  onPick?: () => void;
 }) {
   const { t } = useTranslation();
   const [detail, setDetail] = useState<TrajectoryEvent | null>(null);
   const [error, setError] = useState(false);
+  const mapped = mapTrajectoryKind(event.kind, event.payload);
   return (
     <details
-      className={styles.event}
+      className={`${styles.event} ${active ? styles.eventActive : ""}`}
       onToggle={async (e) => {
+        if (e.currentTarget.open) onPick?.();
         if (!e.currentTarget.open || detail) return;
         try {
           setDetail(
@@ -379,8 +487,15 @@ function ContextEvent({
       }}
     >
       <summary>
-        <span>{t(`chat.contextInspect.kinds.${event.kind}`, event.kind)}</span>
+        <Tag>
+          {t(`chat.contextInspect.mappedKinds.${mapped}`, mapped)}
+        </Tag>
         <b>{event.summary || (event.payload.name as string) || "—"}</b>
+        {isCompactMark(event.kind, event.payload) && (
+          <span className={styles.scissorsInline} aria-hidden>
+            ✂
+          </span>
+        )}
         <small>#{event.request_seq ?? event.seq}</small>
       </summary>
       {error ? (
