@@ -273,3 +273,114 @@ async def test_parent_can_integrate_actual_child_receipt_before_delivery_finishe
     finally:
         await close(rig)
         db.close()
+
+
+@pytest.mark.asyncio
+async def test_member_work_step_uses_in_run_device_evidence_after_ask_agent(
+    peers: Any, tmp_path: Any
+) -> None:
+    """Parent team ask_agent child can complete execute→verify with device evidence.
+
+    Reproduces cloud failure: member GPU command succeeded, but verify raised
+    ``evidence must belong to this run`` (bare operation id / work_step id),
+    and the host dispatch receipt flipped to failed while work was still useful.
+    """
+    from octop.infra.db.migrate import run_migrations
+    from octop.infra.db.pool import SqlitePool
+    from octop.infra.db.services import RepoBundle
+    from octop.infra.execution.work_mode import WorkModeService
+
+    rig = peers
+    db = SqlitePool(tmp_path / "peer-evidence.db")
+    run_migrations(db)
+    repos = RepoBundle.from_pool(db)
+    owner = repos.user_repo.create(username="owner", password_hash="unused", role="admin")
+    assert owner == 1
+    repos.agent_repo.create(agent_id="host", user_id=owner, name="Host")
+    repos.agent_repo.create(agent_id="member", user_id=owner, name="Member")
+    repos.thread_repo.insert(
+        thread_id="room",
+        user_id=owner,
+        agent_id="host",
+        channel_type="dashboard",
+        session_key="work",
+    )
+    peer_thread = "room~member"
+    repos.thread_repo.insert(
+        thread_id=peer_thread,
+        user_id=owner,
+        agent_id="member",
+        channel_type="dashboard",
+        session_key="peer:work",
+    )
+    rig.tracker.devices.repos = repos
+    modes = WorkModeService(repos)
+
+    # Host run id shared with the member via PeerTaskTracker snapshot.
+    host_cfg = {"thread_id": "room", "octop_task_run_id": "run-a", "work_mode": "team"}
+    modes.begin(owner, "host", host_cfg)
+
+    result = dispatch(rig)
+    assert result.job_id
+    await asyncio.wait_for(rig.started.wait(), 2)
+
+    # While the member is still running, dispatch receipt must stay accepted.
+    mid = modes.events.get(owner, f"dispatch:{result.job_id}")
+    assert mid is not None
+    assert mid["status"] == "accepted"
+    assert mid["run_id"] == "run-a"
+
+    # Member workflow + completed device evidence on the shared run.
+    member_cfg = {
+        "thread_id": peer_thread,
+        "octop_task_run_id": "run-a",
+        "work_mode": "agentic",
+        "user": owner,
+    }
+    modes.begin(owner, "member", member_cfg)
+    op = "01PEERDEVICEOP000000000000"
+    modes.events.save(
+        event_id=f"operation:{op}",
+        owner=owner,
+        agent_id="member",
+        thread_id=peer_thread,
+        run_id="run-a",
+        context_id=None,
+        kind="device",
+        status="completed",
+        payload={"operation_id": op, "action": "command.run", "name": "device_run"},
+    )
+    # Model pasted bare operation_id (common) for execute, then canonical id for verify.
+    version = modes.begin(owner, "member", member_cfg)["payload"]["version"]
+    modes.step(
+        owner,
+        "member",
+        member_cfg,
+        version=version,
+        stage="execute",
+        status="completed",
+        report="Ran GPU probe on bound device",
+        evidence_ids=[op],
+    )
+    version = modes.begin(owner, "member", member_cfg)["payload"]["version"]
+    done = modes.step(
+        owner,
+        "member",
+        member_cfg,
+        version=version,
+        stage="verify",
+        status="completed",
+        report="Confirmed command receipt",
+        evidence_ids=[f"operation:{op}"],
+    )
+    assert done["status"] == "completed"
+
+    # Still accepted until the inbox observer finalizes.
+    assert modes.events.get(owner, f"dispatch:{result.job_id}")["status"] == "accepted"
+
+    rig.release.set()
+    await asyncio.wait_for(rig.following.wait(), 2)
+    rig.finish.set()
+    await asyncio.wait_for(rig.tracker.wait_for_task_run(1, "run-a"), 2)
+    assert modes.events.get(owner, f"dispatch:{result.job_id}")["status"] == "completed"
+    await close(rig)
