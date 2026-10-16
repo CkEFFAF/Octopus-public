@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Empty, Input, Segmented, Spin, Tag } from "antd";
-import { ArrowDownAZ, ArrowUpAZ, RefreshCw } from "lucide-react";
+import { Alert, Button, Drawer, Empty, Input, Segmented, Spin, Tag } from "antd";
+import { ArrowDownAZ, ArrowUpAZ, Maximize2, RefreshCw } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   octopThreadsApi,
@@ -21,6 +22,7 @@ import {
 import { CONTEXT_SEGMENT_COLORS } from "../contextInsights/segmentColors";
 import styles from "./ChatDockContext.module.less";
 import ContextRequestBrowser from "./ContextRequestBrowser";
+import { TimingDonut, TokenDonut } from "./ContextDonuts";
 import RunReceiptBrowser from "./RunReceiptBrowser";
 
 const number = (v: number | null | undefined) =>
@@ -112,6 +114,7 @@ export default function ChatDockContext({
   const [trendGrain, setTrendGrain] = useState<TrendGrain>("step");
   const [eventSortKey, setEventSortKey] = useState<SortKey>("time");
   const [eventSortDir, setEventSortDir] = useState<SortDir>("desc");
+  const [expanded, setExpanded] = useState(false);
   const epoch = useRef(0);
   const inflight = useRef(false);
   const paged = useRef(false);
@@ -276,55 +279,71 @@ export default function ChatDockContext({
 
   if (!threadId)
     return <Empty description={t("chat.contextInspect.noThread")} />;
-  return (
-    <div className={styles.panel}>
+  const body = (
+    <>
       <header>
         <div>
           <h2>{t("chat.contextInspect.title")}</h2>
           <p>{t("chat.contextInspect.subtitle")}</p>
         </div>
-        <Button
-          aria-label={t("common.refresh")}
-          icon={<RefreshCw size={15} />}
-          loading={loading}
-          onClick={() => void refresh()}
-        />
+        <div className={styles.headerActions}>
+          <Link className={styles.insightsLink} to="/context-insights">
+            {t("chat.contextInspect.openInsights")}
+          </Link>
+          {!expanded && (
+            <Button
+              aria-label={t("chat.contextInspect.expand")}
+              icon={<Maximize2 size={15} />}
+              onClick={() => setExpanded(true)}
+            >
+              {t("chat.contextInspect.expand")}
+            </Button>
+          )}
+          <Button
+            aria-label={t("common.refresh")}
+            icon={<RefreshCw size={15} />}
+            loading={loading}
+            onClick={() => void refresh()}
+          />
+        </div>
       </header>
       {error && <Alert type="error" message={error} />}
       {!usage && loading ? (
         <Spin />
       ) : (
         <>
-          <div className={styles.summaryGrid}>
-            <div className={styles.stats}>
-              {[
-                [t("chat.contextInspect.turns"), number(metrics?.turns)],
-                [t("chat.contextInspect.steps"), number(metrics?.steps)],
-                [t("chat.contextInspect.input"), number(metrics?.input_tokens)],
-                [
-                  t("chat.contextInspect.output"),
-                  number(metrics?.output_tokens),
-                ],
-                [
-                  t("chat.contextInspect.cache"),
-                  metrics?.cache_hit_ratio == null
-                    ? "—"
-                    : `${(metrics.cache_hit_ratio * 100).toFixed(1)}%`,
-                ],
-                [
-                  t("chat.contextInspect.modelTime"),
-                  metrics?.llm_duration_ms == null
-                    ? "—"
-                    : `${(metrics.llm_duration_ms / 1000).toFixed(1)}s`,
-                ],
-              ].map(([label, value]) => (
-                <div key={label}>
-                  <span>{label}</span>
-                  <strong>{value}</strong>
-                </div>
-              ))}
-            </div>
-            <section>
+          <div className={styles.stats} data-testid="context-stats-row">
+            {[
+              [t("chat.contextInspect.turns"), number(metrics?.turns)],
+              [t("chat.contextInspect.steps"), number(metrics?.steps)],
+              [
+                t("chat.contextInspect.toolCalls"),
+                number(metrics?.tool_calls ?? null),
+              ],
+              [
+                t("chat.contextInspect.cache"),
+                metrics?.cache_hit_ratio == null
+                  ? "—"
+                  : `${(metrics.cache_hit_ratio * 100).toFixed(1)}%`,
+              ],
+              [t("chat.contextInspect.cost"), "—"],
+              [
+                t("chat.contextInspect.modelTime"),
+                metrics?.llm_duration_ms == null
+                  ? "—"
+                  : `${(metrics.llm_duration_ms / 1000).toFixed(1)}s`,
+              ],
+            ].map(([label, value]) => (
+              <div key={String(label)}>
+                <span>{label}</span>
+                <strong>{value}</strong>
+              </div>
+            ))}
+          </div>
+          <div className={styles.densityGrid}>
+            <TokenDonut usage={usage} />
+            <TimingDonut metrics={metrics} />
+            <section className={styles.currentCard}>
               <h3>{t("chat.contextInspect.current")}</h3>
               <div className={styles.occupancy}>
                 <strong>
@@ -364,7 +383,6 @@ export default function ChatDockContext({
                 {t("chat.contextInspect.meterSame")}
               </p>
             </section>
-          </div>
           <section>
             <div className={styles.requestHeading}>
               <h3>{t("chat.contextInspect.trend")}</h3>
@@ -454,9 +472,10 @@ export default function ChatDockContext({
             )}
             <p>{t("chat.contextInspect.retained")}</p>
           </section>
+          </div>
         </>
       )}
-      <div ref={requestSection}>
+      <div ref={requestSection} className={styles.browserBlock}>
         <ContextRequestBrowser
           agentId={agentId}
           threadId={threadId}
@@ -576,7 +595,34 @@ export default function ChatDockContext({
           });
         }}
       />
-    </div>
+    </>
+  );
+
+  return (
+    <>
+      <div className={styles.panel}>
+        {expanded ? (
+          <p className={styles.expandedHint}>
+            {t("chat.contextInspect.expandedHint")}
+          </p>
+        ) : (
+          body
+        )}
+      </div>
+      <Drawer
+        open={expanded}
+        onClose={() => setExpanded(false)}
+        width="min(96vw, 1180px)"
+        title={t("chat.contextInspect.title")}
+        destroyOnClose={false}
+        className={styles.expandDrawer}
+        styles={{
+          body: { padding: 0, display: "flex", flexDirection: "column" },
+        }}
+      >
+        <div className={`${styles.panel} ${styles.panelWide}`}>{body}</div>
+      </Drawer>
+    </>
   );
 }
 

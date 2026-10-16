@@ -34,6 +34,7 @@ export interface TrajectoryHistory {
 export interface TrajectoryMetrics {
   turns: number;
   steps: number;
+  tool_calls?: number;
   llm_duration_ms: number | null;
   tool_duration_ms: number | null;
   ttft_avg_ms: number | null;
