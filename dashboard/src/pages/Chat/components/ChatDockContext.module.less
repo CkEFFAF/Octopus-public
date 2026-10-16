@@ -171,13 +171,9 @@
   justify-content: space-between;
   gap: 8px;
   margin: 0 0 8px;
+  flex-wrap: wrap;
   h3 {
     margin: 0;
-  }
-  :global(.ant-select) {
-    min-width: 0;
-    flex: 1;
-    max-width: 340px;
   }
 }
 .cardHead {
@@ -196,11 +192,7 @@
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-  :global(.ant-select) {
-    min-width: 88px;
-    max-width: 120px;
-    flex: none;
-  }
+  flex-wrap: wrap;
 }
 .sectionBody {
   overflow-y: auto;
@@ -329,5 +321,101 @@
     font-size: 12px;
     color: var(--text-secondary);
     margin-bottom: 8px;
+  }
+}
+.summaryGrid {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  @media (min-width: 420px) {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    align-items: start;
+    > .stats {
+      margin: 0;
+    }
+    > section {
+      margin-top: 0;
+    }
+  }
+}
+.tagPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+  align-items: center;
+}
+.tagEmpty {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+.requestList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.requestRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border-primary, #e5e7eb);
+  border-radius: 8px;
+  background: transparent;
+  padding: 6px 8px;
+  cursor: pointer;
+  color: inherit;
+}
+.requestRowActive {
+  border-color: #7164e8;
+  background: color-mix(in srgb, #7164e8 8%, transparent);
+}
+.requestRowMain {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  b {
+    font-size: 12px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+.requestRowMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  small {
+    color: var(--text-tertiary);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+}
+.sectionBodyDetail {
+  max-height: min(320px, 40vh);
+}
+.pathHint,
+.commandHint {
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.receiptSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  b {
+    font-weight: 500;
+  }
+  small {
+    color: var(--text-tertiary);
+    font-size: 11px;
   }
 }

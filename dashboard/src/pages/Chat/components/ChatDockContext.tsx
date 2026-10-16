@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Empty, Input, Segmented, Select, Spin, Tag } from "antd";
+import { Alert, Button, Empty, Input, Segmented, Spin, Tag } from "antd";
 import { ArrowDownAZ, ArrowUpAZ, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -65,6 +65,25 @@ function compareEvents(
   if (tb == null) return -1;
   const d = ta - tb;
   return dir === "asc" ? d : -d;
+}
+
+function formatDuration(ms: unknown): string | null {
+  if (typeof ms !== "number" || !Number.isFinite(ms)) return null;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function pathOf(payload: Record<string, unknown>): string | null {
+  for (const key of ["working_dir", "cwd", "path", "file_path"] as const) {
+    const value = payload[key];
+    if (typeof value === "string" && value) return value;
+  }
+  return null;
+}
+
+function truncateMiddle(value: string, max = 40): string {
+  if (value.length <= max) return value;
+  const keep = Math.floor((max - 1) / 2);
+  return `${value.slice(0, keep)}…${value.slice(-keep)}`;
 }
 
 export default function ChatDockContext({
@@ -171,7 +190,8 @@ export default function ChatDockContext({
     if (trendGrain === "step") {
       return withTokens.map((e, index, all) => {
         const tokens = Number(e.payload.input_tokens);
-        const prev = index > 0 ? Number(all[index - 1].payload.input_tokens) : null;
+        const prev =
+          index > 0 ? Number(all[index - 1].payload.input_tokens) : null;
         return {
           key: e.event_id,
           event: e,
@@ -190,7 +210,8 @@ export default function ChatDockContext({
     const ordered = [...byTurn.values()].sort((a, b) => a.seq - b.seq);
     return ordered.map((e, index, all) => {
       const tokens = Number(e.payload.input_tokens);
-      const prev = index > 0 ? Number(all[index - 1].payload.input_tokens) : null;
+      const prev =
+        index > 0 ? Number(all[index - 1].payload.input_tokens) : null;
       return {
         key: e.event_id,
         event: e,
@@ -212,7 +233,8 @@ export default function ChatDockContext({
   const visible = useMemo(() => {
     const filtered = events.filter((e) => {
       const mapped = mapTrajectoryKind(e.kind, e.payload);
-      if (filter !== "all" && mapped !== filter && e.kind !== filter) return false;
+      if (filter !== "all" && mapped !== filter && e.kind !== filter)
+        return false;
       if (
         selected &&
         selected.request_seq != null &&
@@ -269,94 +291,80 @@ export default function ChatDockContext({
         />
       </header>
       {error && <Alert type="error" message={error} />}
-      <div ref={requestSection}>
-        <ContextRequestBrowser
-          agentId={agentId}
-          threadId={threadId}
-          live={live}
-          focusRequestId={focusRequestId}
-          highlightRequestSeq={selected?.request_seq ?? null}
-        />
-      </div>
-      <RunReceiptBrowser
-        agentId={agentId}
-        threadId={threadId}
-        live={live}
-        onRequest={(id) => {
-          setFocusRequestId(id);
-          requestSection.current?.scrollIntoView({
-            behavior: "smooth",
-            block: "start",
-          });
-        }}
-      />
       {!usage && loading ? (
         <Spin />
       ) : (
         <>
-          <div className={styles.stats}>
-            {[
-              [t("chat.contextInspect.turns"), number(metrics?.turns)],
-              [t("chat.contextInspect.steps"), number(metrics?.steps)],
-              [t("chat.contextInspect.input"), number(metrics?.input_tokens)],
-              [t("chat.contextInspect.output"), number(metrics?.output_tokens)],
-              [
-                t("chat.contextInspect.cache"),
-                metrics?.cache_hit_ratio == null
-                  ? "—"
-                  : `${(metrics.cache_hit_ratio * 100).toFixed(1)}%`,
-              ],
-              [
-                t("chat.contextInspect.modelTime"),
-                metrics?.llm_duration_ms == null
-                  ? "—"
-                  : `${(metrics.llm_duration_ms / 1000).toFixed(1)}s`,
-              ],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <span>{label}</span>
-                <strong>{value}</strong>
-              </div>
-            ))}
-          </div>
-          <section>
-            <h3>{t("chat.contextInspect.current")}</h3>
-            <div className={styles.occupancy}>
-              <strong>
-                {number(usage?.used_tokens)}{" "}
-                <small>/ {number(usage?.max_tokens)}</small>
-              </strong>
-              <b>{pct.toFixed(1)}%</b>
-            </div>
-            <div
-              className={styles.bar}
-              role="img"
-              aria-label={t("chat.contextInspect.current")}
-            >
-              {usage?.segments.map((s) => (
-                <i
-                  key={s.key}
-                  style={{
-                    width: `${
-                      segmentTotal ? (pct * s.tokens) / segmentTotal : 0
-                    }%`,
-                    background: CONTEXT_SEGMENT_COLORS[s.key],
-                  }}
-                />
-              ))}
-            </div>
-            <div className={styles.legend}>
-              {usage?.segments.map((s) => (
-                <div key={s.key}>
-                  <i style={{ background: CONTEXT_SEGMENT_COLORS[s.key] }} />
-                  <span>{t(`chat.contextWindow.segments.${s.key}`)}</span>
-                  <b>≈{number(s.tokens)}</b>
+          <div className={styles.summaryGrid}>
+            <div className={styles.stats}>
+              {[
+                [t("chat.contextInspect.turns"), number(metrics?.turns)],
+                [t("chat.contextInspect.steps"), number(metrics?.steps)],
+                [t("chat.contextInspect.input"), number(metrics?.input_tokens)],
+                [
+                  t("chat.contextInspect.output"),
+                  number(metrics?.output_tokens),
+                ],
+                [
+                  t("chat.contextInspect.cache"),
+                  metrics?.cache_hit_ratio == null
+                    ? "—"
+                    : `${(metrics.cache_hit_ratio * 100).toFixed(1)}%`,
+                ],
+                [
+                  t("chat.contextInspect.modelTime"),
+                  metrics?.llm_duration_ms == null
+                    ? "—"
+                    : `${(metrics.llm_duration_ms / 1000).toFixed(1)}s`,
+                ],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <span>{label}</span>
+                  <strong>{value}</strong>
                 </div>
               ))}
             </div>
-            <p>{t("chat.contextInspect.estimates")}</p>
-            <p className={styles.hint}>{t("chat.contextInspect.meterSame")}</p>
-          </section>
+            <section>
+              <h3>{t("chat.contextInspect.current")}</h3>
+              <div className={styles.occupancy}>
+                <strong>
+                  {number(usage?.used_tokens)}{" "}
+                  <small>/ {number(usage?.max_tokens)}</small>
+                </strong>
+                <b>{pct.toFixed(1)}%</b>
+              </div>
+              <div
+                className={styles.bar}
+                role="img"
+                aria-label={t("chat.contextInspect.current")}
+              >
+                {usage?.segments.map((s) => (
+                  <i
+                    key={s.key}
+                    style={{
+                      width: `${
+                        segmentTotal ? (pct * s.tokens) / segmentTotal : 0
+                      }%`,
+                      background: CONTEXT_SEGMENT_COLORS[s.key],
+                    }}
+                  />
+                ))}
+              </div>
+              <div className={styles.legend}>
+                {usage?.segments.map((s) => (
+                  <div key={s.key}>
+                    <i style={{ background: CONTEXT_SEGMENT_COLORS[s.key] }} />
+                    <span>{t(`chat.contextWindow.segments.${s.key}`)}</span>
+                    <b>≈{number(s.tokens)}</b>
+                  </div>
+                ))}
+              </div>
+              <p>{t("chat.contextInspect.estimates")}</p>
+              <p className={styles.hint}>
+                {t("chat.contextInspect.meterSame")}
+              </p>
+            </section>
+          </div>
           <section>
             <div className={styles.requestHeading}>
               <h3>{t("chat.contextInspect.trend")}</h3>
@@ -446,95 +454,128 @@ export default function ChatDockContext({
             )}
             <p>{t("chat.contextInspect.retained")}</p>
           </section>
-          <section>
-            <div className={styles.cardHead}>
-              <h3>{t("chat.contextInspect.events")}</h3>
-              <div className={styles.sortControls}>
-                <Select
-                  size="small"
-                  value={eventSortKey}
-                  aria-label={t("chat.contextInspect.sortBy")}
-                  onChange={(v) => setEventSortKey(v as SortKey)}
-                  options={[
-                    {
-                      value: "time",
-                      label: t("chat.contextInspect.sortTime"),
-                    },
-                    {
-                      value: "tokens",
-                      label: t("chat.contextInspect.sortTokens"),
-                    },
-                  ]}
-                />
-                <Button
-                  size="small"
-                  icon={<SortIcon size={14} />}
-                  aria-label={
-                    eventSortDir === "asc"
-                      ? t("chat.contextInspect.sortAsc")
-                      : t("chat.contextInspect.sortDesc")
-                  }
-                  onClick={() =>
-                    setEventSortDir((d) => (d === "asc" ? "desc" : "asc"))
-                  }
-                />
-              </div>
-            </div>
-            <div className={styles.controls}>
-              <Segmented
-                size="small"
-                value={filter}
-                onChange={(v) => setFilter(String(v) as MappedContextKind | "all")}
-                options={MAPPED_KIND_FILTERS.map((k) => ({
-                  value: k,
-                  label: t(`chat.contextInspect.mappedKinds.${k}`),
-                }))}
-              />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={t("chat.contextInspect.search")}
-                allowClear
-              />
-              {picked && (
-                <Button size="small" onClick={() => setPicked(null)}>
-                  {t("chat.contextInspect.allSteps")}
-                </Button>
-              )}
-            </div>
-            <div
-              ref={eventsBodyRef}
-              className={`${styles.sectionBody} ${styles.sectionBodyEvents}`}
-            >
-              <div className={styles.browser}>
-                {visible.map((e) => (
-                  <ContextEvent
-                    key={e.event_id}
-                    event={e}
-                    agentId={agentId}
-                    threadId={threadId}
-                    active={picked === e.event_id}
-                    onPick={() =>
-                      setPicked(picked === e.event_id ? null : e.event_id)
-                    }
-                  />
-                ))}
-              </div>
-            </div>
-            {!visible.length && (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={t("chat.contextInspect.noEvents")}
-              />
-            )}
-            {cursor != null && (
-              <Button loading={loading} onClick={() => void refresh(cursor)}>
-                {t("chat.contextInspect.older")}
-              </Button>
-            )}
-          </section>
         </>
       )}
+      <div ref={requestSection}>
+        <ContextRequestBrowser
+          agentId={agentId}
+          threadId={threadId}
+          live={live}
+          focusRequestId={focusRequestId}
+          highlightRequestSeq={selected?.request_seq ?? null}
+        />
+      </div>
+      <section>
+        <div className={styles.cardHead}>
+          <h3>{t("chat.contextInspect.events")}</h3>
+          <div className={styles.sortControls}>
+            <Segmented
+              size="small"
+              value={eventSortKey}
+              aria-label={t("chat.contextInspect.sortBy")}
+              onChange={(v) => setEventSortKey(v as SortKey)}
+              options={[
+                {
+                  value: "time",
+                  label: t("chat.contextInspect.sortTime"),
+                },
+                {
+                  value: "tokens",
+                  label: t("chat.contextInspect.sortTokens"),
+                },
+              ]}
+            />
+            <Button
+              size="small"
+              icon={<SortIcon size={14} />}
+              aria-label={
+                eventSortDir === "asc"
+                  ? t("chat.contextInspect.sortAsc")
+                  : t("chat.contextInspect.sortDesc")
+              }
+              onClick={() =>
+                setEventSortDir((d) => (d === "asc" ? "desc" : "asc"))
+              }
+            />
+          </div>
+        </div>
+        <div className={styles.tagPills}>
+          <Segmented
+            size="small"
+            value={filter}
+            onChange={(v) => setFilter(String(v) as MappedContextKind | "all")}
+            options={MAPPED_KIND_FILTERS.map((k) => ({
+              value: k,
+              label: t(`chat.contextInspect.mappedKinds.${k}`),
+            }))}
+          />
+        </div>
+        <div className={styles.controls}>
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t("chat.contextInspect.search")}
+            allowClear
+          />
+          {picked && (
+            <Button size="small" onClick={() => setPicked(null)}>
+              {t("chat.contextInspect.allSteps")}
+            </Button>
+          )}
+        </div>
+        <div
+          ref={eventsBodyRef}
+          className={`${styles.sectionBody} ${styles.sectionBodyEvents}`}
+        >
+          <div className={styles.browser}>
+            {visible.map((e) => (
+              <ContextEvent
+                key={e.event_id}
+                event={e}
+                agentId={agentId}
+                threadId={threadId}
+                active={picked === e.event_id}
+                onPick={() =>
+                  setPicked(picked === e.event_id ? null : e.event_id)
+                }
+              />
+            ))}
+          </div>
+        </div>
+        {!visible.length && (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={
+              filter === "all"
+                ? t("chat.contextInspect.noEvents")
+                : t("chat.contextInspect.noMatch")
+            }
+          >
+            {filter !== "all" && (
+              <Button size="small" onClick={() => setFilter("all")}>
+                {t("chat.contextInspect.mappedKinds.all")}
+              </Button>
+            )}
+          </Empty>
+        )}
+        {cursor != null && (
+          <Button loading={loading} onClick={() => void refresh(cursor)}>
+            {t("chat.contextInspect.older")}
+          </Button>
+        )}
+      </section>
+      <RunReceiptBrowser
+        agentId={agentId}
+        threadId={threadId}
+        live={live}
+        onRequest={(id) => {
+          setFocusRequestId(id);
+          requestSection.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        }}
+      />
     </div>
   );
 }
@@ -556,6 +597,26 @@ function ContextEvent({
   const [detail, setDetail] = useState<TrajectoryEvent | null>(null);
   const [error, setError] = useState(false);
   const mapped = mapTrajectoryKind(event.kind, event.payload);
+  const duration = formatDuration(event.payload.duration_ms);
+  const path = pathOf(event.payload);
+  const action =
+    event.summary ||
+    (typeof event.payload.action === "string" ? event.payload.action : null) ||
+    (typeof event.payload.name === "string" ? event.payload.name : null) ||
+    "—";
+  const tokens = tokenOfEvent(event);
+  const techEntries: Array<[string, string]> = [
+    ["event_id", event.event_id],
+    ...(typeof event.payload.request_id === "string"
+      ? [["request_id", event.payload.request_id] as [string, string]]
+      : []),
+    ...(typeof event.payload.run_id === "string"
+      ? [["run_id", event.payload.run_id] as [string, string]]
+      : []),
+    ...(typeof event.payload.device_id === "string"
+      ? [["device_id", event.payload.device_id] as [string, string]]
+      : []),
+  ];
   return (
     <details
       data-event-id={event.event_id}
@@ -574,21 +635,48 @@ function ContextEvent({
       }}
     >
       <summary>
-        <Tag>
-          {t(`chat.contextInspect.mappedKinds.${mapped}`, mapped)}
-        </Tag>
-        <b>{event.summary || (event.payload.name as string) || "—"}</b>
+        <Tag>{t(`chat.contextInspect.mappedKinds.${mapped}`, mapped)}</Tag>
+        <b>{action}</b>
         {isCompactMark(event.kind, event.payload) && (
           <span className={styles.scissorsInline} aria-hidden>
             ✂
           </span>
         )}
         <small>#{event.request_seq ?? event.seq}</small>
+        {duration && <small>{duration}</small>}
+        {tokens != null && <small>{number(tokens)}</small>}
+        {path && (
+          <small title={path} className={styles.pathHint}>
+            {truncateMiddle(path)}
+          </small>
+        )}
       </summary>
       {error ? (
         <Alert type="error" message={t("chat.contextInspect.failed")} />
       ) : detail ? (
-        <pre>{JSON.stringify(detail.payload, null, 2)}</pre>
+        <>
+          <details className={styles.slimDetail} open={false}>
+            <summary>{t("chat.contextInspect.techFields")}</summary>
+            <dl className={styles.receiptFields}>
+              {techEntries.map(([key, value]) => (
+                <div key={key}>
+                  <dt>{key}</dt>
+                  <dd>
+                    <code>{value}</code>{" "}
+                    <Button
+                      size="small"
+                      type="link"
+                      onClick={() => void navigator.clipboard?.writeText(value)}
+                    >
+                      {t("chat.contextInspect.copy")}
+                    </Button>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </details>
+          <pre>{JSON.stringify(detail.payload, null, 2)}</pre>
+        </>
       ) : (
         <Spin size="small" />
       )}
