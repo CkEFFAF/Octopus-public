@@ -33,6 +33,70 @@ STREAM_ACTIONS = frozenset(
 )
 
 
+COMMAND_PREVIEW_CAP = 512
+OUTPUT_PREVIEW_CAP = 2048
+RECEIPT_SCALAR_KEYS = frozenset(
+    {
+        "job_id",
+        "status",
+        "returncode",
+        "session_id",
+        "sha256",
+        "size",
+        "recovery_id",
+        "recovery_copy",
+        "restored",
+        "backup_path",
+        "cancel_requested",
+        "cancel_incomplete",
+    }
+)
+
+
+def command_preview_from_params(params: dict[str, Any]) -> str | None:
+    """Bounded argv/command preview for run_event payloads (never fabricate)."""
+    argv = params.get("argv")
+    if isinstance(argv, list) and argv and all(isinstance(part, str) for part in argv):
+        try:
+            import subprocess
+
+            text = subprocess.list2cmdline(list(argv))
+        except Exception:
+            text = " ".join(argv)
+        text = text.strip()
+        return text[:COMMAND_PREVIEW_CAP] if text else None
+    for key in ("command", "cmd"):
+        value = params.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:COMMAND_PREVIEW_CAP]
+    return None
+
+
+def bound_receipt_fields(result: dict[str, Any]) -> dict[str, Any]:
+    """Whitelist receipt scalars + bounded stdout/stderr previews."""
+    receipt: dict[str, Any] = {
+        key: value[:4096] if isinstance(value, str) else value
+        for key, value in result.items()
+        if key in RECEIPT_SCALAR_KEYS and isinstance(value, (str, int, float, bool, type(None)))
+    }
+    truncated = bool(result.get("truncated") is True)
+    for source, preview_key in (
+        ("stdout", "stdout_preview"),
+        ("stderr", "stderr_preview"),
+    ):
+        value = result.get(source)
+        if not isinstance(value, str) or not value:
+            continue
+        if len(value) > OUTPUT_PREVIEW_CAP:
+            receipt[preview_key] = value[:OUTPUT_PREVIEW_CAP]
+            truncated = True
+        else:
+            receipt[preview_key] = value
+    if truncated:
+        receipt["output_truncated"] = True
+    return receipt
+
+
 class RunInspectionService:
     def __init__(self, repos: RepoBundle) -> None:
         self.repos = repos
@@ -92,28 +156,13 @@ class RunInspectionService:
         for key in ("path", "source", "destination", "cwd", "job_id", "session_id", "transfer_id"):
             if isinstance(params.get(key), str):
                 summary[key] = params[key][:4096]
+        preview = command_preview_from_params(params)
+        if preview:
+            summary["command_preview"] = preview
         if result is not None:
             # A successful submission is not evidence that its Job has completed.
-            summary["receipt"] = {
-                key: value[:4096] if isinstance(value, str) else value
-                for key, value in result.items()
-                if key
-                in {
-                    "job_id",
-                    "status",
-                    "returncode",
-                    "session_id",
-                    "sha256",
-                    "size",
-                    "recovery_id",
-                    "recovery_copy",
-                    "restored",
-                    "backup_path",
-                    "cancel_requested",
-                    "cancel_incomplete",
-                }
-                and isinstance(value, (str, int, float, bool, type(None)))
-            }
+            # Keep stdout/stderr as bounded previews only (never full unbounded bodies).
+            summary["receipt"] = bound_receipt_fields(result)
         self.events.save(
             event_id=f"operation:{operation_id}",
             owner=context.owner_user_id,
