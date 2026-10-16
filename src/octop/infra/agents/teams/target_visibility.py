@@ -4,12 +4,23 @@ from __future__ import annotations
 
 import json
 import logging
+from contextvars import ContextVar
 from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
 TargetPolicy = Literal["inherit", "member_default", "explicit"]
 _PATCHED = False
+
+# Per-invoke stamp so ask_agent does not mutate a shared configurable dict (concurrent bleed).
+_PENDING_ASK_TARGET: ContextVar[dict[str, Any] | None] = ContextVar(
+    "octop_pending_ask_target", default=None
+)
+
+
+def pending_ask_target() -> dict[str, Any] | None:
+    """Return the in-flight ask_agent target_policy stamp, if any."""
+    return _PENDING_ASK_TARGET.get()
 
 
 def expert_default_target(
@@ -81,34 +92,46 @@ def apply_target_policy(
     devices: Any = None,
     owner: int | None = None,
 ) -> dict[str, Any]:
-    """Mutate a PeerTaskTracker capture for inherit / member_default / explicit."""
+    """Mutate a PeerTaskTracker capture for inherit / member_default / explicit.
+
+    ``explicit`` + ``target_kind=local`` stamps ``octop_device_target`` so
+    ``_prepare_stream_request`` calls real ``resolve(..., target_kind=local)``
+    (never a fake ``octop_execution_context`` without ``context_id``).
+    """
     cfg = dict(snapshot.get("configurable") or {})
     mode = (policy or "inherit").strip() or "inherit"
     if mode == "member_default":
         cfg.pop("octop_device_target", None)
         cfg.pop("octop_execution_context", None)
+        cfg.pop("octop_explicit_working_dir", None)
         cfg["octop_target_policy"] = "member_default"
     elif mode == "explicit":
         target = explicit if isinstance(explicit, dict) else {}
         device_id = target.get("device_id")
         kind = target.get("target_kind") or ("device" if device_id else None)
         if kind == "local":
-            cfg.pop("octop_device_target", None)
-            cfg["octop_execution_context"] = {
+            # Intent only — resolve() creates the real ExecutionContext with context_id.
+            cfg.pop("octop_execution_context", None)
+            cfg.pop("octop_explicit_working_dir", None)
+            stamped: dict[str, Any] = {
                 "target_kind": "local",
                 "device_id": None,
-                "working_dir": target.get("working_dir"),
-                "source": "explicit_override",
             }
+            if target.get("working_dir") is not None:
+                stamped["working_dir"] = target.get("working_dir")
+            cfg["octop_device_target"] = stamped
             cfg["octop_target_policy"] = "explicit"
         elif device_id and devices is not None and owner is not None:
             device = devices.owned(owner, str(device_id))
-            cfg["octop_device_target"] = {
+            stamped = {
                 "device_id": str(device_id),
                 "grant_version": device.grant_version,
+                "target_kind": "device",
             }
             if target.get("working_dir") is not None:
-                cfg["octop_explicit_working_dir"] = target.get("working_dir")
+                stamped["working_dir"] = target.get("working_dir")
+            cfg["octop_device_target"] = stamped
+            cfg.pop("octop_explicit_working_dir", None)
             cfg.pop("octop_execution_context", None)
             cfg["octop_target_policy"] = "explicit"
         else:
@@ -121,7 +144,11 @@ def apply_target_policy(
 
 
 def install_harness_target_patches() -> None:
-    """Patch harness agent_list / ask_agent without bumping the wheel (OQ-2/OQ-3)."""
+    """Patch harness agent_list / ask_agent without bumping the wheel (OQ-2/OQ-3).
+
+    Host teams use ``peer_invoke_mode="async"``; wrap async **and** sync (and both)
+    so AC-04 target_policy is on the team Host main path.
+    """
     global _PATCHED
     if _PATCHED:
         return
@@ -154,49 +181,115 @@ def install_harness_target_patches() -> None:
         ask = next((t for t in tools if getattr(t, "name", None) == "ask_agent"), None)
         if ask is None:
             return tools
-
-        class AskWithTarget(BaseModel):
-            model_config = ConfigDict(populate_by_name=True)
-            expert: str = Field(
-                validation_alias=AliasChoices("expert", "agent"),
-                description="Target expert name or short id",
-            )
-            message: str = Field(description="Task or question for the target expert")
-            mode: TyLiteral["sync", "background"] = Field(
-                default="sync",
-                description=(
-                    "sync: wait for an immediate answer (default). "
-                    "background: delegate long work and get a proactive follow-up."
-                ),
-            )
-            user_question: str | None = Field(
-                default=None,
-                description="When mode=background, the user's original question",
-            )
-            target_policy: TyLiteral["inherit", "member_default", "explicit"] = Field(
-                default="inherit",
-                description=(
-                    "inherit: use room/host execution target (default). "
-                    "member_default: resolve the member's own device_binding. "
-                    "explicit: require device_id or target_kind=local for this dispatch only."
-                ),
-            )
-            device_id: str | None = Field(
-                default=None,
-                description="When target_policy=explicit, the device to run on",
-            )
-            target_kind: TyLiteral["device", "local"] | None = Field(
-                default=None,
-                description="When target_policy=explicit, device or local",
-            )
-            working_dir: str | None = Field(
-                default=None,
-                description="Optional working directory for explicit / member override",
-            )
-
         original_coro = ask.coroutine
         if original_coro is None:
             return tools
+
+        # Extend the mode-specific harness schema (async/sync/both) with target_policy.
+        if peer_invoke_mode == "async":
+
+            class AskAsyncWithTarget(BaseModel):
+                model_config = ConfigDict(populate_by_name=True)
+                expert: str = Field(
+                    validation_alias=AliasChoices("expert", "agent"),
+                    description="Target expert name or short id",
+                )
+                message: str = Field(description="Task or question for the target expert")
+                user_question: str | None = Field(
+                    default=None,
+                    description="The user's original question, used when composing the follow-up",
+                )
+                target_policy: TyLiteral["inherit", "member_default", "explicit"] = Field(
+                    default="inherit",
+                    description=(
+                        "inherit: use room/host execution target (default). "
+                        "member_default: resolve the member's own device_binding. "
+                        "explicit: require device_id or target_kind=local for this dispatch only."
+                    ),
+                )
+                device_id: str | None = Field(
+                    default=None,
+                    description="When target_policy=explicit, the device to run on",
+                )
+                target_kind: TyLiteral["device", "local"] | None = Field(
+                    default=None,
+                    description="When target_policy=explicit, device or local",
+                )
+                working_dir: str | None = Field(
+                    default=None,
+                    description="Optional working directory for explicit override",
+                )
+
+        elif peer_invoke_mode == "sync":
+
+            class AskSyncWithTarget(BaseModel):
+                model_config = ConfigDict(populate_by_name=True)
+                expert: str = Field(
+                    validation_alias=AliasChoices("expert", "agent"),
+                    description="Target expert name or short id",
+                )
+                message: str = Field(description="Task or question for the target expert")
+                target_policy: TyLiteral["inherit", "member_default", "explicit"] = Field(
+                    default="inherit",
+                    description=(
+                        "inherit: use room/host execution target (default). "
+                        "member_default: resolve the member's own device_binding. "
+                        "explicit: require device_id or target_kind=local for this dispatch only."
+                    ),
+                )
+                device_id: str | None = Field(
+                    default=None,
+                    description="When target_policy=explicit, the device to run on",
+                )
+                target_kind: TyLiteral["device", "local"] | None = Field(
+                    default=None,
+                    description="When target_policy=explicit, device or local",
+                )
+                working_dir: str | None = Field(
+                    default=None,
+                    description="Optional working directory for explicit override",
+                )
+
+        else:
+
+            class AskBothWithTarget(BaseModel):
+                model_config = ConfigDict(populate_by_name=True)
+                expert: str = Field(
+                    validation_alias=AliasChoices("expert", "agent"),
+                    description="Target expert name or short id",
+                )
+                message: str = Field(description="Task or question for the target expert")
+                mode: TyLiteral["sync", "background"] = Field(
+                    default="sync",
+                    description=(
+                        "sync: wait for an immediate answer (default). "
+                        "background: delegate long work and get a proactive follow-up."
+                    ),
+                )
+                user_question: str | None = Field(
+                    default=None,
+                    description="When mode=background, the user's original question",
+                )
+                target_policy: TyLiteral["inherit", "member_default", "explicit"] = Field(
+                    default="inherit",
+                    description=(
+                        "inherit: use room/host execution target (default). "
+                        "member_default: resolve the member's own device_binding. "
+                        "explicit: require device_id or target_kind=local for this dispatch only."
+                    ),
+                )
+                device_id: str | None = Field(
+                    default=None,
+                    description="When target_policy=explicit, the device to run on",
+                )
+                target_kind: TyLiteral["device", "local"] | None = Field(
+                    default=None,
+                    description="When target_policy=explicit, device or local",
+                )
+                working_dir: str | None = Field(
+                    default=None,
+                    description="Optional working directory for explicit override",
+                )
 
         async def ask_agent(
             expert: str,
@@ -208,54 +301,52 @@ def install_harness_target_patches() -> None:
             target_kind: TyLiteral["device", "local"] | None = None,
             working_dir: str | None = None,
         ) -> str:
-            from langgraph.config import get_config
-
-            # Stash policy on the runnable config so PeerTaskTracker / call_peer see it.
+            # Isolate per invoke via ContextVar — never mutate shared configurable in place.
+            stamp: dict[str, Any] = {"octop_target_policy": target_policy}
+            if target_policy == "explicit":
+                stamp["octop_explicit_target"] = {
+                    "device_id": device_id,
+                    "target_kind": target_kind or ("device" if device_id else None),
+                    "working_dir": working_dir,
+                }
+            else:
+                stamp["octop_explicit_target"] = None
+            token = _PENDING_ASK_TARGET.set(stamp)
             try:
-                cfg = get_config().get("configurable") or {}
-                cfg = dict(cfg)
-                cfg["octop_target_policy"] = target_policy
-                if target_policy == "explicit":
-                    cfg["octop_explicit_target"] = {
-                        "device_id": device_id,
-                        "target_kind": target_kind or ("device" if device_id else None),
-                        "working_dir": working_dir,
-                    }
-                else:
-                    cfg.pop("octop_explicit_target", None)
-                # Mutate in place when possible so submit_peer capture sees it.
-                live = get_config().get("configurable")
-                if isinstance(live, dict):
-                    live["octop_target_policy"] = target_policy
-                    if target_policy == "explicit":
-                        live["octop_explicit_target"] = cfg["octop_explicit_target"]
-                    else:
-                        live.pop("octop_explicit_target", None)
-            except Exception:
-                logger.debug("could not stamp target_policy on config", exc_info=True)
-            # Prefer original schema arity when peer_invoke_mode hid mode.
-            try:
-                result = await original_coro(
-                    expert=expert,
-                    message=message,
-                    mode=mode,
-                    user_question=user_question,
-                )
-            except TypeError:
-                result = await original_coro(expert=expert, message=message)
-            return str(result)
+                try:
+                    result = await original_coro(
+                        expert=expert,
+                        message=message,
+                        mode=mode,
+                        user_question=user_question,
+                    )
+                except TypeError:
+                    # sync/async harness schemas omit mode / user_question.
+                    try:
+                        result = await original_coro(
+                            expert=expert,
+                            message=message,
+                            user_question=user_question,
+                        )
+                    except TypeError:
+                        result = await original_coro(expert=expert, message=message)
+                return str(result)
+            finally:
+                _PENDING_ASK_TARGET.reset(token)
 
-        # Only widen schema when the host exposes mode=both (AskAgentInput).
-        # Narrower sync/async schemas stay unchanged to avoid confusing the model.
-        if peer_invoke_mode == "both":
-            replacement = StructuredTool.from_function(
-                coroutine=ask_agent,
-                name="ask_agent",
-                description=ask.description,
-                args_schema=AskWithTarget,
-            )
-            return [replacement if getattr(t, "name", None) == "ask_agent" else t for t in tools]
-        return tools
+        if peer_invoke_mode == "async":
+            schema: type[BaseModel] = AskAsyncWithTarget
+        elif peer_invoke_mode == "sync":
+            schema = AskSyncWithTarget
+        else:
+            schema = AskBothWithTarget
+        replacement = StructuredTool.from_function(
+            coroutine=ask_agent,
+            name="ask_agent",
+            description=ask.description,
+            args_schema=schema,
+        )
+        return [replacement if getattr(t, "name", None) == "ask_agent" else t for t in tools]
 
     team_tools.build_team_tools = build_team_tools
     _PATCHED = True
@@ -269,4 +360,5 @@ __all__ = [
     "expert_default_target",
     "install_harness_target_patches",
     "model_ref_for_row",
+    "pending_ask_target",
 ]

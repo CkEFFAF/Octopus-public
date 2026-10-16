@@ -27,7 +27,7 @@ def restore_peer_context(request: dict[str, Any]) -> dict[str, Any]:
         raise OctopError(ErrorCode.FORBIDDEN, "peer request owner changed")
     inherited = context["configurable"]
     target = inherited.get("octop_device_target")
-    if target:
+    if target and target.get("target_kind") != "local" and target.get("device_id"):
         devices = context["devices"]
         if devices is None:
             raise OctopError(ErrorCode.FORBIDDEN, "device service unavailable")
@@ -212,12 +212,24 @@ class PeerTaskTracker:
         def submit_peer(**kwargs: Any) -> Any:
             owner = int(kwargs["user_id"])
             snapshot = _capture(owner)
-            from octop.infra.agents.teams.target_visibility import apply_target_policy
+            from octop.infra.agents.teams.target_visibility import (
+                apply_target_policy,
+                pending_ask_target,
+            )
 
             cfg = snapshot.get("configurable") or {}
             meta_in = kwargs.get("metadata") or {}
-            policy = meta_in.get("octop_target_policy") or cfg.get("octop_target_policy")
-            explicit = meta_in.get("octop_explicit_target") or cfg.get("octop_explicit_target")
+            pending = pending_ask_target() or {}
+            policy = (
+                pending.get("octop_target_policy")
+                or meta_in.get("octop_target_policy")
+                or cfg.get("octop_target_policy")
+            )
+            explicit = (
+                pending.get("octop_explicit_target")
+                or meta_in.get("octop_explicit_target")
+                or cfg.get("octop_explicit_target")
+            )
             snapshot = apply_target_policy(
                 snapshot,
                 policy=policy if isinstance(policy, str) else None,
@@ -250,19 +262,21 @@ class PeerTaskTracker:
             if msg is not None:
                 saved = self.context(msg.metadata, msg.user_id)
             else:
-                from octop.infra.agents.teams.target_visibility import apply_target_policy
+                from octop.infra.agents.teams.target_visibility import (
+                    apply_target_policy,
+                    pending_ask_target,
+                )
 
                 owner = int(kwargs["user_id"])
                 snap = _capture(owner)
                 cfg = snap.get("configurable") or {}
+                pending = pending_ask_target() or {}
+                policy = pending.get("octop_target_policy") or cfg.get("octop_target_policy")
+                explicit = pending.get("octop_explicit_target") or cfg.get("octop_explicit_target")
                 snap = apply_target_policy(
                     snap,
-                    policy=cfg.get("octop_target_policy")
-                    if isinstance(cfg.get("octop_target_policy"), str)
-                    else None,
-                    explicit=cfg.get("octop_explicit_target")
-                    if isinstance(cfg.get("octop_explicit_target"), dict)
-                    else None,
+                    policy=policy if isinstance(policy, str) else None,
+                    explicit=explicit if isinstance(explicit, dict) else None,
                     devices=self.devices,
                     owner=owner,
                 )
