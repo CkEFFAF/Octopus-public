@@ -32,6 +32,7 @@ import googleIcon from "../../assets/providers/google.svg";
 import CaptchaField, { type CaptchaFieldHandle } from "./CaptchaField";
 import ForgotPasswordModal from "./ForgotPasswordModal";
 import { type PublicCaptchaConfig } from "./captchaAdapters";
+import IcpFilingFooter from "../../components/IcpFilingFooter";
 
 function providerLabel(
   provider: OauthProviderStatus,
@@ -256,6 +257,7 @@ export default function LoginPage() {
   return (
     <div
       style={{
+        position: "relative",
         minHeight: "100dvh",
         boxSizing: "border-box",
         display: "flex",
@@ -527,6 +529,7 @@ export default function LoginPage() {
           </>
         )}
       </div>
+      <IcpFilingFooter />
     </div>
   );
 }
