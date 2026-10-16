@@ -27,7 +27,7 @@ def restore_peer_context(request: dict[str, Any]) -> dict[str, Any]:
         raise OctopError(ErrorCode.FORBIDDEN, "peer request owner changed")
     inherited = context["configurable"]
     target = inherited.get("octop_device_target")
-    if target:
+    if target and target.get("target_kind") != "local" and target.get("device_id"):
         devices = context["devices"]
         if devices is None:
             raise OctopError(ErrorCode.FORBIDDEN, "device service unavailable")
@@ -70,6 +70,8 @@ def _capture(owner: int) -> dict[str, Any]:
             "octop_task_run_id",
             "conversation_mode",
             "work_mode",
+            "octop_target_policy",
+            "octop_explicit_target",
         )
         if key in cfg
     }
@@ -210,6 +212,31 @@ class PeerTaskTracker:
         def submit_peer(**kwargs: Any) -> Any:
             owner = int(kwargs["user_id"])
             snapshot = _capture(owner)
+            from octop.infra.agents.teams.target_visibility import (
+                apply_target_policy,
+                pending_ask_target,
+            )
+
+            cfg = snapshot.get("configurable") or {}
+            meta_in = kwargs.get("metadata") or {}
+            pending = pending_ask_target() or {}
+            policy = (
+                pending.get("octop_target_policy")
+                or meta_in.get("octop_target_policy")
+                or cfg.get("octop_target_policy")
+            )
+            explicit = (
+                pending.get("octop_explicit_target")
+                or meta_in.get("octop_explicit_target")
+                or cfg.get("octop_explicit_target")
+            )
+            snapshot = apply_target_policy(
+                snapshot,
+                policy=policy if isinstance(policy, str) else None,
+                explicit=explicit if isinstance(explicit, dict) else None,
+                devices=self.devices,
+                owner=owner,
+            )
             run_id = snapshot["configurable"].get("octop_task_run_id")
             if (owner, run_id) in self.cancelled_runs:
                 raise OctopError(ErrorCode.FORBIDDEN, "task already cancelled")
@@ -232,11 +259,28 @@ class PeerTaskTracker:
 
         async def invoke_peer(**kwargs: Any) -> Any:
             msg = inbox.get(kwargs.get("job_id")) if kwargs.get("job_id") else None
-            saved = (
-                self.context(msg.metadata, msg.user_id)
-                if msg is not None
-                else {**_capture(int(kwargs["user_id"])), "devices": self.devices}
-            )
+            if msg is not None:
+                saved = self.context(msg.metadata, msg.user_id)
+            else:
+                from octop.infra.agents.teams.target_visibility import (
+                    apply_target_policy,
+                    pending_ask_target,
+                )
+
+                owner = int(kwargs["user_id"])
+                snap = _capture(owner)
+                cfg = snap.get("configurable") or {}
+                pending = pending_ask_target() or {}
+                policy = pending.get("octop_target_policy") or cfg.get("octop_target_policy")
+                explicit = pending.get("octop_explicit_target") or cfg.get("octop_explicit_target")
+                snap = apply_target_policy(
+                    snap,
+                    policy=policy if isinstance(policy, str) else None,
+                    explicit=explicit if isinstance(explicit, dict) else None,
+                    devices=self.devices,
+                    owner=owner,
+                )
+                saved = {**snap, "devices": self.devices}
             token = _context.set(saved)
             try:
                 return await original_invoke(**kwargs)

@@ -24,10 +24,13 @@ export default function DeviceTargetSelect({
   agentId,
   threadId,
   defaultDeviceId,
+  roomUnify = false,
 }: {
   agentId?: string | null;
   threadId?: string | null;
   defaultDeviceId?: string;
+  /** Team host room: selection is room-wide override; never batch-patches member bindings (0019). */
+  roomUnify?: boolean;
 }) {
   const { t } = useTranslation();
   const [devices, setDevices] = useState<Device[]>([]);
@@ -202,6 +205,13 @@ export default function DeviceTargetSelect({
           deviceId: targetOption(value),
           workingDir: value.working_dir ?? undefined,
         });
+        if (roomUnify) {
+          void message.success(
+            option
+              ? t("devices.roomUnifySaved")
+              : t("devices.roomUnifyCleared"),
+          );
+        }
       })
       .catch(() => {
         if (!current()) return;
@@ -250,6 +260,15 @@ export default function DeviceTargetSelect({
         destroyOnHidden
       >
         <p className={styles.deviceTargetSummary}>{t("devices.targetHint")}</p>
+        {roomUnify && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={t("devices.roomUnifyTitle")}
+            description={t("devices.roomUnifyHint")}
+          />
+        )}
         <Select
           aria-label={t("devices.targetDevice")}
           size="small"
@@ -448,6 +467,16 @@ export default function DeviceTargetSelect({
             }}
           >
             {t("devices.clearAccountDefault")}
+          </Button>
+        )}
+        {roomUnify && selected && (
+          <Button
+            type="text"
+            size="small"
+            disabled={savingSelection}
+            onClick={() => saveSelection("", null)}
+          >
+            {t("devices.clearRoomUnify")}
           </Button>
         )}
         <Button

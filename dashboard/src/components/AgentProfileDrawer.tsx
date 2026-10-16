@@ -410,6 +410,15 @@ export default function AgentProfileDrawer({
                 visibleTeamMembers.map((member) => {
                   const accent = member.color || "#0d9488";
                   const stateKey = member.state || "unknown";
+                  const target = member.default_target;
+                  const targetLabel =
+                    target?.target_kind === "local"
+                      ? t("devices.localExecution")
+                      : target?.device_name ||
+                        target?.device_id ||
+                        t("chat.teamProfile.noDefaultDevice");
+                  const modelLabel =
+                    member.model_ref || t("chat.teamProfile.noDefaultModel");
                   return (
                     <ProfileEntityCard
                       key={member.agent_id}
@@ -429,6 +438,7 @@ export default function AgentProfileDrawer({
                         </div>
                       }
                       title={member.name}
+                      description={`${t("chat.teamProfile.defaultDevice")}: ${targetLabel} · ${t("chat.teamProfile.defaultModel")}: ${modelLabel}`}
                       trailing={
                         <span className={expertStyles.fileHint}>
                           {t(`common.agentState.${stateKey}`, {

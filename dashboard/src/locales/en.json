@@ -264,7 +264,12 @@
       "missingDependency": "Command dependency not found",
       "dependencies": "Runtime dependencies",
       "notInstalled": "Not installed"
-    }
+    },
+    "roomUnifyTitle": "Room execution target",
+    "roomUnifyHint": "Selecting a device here unifies this team room for the next runs. It does not change each expert's default device binding.",
+    "roomUnifySaved": "Room execution target saved. Expert default bindings were not changed.",
+    "roomUnifyCleared": "Room execution target cleared. Experts fall back to their own defaults.",
+    "clearRoomUnify": "Clear room unify"
   },
   "octopus": {
     "idle": "Idle",
@@ -1923,7 +1928,11 @@
       "members": "Members",
       "memberCount": "{{count}} member(s)",
       "emptyMembers": "No members yet",
-      "hostNote": "The host schedules work. Members below speak in this group chat."
+      "hostNote": "The host schedules work. Members below speak in this group chat.",
+      "defaultDevice": "Default device",
+      "defaultModel": "Model",
+      "noDefaultDevice": "Not bound",
+      "noDefaultModel": "—"
     },
     "composerMore": "More tools",
     "knowledgePicker": "Knowledge bases",

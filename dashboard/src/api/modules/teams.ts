@@ -1,5 +1,12 @@
 import { request } from "../request";
 
+export interface TeamMemberDefaultTarget {
+  target_kind: "device" | "local";
+  device_id?: string | null;
+  device_name?: string | null;
+  working_dir?: string | null;
+}
+
 export interface TeamMemberSummary {
   agent_id: string;
   name: string;
@@ -10,6 +17,10 @@ export interface TeamMemberSummary {
   busy?: boolean;
   is_shared?: boolean;
   user_id?: number | null;
+  /** Expert device_binding summary (0019); session room override is separate. */
+  default_target?: TeamMemberDefaultTarget | null;
+  /** Expert default model ref (readonly). */
+  model_ref?: string | null;
 }
 
 export interface TeamRecord {

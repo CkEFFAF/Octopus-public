@@ -509,6 +509,11 @@ class AgentManager:
             log_dir=str(self.paths.logs_dir),
         )
         if self._harness_manager is not None:
+            from octop.infra.agents.teams.target_visibility import (
+                install_harness_target_patches,
+            )
+
+            install_harness_target_patches()
             self._harness_manager.team.bind_peer_enrich(self._refresh_peer_entry)
             proc = self._team_processor
             if proc is not None:
@@ -3027,6 +3032,31 @@ class AgentManager:
         if row is not None and str(row.name or "").strip():
             entry.metadata["display_name"] = row.name
         self._apply_peer_profile_metadata(entry.metadata, entry.agent_id, row_desc)
+        if row is not None:
+            from octop.infra.agents.teams.target_visibility import enrich_peer_metadata
+
+            device_name = None
+            binding = None
+            try:
+                import json as _json
+
+                cfg = _json.loads(row.config_json or "{}")
+                binding = cfg.get("device_binding") if isinstance(cfg, dict) else None
+            except (TypeError, ValueError):
+                binding = None
+            if (
+                isinstance(binding, dict)
+                and binding.get("device_id")
+                and self._device_service is not None
+                and row.user_id is not None
+            ):
+                try:
+                    device_name = self._device_service.owned(
+                        int(row.user_id), str(binding["device_id"])
+                    ).name
+                except Exception:
+                    device_name = None
+            enrich_peer_metadata(entry.metadata, row=row, device_name=device_name)
 
     def _apply_peer_profile_metadata(
         self,

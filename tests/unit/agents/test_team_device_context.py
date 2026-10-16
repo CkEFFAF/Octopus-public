@@ -384,3 +384,95 @@ async def test_member_work_step_uses_in_run_device_evidence_after_ask_agent(
     await asyncio.wait_for(rig.tracker.wait_for_task_run(1, "run-a"), 2)
     assert modes.events.get(owner, f"dispatch:{result.job_id}")["status"] == "completed"
     await close(rig)
+
+
+@pytest.mark.asyncio
+async def test_member_default_target_policy_strips_parent_device(peers: Any) -> None:
+    """0019 S4: target_policy=member_default must not inherit host device."""
+    from octop.infra.agents.teams.device_context import _KEY
+
+    rig = peers
+    token = var_child_runnable_config.set(
+        {
+            "configurable": {
+                "user": "1",
+                "conversation_mode": "craft",
+                "octop_task_run_id": "run-b",
+                "octop_device_target": {"device_id": "pc", "grant_version": 7},
+                "octop_target_policy": "member_default",
+            }
+        }
+    )
+    try:
+        result = rig.team.submit_peer(
+            from_agent_id="host",
+            to_agent_id="member",
+            user_id=1,
+            message="Use my default",
+            source_thread_id="room",
+            metadata={"session_key": "host:dashboard:1"},
+        )
+        assert result.job_id
+        msg = rig.team.inbox.get(result.job_id)
+        assert msg is not None
+        snap = msg.metadata[_KEY]
+        cfg = snap["configurable"]
+        assert "octop_device_target" not in cfg
+        assert "octop_execution_context" not in cfg
+        assert cfg.get("octop_target_policy") == "member_default"
+        # Cancel so the inbox worker does not need a full member turn.
+        await rig.tracker.cancel_task_run(1, "run-b")
+    finally:
+        var_child_runnable_config.reset(token)
+        await close(rig)
+
+
+@pytest.mark.asyncio
+async def test_pending_ask_target_policy_reaches_submit_peer_snapshot(peers: Any) -> None:
+    """ask_agent ContextVar stamp must reach PeerTaskTracker without mutating shared cfg."""
+    from octop.infra.agents.teams import target_visibility as tv
+    from octop.infra.agents.teams.device_context import _KEY
+
+    rig = peers
+    shared = {
+        "user": "1",
+        "conversation_mode": "craft",
+        "octop_task_run_id": "run-c",
+        "octop_device_target": {"device_id": "pc", "grant_version": 7},
+    }
+    token = var_child_runnable_config.set({"configurable": shared})
+    pending = tv._PENDING_ASK_TARGET.set(
+        {
+            "octop_target_policy": "explicit",
+            "octop_explicit_target": {
+                "device_id": "other",
+                "target_kind": "device",
+                "working_dir": "/x",
+            },
+        }
+    )
+    # owned() returns grant for whatever id is requested
+    rig.device.grant_version = 3
+    try:
+        result = rig.team.submit_peer(
+            from_agent_id="host",
+            to_agent_id="member",
+            user_id=1,
+            message="explicit device",
+            source_thread_id="room",
+            metadata={"session_key": "host:dashboard:1"},
+        )
+        msg = rig.team.inbox.get(result.job_id)
+        assert msg is not None
+        cfg = msg.metadata[_KEY]["configurable"]
+        assert cfg["octop_target_policy"] == "explicit"
+        assert cfg["octop_device_target"]["device_id"] == "other"
+        assert cfg["octop_device_target"]["working_dir"] == "/x"
+        # Shared parent configurable must remain untouched (no in-place mutation).
+        assert shared.get("octop_target_policy") is None
+        assert shared["octop_device_target"]["device_id"] == "pc"
+        await rig.tracker.cancel_task_run(1, "run-c")
+    finally:
+        tv._PENDING_ASK_TARGET.reset(pending)
+        var_child_runnable_config.reset(token)
+        await close(rig)
