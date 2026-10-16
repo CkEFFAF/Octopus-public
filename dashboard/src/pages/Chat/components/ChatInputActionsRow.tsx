@@ -23,6 +23,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Route,
   Info,
   AtSign,
@@ -37,6 +38,7 @@ import type { AgentSubagentSummary } from "../../../api/modules/subagents";
 import {
   modelOptionLabel,
   modelOptionValue,
+  modelShortLabel,
 } from "../../../utils/modelOptions";
 import { customProviderLogo, getProviderLogo } from "../../../assets/providers";
 import ContextWindowRing from "./ContextWindowRing";
@@ -183,6 +185,7 @@ export default function ChatInputActionsRow({
   deviceControl,
   availableModels,
   selectedModel,
+  defaultModel,
   onModelChange,
   reasoningMode = "auto",
   reasoningEffort = null,
@@ -266,7 +269,7 @@ export default function ChatInputActionsRow({
     const row = actionsRowRef.current;
     if (!row) return;
     const update = (width: number) => {
-      if (width > 0) setIsCompact(width <= 560);
+      if (width > 0) setIsCompact(width <= 800);
     };
     update(row.getBoundingClientRect().width);
     const observer = new ResizeObserver(([entry]) => {
@@ -318,8 +321,8 @@ export default function ChatInputActionsRow({
   const activeSkillSlugs = parseSkillSlugsInText(text, skillTokenRefs);
   const showModePicker = Boolean(onConversationModeChange);
   const showOverflowMenu =
+    useCompactControls ||
     showModePicker ||
-    showModelPicker ||
     showConnectorPicker ||
     showKnowledgePicker ||
     showSkillPicker ||
@@ -382,14 +385,31 @@ export default function ChatInputActionsRow({
       ? t("chat.reasoningEnabled", "开启")
       : t("chat.reasoningDisabled", "关闭");
 
+  const effectiveModelRef = selectedModel || defaultModel;
+  const effectiveModel = availableModels?.find(
+    (model) =>
+      modelOptionValue(model) === effectiveModelRef ||
+      (!selectedModel && model.model === effectiveModelRef),
+  );
+  const effectiveModelLabel = effectiveModel
+    ? effectiveModel.name || effectiveModel.model
+    : selectedModel
+    ? modelShortLabel(selectedModel)
+    : null;
+  const autoModelLabel = t("chat.modelAuto", "Auto");
   const selectedModelTriggerLabel = selectedModel
-    ? modelOptionLabel(
-        availableModels?.find((m) => modelOptionValue(m) === selectedModel) ?? {
-          provider_name: selectedModel.split("/")[0] || "",
-          model: selectedModel.split("/").slice(1).join("/") || selectedModel,
-        },
-      )
-    : t("chat.modelAuto", "Auto");
+    ? effectiveModelLabel || modelShortLabel(selectedModel)
+    : effectiveModelLabel
+    ? `${autoModelLabel} · ${effectiveModelLabel}`
+    : autoModelLabel;
+  const selectedModelDetail = effectiveModel
+    ? modelOptionLabel(effectiveModel)
+    : selectedModel;
+  const selectedModelTooltip = selectedModel
+    ? selectedModelDetail || selectedModelTriggerLabel
+    : `${autoModelLabel}: ${t("chat.modelAutoHint", "Use agent default")}${
+        selectedModelDetail ? ` · ${selectedModelDetail}` : ""
+      }`;
 
   const reasoningSummary = (model: ResolvedModel, active: boolean) => {
     const capability = model.reasoning_config;
@@ -626,6 +646,31 @@ export default function ChatInputActionsRow({
 
   const renderPlusMenu = () => (
     <div className={styles.mobileOverflowMenu}>
+      <button
+        type="button"
+        className={styles.mobileOverflowItem}
+        aria-label={t("chatWelcome.newChat")}
+        onClick={() => {
+          closePlusMenu();
+          onNewChat();
+        }}
+      >
+        <span className={styles.mobileOverflowItemMain}>
+          <MessageSquarePlus size={16} />
+          <span>{t("chatWelcome.newChat")}</span>
+        </span>
+      </button>
+      {onHitlPolicyChange && (
+        <div className={styles.mobileOverflowItem}>
+          <span className={styles.mobileOverflowItemMain}>
+            {t("chat.hitl.policy.picker")}
+          </span>
+          <HitlPolicyPicker
+            policy={hitlPolicy ?? { mode: "ask" }}
+            onChange={onHitlPolicyChange}
+          />
+        </div>
+      )}
       {showModePicker && (
         <button
           type="button"
@@ -641,26 +686,6 @@ export default function ChatInputActionsRow({
           <span className={styles.mobileOverflowItemMeta}>
             <span className={styles.mobileOverflowItemMetaLabel}>
               {t(`chat.workMode.${workMode}`)}
-            </span>
-            <ChevronRight size={16} />
-          </span>
-        </button>
-      )}
-      {showModelPicker && (
-        <button
-          type="button"
-          className={`${styles.mobileOverflowItem} ${
-            compactPicker === "model" ? styles.mobileOverflowItemActive : ""
-          }`}
-          onClick={() => openCompactPicker("model")}
-        >
-          <span className={styles.mobileOverflowItemMain}>
-            <Cpu size={16} />
-            <span>{t("chat.selectModel", "Model")}</span>
-          </span>
-          <span className={styles.mobileOverflowItemMeta}>
-            <span className={styles.mobileOverflowItemMetaLabel}>
-              {selectedModelTriggerLabel}
             </span>
             <ChevronRight size={16} />
           </span>
@@ -875,7 +900,6 @@ export default function ChatInputActionsRow({
 
   const desktopPickers = [
     { key: "mode", show: showModePicker, Icon: ModeIcon, count: 0 },
-    { key: "model", show: showModelPicker, Icon: Cpu, count: 0 },
     {
       key: "connector",
       show: showConnectorPicker,
@@ -912,16 +936,8 @@ export default function ChatInputActionsRow({
   const renderDesktopPickers = () =>
     desktopPickers.map(({ key, show, Icon, count }) => {
       if (!show) return null;
-      const selected =
-        count > 0 ||
-        (key === "model" && Boolean(selectedModel)) ||
-        (key === "mode" && workMode !== "agentic");
-      const summary =
-        key === "model"
-          ? selectedModelTriggerLabel
-          : key === "mode"
-          ? t(`chat.workMode.${workMode}`)
-          : null;
+      const selected = count > 0 || (key === "mode" && workMode !== "agentic");
+      const summary = key === "mode" ? t(`chat.workMode.${workMode}`) : null;
       return (
         <Popover
           key={key}
@@ -1073,7 +1089,7 @@ export default function ChatInputActionsRow({
             </Tooltip>
           </Popover>
         )}
-        {onHitlPolicyChange && (
+        {!useCompactControls && onHitlPolicyChange && (
           <HitlPolicyPicker
             policy={hitlPolicy ?? { mode: "ask" }}
             onChange={onHitlPolicyChange}
@@ -1103,10 +1119,42 @@ export default function ChatInputActionsRow({
       className={styles.actionsRow}
       data-layout={useCompactControls ? "compact" : "expanded"}
     >
-      <div className={styles.secondaryActions}>
-        {renderSecondaryActions()}
-        {deviceControl}
-      </div>
+      {showModelPicker && (
+        <Popover
+          trigger="click"
+          placement="topLeft"
+          arrow={false}
+          open={compactPicker === "model" && !overflowPopoverOpen}
+          overlayClassName={styles.modelPopover}
+          content={modelMenu}
+          onOpenChange={(open) => {
+            setOverflowPopoverOpen(false);
+            setReasoningModelRef(null);
+            setCompactPicker(open ? "model" : null);
+          }}
+        >
+          <Tooltip title={selectedModelTooltip} mouseEnterDelay={0.4}>
+            <button
+              type="button"
+              className={`${styles.secondaryBtn} ${styles.composerPickerTrigger} ${styles.composerModelTrigger}`}
+              aria-label={`${compactPickerTitle.model}: ${selectedModelTriggerLabel}`}
+              aria-expanded={compactPicker === "model" && !overflowPopoverOpen}
+              title={selectedModelTooltip}
+              data-testid="composer-model"
+            >
+              <Cpu size={15} aria-hidden />
+              <span className={styles.composerModelLabel}>
+                {selectedModelTriggerLabel}
+              </span>
+              <ChevronDown size={12} aria-hidden />
+            </button>
+          </Tooltip>
+        </Popover>
+      )}
+      {deviceControl && (
+        <div className={styles.composerDeviceControl}>{deviceControl}</div>
+      )}
+      <div className={styles.secondaryActions}>{renderSecondaryActions()}</div>
       <div className={styles.inputActions}>
         <ContextWindowRing
           usedTokens={contextUsedTokens}
@@ -1117,19 +1165,7 @@ export default function ChatInputActionsRow({
           isMobile={isMobile}
           onInspect={onInspectContext}
         />
-        {/* Mobile keeps new chat close to the composer when the sidebar is hidden. */}
-        {useCompactControls ? (
-          <Tooltip title={t("chatWelcome.newChat")} mouseEnterDelay={0.4}>
-            <button
-              className={styles.newChatBtn}
-              onClick={onNewChat}
-              type="button"
-              aria-label={t("chatWelcome.newChat")}
-            >
-              <MessageSquarePlus size={16} strokeWidth={1.75} />
-            </button>
-          </Tooltip>
-        ) : text.trim() && !isStreaming ? (
+        {!useCompactControls && text.trim() && !isStreaming ? (
           <Tooltip title={t("chat.polish.tooltip")} mouseEnterDelay={0.4}>
             <button
               className={styles.secondaryBtn}

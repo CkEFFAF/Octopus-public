@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Dropdown, Switch } from "antd";
 import type { MenuProps } from "antd";
 import { useTranslation } from "react-i18next";
@@ -28,6 +35,7 @@ interface ChatTitleBarProps {
   forkDisabled?: boolean;
   forkDisabledHint?: string;
   isTeam?: boolean;
+  activity?: ReactNode;
 }
 
 export default function ChatTitleBar({
@@ -40,6 +48,7 @@ export default function ChatTitleBar({
   forkDisabled,
   forkDisabledHint,
   isTeam = false,
+  activity,
 }: ChatTitleBarProps) {
   const { t } = useTranslation();
   const [collapseThinking, setCollapseThinking] = useCollapseThinking(isTeam);
@@ -199,6 +208,7 @@ export default function ChatTitleBar({
             </Dropdown>
           </div>
         )}
+        {activity}
       </div>
     </div>
   );

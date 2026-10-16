@@ -96,7 +96,7 @@ describe("ChatInputActionsRow responsive toolbar", () => {
     expect(screen.queryByLabelText("快捷指令")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Upload attachment")).toBeInTheDocument();
     expect(screen.getByTestId("composer-mode")).toBeInTheDocument();
-    expect(screen.getByTestId("composer-model")).toHaveTextContent("Model");
+    expect(screen.getByTestId("composer-model")).toHaveTextContent("Auto");
   });
 
   it("hides the approval picker when HITL policy cannot be changed", () => {
@@ -165,7 +165,7 @@ describe("ChatInputActionsRow responsive toolbar", () => {
     );
   });
 
-  it("uses overflow for a narrow desktop composer even in a wide window", async () => {
+  it("keeps the current model directly selectable in a narrow desktop composer", async () => {
     vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({
       ...document.body.getBoundingClientRect(),
       width: 440,
@@ -173,47 +173,106 @@ describe("ChatInputActionsRow responsive toolbar", () => {
     });
     render(
       <MemoryRouter>
-        <ChatInputActionsRow {...baseProps} />
+        <ChatInputActionsRow
+          {...baseProps}
+          selectedModel="Provider/compact-model"
+        />
       </MemoryRouter>,
     );
 
-    expect(screen.queryByTestId("composer-model")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("composer-plus"));
-    expect(await screen.findByText("Model")).toBeInTheDocument();
-    expect(screen.queryByTestId("composer-plus-panel")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByText("Model"));
-
-    const panel = await screen.findByTestId("composer-plus-panel");
-    expect(panel.querySelector("img")).not.toBeNull();
-    const menu = document.querySelector("[class*='plusFlyoutMenu']");
-    if (menu && menu.getBoundingClientRect().height > 0) {
-      expect(Number.parseFloat(getComputedStyle(panel).maxHeight)).toBe(
-        Math.round(menu.getBoundingClientRect().height),
-      );
-    }
+    const trigger = screen.getByTestId("composer-model");
+    expect(trigger).toHaveTextContent("Compact Model");
+    expect(trigger).toHaveAccessibleName("Model: Compact Model");
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByText("Auto"));
+    expect(baseProps.onModelChange).toHaveBeenCalledWith(null);
     expect(document.querySelector(".ant-drawer-content")).toBeNull();
-    expect(document.querySelector(".ant-popover")).toBeInTheDocument();
-    expect(screen.getByText("Model")).toBeInTheDocument();
   });
 
-  it("keeps mobile shortcuts reachable while mode and model stay in compact overflow", async () => {
+  it("keeps mobile model visible while other tools remain reachable in overflow", async () => {
     render(
       <MemoryRouter>
         <ChatInputActionsRow
           {...baseProps}
           isMobile
+          defaultModel="Provider/compact-model"
           slashMenuItems={[shortcut]}
         />
       </MemoryRouter>,
     );
-    expect(screen.queryByTestId("composer-model")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("chatWelcome.newChat")).toBeInTheDocument();
+    expect(screen.getByTestId("composer-model")).toHaveTextContent(
+      "Auto · Compact Model",
+    );
+    expect(
+      screen.queryByLabelText("chatWelcome.newChat"),
+    ).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId("composer-plus"));
+    expect(
+      await screen.findByLabelText("chatWelcome.newChat"),
+    ).toHaveTextContent("chatWelcome.newChat");
+    expect(await screen.findByTestId("hitl-policy-picker")).toBeInTheDocument();
     fireEvent.click(await screen.findByText("快捷指令"));
     expect(await screen.findByTestId("composer-plus-panel")).toHaveTextContent(
       "/list",
     );
     expect(screen.queryByText("Model")).not.toBeInTheDocument();
+  });
+
+  it("starts a new compact chat from the more tools menu even without resource pickers", async () => {
+    render(
+      <MemoryRouter>
+        <ChatInputActionsRow
+          {...baseProps}
+          isMobile
+          availableModels={[]}
+          onConversationModeChange={undefined}
+          onHitlPolicyChange={undefined}
+        />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByTestId("composer-plus"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "chatWelcome.newChat" }),
+    );
+    expect(baseProps.onNewChat).toHaveBeenCalledOnce();
+  });
+
+  it("updates the visible model after selection changes and resolves the automatic default", () => {
+    const view = render(
+      <MemoryRouter>
+        <ChatInputActionsRow
+          {...baseProps}
+          defaultModel="Provider/compact-model"
+        />
+      </MemoryRouter>,
+    );
+    const trigger = () => screen.getByTestId("composer-model");
+    expect(trigger()).toHaveTextContent("Auto · Compact Model");
+    expect(trigger()).toHaveAttribute(
+      "title",
+      "Auto: Use agent default · Provider / Compact Model",
+    );
+    view.rerender(
+      <MemoryRouter>
+        <ChatInputActionsRow
+          {...baseProps}
+          selectedModel="Other/very-long-model-name"
+        />
+      </MemoryRouter>,
+    );
+    expect(trigger()).toHaveTextContent("very-long-model-name");
+    expect(trigger()).toHaveAttribute("title", "Other/very-long-model-name");
+    view.rerender(
+      <MemoryRouter>
+        <ChatInputActionsRow {...baseProps} defaultModel="compact-model" />
+      </MemoryRouter>,
+    );
+    expect(trigger()).toHaveTextContent("Auto · Compact Model");
+    view.rerender(
+      <MemoryRouter>
+        <ChatInputActionsRow {...baseProps} defaultModel="unknown-model" />
+      </MemoryRouter>,
+    );
+    expect(trigger()).toHaveTextContent(/^Auto$/);
   });
 });

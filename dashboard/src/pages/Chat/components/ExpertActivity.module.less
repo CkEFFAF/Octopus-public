@@ -1,20 +1,26 @@
 .activity {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
-  align-self: center;
-  flex: none;
-  max-width: 960px;
-  width: 100%;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 240px;
+  margin-left: auto;
+  > :first-child {
+    flex-shrink: 0;
+  }
 }
 .copy {
   display: flex;
   align-items: baseline;
-  gap: 9px;
+  gap: 6px;
   min-width: 0;
   font-size: 12px;
   color: var(--fn-text-tertiary);
+  white-space: nowrap;
+  > span {
+    flex-shrink: 0;
+  }
 }
 .copy strong {
   font-weight: 500;
@@ -22,10 +28,29 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 180px;
+  max-width: 140px;
+}
+@container chat-main (max-width: 560px) {
+  .activity {
+    max-width: 112px;
+  }
+  .copy {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    font-size: 10px;
+    line-height: 1.25;
+  }
+  .copy strong {
+    max-width: 64px;
+  }
 }
 @media (max-width: 767px) {
   .activity {
-    padding: 2px 12px;
+    max-width: 92px;
+    gap: 4px;
+  }
+  .copy strong {
+    max-width: 56px;
   }
 }
