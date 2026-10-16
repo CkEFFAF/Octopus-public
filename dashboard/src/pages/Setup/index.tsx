@@ -27,6 +27,7 @@ import {
   STEP_FINISH,
 } from "./wizardClient";
 import styles from "./setup.module.less";
+import IcpFilingFooter from "../../components/IcpFilingFooter";
 
 const { Text } = Typography;
 
@@ -335,6 +336,7 @@ export default function SetupPage() {
           )}
         </div>
       </div>
+      <IcpFilingFooter />
     </div>
   );
 }

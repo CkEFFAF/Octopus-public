@@ -28,6 +28,7 @@ import {
 import { ensureLocaleBundle, refreshServerLabels } from "../../i18n";
 import { useTheme } from "../../context/ThemeContext";
 import styles from "./invite.module.less";
+import IcpFilingFooter from "../../components/IcpFilingFooter";
 
 const { Text, Title } = Typography;
 
@@ -333,6 +334,7 @@ export default function InvitePage() {
           ) : null}
         </div>
       </div>
+      <IcpFilingFooter />
     </div>
   );
 }
