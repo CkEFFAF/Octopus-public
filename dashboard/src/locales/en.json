@@ -698,7 +698,8 @@
     "groupNameRequired": "Enter a group name",
     "saveFailed": "Could not save the navigation layout",
     "dragToReorder": "Drag to reorder",
-    "chatHistory": "Session list"
+    "chatHistory": "Session list",
+    "contextInsights": "Context Insights"
   },
   "skillPackages": {
     "title": "Skill Packages",
@@ -1723,7 +1724,20 @@
       "pickRequest": "Pick a request above to inspect",
       "requestDetail": "Request detail",
       "techFields": "Technical fields",
-      "copy": "Copy"
+      "copy": "Copy",
+      "toolCalls": "Tool Calls",
+      "cost": "Cost",
+      "tokenDonut": "Token Stats",
+      "tokenTotal": "Total",
+      "timingDonut": "Timing Stats",
+      "timingTtft": "TTFT",
+      "timingThinking": "Thinking",
+      "timingTools": "Tools",
+      "timingGap": "No timing fields yet",
+      "activeTime": "Active",
+      "expand": "Expand",
+      "expandedHint": "Context is open in the full-width drawer",
+      "openInsights": "Open Insights"
     },
     "openPlanFile": "Plan file",
     "workMode": {
@@ -7281,5 +7295,34 @@
       "offline": "Offline",
       "resting": "Resting"
     }
+  },
+  "contextInsights": {
+    "title": "Context Insights",
+    "subtitle": "Cross-session context KPIs and searchable sessions (separate from Token Usage)",
+    "balance": "Balance",
+    "windows": {
+      "last_24h": "Last 24 hours",
+      "last_7d": "Last 7 days",
+      "last_30d": "Last 30 days",
+      "all": "All"
+    },
+    "kpi": {
+      "activeSessions": "Active Sessions",
+      "tokens": "Tokens",
+      "turnsSub": "{{count}} turns",
+      "cost": "Cost",
+      "costGap": "No pricing SoT",
+      "cache": "Cache Hit",
+      "toolCalls": "Tool Calls",
+      "activeTime": "Active Time",
+      "p1Gap": "P1"
+    },
+    "byDay": "Tokens by day (window)",
+    "byDayNote": "Cost bars not fabricated; wait for pricing SoT",
+    "sessions": "Sessions",
+    "search": "Search session title / ID",
+    "sessionTurns": "{{count}} turns",
+    "empty": "No session usage in this window",
+    "gapsNote": "Honest gaps"
   }
 }

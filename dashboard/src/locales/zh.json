@@ -698,7 +698,8 @@
     "groupNameRequired": "请填写分组名称",
     "saveFailed": "没能保存导航布局",
     "dragToReorder": "拖动排序",
-    "chatHistory": "会话列表"
+    "chatHistory": "会话列表",
+    "contextInsights": "上下文洞察"
   },
   "skillPackages": {
     "title": "技能包",
@@ -1723,7 +1724,20 @@
       "pickRequest": "点上方列表查看请求详情",
       "requestDetail": "请求详情",
       "techFields": "技术字段",
-      "copy": "复制"
+      "copy": "复制",
+      "toolCalls": "Tool Calls",
+      "cost": "Cost",
+      "tokenDonut": "Token Stats",
+      "tokenTotal": "Total",
+      "timingDonut": "Timing Stats",
+      "timingTtft": "TTFT",
+      "timingThinking": "Thinking",
+      "timingTools": "Tools",
+      "timingGap": "暂无 timing 字段",
+      "activeTime": "Active",
+      "expand": "全宽展开",
+      "expandedHint": "Context 已在全宽抽屉中打开",
+      "openInsights": "打开洞察"
     },
     "openPlanFile": "计划文件",
     "workMode": {
@@ -7281,5 +7295,34 @@
       "offline": "设备离线",
       "resting": "休息"
     }
+  },
+  "contextInsights": {
+    "title": "上下文洞察",
+    "subtitle": "跨会话 Context KPI 与 Sessions 总览（与 Token 统计口径分离）",
+    "balance": "余额",
+    "windows": {
+      "last_24h": "近 24 小时",
+      "last_7d": "近 7 天",
+      "last_30d": "近 30 天",
+      "all": "全部"
+    },
+    "kpi": {
+      "activeSessions": "活跃会话",
+      "tokens": "Tokens",
+      "turnsSub": "{{count}} turns",
+      "cost": "Cost",
+      "costGap": "无定价 SoT",
+      "cache": "Cache Hit",
+      "toolCalls": "Tool Calls",
+      "activeTime": "Active Time",
+      "p1Gap": "P1"
+    },
+    "byDay": "近窗口 Tokens（按日）",
+    "byDayNote": "Cost 柱不伪造；有定价 SoT 后再加",
+    "sessions": "Sessions",
+    "search": "搜索会话标题 / ID",
+    "sessionTurns": "{{count}} turns",
+    "empty": "窗口内暂无会话用量",
+    "gapsNote": "诚实缺口"
   }
 }
