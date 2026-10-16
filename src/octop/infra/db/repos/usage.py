@@ -79,7 +79,7 @@ def resolve_usage_window(
     """Map a window alias to ``[start, end)`` unix seconds in *timezone*.
 
     Supported:
-      today | yesterday | last_7d | last_30d | all
+      today | yesterday | last_24h | last_7d | last_30d | all
       day:YYYY-MM-DD | month:YYYY-MM
       range:YYYY-MM-DD:YYYY-MM-DD  (inclusive calendar days)
     """
@@ -126,6 +126,8 @@ def resolve_usage_window(
         today_start = now_dt.replace(hour=0, minute=0, second=0, microsecond=0)
         start_dt = today_start - timedelta(days=1)
         return int(start_dt.timestamp()), int(today_start.timestamp())
+    if window == "last_24h":
+        return now_ts_val - _DAY_S, end_open
     if window == "last_7d":
         return now_ts_val - 7 * _DAY_S, end_open
     if window == "last_30d":
@@ -442,6 +444,82 @@ class UsageRepo:
                 [*params, cap],
             ).fetchall()
         return [UsageRow.from_row(r) for r in rows]
+
+    def thread_rollup(
+        self,
+        *,
+        user_id: int | None = None,
+        agent_id: str | None = None,
+        window: str = "last_30d",
+        timezone: str = "UTC",
+        limit: int = 100,
+    ) -> list[dict[str, object]]:
+        """Per-thread token roll-up inside *window* (Face B Sessions list)."""
+        where_sql, params, _start, _end = self._scope_filter(
+            user_id=user_id,
+            agent_id=agent_id,
+            window=window,
+            timezone=timezone,
+        )
+        where_sql = f"{where_sql} AND thread_id != ''"
+        cap = max(1, min(int(limit), 500))
+        with self._db.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    agent_id,
+                    thread_id,
+                    COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+                    COALESCE(SUM(output_tokens), 0) AS output_tokens,
+                    COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                    COALESCE(SUM(model_calls), 0) AS model_calls,
+                    COUNT(*) AS turns,
+                    MAX(ts) AS last_ts
+                FROM usage_log
+                WHERE {where_sql}
+                GROUP BY agent_id, thread_id
+                ORDER BY last_ts DESC
+                LIMIT ?
+                """,
+                [*params, cap],
+            ).fetchall()
+        return [
+            {
+                "agent_id": str(r["agent_id"]),
+                "thread_id": str(r["thread_id"]),
+                "input_tokens": int(r["input_tokens"] or 0),
+                "cache_read_tokens": int(r["cache_read_tokens"] or 0),
+                "output_tokens": int(r["output_tokens"] or 0),
+                "total_tokens": int(r["total_tokens"] or 0),
+                "model_calls": int(r["model_calls"] or 0),
+                "turns": int(r["turns"] or 0),
+                "last_ts": int(r["last_ts"] or 0),
+            }
+            for r in rows
+        ]
+
+    def count_active_threads(
+        self,
+        *,
+        user_id: int | None = None,
+        window: str = "last_30d",
+        timezone: str = "UTC",
+    ) -> int:
+        """Distinct non-empty thread_id rows in *window* (Active Sessions KPI)."""
+        where_sql, params, _start, _end = self._scope_filter(
+            user_id=user_id,
+            agent_id=None,
+            window=window,
+            timezone=timezone,
+        )
+        where_sql = f"{where_sql} AND thread_id != ''"
+        with self._db.connect() as conn:
+            row = conn.execute(
+                f"SELECT COUNT(DISTINCT thread_id) AS n FROM usage_log WHERE {where_sql}",
+                params,
+            ).fetchone()
+        return int(row["n"] if row is not None else 0)
 
     def thread_totals(self, *, agent_id: str, thread_id: str) -> dict[str, int]:
         """Aggregate token usage for a single thread."""

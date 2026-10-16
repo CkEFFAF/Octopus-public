@@ -217,6 +217,36 @@ class ThreadRepo:
             ).fetchall()
         return map_rows(rows, ThreadRow)
 
+    def count_by_user(self, *, user_id: int) -> int:
+        """Total owned threads (Face B Sessions denominator)."""
+        with self._db.connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM threads WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        return int(row["n"] if row is not None else 0)
+
+    def get_many(self, thread_ids: list[str]) -> dict[str, ThreadRow]:
+        """Batch-load threads by id (titles for Insights Sessions list)."""
+        ids = [tid for tid in thread_ids if tid]
+        if not ids:
+            return {}
+        out: dict[str, ThreadRow] = {}
+        # Chunk to keep parameter lists bounded.
+        chunk = 200
+        with self._db.connect() as conn:
+            for i in range(0, len(ids), chunk):
+                part = ids[i : i + chunk]
+                placeholders = ",".join("?" for _ in part)
+                rows = conn.execute(
+                    f"SELECT * FROM threads WHERE thread_id IN ({placeholders})",
+                    part,
+                ).fetchall()
+                for r in rows:
+                    row = ThreadRow.from_row(r)
+                    out[row.thread_id] = row
+        return out
+
     def list_by_session(self, *, session_key: str, limit: int = 50) -> list[ThreadRow]:
         with self._db.connect() as conn:
             rows = conn.execute(

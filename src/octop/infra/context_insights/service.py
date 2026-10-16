@@ -45,10 +45,16 @@ class ContextInsightsService:
             out["stats"] = {
                 "turns": metrics.turns,
                 "steps": metrics.steps,
+                "tool_calls": metrics.tool_calls,
                 "input_tokens": metrics.input_tokens,
                 "output_tokens": metrics.output_tokens,
                 "cache_hit_ratio": metrics.cache_hit_ratio,
                 "llm_duration_ms": metrics.llm_duration_ms,
+                "tool_duration_ms": metrics.tool_duration_ms,
+                "ttft_avg_ms": metrics.ttft_avg_ms,
+                # No pricing SoT — callers must show "—" (DEC-I05).
+                "cost": None,
+                "gaps": ["cost_no_pricing_sot"],
             }
             if "breakdown" in wanted:
                 out["stats"]["used_tokens"] = breakdown["used_tokens"]
@@ -181,6 +187,144 @@ class ContextInsightsService:
         ordered = sorted(files.values(), key=lambda r: r["path"])[:size]
         truncated = len(files) > size
         return {"files": ordered, "truncated": truncated, "gaps": sorted(set(gaps))}
+
+    async def dashboard_summary(
+        self,
+        *,
+        owner: int,
+        window: str = "last_30d",
+        query: str = "",
+        limit: int = 50,
+        timezone: str = "UTC",
+    ) -> dict[str, Any]:
+        """Cross-session Insights skeleton (Face B / DEC-I02 / OQ-I10).
+
+        KPI card slots + searchable Sessions list. Cost / balance / tool_calls /
+        active_time stay honest gaps (``—`` / ``gaps``) until pricing SoT lands.
+        """
+        usage_repo = getattr(self._repos, "usage_repo", None)
+        thread_repo = getattr(self._repos, "thread_repo", None)
+        gaps: list[str] = [
+            "cost_no_pricing_sot",
+            "balance_no_provider_sot",
+            "tool_calls_cross_session_p1",
+            "active_time_cross_session_p1",
+        ]
+        if usage_repo is None:
+            return {
+                "window": window,
+                "kpi": {
+                    "active_sessions": 0,
+                    "total_sessions": 0,
+                    "total_tokens": 0,
+                    "turns": 0,
+                    "cache_hit_percent": None,
+                    "cost": None,
+                    "tool_calls": None,
+                    "active_time_ms": None,
+                    "balance": None,
+                },
+                "by_day": [],
+                "sessions": [],
+                "gaps": gaps + ["usage_repo_missing"],
+            }
+
+        summary = usage_repo.summary(
+            user_id=owner,
+            window=window,
+            granularity="by_day",
+            timezone=timezone,
+        )
+        rollup = usage_repo.thread_rollup(
+            user_id=owner,
+            window=window,
+            timezone=timezone,
+            limit=max(1, min(int(limit), 200)),
+        )
+        active = usage_repo.count_active_threads(user_id=owner, window=window, timezone=timezone)
+        total_sessions = 0
+        titles: dict[str, Any] = {}
+        if thread_repo is not None:
+            try:
+                total_sessions = int(thread_repo.count_by_user(user_id=owner))
+            except Exception:
+                total_sessions = active
+            try:
+                titles = thread_repo.get_many([str(r["thread_id"]) for r in rollup])
+            except Exception:
+                titles = {}
+        else:
+            total_sessions = active
+            gaps.append("thread_repo_missing")
+
+        q = (query or "").strip().lower()
+        sessions: list[dict[str, Any]] = []
+        for row in rollup:
+            thread_id = str(row["thread_id"])
+            meta = titles.get(thread_id) if isinstance(titles, dict) else None
+            title = None
+            agent_id = str(row["agent_id"])
+            last_active = int(row.get("last_ts") or 0)
+            if meta is not None:
+                title = getattr(meta, "title", None)
+                agent_id = getattr(meta, "agent_id", None) or agent_id
+                last_active = int(getattr(meta, "last_active", 0) or last_active)
+            hay = f"{title or ''} {thread_id} {agent_id}".lower()
+            if q and q not in hay:
+                continue
+            cache_read = int(row.get("cache_read_tokens") or 0)
+            input_tokens = int(row.get("input_tokens") or 0)
+            cache_hit = round(cache_read / input_tokens * 100, 2) if input_tokens else None
+            sessions.append(
+                {
+                    "thread_id": thread_id,
+                    "agent_id": agent_id,
+                    "title": title or thread_id,
+                    "total_tokens": int(row.get("total_tokens") or 0),
+                    "input_tokens": input_tokens,
+                    "output_tokens": int(row.get("output_tokens") or 0),
+                    "turns": int(row.get("turns") or 0),
+                    "model_calls": int(row.get("model_calls") or 0),
+                    "cache_hit_percent": cache_hit,
+                    "last_active": last_active,
+                    # Honest: no pricing SoT
+                    "cost": None,
+                    "steps": None,
+                }
+            )
+
+        by_day = [
+            {
+                "key": b["key"],
+                "label": b["label"],
+                "total_tokens": int(b.get("total_tokens") or 0),
+                "turns": int(b.get("turns") or 0),
+                # cost column deliberately omitted / null
+                "cost": None,
+            }
+            for b in (summary.get("buckets") or [])
+        ]
+
+        return {
+            "window": window,
+            "range_start": summary.get("range_start"),
+            "range_end": summary.get("range_end"),
+            "kpi": {
+                "active_sessions": active,
+                "total_sessions": total_sessions,
+                "total_tokens": int(summary.get("total_tokens") or 0),
+                "turns": int(summary.get("turns") or 0),
+                "cache_hit_percent": summary.get("cache_hit_percent"),
+                "model_calls": int(summary.get("model_calls") or 0),
+                "cost": None,
+                "tool_calls": None,
+                "active_time_ms": None,
+                "balance": None,
+            },
+            "by_day": by_day,
+            "sessions": sessions,
+            "gaps": gaps,
+        }
 
     async def _breakdown(self, agent_id: str, thread_id: str) -> dict[str, Any]:
         max_tokens = 128_000
