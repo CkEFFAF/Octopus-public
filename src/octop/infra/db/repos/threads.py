@@ -228,6 +228,60 @@ class ThreadRepo:
             ).fetchall()
         return map_rows(rows, ThreadRow)
 
+    def search_owned(
+        self,
+        *,
+        user_id: int,
+        query: str = "",
+        agent_id: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[ThreadRow], bool]:
+        """Literal title / ready projected user-assistant text search, owner-scoped in SQL."""
+        if len(query) > 200:
+            raise ValueError("query is too long")
+        pattern = "%" + query.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%"
+        if self._db.dialect == "postgresql":
+            content = "COALESCE(m.message_json::jsonb->'data'->'content', m.message_json::jsonb->'content')"
+            text_match = (
+                f"(jsonb_typeof({content})='string' AND {content}#>>'{{}}' LIKE ? ESCAPE '!') "
+                f"OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof({content})="
+                f"'array' THEN {content} ELSE '[]'::jsonb END) b "
+                "WHERE b->>'type'='text' AND b->>'text' LIKE ? ESCAPE '!')"
+            )
+        else:
+            content = "COALESCE(json_extract(m.message_json,'$.data.content'), json_extract(m.message_json,'$.content'))"
+            kind = "COALESCE(json_type(m.message_json,'$.data.content'), json_type(m.message_json,'$.content'))"
+            text_match = (
+                f"({kind}='text' AND {content} LIKE ? ESCAPE '!') "
+                f"OR EXISTS (SELECT 1 FROM json_each(CASE WHEN {kind}='array' THEN {content} ELSE '[]' END) b "
+                "WHERE json_extract(CASE WHEN b.type='object' THEN b.value ELSE '{}' END,'$.type')='text' "
+                "AND json_extract(CASE WHEN b.type='object' THEN b.value ELSE '{}' END,'$.text') LIKE ? ESCAPE '!')"
+            )
+        where = "t.user_id=? AND (a.user_id=? OR (a.is_shared=1 AND a.enabled=1))"
+        params: list[object] = [user_id, user_id]
+        if agent_id is not None:
+            where += " AND t.agent_id=?"
+            params.append(agent_id)
+        if query:
+            where += (
+                " AND (t.title LIKE ? ESCAPE '!' OR EXISTS (SELECT 1 FROM thread_messages m "
+                "JOIN thread_history_projection p ON p.thread_id=m.thread_id AND p.status='ready' "
+                "WHERE m.thread_id=t.thread_id AND m.role IN ('human','ai','user','assistant') "
+                f"AND ({text_match})))"
+            )
+            params.extend([pattern, pattern, pattern])
+        limit, offset = max(1, min(limit, 50)), max(0, offset)
+        params.extend([limit + 1, offset])
+        with self._db.connect() as conn:
+            rows = conn.execute(
+                "SELECT t.* FROM threads t JOIN agents a ON a.agent_id=t.agent_id WHERE "
+                + where
+                + " ORDER BY t.last_active DESC,t.created_at DESC,t.thread_id DESC LIMIT ? OFFSET ?",
+                tuple(params),
+            ).fetchall()
+        return map_rows(rows[:limit], ThreadRow), len(rows) > limit
+
     def set_title_if_null(self, thread_id: str, title: str) -> None:
         with self._db.transaction() as conn:
             conn.execute(

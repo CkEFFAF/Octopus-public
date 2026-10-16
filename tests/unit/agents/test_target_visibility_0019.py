@@ -317,15 +317,52 @@ def test_agent_list_item_patch_surfaces_metadata() -> None:
     entry = SimpleNamespace(
         agent_id="ABCDEF123456",
         metadata={
+            "octop_owner_user_id": 1,
             "description": "helper",
             "default_target": {"target_kind": "device", "device_id": "d1", "device_name": "GPU"},
             "model_ref": "m/ref",
         },
     )
     team = SimpleNamespace(peer_display_name=lambda e: "Alpha")
-    item = team_tools._agent_list_item(team, entry, "en")
+    token = var_child_runnable_config.set({"configurable": {"user": "1"}})
+    try:
+        item = team_tools._agent_list_item(team, entry, "en")
+    finally:
+        var_child_runnable_config.reset(token)
     assert item["default_target"]["device_id"] == "d1"
     assert item["model_ref"] == "m/ref"
+
+
+@pytest.mark.parametrize(
+    "target", [{}, {"target_kind": "device"}, {"target_kind": "local", "device_id": "conflicting"}]
+)
+def test_explicit_target_rejects_incomplete_or_conflicting_intent(target: dict[str, Any]) -> None:
+    from octop.infra.errors import OctopError
+
+    snapshot = {"owner": 1, "configurable": {"octop_device_target": {"device_id": "parent"}}}
+    with pytest.raises(OctopError, match="explicit dispatch requires"):
+        apply_target_policy(snapshot, policy="explicit", explicit=target)
+    assert snapshot["configurable"]["octop_device_target"]["device_id"] == "parent"
+
+
+async def test_explicit_ask_does_not_dispatch_without_target() -> None:
+    from unittest.mock import MagicMock
+
+    from octop.infra.errors import OctopError
+
+    install_harness_target_patches()
+    from octop_harness.teams import tools as team_tools
+
+    team = SimpleNamespace(enabled=True, submit_peer=MagicMock(), resolve_peer=MagicMock())
+    ask = next(
+        tool
+        for tool in team_tools.build_team_tools(team, peer_invoke_mode="async")
+        if tool.name == "ask_agent"
+    )
+    with pytest.raises(OctopError, match="explicit dispatch requires"):
+        await ask.ainvoke({"expert": "member", "message": "work", "target_policy": "explicit"})
+    team.submit_peer.assert_not_called()
+    team.resolve_peer.assert_not_called()
 
 
 @pytest.mark.asyncio

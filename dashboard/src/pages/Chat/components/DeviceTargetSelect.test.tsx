@@ -13,6 +13,7 @@ import {
 } from "../../../api/modules/devices";
 import DeviceTargetSelect from "./DeviceTargetSelect";
 import { executionApi } from "../../../api/modules/execution";
+import { emitToolEvent } from "../hooks/chatStore";
 import {
   executionScope,
   setExecutionSelection,
@@ -79,6 +80,49 @@ const chooseTarget = async (name: string) => {
 };
 
 describe("DeviceTargetSelect", () => {
+  it("refreshes native next-turn selection and ignores an old thread's delayed response", async () => {
+    const pending = deferred<DeviceExecutionSelection>();
+    vi.mocked(devicesApi.executionSelection)
+      .mockResolvedValueOnce(stored("office"))
+      .mockImplementationOnce(() => pending.promise)
+      .mockResolvedValueOnce(stored("laptop"));
+    const { rerender } = render(
+      <DeviceTargetSelect agentId="native-refresh" threadId="native-first" />,
+    );
+    const firstScope = executionScope("native-refresh", "native-first");
+    const nextScope = executionScope("native-refresh", "native-second");
+    await waitFor(() =>
+      expect(getExecutionSelection(firstScope).deviceId).toBe("office"),
+    );
+    act(() =>
+      emitToolEvent({
+        kind: "toolDone",
+        sessionId: "native-first",
+        toolName: "octop_device_select",
+        toolId: "native-select",
+      }),
+    );
+    await waitFor(() =>
+      expect(devicesApi.executionSelection).toHaveBeenCalledTimes(2),
+    );
+    rerender(
+      <DeviceTargetSelect agentId="native-refresh" threadId="native-second" />,
+    );
+    await waitFor(() =>
+      expect(getExecutionSelection(nextScope).deviceId).toBe("laptop"),
+    );
+    await act(async () => pending.resolve(stored("gpu")));
+    expect(getExecutionSelection(nextScope).deviceId).toBe("laptop");
+    act(() =>
+      emitToolEvent({
+        kind: "toolDone",
+        sessionId: "native-first",
+        toolName: "octop_device_select",
+        toolId: "late-select",
+      }),
+    );
+    expect(devicesApi.executionSelection).toHaveBeenCalledTimes(3);
+  });
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(devicesApi.list).mockResolvedValue({

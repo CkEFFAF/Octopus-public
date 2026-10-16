@@ -32,6 +32,9 @@ def make_manager(tmp_path):
     agent = SimpleNamespace(_memory_runtime=SimpleNamespace(memory=memory))
     registry = AgentManager.__new__(AgentManager)
     registry._active_invocations = {}
+    registry._agent_lifecycle_locks = {}
+    registry._reload_dirty = set()
+    registry._reload_worker_running = {}
     registry._invocation_waiters = {}
     registry._history_backfills = {}
     registry.get_agent = lambda _: agent

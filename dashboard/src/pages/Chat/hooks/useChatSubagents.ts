@@ -3,6 +3,7 @@ import {
   listAgentSubagents,
   type AgentSubagentSummary,
 } from "../../../api/modules/subagents";
+import { onToolEvent, onStreamEvent } from "./chatStore";
 
 /** Installed workspace subagents for the running chat agent (empty if not ready). */
 export function useChatSubagents(
@@ -16,15 +17,33 @@ export function useChatSubagents(
       return;
     }
     let cancelled = false;
-    void listAgentSubagents(agentId)
-      .then((rows) => {
-        if (!cancelled) setSubagents(rows);
-      })
-      .catch(() => {
-        if (!cancelled) setSubagents([]);
-      });
+    let version = 0;
+    const load = () => {
+      const requestVersion = ++version;
+      void listAgentSubagents(agentId)
+        .then((rows) => {
+          if (!cancelled && requestVersion === version) setSubagents(rows);
+        })
+        .catch(() => {
+          if (!cancelled && requestVersion === version) setSubagents([]);
+        });
+    };
+    load();
+    const offTool = onToolEvent((event) => {
+      if (
+        event.kind === "toolDone" &&
+        /^octop_subagent_(save|install)$/.test(event.toolName)
+      )
+        load();
+    });
+    // A native write may defer graph reload until the current turn drains.
+    const offStream = onStreamEvent((event) => {
+      if (event.kind === "streamEnd") load();
+    });
     return () => {
       cancelled = true;
+      offTool();
+      offStream();
     };
   }, [agentId]);
 

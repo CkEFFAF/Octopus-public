@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -24,14 +25,27 @@ class DeviceTargetMiddleware(AgentMiddleware[Any, Any]):
         root_id: str | None,
         *,
         routed_backend: bool = False,
+        shared_text_manager: Any = None,
+        agent_id: str | None = None,
     ) -> None:
         self.service = service
         self.device_id = device_id
         self.root_id = root_id
         self.routed_backend = routed_backend
+        self.shared_text_manager, self.agent_id = shared_text_manager, agent_id
 
     def _prepare(self, request: ModelRequest[Any]) -> ModelRequest[Any]:
         cfg = get_config().get("configurable") or {}
+        if cfg.get("octop_shared_text_scope") is not None:
+            from octop.infra.agents.teams.shared_peers import verify_shared_text_scope
+
+            verify_shared_text_scope(
+                self.shared_text_manager,
+                self.agent_id or "",
+                int(cfg.get("user") or 0),
+                cfg["octop_shared_text_scope"],
+            )
+            return request.override(tools=[])
         selected = cfg.get("octop_device_target")
         selected_id = selected.get("device_id") if isinstance(selected, dict) else None
         context = cfg.get("octop_execution_context")
@@ -125,4 +139,10 @@ class DeviceTargetMiddleware(AgentMiddleware[Any, Any]):
         request: ModelRequest[Any],
         handler: Callable[[ModelRequest[Any]], Awaitable[ModelResponse[Any]]],
     ) -> ModelResponse[Any]:
-        return await handler(self._prepare(request))
+        cfg = get_config().get("configurable") or {}
+        prepared = (
+            await asyncio.to_thread(self._prepare, request)
+            if cfg.get("octop_shared_text_scope") is not None
+            else self._prepare(request)
+        )
+        return await handler(prepared)

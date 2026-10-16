@@ -30,6 +30,7 @@ from octop.api.common.agent import require_agent_owner_row
 from octop.api.common.workspace import require_running_workspace
 from octop.api.deps import current_user, get_server
 from octop.infra.agents.subagents.catalog import SubagentDefinition
+from octop.infra.agents.subagents.service import catalog_content, write_definition
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.utils.locale import (
     Locale,
@@ -45,6 +46,7 @@ router = APIRouter()
 
 class InstallSubagentBody(BaseModel):
     slug: str = Field(..., min_length=1, description="Catalog slug (from frontmatter name)")
+    replace: bool = Field(default=False, description="Explicitly replace an installed definition")
     locale: str | None = Field(
         default=None,
         description="Override the installed language (zh|en). Defaults to the caller's locale.",
@@ -203,16 +205,7 @@ async def install_subagent(
         override=body.locale,
     )
     available = item.summary.available_locales
-    if requested not in available and "en" not in available:
-        # No English fallback available — honor the requested locale
-        # even if the slug has no translation yet, matching the catalog
-        # behavior of returning whatever file is on disk.
-        installed_locale = requested
-    elif requested in available:
-        installed_locale = requested
-    else:
-        installed_locale = "en"
-    content = item.content_for(installed_locale)
+    content, installed_locale = catalog_content(item, requested)
     if installed_locale != requested:
         logger.info(
             "subagent %r: no %s translation available (have %s); installing en",
@@ -228,8 +221,12 @@ async def install_subagent(
         server=server,
         owner_only=True,
     )
-    dest = f"agents/{slug}.md"
-    await workspace.aupload_bytes(dest, content.encode("utf-8"))
+    try:
+        dest = await write_definition(
+            workspace, slug, content, agent_id=agent_id, replace=body.replace
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     assert server.app_runtime is not None
     await server.app_runtime.agent_registry.reload(agent_id)

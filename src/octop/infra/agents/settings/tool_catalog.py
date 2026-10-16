@@ -48,8 +48,36 @@ class BuiltinToolEntry:
     category: str
 
 
+NATIVE_TOOL_NAMES: tuple[str, ...] = (
+    "octop_capabilities",
+    "octop_resource_list",
+    "octop_expert_list",
+    "octop_expert_get",
+    "octop_expert_create",
+    "octop_expert_update",
+    "octop_subagent_catalog",
+    "octop_subagent_list",
+    "octop_subagent_get",
+    "octop_subagent_install",
+    "octop_subagent_save",
+    "octop_project_list",
+    "octop_project_get",
+    "octop_project_create",
+    "octop_project_update",
+    "octop_project_update_members",
+    "octop_thread_list",
+    "octop_thread_search",
+    "octop_thread_create",
+    "octop_thread_read",
+    "octop_thread_status",
+    "octop_thread_rename",
+    "octop_device_select",
+)
+
+
 # Runtime tool names exposed in the tool-settings dialog (MCP excluded).
 BUILTIN_TOOL_CATALOG: tuple[BuiltinToolEntry, ...] = (
+    *(BuiltinToolEntry(name, "orchestration") for name in NATIVE_TOOL_NAMES),
     # filesystem / orchestration (critical ones still listed, disableable=false)
     BuiltinToolEntry("ls", "filesystem"),
     BuiltinToolEntry("read_file", "filesystem"),

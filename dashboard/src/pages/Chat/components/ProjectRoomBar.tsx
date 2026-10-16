@@ -6,6 +6,7 @@ import { AtSign, KanbanSquare, UserPlus, Activity } from "lucide-react";
 import { teamsApi, type TeamRecord } from "../../../api/modules/teams";
 import { useAgent } from "../../../context/AgentContext";
 import { ExpertIcon } from "../../Experts/components/iconForName";
+import { onToolEvent } from "../hooks/chatStore";
 
 export default function ProjectRoomBar({
   teamId,
@@ -21,22 +22,33 @@ export default function ProjectRoomBar({
   const [unavailable, setUnavailable] = useState(false);
   useEffect(() => {
     let mounted = true;
-    const load = () =>
+    let version = 0;
+    const load = () => {
+      const requestVersion = ++version;
       void teamsApi
         .get(teamId)
         .then((value) => {
-          if (mounted) {
+          if (mounted && requestVersion === version) {
             setRoom(value);
             setUnavailable(false);
           }
         })
         .catch(() => {
-          if (mounted) setUnavailable(true);
+          if (mounted && requestVersion === version) setUnavailable(true);
         });
+    };
     load();
+    const offTool = onToolEvent((event) => {
+      if (
+        event.kind === "toolDone" &&
+        event.toolName.startsWith("octop_project_")
+      )
+        load();
+    });
     const timer = window.setInterval(load, 10000);
     return () => {
       mounted = false;
+      offTool();
       window.clearInterval(timer);
     };
   }, [teamId]);
