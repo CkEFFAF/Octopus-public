@@ -744,4 +744,73 @@ def build_native_management_tools(
                 "expert_defaults_unchanged": True,
             }
 
+
+    # --- Context Insights (spec 0020; read-only; shared service) ---
+    from octop.infra.context_insights.service import ContextInsightsService
+
+    insights = ContextInsightsService(manager, repos, execution=execution)
+
+    def _insights_thread(thread_id: str = "") -> tuple[Any, str]:
+        cfg = get_config().get("configurable") or {}
+        tid = (thread_id or "").strip() or str(cfg.get("thread_id") or "").strip()
+        if not tid:
+            raise ValueError("thread_id is required")
+        row = thread(tid)
+        return row, tid
+
+    @operation()
+    async def context_inspect(
+        thread_id: str = "",
+        include: list[str] | None = None,
+        trend_limit: int = 20,
+    ) -> dict[str, Any]:
+        """Read-only context window inspect (stats/breakdown/trend/execution). Spec name: context.inspect."""
+        row, tid = _insights_thread(thread_id)
+        user = identity()
+        return await insights.inspect(
+            owner=user.id,
+            agent_id=row.agent_id,
+            thread_id=tid,
+            include=include,
+            trend_limit=trend_limit,
+        )
+
+    @operation()
+    async def context_events(
+        thread_id: str = "",
+        kinds: list[str] | None = None,
+        before_seq: int | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Read-only mapped context events. Spec name: context.events."""
+        row, tid = _insights_thread(thread_id)
+        user = identity()
+        return await insights.events(
+            owner=user.id,
+            agent_id=row.agent_id,
+            thread_id=tid,
+            kinds=kinds,
+            before_seq=before_seq,
+            limit=limit,
+        )
+
+    @operation()
+    async def context_file_ops(
+        thread_id: str = "",
+        upto_request_seq: int | None = None,
+        path_prefix: str = "",
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Read-only file activity path counts (no file bodies). Spec name: context.file_ops."""
+        row, tid = _insights_thread(thread_id)
+        user = identity()
+        return await insights.file_ops(
+            owner=user.id,
+            agent_id=row.agent_id,
+            thread_id=tid,
+            upto_request_seq=upto_request_seq,
+            path_prefix=path_prefix or None,
+            limit=limit,
+        )
+
     return tools
