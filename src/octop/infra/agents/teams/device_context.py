@@ -123,8 +123,21 @@ class PeerTaskTracker:
         cfg = snapshot.get("configurable") or {}
         if not cfg.get("octop_task_run_id"):
             return
+        event_id = f"dispatch:{job_id}"
+        try:
+            from octop.infra.db.repos.run_events import RunEventRepo
+
+            existing = RunEventRepo(self.devices.repos.db).get(snapshot["owner"], event_id)
+        except Exception:
+            existing = None
+        if (
+            existing is not None
+            and existing.get("status") in {"completed", "failed", "cancelled"}
+            and status == "accepted"
+        ):
+            return
         receipt = {
-            "event_id": f"dispatch:{job_id}",
+            "event_id": event_id,
             "owner_user_id": snapshot["owner"],
             "thread_id": thread_id,
             "run_id": cfg["octop_task_run_id"],

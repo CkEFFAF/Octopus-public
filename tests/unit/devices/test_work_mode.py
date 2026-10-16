@@ -266,3 +266,61 @@ async def test_public_graph_enforces_debug_write_sequence(workflow: Any) -> None
     assert response.status == "error"
     assert "diagnosis" in response.content
     assert service.begin(owner, "expert", config(owner, "debug"))["status"] == "in_progress"
+
+
+def test_bare_operation_id_resolves_as_device_evidence(workflow: Any) -> None:
+    """Models often paste operation_id from device_run; accept operation:{id}."""
+    service, owner, _other = workflow
+    cfg = config(owner, "agentic")
+    service.begin(owner, "expert", cfg)
+    op = "01OPERATIONID00000000000000"
+    receipt(service, owner, f"operation:{op}", kind="device", status="completed")
+    advance(service, owner, cfg, "execute", [op])
+    event = advance(service, owner, cfg, "verify", [f"operation:{op}"])
+    assert event["status"] == "completed"
+
+
+def test_work_step_receipts_omit_work_step_tool_events(workflow: Any) -> None:
+    service, owner, _other = workflow
+    cfg = config(owner, "agentic")
+    service.begin(owner, "expert", cfg)
+    receipt(
+        service,
+        owner,
+        "tool:work-step-call",
+        kind="tool",
+        status="completed",
+        payload={"name": "work_step"},
+    )
+    device = receipt(service, owner, "operation:abc", kind="device", status="completed")
+    from langgraph.config import var_child_runnable_config
+
+    token = var_child_runnable_config.set(
+        {"configurable": {**cfg, "user": owner, "agent_id": "expert", "thread_id": "thread"}}
+    )
+    try:
+        tools = build_work_mode_tools(service, "expert")
+        import json
+
+        payload = json.loads(tools[0].invoke({}))
+    finally:
+        var_child_runnable_config.reset(token)
+    ids = {item["event_id"] for item in payload["receipts"]}
+    assert device in ids
+    assert "tool:work-step-call" not in ids
+
+
+def test_work_step_named_tool_is_still_rejected_as_evidence(workflow: Any) -> None:
+    service, owner, _other = workflow
+    cfg = config(owner, "agentic")
+    service.begin(owner, "expert", cfg)
+    bad = receipt(
+        service,
+        owner,
+        "tool:work-step-call",
+        kind="tool",
+        status="completed",
+        payload={"name": "work_step"},
+    )
+    with pytest.raises(OctopError, match="evidence must belong"):
+        advance(service, owner, cfg, "execute", [bad])
