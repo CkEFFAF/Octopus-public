@@ -8,6 +8,7 @@ const ROUTE_PREFETCHERS: Record<string, () => Promise<unknown>> = {
   "/knowledge-bases": () => import("../pages/KnowledgeBases"),
   "/skills": () => import("../pages/Agent/Personalization"),
   "/token-usage": () => import("../pages/Control/TokenUsage"),
+  "/context-insights": () => import("../pages/Control/ContextInsights"),
   "/channels": () => import("../pages/Agent/Personalization"),
   "/workbench": () => import("../pages/Control/Workbench"),
   "/workbench/browser": () => import("../pages/Control/Workbench"),

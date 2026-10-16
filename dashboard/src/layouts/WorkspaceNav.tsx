@@ -46,7 +46,7 @@ const groups = [
     id: "operations",
     icon: Activity,
     path: "/devices",
-    keys: ["token-usage", "devices", "workbench", "remote-desktop", "acp"],
+    keys: ["token-usage", "context-insights", "devices", "workbench", "remote-desktop", "acp"],
   },
   {
     id: "settings",

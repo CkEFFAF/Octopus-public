@@ -19,6 +19,7 @@ import {
   GraduationCap,
   Shield,
   PanelsTopLeft,
+  PieChart,
 } from "lucide-react";
 import type { OctopUser } from "../api/modules/auth";
 import { navAllowed, userCan } from "../utils/permissions";
@@ -53,6 +54,7 @@ export const SIDEBAR_NAV_KEYS = [
   "experts",
   "tasks",
   "token-usage",
+  "context-insights",
   "personalization",
   "channels",
   "connectors",
@@ -163,6 +165,12 @@ export function buildNavSections(
           path: "/token-usage",
           icon: <Activity size={iconSize} strokeWidth={iconStroke} />,
           labelKey: "nav.tokenUsage",
+        },
+        {
+          key: "context-insights",
+          path: "/context-insights",
+          icon: <PieChart size={iconSize} strokeWidth={iconStroke} />,
+          labelKey: "nav.contextInsights",
         },
       ],
     },
