@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Empty, Input, Segmented, Spin, Tag } from "antd";
-import { RefreshCw } from "lucide-react";
+import { Alert, Button, Empty, Input, Segmented, Select, Spin, Tag } from "antd";
+import { ArrowDownAZ, ArrowUpAZ, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   octopThreadsApi,
@@ -33,6 +33,39 @@ const number = (v: number | null | undefined) =>
 
 type TrendMetric = "total" | "delta";
 type TrendGrain = "step" | "turn";
+type SortKey = "time" | "tokens";
+type SortDir = "asc" | "desc";
+
+function tokenOfEvent(e: TrajectoryEvent): number | null {
+  const delta = e.payload.token_delta;
+  if (typeof delta === "number") return delta;
+  const tokens = e.payload.input_tokens;
+  if (typeof tokens === "number") return tokens;
+  return null;
+}
+
+function compareEvents(
+  a: TrajectoryEvent,
+  b: TrajectoryEvent,
+  key: SortKey,
+  dir: SortDir,
+): number {
+  const timeOf = (e: TrajectoryEvent) => e.seq;
+  if (key === "time") {
+    const d = timeOf(a) - timeOf(b);
+    return dir === "asc" ? d : -d;
+  }
+  const ta = tokenOfEvent(a);
+  const tb = tokenOfEvent(b);
+  if (ta == null && tb == null) {
+    const d = timeOf(a) - timeOf(b);
+    return dir === "asc" ? d : -d;
+  }
+  if (ta == null) return 1;
+  if (tb == null) return -1;
+  const d = ta - tb;
+  return dir === "asc" ? d : -d;
+}
 
 export default function ChatDockContext({
   agentId,
@@ -46,6 +79,7 @@ export default function ChatDockContext({
   const { t } = useTranslation();
   const [focusRequestId, setFocusRequestId] = useState<string>();
   const requestSection = useRef<HTMLDivElement>(null);
+  const eventsBodyRef = useRef<HTMLDivElement>(null);
   const [usage, setUsage] = useState<ContextUsageBreakdown | null>(null);
   const [metrics, setMetrics] = useState<TrajectoryMetrics | null>(null);
   const [events, setEvents] = useState<TrajectoryEvent[]>([]);
@@ -57,6 +91,8 @@ export default function ChatDockContext({
   const [picked, setPicked] = useState<string | null>(null);
   const [trendMetric, setTrendMetric] = useState<TrendMetric>("total");
   const [trendGrain, setTrendGrain] = useState<TrendGrain>("step");
+  const [eventSortKey, setEventSortKey] = useState<SortKey>("time");
+  const [eventSortDir, setEventSortDir] = useState<SortDir>("desc");
   const epoch = useRef(0);
   const inflight = useRef(false);
   const paged = useRef(false);
@@ -173,22 +209,36 @@ export default function ChatDockContext({
     ),
   );
   const selected = events.find((e) => e.event_id === picked);
-  const visible = events.filter((e) => {
-    const mapped = mapTrajectoryKind(e.kind, e.payload);
-    if (filter !== "all" && mapped !== filter && e.kind !== filter) return false;
-    if (
-      selected &&
-      selected.request_seq != null &&
-      e.request_seq !== selected.request_seq
-    )
-      return false;
-    if (
-      search &&
-      !JSON.stringify(e).toLowerCase().includes(search.toLowerCase())
-    )
-      return false;
-    return true;
-  });
+  const visible = useMemo(() => {
+    const filtered = events.filter((e) => {
+      const mapped = mapTrajectoryKind(e.kind, e.payload);
+      if (filter !== "all" && mapped !== filter && e.kind !== filter) return false;
+      if (
+        selected &&
+        selected.request_seq != null &&
+        e.request_seq !== selected.request_seq
+      )
+        return false;
+      if (
+        search &&
+        !JSON.stringify(e).toLowerCase().includes(search.toLowerCase())
+      )
+        return false;
+      return true;
+    });
+    return [...filtered].sort((a, b) =>
+      compareEvents(a, b, eventSortKey, eventSortDir),
+    );
+  }, [events, filter, search, selected, eventSortKey, eventSortDir]);
+
+  useEffect(() => {
+    if (!picked || !eventsBodyRef.current) return;
+    const el = eventsBodyRef.current.querySelector(
+      `[data-event-id="${picked}"]`,
+    );
+    el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [picked, eventSortKey, eventSortDir, visible]);
+
   const pct =
     usage && usage.max_tokens > 0
       ? Math.min(100, (usage.used_tokens / usage.max_tokens) * 100)
@@ -198,10 +248,9 @@ export default function ChatDockContext({
 
   const pickTrend = (event: TrajectoryEvent) => {
     setPicked(picked === event.event_id ? null : event.event_id);
-    if (event.request_seq != null) {
-      // Link Trend → Browser: focus matching request when id is available later via receipt.
-    }
   };
+
+  const SortIcon = eventSortDir === "asc" ? ArrowUpAZ : ArrowDownAZ;
 
   if (!threadId)
     return <Empty description={t("chat.contextInspect.noThread")} />;
@@ -398,7 +447,39 @@ export default function ChatDockContext({
             <p>{t("chat.contextInspect.retained")}</p>
           </section>
           <section>
-            <h3>{t("chat.contextInspect.events")}</h3>
+            <div className={styles.cardHead}>
+              <h3>{t("chat.contextInspect.events")}</h3>
+              <div className={styles.sortControls}>
+                <Select
+                  size="small"
+                  value={eventSortKey}
+                  aria-label={t("chat.contextInspect.sortBy")}
+                  onChange={(v) => setEventSortKey(v as SortKey)}
+                  options={[
+                    {
+                      value: "time",
+                      label: t("chat.contextInspect.sortTime"),
+                    },
+                    {
+                      value: "tokens",
+                      label: t("chat.contextInspect.sortTokens"),
+                    },
+                  ]}
+                />
+                <Button
+                  size="small"
+                  icon={<SortIcon size={14} />}
+                  aria-label={
+                    eventSortDir === "asc"
+                      ? t("chat.contextInspect.sortAsc")
+                      : t("chat.contextInspect.sortDesc")
+                  }
+                  onClick={() =>
+                    setEventSortDir((d) => (d === "asc" ? "desc" : "asc"))
+                  }
+                />
+              </div>
+            </div>
             <div className={styles.controls}>
               <Segmented
                 size="small"
@@ -421,19 +502,24 @@ export default function ChatDockContext({
                 </Button>
               )}
             </div>
-            <div className={styles.browser}>
-              {visible.map((e) => (
-                <ContextEvent
-                  key={e.event_id}
-                  event={e}
-                  agentId={agentId}
-                  threadId={threadId}
-                  active={picked === e.event_id}
-                  onPick={() =>
-                    setPicked(picked === e.event_id ? null : e.event_id)
-                  }
-                />
-              ))}
+            <div
+              ref={eventsBodyRef}
+              className={`${styles.sectionBody} ${styles.sectionBodyEvents}`}
+            >
+              <div className={styles.browser}>
+                {visible.map((e) => (
+                  <ContextEvent
+                    key={e.event_id}
+                    event={e}
+                    agentId={agentId}
+                    threadId={threadId}
+                    active={picked === e.event_id}
+                    onPick={() =>
+                      setPicked(picked === e.event_id ? null : e.event_id)
+                    }
+                  />
+                ))}
+              </div>
             </div>
             {!visible.length && (
               <Empty
@@ -472,6 +558,7 @@ function ContextEvent({
   const mapped = mapTrajectoryKind(event.kind, event.payload);
   return (
     <details
+      data-event-id={event.event_id}
       className={`${styles.event} ${active ? styles.eventActive : ""}`}
       onToggle={async (e) => {
         if (e.currentTarget.open) onPick?.();

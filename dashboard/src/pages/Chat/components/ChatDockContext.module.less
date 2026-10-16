@@ -1,45 +1,49 @@
 .panel {
-  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  align-self: stretch;
+  overflow-x: hidden;
+  overflow-y: auto;
   min-width: 0;
   width: 100%;
-  padding: 22px;
+  padding: 12px;
   color: var(--text-primary);
   header {
     display: flex;
     align-items: start;
     justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 20px;
+    gap: 12px;
+    margin-bottom: 12px;
   }
   h2 {
-    font-size: 18px;
-    margin: 0 0 6px;
+    font-size: 16px;
+    margin: 0 0 4px;
   }
   h3 {
-    font-size: 14px;
-    margin: 0 0 14px;
+    font-size: 13px;
+    margin: 0 0 8px;
   }
   p {
     color: var(--text-tertiary);
     font-size: 12px;
-    line-height: 1.6;
-    margin: 8px 0 0;
+    line-height: 1.5;
+    margin: 6px 0 0;
   }
   section {
     border: 1px solid var(--border-primary, #e5e7eb);
-    border-radius: 12px;
-    padding: 18px;
-    margin-top: 14px;
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin-top: 8px;
   }
 }
 .stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
   > div {
     border: 1px solid var(--border-primary, #e5e7eb);
-    padding: 14px;
-    border-radius: 10px;
+    padding: 8px;
+    border-radius: 8px;
   }
   span {
     font-size: 11px;
@@ -47,8 +51,8 @@
   }
   strong {
     display: block;
-    font-size: 22px;
-    margin-top: 8px;
+    font-size: 16px;
+    margin-top: 4px;
     font-variant-numeric: tabular-nums;
   }
 }
@@ -56,22 +60,22 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   strong {
-    font-size: 25px;
+    font-size: 20px;
   }
   small {
     color: var(--text-tertiary);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 400;
   }
   b {
-    font-size: 14px;
+    font-size: 13px;
   }
 }
 .bar {
   display: flex;
-  height: 14px;
+  height: 12px;
   border-radius: 5px;
   overflow: hidden;
   background: var(--bg-secondary, #f2f3f5);
@@ -82,12 +86,12 @@
 .legend {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 20px;
-  margin-top: 16px;
+  gap: 8px 16px;
+  margin-top: 10px;
   > div {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 6px;
     min-width: 0;
     font-size: 11px;
   }
@@ -148,8 +152,8 @@
 .controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 8px;
   overflow: auto;
   > :nth-child(2) {
     max-width: 260px;
@@ -158,15 +162,15 @@
 .browser {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 .requestHeading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin: 10px 0 14px;
+  gap: 8px;
+  margin: 0 0 8px;
   h3 {
     margin: 0;
   }
@@ -175,6 +179,41 @@
     flex: 1;
     max-width: 340px;
   }
+}
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+  flex-wrap: wrap;
+  h3 {
+    margin: 0;
+  }
+}
+.sortControls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  :global(.ant-select) {
+    min-width: 88px;
+    max-width: 120px;
+    flex: none;
+  }
+}
+.sectionBody {
+  overflow-y: auto;
+  min-height: 0;
+}
+.sectionBodyBrowser {
+  max-height: min(280px, 36vh);
+}
+.sectionBodyEvents {
+  max-height: min(240px, 30vh);
+}
+.sectionBodyReceipts {
+  max-height: min(200px, 26vh);
 }
 .componentDot {
   width: 8px;
@@ -191,15 +230,16 @@
     cursor: pointer;
     align-items: center;
     gap: 8px;
-    padding: 11px;
+    padding: 8px;
     font-size: 12px;
+    min-height: 28px;
   }
   summary::before {
-    content: "›";
+    content: "\25B8";
     color: var(--text-tertiary);
   }
   &[open] summary::before {
-    content: "⌄";
+    content: "\25BE";
   }
   span {
     color: var(--text-tertiary);
@@ -219,9 +259,9 @@
   pre {
     font-size: 11px;
     margin: 0;
-    max-height: 420px;
+    max-height: 200px;
     overflow: auto;
-    padding: 14px;
+    padding: 10px;
     background: var(--bg-secondary, #f6f7f8);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -229,10 +269,19 @@
 }
 @media (max-width: 640px) {
   .panel {
-    padding: 14px;
+    padding: 10px;
   }
   .stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sectionBodyBrowser {
+    max-height: min(252px, 32.4vh);
+  }
+  .sectionBodyEvents {
+    max-height: min(216px, 27vh);
+  }
+  .sectionBodyReceipts {
+    max-height: min(180px, 23.4vh);
   }
 }
 .receiptFields {

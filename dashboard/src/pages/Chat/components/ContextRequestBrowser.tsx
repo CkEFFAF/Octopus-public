@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Empty, Input, Select, Spin, Tag } from "antd";
+import { ArrowDownAZ, ArrowUpAZ } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   executionApi,
@@ -24,6 +25,40 @@ const number = (n: number | null | undefined) =>
         maximumFractionDigits: 1,
       }).format(n);
 
+type SortKey = "time" | "tokens";
+type SortDir = "asc" | "desc";
+
+function tokenOfRequest(r: RequestSnapshot): number | null {
+  const actual = r.actual_usage?.input_tokens;
+  if (typeof actual === "number") return actual;
+  return typeof r.estimated_input_tokens === "number"
+    ? r.estimated_input_tokens
+    : null;
+}
+
+function compareRequests(
+  a: RequestSnapshot,
+  b: RequestSnapshot,
+  key: SortKey,
+  dir: SortDir,
+): number {
+  const timeOf = (r: RequestSnapshot) => r.seq;
+  if (key === "time") {
+    const d = timeOf(a) - timeOf(b);
+    return dir === "asc" ? d : -d;
+  }
+  const ta = tokenOfRequest(a);
+  const tb = tokenOfRequest(b);
+  if (ta == null && tb == null) {
+    const d = timeOf(a) - timeOf(b);
+    return dir === "asc" ? d : -d;
+  }
+  if (ta == null) return 1;
+  if (tb == null) return -1;
+  const d = ta - tb;
+  return dir === "asc" ? d : -d;
+}
+
 export default function ContextRequestBrowser({
   agentId,
   threadId,
@@ -47,6 +82,9 @@ export default function ContextRequestBrowser({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("time");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const sectionBodyRef = useRef<HTMLDivElement>(null);
   const epoch = useRef(0);
   const busy = useRef(false);
   const refresh = useCallback(
@@ -65,7 +103,7 @@ export default function ContextRequestBrowser({
               item,
             ]),
           );
-          return [...merged.values()].sort((a, b) => b.seq - a.seq);
+          return [...merged.values()];
         });
         if (older != null || before == null) setBefore(result.next_before);
         setError("");
@@ -113,8 +151,15 @@ export default function ContextRequestBrowser({
     );
     return () => clearInterval(timer);
   }, [refresh, live]);
-  const selectedId = picked ?? requests[0]?.request_id;
-  const selectedSummary = requests.find(
+
+  const sortedRequests = useMemo(
+    () =>
+      [...requests].sort((a, b) => compareRequests(a, b, sortKey, sortDir)),
+    [requests, sortKey, sortDir],
+  );
+
+  const selectedId = picked ?? sortedRequests[0]?.request_id;
+  const selectedSummary = sortedRequests.find(
     (item) => item.request_id === selectedId,
   );
   const selected =
@@ -135,7 +180,10 @@ export default function ContextRequestBrowser({
         }
       : undefined);
   const previousSummary =
-    selectedSummary && requests.find((item) => item.seq < selectedSummary.seq);
+    selectedSummary &&
+    [...requests]
+      .filter((item) => item.seq < selectedSummary.seq)
+      .sort((a, b) => b.seq - a.seq)[0];
   // Selecting a request must not eagerly pull full component detail (S3).
   useEffect(() => {
     setDetail(null);
@@ -183,7 +231,18 @@ export default function ContextRequestBrowser({
       previous?.components.filter((c) => !currentHashes.has(c.sha256)) ?? []
     );
   }, [detail, previous]);
-  const points = [...requests].reverse();
+  // Trend bars always chronological (old -> new) for left-to-right time axis.
+  const points = useMemo(
+    () => [...requests].sort((a, b) => a.seq - b.seq),
+    [requests],
+  );
+  useEffect(() => {
+    if (highlightRequestSeq == null || !sectionBodyRef.current) return;
+    const el = sectionBodyRef.current.querySelector(
+      `[data-request-seq="${highlightRequestSeq}"]`,
+    );
+    el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [highlightRequestSeq, sortKey, sortDir, sortedRequests]);
   const max = Math.max(
     1,
     ...points.map(
@@ -198,10 +257,11 @@ export default function ContextRequestBrowser({
       ? selectedSummary.estimated_input_tokens -
         previousSummary.estimated_input_tokens
       : null;
+  const SortIcon = sortDir === "asc" ? ArrowUpAZ : ArrowDownAZ;
   return (
     <>
       <section>
-        <div className={styles.requestHeading}>
+        <div className={styles.cardHead}>
           <h3>
             {t("chat.contextInspect.requests")}
             {live ? (
@@ -210,9 +270,39 @@ export default function ContextRequestBrowser({
               </Tag>
             ) : null}
           </h3>
-          <Button size="small" loading={loading} onClick={() => void refresh()}>
-            {t("common.refresh")}
-          </Button>
+          <div className={styles.sortControls}>
+            <Select
+              size="small"
+              value={sortKey}
+              aria-label={t("chat.contextInspect.sortBy")}
+              onChange={(v) => setSortKey(v as SortKey)}
+              options={[
+                {
+                  value: "time",
+                  label: t("chat.contextInspect.sortTime"),
+                },
+                {
+                  value: "tokens",
+                  label: t("chat.contextInspect.sortTokens"),
+                },
+              ]}
+            />
+            <Button
+              size="small"
+              icon={<SortIcon size={14} />}
+              aria-label={
+                sortDir === "asc"
+                  ? t("chat.contextInspect.sortAsc")
+                  : t("chat.contextInspect.sortDesc")
+              }
+              onClick={() =>
+                setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+              }
+            />
+            <Button size="small" loading={loading} onClick={() => void refresh()}>
+              {t("common.refresh")}
+            </Button>
+          </div>
         </div>
         {error && <Alert type="error" message={error} />}
         {!requests.length ? (
@@ -225,11 +315,15 @@ export default function ContextRequestBrowser({
             />
           )
         ) : (
-          <>
+          <div
+            ref={sectionBodyRef}
+            className={`${styles.sectionBody} ${styles.sectionBodyBrowser}`}
+          >
             <div className={styles.trend}>
               {points.map((item) => (
                 <button
                   key={item.request_id}
+                  data-request-seq={item.seq}
                   className={
                     selected?.request_id === item.request_id
                       ? styles.selected
@@ -265,7 +359,7 @@ export default function ContextRequestBrowser({
                 value={selectedId}
                 onChange={setPicked}
                 options={[
-                  ...requests,
+                  ...sortedRequests,
                   ...(selected && !selectedSummary ? [selected] : []),
                 ].map((item) => ({
                   value: item.request_id,
@@ -374,7 +468,7 @@ export default function ContextRequestBrowser({
                 {t("chat.contextInspect.older")}
               </Button>
             )}
-          </>
+          </div>
         )}
       </section>
       {selected && (
