@@ -74,34 +74,116 @@ class WorkModeService:
             raise OctopError(ErrorCode.FORBIDDEN, "workflow mode changed within a run")
         return event
 
-    def _lookup_evidence(self, owner: int, run_id: str, identity: str) -> dict[str, Any] | None:
+    _EVIDENCE_KINDS = frozenset(
+        {"tool", "device", "job", "plan", "dispatch", "interaction", "target"}
+    )
+    _FINAL_STATUSES = frozenset({"completed", "failed"})
+    _TARGET_FINAL_STATUSES = frozenset({"completed", "failed", "bound"})
+
+    def _lookup_evidence(
+        self,
+        owner: int,
+        run_id: str,
+        identity: str,
+        *,
+        agent_id: str | None = None,
+        thread_id: str | None = None,
+    ) -> dict[str, Any]:
         """Resolve a receipt id for this run.
 
-        Models often paste the raw ``operation_id`` / tool UUID from a tool
-        return instead of the RunEvent ``event_id`` (``operation:…`` / ``tool:…``).
-        Try those prefixes before rejecting. ``work_step`` itself is never evidence.
+        Models often paste the raw ``operation_id`` / tool UUID / ``call_*`` id
+        instead of the RunEvent ``event_id`` (``operation:…`` / ``tool:…`` /
+        ``context:…``). Try those prefixes, then ``payload.tool_call_id`` /
+        ``payload.call_id``. ``work_step`` and ``kind=model`` are never evidence.
         """
         raw = str(identity or "").strip()
         if not raw:
-            return None
+            raise OctopError(ErrorCode.FORBIDDEN, "evidence id is empty")
         candidates = [raw]
         if ":" not in raw:
             candidates.extend(
                 f"{prefix}:{raw}"
-                for prefix in ("operation", "tool", "dispatch", "job", "interaction", "plan")
+                for prefix in (
+                    "operation",
+                    "tool",
+                    "dispatch",
+                    "job",
+                    "interaction",
+                    "plan",
+                    "context",
+                )
             )
+
+        wrong_run = False
+        disallowed_kind: str | None = None
+        work_step_named = False
         for candidate in candidates:
             item = self.events.get(owner, candidate)
             if item is None:
                 continue
-            if (
-                item["run_id"] != run_id
-                or item["kind"] not in {"tool", "device", "job", "plan", "dispatch", "interaction"}
-                or item["payload"].get("name") == "work_step"
-            ):
+            if item["run_id"] != run_id:
+                wrong_run = True
+                continue
+            if item["payload"].get("name") == "work_step":
+                work_step_named = True
+                continue
+            kind = str(item["kind"])
+            if kind == "model":
+                disallowed_kind = "model"
+                continue
+            if kind not in self._EVIDENCE_KINDS:
+                disallowed_kind = kind
                 continue
             return item
-        return None
+
+        if agent_id and thread_id:
+            for row in self.events.list(owner, agent_id, thread_id, run_id=run_id, limit=100):
+                payload = row.get("payload") or {}
+                if payload.get("tool_call_id") != raw and payload.get("call_id") != raw:
+                    continue
+                if payload.get("name") == "work_step":
+                    raise OctopError(
+                        ErrorCode.FORBIDDEN,
+                        "work_step receipts are not evidence",
+                        details={"evidence_id": raw},
+                    )
+                kind = str(row["kind"])
+                if kind == "model":
+                    raise OctopError(
+                        ErrorCode.FORBIDDEN,
+                        "model receipts are not workflow evidence",
+                        details={"evidence_id": raw},
+                    )
+                if kind not in self._EVIDENCE_KINDS:
+                    raise OctopError(
+                        ErrorCode.FORBIDDEN,
+                        f"evidence kind {kind} is not allowed",
+                        details={"evidence_id": raw, "kind": kind},
+                    )
+                return row
+
+        details = {"evidence_id": raw}
+        if wrong_run:
+            raise OctopError(
+                ErrorCode.FORBIDDEN, "evidence must belong to this run", details=details
+            )
+        if work_step_named:
+            raise OctopError(
+                ErrorCode.FORBIDDEN, "work_step receipts are not evidence", details=details
+            )
+        if disallowed_kind == "model":
+            raise OctopError(
+                ErrorCode.FORBIDDEN,
+                "model receipts are not workflow evidence",
+                details=details,
+            )
+        if disallowed_kind is not None:
+            raise OctopError(
+                ErrorCode.FORBIDDEN,
+                f"evidence kind {disallowed_kind} is not allowed",
+                details={**details, "kind": disallowed_kind},
+            )
+        raise OctopError(ErrorCode.FORBIDDEN, "evidence not found in this run", details=details)
 
     def step(
         self,
@@ -135,11 +217,26 @@ class WorkModeService:
             raise OctopError(ErrorCode.FORBIDDEN, "provide a bounded workflow report and evidence")
         evidence = []
         for identity in dict.fromkeys(evidence_ids):
-            item = self._lookup_evidence(owner, event["run_id"], identity)
-            if item is None:
-                raise OctopError(ErrorCode.FORBIDDEN, "evidence must belong to this run")
-            if item["status"] not in {"completed", "failed"}:
-                raise OctopError(ErrorCode.FORBIDDEN, "evidence has no final receipt")
+            item = self._lookup_evidence(
+                owner,
+                event["run_id"],
+                identity,
+                agent_id=agent_id,
+                thread_id=str(cfg.get("thread_id") or ""),
+            )
+            finals = (
+                self._TARGET_FINAL_STATUSES if item["kind"] == "target" else self._FINAL_STATUSES
+            )
+            if item["status"] not in finals:
+                raise OctopError(
+                    ErrorCode.FORBIDDEN,
+                    "evidence has no final receipt",
+                    details={
+                        "evidence_id": identity,
+                        "status": item["status"],
+                        "kind": item["kind"],
+                    },
+                )
             evidence.append(item)
         payload = deepcopy(previous)
         entry = payload["stages"][index]
@@ -301,21 +398,35 @@ def build_work_mode_tools(service: WorkModeService, agent_id: str) -> list[Any]:
         """
         cfg = get_config().get("configurable") or {}
         owner = int(cfg.get("user") or 0)
-        event = (
-            service.step(
-                owner,
-                agent_id,
-                cfg,
-                stage=stage,
-                version=version,
-                status=status,
-                report=report,
-                evidence_ids=evidence_ids or [],
-                decision=decision,
+        ids = evidence_ids or []
+        try:
+            event = (
+                service.step(
+                    owner,
+                    agent_id,
+                    cfg,
+                    stage=stage,
+                    version=version,
+                    status=status,
+                    report=report,
+                    evidence_ids=ids,
+                    decision=decision,
+                )
+                if stage
+                else service.begin(owner, agent_id, cfg)
             )
-            if stage
-            else service.begin(owner, agent_id, cfg)
-        )
+        except OctopError as exc:
+            return json.dumps(
+                {
+                    "ok": False,
+                    "error": exc.message,
+                    "code": exc.code.value,
+                    "bad_evidence_id": (exc.details or {}).get("evidence_id"),
+                    "bad_evidence_ids": list(dict.fromkeys(ids)),
+                    "details": exc.details,
+                },
+                ensure_ascii=False,
+            )
         receipts = service.events.list(
             owner, agent_id, str(cfg["thread_id"]), run_id=str(cfg["octop_task_run_id"]), limit=100
         )

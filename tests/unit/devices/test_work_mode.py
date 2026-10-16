@@ -322,5 +322,91 @@ def test_work_step_named_tool_is_still_rejected_as_evidence(workflow: Any) -> No
         status="completed",
         payload={"name": "work_step"},
     )
-    with pytest.raises(OctopError, match="evidence must belong"):
+    with pytest.raises(OctopError, match="work_step receipts are not evidence"):
         advance(service, owner, cfg, "execute", [bad])
+
+
+def test_target_bound_context_evidence_completes_agentic(workflow: Any) -> None:
+    """ExecutionService.for_run writes context:{id} kind=target status=bound."""
+    service, owner, _other = workflow
+    cfg = config(owner, "agentic")
+    service.begin(owner, "expert", cfg)
+    ctx = "01TARGETCONTEXT000000000000"
+    receipt(
+        service,
+        owner,
+        f"context:{ctx}",
+        kind="target",
+        status="bound",
+        payload={"device_id": "pc", "target_kind": "device"},
+    )
+    advance(service, owner, cfg, "execute", [f"context:{ctx}"])
+    # bare context id must also resolve via context: prefix
+    final = advance(service, owner, cfg, "verify", [ctx])
+    assert final["status"] == "completed"
+
+
+def test_model_request_evidence_is_rejected(workflow: Any) -> None:
+    service, owner, _other = workflow
+    cfg = config(owner, "agentic")
+    service.begin(owner, "expert", cfg)
+    bad = receipt(
+        service,
+        owner,
+        "request:01MODELREQ000000000000000",
+        kind="model",
+        status="completed",
+        payload={"request_id": "01MODELREQ000000000000000", "model": "gpt"},
+    )
+    with pytest.raises(OctopError, match="model receipts are not workflow evidence"):
+        advance(service, owner, cfg, "execute", [bad])
+
+
+def test_call_id_resolves_via_payload_tool_call_id(workflow: Any) -> None:
+    service, owner, _other = workflow
+    cfg = config(owner, "agentic")
+    service.begin(owner, "expert", cfg)
+    call = "call_ABC123xyz"
+    receipt(
+        service,
+        owner,
+        "tool:uuid-not-call-id",
+        kind="tool",
+        status="completed",
+        payload={"name": "device_run", "tool_call_id": call},
+    )
+    advance(service, owner, cfg, "execute", [call])
+    done = advance(service, owner, cfg, "verify", [call])
+    assert done["status"] == "completed"
+
+
+def test_work_step_tool_returns_json_on_bad_evidence(workflow: Any) -> None:
+    import json
+
+    from langgraph.config import var_child_runnable_config
+
+    service, owner, _other = workflow
+    cfg = config(owner, "agentic")
+    service.begin(owner, "expert", cfg)
+    token = var_child_runnable_config.set(
+        {"configurable": {**cfg, "user": owner, "agent_id": "expert", "thread_id": "thread"}}
+    )
+    try:
+        tools = build_work_mode_tools(service, "expert")
+        version = service.begin(owner, "expert", cfg)["payload"]["version"]
+        payload = json.loads(
+            tools[0].invoke(
+                {
+                    "stage": "execute",
+                    "version": version,
+                    "status": "completed",
+                    "report": "Tried to cite missing receipt",
+                    "evidence_ids": ["missing-evidence-id"],
+                }
+            )
+        )
+    finally:
+        var_child_runnable_config.reset(token)
+    assert payload["ok"] is False
+    assert payload["bad_evidence_id"] == "missing-evidence-id"
+    assert "not found" in payload["error"]
