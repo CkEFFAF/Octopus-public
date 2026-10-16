@@ -1712,7 +1712,12 @@
         "assistant": "Assistant",
         "tool": "Tool",
         "other": "Other"
-      }
+      },
+      "sortBy": "Sort by",
+      "sortTime": "Time",
+      "sortTokens": "Token",
+      "sortAsc": "Ascending",
+      "sortDesc": "Descending"
     },
     "openPlanFile": "Plan file",
     "workMode": {
