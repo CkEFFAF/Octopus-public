@@ -549,6 +549,12 @@ class OctopServer:
         )
         registry.set_proactive_scheduler(proactive_scheduler)
 
+        registry.set_native_management_context(
+            catalog=self.subagent_catalog,
+            history_archive=history_archive,
+            turn_active=gateway.ws_hub.is_turn_active,
+            execution=execution,
+        )
         await registry.boot()
         cron_mgr.schedule_system_job("task-board-tick", trigger="interval:15", func=task_board.tick)
         cron_mgr.schedule_system_job(

@@ -263,7 +263,7 @@ function ChatPageInner() {
 
   const { quickCards: expertQuickCards, welcomeSuffix } =
     useExpertChatWelcome(activeAgent);
-  const { skills: chatSkills } = useSkills(
+  const { skills: chatSkills, fetchSkills: refreshChatSkills } = useSkills(
     chatSkillCatalogAgentId(resolvedAgentId, agentChatReady, agentsLoading),
   );
   const chatSubagents = useChatSubagents(
@@ -285,6 +285,22 @@ function ChatPageInner() {
     fetchAllSessions,
     ensureThreadInList,
   } = useSessions(resolvedAgentId ?? null);
+
+  useEffect(() => {
+    return chatStore.onToolEvent((event) => {
+      if (event.kind !== "toolDone" || event.sessionId !== activeThreadId)
+        return;
+      if (
+        !/^octop_(expert|project|thread|subagent)_(create|update|update_members|rename|save|install)$/.test(
+          event.toolName,
+        )
+      )
+        return;
+      void refreshAgents({ silent: true, force: true });
+      void fetchSessions(activeThreadId ?? undefined);
+      if (event.toolName.startsWith("octop_expert_")) void refreshChatSkills();
+    });
+  }, [activeThreadId, refreshAgents, fetchSessions, refreshChatSkills]);
 
   const handleLoadMoreSessions = useCallback(() => {
     void loadMoreSessions(activeThreadId ?? undefined);

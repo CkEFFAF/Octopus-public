@@ -19,6 +19,7 @@ import {
 import styles from "../index.module.less";
 import DeviceAccessRequest from "../../Devices/DeviceAccessRequest";
 import { executionApi } from "../../../api/modules/execution";
+import { onToolEvent } from "../hooks/chatStore";
 
 export default function DeviceTargetSelect({
   agentId,
@@ -83,6 +84,23 @@ export default function DeviceTargetSelect({
     setSelectionError(false);
     setOpen(false);
   }, [scope]);
+  useEffect(() => {
+    return onToolEvent((event) => {
+      if (
+        event.kind !== "toolDone" ||
+        event.toolName !== "octop_device_select" ||
+        event.sessionId !== threadId
+      )
+        return;
+      // Hydrate against a fresh baseline, retaining any subsequent user edits.
+      hydrationBaseline.current = {
+        scope,
+        selection: getExecutionSelection(scope),
+        workModeRevision: getExecutionWorkModeRevision(scope),
+      };
+      setRestoreAttempt((value) => value + 1);
+    });
+  }, [scope, threadId]);
   useEffect(() => {
     setDirectory(workingDir ?? "");
   }, [scope, deviceId, workingDir]);

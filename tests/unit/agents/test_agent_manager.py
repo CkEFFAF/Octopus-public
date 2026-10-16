@@ -19,6 +19,7 @@ from octop.config import OctopConfig
 from octop.i18n.domains.agents import NO_MODELS_CONFIGURED, format_agent_start_error
 from octop.infra.agents.experts.catalog import default_library_root
 from octop.infra.agents.manager import AgentManager, _memory_extract_settings
+from octop.infra.agents.settings.tool_catalog import NATIVE_TOOL_NAMES
 from octop.infra.backend.resolver import default_agent_backend_spec
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.pool import SqlitePool
@@ -685,6 +686,7 @@ def test_build_harness_config_includes_cronjob_tools_when_cron_manager_set(
     assert cfg.tools is not None
     names = {t.name for t in cfg.tools}
     assert names == {
+        *(set(NATIVE_TOOL_NAMES) - {"octop_device_select"}),
         "cronjob_list",
         "cronjob_get",
         "cronjob_create",
@@ -705,7 +707,11 @@ def test_build_harness_config_includes_search_knowledge_without_cron(
 
     cfg = manager._build_harness_config(_row(agent_id="AGT001"))
     assert cfg.tools is not None
-    assert {t.name for t in cfg.tools} == {"search_knowledge", "work_step"}
+    assert {t.name for t in cfg.tools} == {
+        *(set(NATIVE_TOOL_NAMES) - {"octop_device_select"}),
+        "search_knowledge",
+        "work_step",
+    }
     assert any(isinstance(item, KnowledgeSearchHintMiddleware) for item in (cfg.middleware or []))
 
 

@@ -415,6 +415,7 @@ class AgentManager:
         self._history_backfills: dict[str, asyncio.Event] = {}
         self._reload_dirty: set[str] = set()
         self._reload_worker_running: dict[str, bool] = {}
+        self._native_management_context: dict[str, Any] = {}
         self._bootstrap_graph_refresh_pending: set[str] = set()
         # Chat user id used to resolve connectors when agent.user_id is NULL (shared agents).
         self._connector_user_override: dict[str, int] = {}
@@ -473,6 +474,14 @@ class AgentManager:
     def set_task_board(self, service: Any) -> None:
         self._task_board = service
 
+    def set_native_management_context(self, **context: Any) -> None:
+        """Wire shared product services before harnesses are built."""
+        self._native_management_context = context
+
+    def schedule_reload(self, agent_id: str) -> None:
+        """Persist-first resource operations defer graph rebuild until active turns drain."""
+        self._schedule_reload(agent_id)
+
     def set_device_service(self, service: Any) -> None:
         self._device_service = service
 
@@ -515,6 +524,9 @@ class AgentManager:
 
             install_harness_target_patches()
             self._harness_manager.team.bind_peer_enrich(self._refresh_peer_entry)
+            from octop.infra.agents.teams.shared_peers import install_shared_team_peers
+
+            install_shared_team_peers(self, self._harness_manager.team)
             proc = self._team_processor
             if proc is not None:
                 prepare = getattr(proc, "prepare_peer_session", None)
@@ -1293,7 +1305,8 @@ class AgentManager:
                 self._invocation_waiters[agent_id] = waiting
             else:
                 self._invocation_waiters.pop(agent_id, None)
-        self._active_invocations[agent_id] = self._active_invocations.get(agent_id, 0) + 1
+        async with self._lifecycle_lock_for(agent_id):
+            self._active_invocations[agent_id] = self._active_invocations.get(agent_id, 0) + 1
 
     def _end_invocation(self, agent_id: str) -> None:
         active = self._active_invocations.get(agent_id, 1) - 1
@@ -1301,6 +1314,8 @@ class AgentManager:
             self._active_invocations[agent_id] = active
         else:
             self._active_invocations.pop(agent_id, None)
+            if agent_id in self._reload_dirty:
+                self._schedule_reload(agent_id)
 
     @asynccontextmanager
     async def _track_invocation(self, agent_id: str) -> AsyncIterator[None]:
@@ -1321,7 +1336,11 @@ class AgentManager:
             self._track_invocation(agent_id),
         ):
             self._apply_pending_bootstrap_graph_refresh(agent_id)
-            req = self._prepare_stream_request(agent_id, request)
+            req = (
+                await asyncio.to_thread(self._prepare_stream_request, agent_id, request)
+                if (request.get("configurable") or {}).get("octop_shared_text_scope") is not None
+                else self._prepare_stream_request(agent_id, request)
+            )
             with hitl_thread_scope(thread_id_from_request(req)):
                 async for chunk in self._harness_manager.stream(agent_id, cast(Any, req)):
                     yield chunk
@@ -1333,7 +1352,11 @@ class AgentManager:
             raise self._unavailable_error(agent_id)
         async with self._track_invocation(agent_id):
             self._apply_pending_bootstrap_graph_refresh(agent_id)
-            req = self._prepare_stream_request(agent_id, request)
+            req = (
+                await asyncio.to_thread(self._prepare_stream_request, agent_id, request)
+                if (request.get("configurable") or {}).get("octop_shared_text_scope") is not None
+                else self._prepare_stream_request(agent_id, request)
+            )
             with hitl_thread_scope(thread_id_from_request(req)):
                 result = await self._harness_manager.call(agent_id, cast(Any, req))
             self._apply_pending_bootstrap_graph_refresh(agent_id)
@@ -2926,6 +2949,9 @@ class AgentManager:
     async def _reload_agent(self, agent_id: str) -> None:
         assert self._harness_manager is not None
         async with self._lifecycle_lock_for(agent_id):
+            if self.is_agent_active(agent_id):
+                self._reload_dirty.add(agent_id)
+                return
             self._bootstrap_graph_refresh_pending.discard(agent_id)
             row = self._repos.agent_repo.get(agent_id)
             if not row or not row.enabled or row.last_state == "stopped":
@@ -2965,6 +2991,8 @@ class AgentManager:
     def _schedule_reload(self, agent_id: str) -> None:
         """Queue a background harness reload; coalesces rapid successive updates."""
         self._reload_dirty.add(agent_id)
+        if self.is_agent_active(agent_id):
+            return
         if self._reload_worker_running.get(agent_id):
             return
         self._reload_worker_running[agent_id] = True
@@ -2973,6 +3001,8 @@ class AgentManager:
     async def _reload_worker(self, agent_id: str) -> None:
         try:
             while agent_id in self._reload_dirty:
+                if self.is_agent_active(agent_id):
+                    return
                 self._reload_dirty.discard(agent_id)
                 try:
                     await self._reload_agent(agent_id)
@@ -2982,7 +3012,7 @@ class AgentManager:
                     break
         finally:
             self._reload_worker_running[agent_id] = False
-            if agent_id in self._reload_dirty:
+            if agent_id in self._reload_dirty and not self.is_agent_active(agent_id):
                 self._schedule_reload(agent_id)
 
     # ------------------------------------------------------------------
@@ -3146,6 +3176,31 @@ class AgentManager:
             req["configurable"] = configurable
         req = apply_agent_runtime_to_stream_request(req, agent_cfg)
         request_cfg = dict(req.get("configurable") or {})
+        shared_text = request_cfg.get("octop_shared_text_scope")
+        if shared_text is not None:
+            from octop.infra.agents.teams.shared_peers import verify_shared_text_scope
+
+            verify_shared_text_scope(
+                self, agent_id, int(req.get("user") or request_cfg.get("user") or 0), shared_text
+            )
+            for key in (
+                "octop_execution_context",
+                "octop_device_target",
+                "octop_explicit_target",
+                "octop_explicit_working_dir",
+                "octop_target_policy",
+                "plugin_tool_configs",
+            ):
+                request_cfg.pop(key, None)
+            request_cfg["conversation_mode"] = "ask"
+            request_cfg["work_mode"] = "ask"
+            req.update(
+                conversation_mode="ask",
+                skills=[],
+                mcp_servers=[],
+                mcp_use_default=False,
+                model=None,
+            )
         request_cfg.setdefault("octop_turn_id", new_short_id())
         request_cfg.setdefault("octop_task_run_id", new_short_id())
         request_cfg["conversation_mode_extra_read_tools"] = ["job_status", "job_logs", "work_step"]
@@ -3158,6 +3213,8 @@ class AgentManager:
             req["conversation_mode"] = requested_mode
             request_cfg["conversation_mode"] = requested_mode
         req["configurable"] = request_cfg
+        if shared_text is not None:
+            return req
         if self._device_service is not None:
             from octop.infra.execution.service import ExecutionService
 
@@ -3374,10 +3431,12 @@ class AgentManager:
             extract_original_plugin_label,
             sanitize_plugin_tool_names,
         )
+        from octop.infra.agents.settings.tool_catalog import NATIVE_TOOL_NAMES
 
         sanitize_plugin_tool_names(
             plugin_tools,
-            reserved={
+            reserved=set(NATIVE_TOOL_NAMES)
+            | {
                 str(getattr(t, "name", ""))
                 for t in [
                     *board_tools,
@@ -3435,6 +3494,8 @@ class AgentManager:
                 bound_device_id,
                 device_binding.get("root_id") if isinstance(device_binding, dict) else None,
                 routed_backend="execution_backend" in HarnessAgentConfig.__dataclass_fields__,
+                shared_text_manager=self,
+                agent_id=row.agent_id,
             ),
             KnowledgeSearchHintMiddleware(),
             BrowserProfileMiddleware(
@@ -3458,6 +3519,16 @@ class AgentManager:
             *device_tools,
             *build_work_mode_tools(WorkModeService(self._repos), row.agent_id),
         ]
+        from octop.infra.agents.native_management_tools import build_native_management_tools
+
+        merged_tools.extend(
+            build_native_management_tools(
+                self,
+                self._repos,
+                row.agent_id,
+                **self._native_management_context,
+            )
+        )
         if (
             self._device_service is not None
             and "execution_backend" in HarnessAgentConfig.__dataclass_fields__

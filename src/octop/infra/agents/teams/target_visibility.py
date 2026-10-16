@@ -7,6 +7,8 @@ import logging
 from contextvars import ContextVar
 from typing import Any, Literal
 
+from octop.infra.errors import ErrorCode, OctopError
+
 logger = logging.getLogger(__name__)
 
 TargetPolicy = Literal["inherit", "member_default", "explicit"]
@@ -70,6 +72,40 @@ def binding_from_row(row: Any) -> dict[str, Any] | None:
     return binding if isinstance(binding, dict) else None
 
 
+def visible_expert_defaults(
+    row: Any, viewer_user_id: int | None, device_repo: Any
+) -> dict[str, Any]:
+    """Default execution details belong to the expert owner, including for shared experts."""
+    if viewer_user_id is None or getattr(row, "user_id", None) != viewer_user_id:
+        return {"default_target": None, "model_ref": None}
+    binding = binding_from_row(row)
+    device_name = None
+    if binding and binding.get("device_id"):
+        device = device_repo.get(str(binding["device_id"]))
+        if device is not None and device.owner_user_id == viewer_user_id:
+            device_name = device.name
+    return {
+        "default_target": expert_default_target(device_binding=binding, device_name=device_name),
+        "model_ref": model_ref_for_row(row),
+    }
+
+
+def _validate_explicit_target(target: dict[str, Any]) -> None:
+    device_id = target.get("device_id")
+    kind = target.get("target_kind") or ("device" if device_id else None)
+    if (
+        kind not in {"device", "local"}
+        or (kind == "local" and device_id)
+        or (kind == "device" and (not isinstance(device_id, str) or not device_id.strip()))
+    ):
+        raise OctopError(
+            ErrorCode.FORBIDDEN, "explicit dispatch requires a device id or local target"
+        )
+    directory = target.get("working_dir")
+    if directory is not None and (not isinstance(directory, str) or "\x00" in directory):
+        raise OctopError(ErrorCode.FORBIDDEN, "invalid explicit working directory")
+
+
 def enrich_peer_metadata(
     metadata: dict[str, Any],
     *,
@@ -82,6 +118,7 @@ def enrich_peer_metadata(
         device_name=device_name,
     )
     metadata["model_ref"] = model_ref_for_row(row)
+    metadata["octop_owner_user_id"] = getattr(row, "user_id", None)
 
 
 def apply_target_policy(
@@ -100,6 +137,8 @@ def apply_target_policy(
     """
     cfg = dict(snapshot.get("configurable") or {})
     mode = (policy or "inherit").strip() or "inherit"
+    if mode not in {"inherit", "member_default", "explicit"}:
+        raise OctopError(ErrorCode.FORBIDDEN, "invalid dispatch target policy")
     if mode == "member_default":
         cfg.pop("octop_device_target", None)
         cfg.pop("octop_execution_context", None)
@@ -107,6 +146,7 @@ def apply_target_policy(
         cfg["octop_target_policy"] = "member_default"
     elif mode == "explicit":
         target = explicit if isinstance(explicit, dict) else {}
+        _validate_explicit_target(target)
         device_id = target.get("device_id")
         kind = target.get("target_kind") or ("device" if device_id else None)
         if kind == "local":
@@ -135,8 +175,9 @@ def apply_target_policy(
             cfg.pop("octop_execution_context", None)
             cfg["octop_target_policy"] = "explicit"
         else:
-            # Fall back to inherit when explicit payload is incomplete.
-            cfg["octop_target_policy"] = "inherit"
+            raise OctopError(
+                ErrorCode.FORBIDDEN, "explicit device dispatch requires account device access"
+            )
     else:
         cfg["octop_target_policy"] = "inherit"
     snapshot = {**snapshot, "configurable": cfg}
@@ -161,10 +202,18 @@ def install_harness_target_patches() -> None:
     original_item = team_tools._agent_list_item
 
     def _agent_list_item(team: Any, entry: Any, language: Any) -> dict[str, Any]:
+        from langgraph.config import get_config
+
         item = original_item(team, entry, language)
         meta = entry.metadata or {}
-        item["default_target"] = meta.get("default_target")
-        item["model_ref"] = meta.get("model_ref")
+        try:
+            viewer = int((get_config().get("configurable") or {}).get("user") or 0)
+        except (RuntimeError, TypeError, ValueError):
+            viewer = 0
+        owner = meta.get("octop_owner_user_id", meta.get("user_id"))
+        owned = viewer > 0 and owner is not None and str(owner) == str(viewer)
+        item["default_target"] = meta.get("default_target") if owned else None
+        item["model_ref"] = meta.get("model_ref") if owned else None
         return item
 
     team_tools._agent_list_item = _agent_list_item
@@ -304,11 +353,13 @@ def install_harness_target_patches() -> None:
             # Isolate per invoke via ContextVar — never mutate shared configurable in place.
             stamp: dict[str, Any] = {"octop_target_policy": target_policy}
             if target_policy == "explicit":
-                stamp["octop_explicit_target"] = {
+                explicit_target = {
                     "device_id": device_id,
                     "target_kind": target_kind or ("device" if device_id else None),
                     "working_dir": working_dir,
                 }
+                _validate_explicit_target(explicit_target)
+                stamp["octop_explicit_target"] = explicit_target
             else:
                 stamp["octop_explicit_target"] = None
             token = _PENDING_ASK_TARGET.set(stamp)

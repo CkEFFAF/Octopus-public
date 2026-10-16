@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from octop.infra.agents.settings.tool_catalog import BUILTIN_TOOL_CATALOG
+from octop.infra.agents.settings.tool_catalog import BUILTIN_TOOL_CATALOG, NATIVE_TOOL_NAMES
 from octop.infra.agents.teams.jobs import TeamJobTracker
 from octop.infra.db.repos.agents import AgentRow
 from octop.infra.db.services import RepoBundle
@@ -24,6 +25,7 @@ TEAM_MANIFEST_WORKSPACE = ".octop/manifest.json"
 # Hosts only dispatch and keep light memory/time — members do the work.
 HOST_TOOLS_ALLOWED: frozenset[str] = frozenset(
     {
+        *NATIVE_TOOL_NAMES,
         "agent_list",
         "ask_agent",
         "read_group_attachment",
@@ -130,6 +132,7 @@ class TeamService:
         self._repos = repos
         self.jobs = jobs or TeamJobTracker()
         self._workspace_for = workspace_for
+        self._roster_lock = threading.RLock()
 
     def _workspace(self, team_agent_id: str) -> Any | None:
         if self._workspace_for is None:
@@ -259,7 +262,25 @@ class TeamService:
             )
 
     def replace_members(self, team_agent_id: str, member_ids: list[str]) -> None:
-        self._write_manifest(team_agent_id, list(member_ids))
+        with self._roster_lock:
+            self._write_manifest(team_agent_id, list(member_ids))
+
+    def update_members(
+        self,
+        user: Any,
+        team_agent_id: str,
+        add_ids: list[str],
+        remove_ids: list[str],
+    ) -> list[str]:
+        """Apply an incremental roster change without yielding between read and persist."""
+        with self._roster_lock:
+            removed = {value.strip() for value in remove_ids}
+            members = [value for value in self.member_ids(team_agent_id) if value not in removed]
+            members.extend(value.strip() for value in add_ids)
+            members = self.validate_member_ids(user, members)
+            self.assert_roster_writable(team_agent_id, members)
+            self.replace_members(team_agent_id, members)
+            return members
 
     def drop_member(self, member_id: str) -> list[str]:
         """Remove an expert from every team roster. Returns changed team ids."""
@@ -277,27 +298,13 @@ class TeamService:
             changed.append(row.agent_id)
         return changed
 
-    def _member_summary(self, team_agent_id: str, member: AgentRow) -> dict[str, Any]:
+    def _member_summary(
+        self, team_agent_id: str, member: AgentRow, viewer_user_id: int | None
+    ) -> dict[str, Any]:
         from octop.infra.agents.teams.target_visibility import (
-            binding_from_row,
-            expert_default_target,
-            model_ref_for_row,
+            visible_expert_defaults,
         )
 
-        binding = binding_from_row(member)
-        device_name = None
-        if isinstance(binding, dict) and binding.get("device_id"):
-            devices = getattr(self._repos, "device_repo", None)
-            if devices is not None and member.user_id is not None:
-                try:
-                    device = devices.get(str(binding["device_id"]))
-                    if (
-                        device is not None
-                        and getattr(device, "owner_user_id", None) == member.user_id
-                    ):
-                        device_name = getattr(device, "name", None)
-                except Exception:
-                    device_name = None
         return {
             "agent_id": member.agent_id,
             "name": member.name,
@@ -308,10 +315,11 @@ class TeamService:
             "busy": self.jobs.is_busy(team_agent_id, member.agent_id),
             "is_shared": bool(int(member.is_shared or 0)),
             "user_id": member.user_id,
-            "default_target": expert_default_target(
-                device_binding=binding, device_name=device_name
-            ),
-            "model_ref": model_ref_for_row(member),
+            "device_execution_supported": member.user_id == viewer_user_id,
+            "collaboration_limit": None
+            if member.user_id == viewer_user_id
+            else "text_only_no_cross_account_device_execution",
+            **visible_expert_defaults(member, viewer_user_id, self._repos.device_repo),
         }
 
     def team_payload(self, row: AgentRow) -> dict[str, Any]:
@@ -331,7 +339,7 @@ class TeamService:
             "kind": TEAM_KIND,
             "member_ids": ids,
             "members": [
-                self._member_summary(row.agent_id, member)
+                self._member_summary(row.agent_id, member, row.user_id)
                 for member in member_rows
                 if member is not None
             ],
