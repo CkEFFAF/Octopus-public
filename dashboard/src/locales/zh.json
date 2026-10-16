@@ -1712,7 +1712,12 @@
         "assistant": "助手",
         "tool": "工具",
         "other": "其他"
-      }
+      },
+      "sortBy": "排序",
+      "sortTime": "时间",
+      "sortTokens": "Token",
+      "sortAsc": "升序",
+      "sortDesc": "降序"
     },
     "openPlanFile": "计划文件",
     "workMode": {
