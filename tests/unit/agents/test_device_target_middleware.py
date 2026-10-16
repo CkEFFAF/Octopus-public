@@ -42,3 +42,46 @@ def test_selected_device_context_routes_away_from_management_host():
         assert request.tools[0] == "read_file"
     finally:
         var_child_runnable_config.reset(token)
+
+
+def test_routed_device_keeps_expert_storage_on_controller():
+    device = SimpleNamespace(
+        name="GPU",
+        permissions=["files_read", "files_write", "command_exec"],
+        roots=[],
+        working_dir="/home/gpu/project",
+        runtime_metadata={},
+        applied_trust_mode="owner",
+    )
+    middleware = DeviceTargetMiddleware(
+        SimpleNamespace(owned=lambda uid, target: device), "gpu", None, routed_backend=True
+    )
+    request = ModelRequest(
+        model=FakeListChatModel(responses=["ok"]),
+        messages=[],
+        system_message=SystemMessage(content="existing rules"),
+        tools=["read_file", "edit_file", "execute"],
+    )
+    token = var_child_runnable_config.set(
+        {
+            "configurable": {
+                "user": "7",
+                "octop_execution_context": {
+                    "target_kind": "device",
+                    "device_id": "gpu",
+                    "working_dir": "/home/gpu/selected-project",
+                },
+            }
+        }
+    )
+    try:
+        result = middleware._prepare(request)
+        assert result.tools == request.tools
+        content = str(result.system_message.content)
+        assert "existing rules" in content
+        assert "control center's storage backend" in content
+        assert "different machine" in content
+        assert "device shell permission error does not diagnose" in content
+        assert "/home/gpu/selected-project" in content
+    finally:
+        var_child_runnable_config.reset(token)

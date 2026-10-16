@@ -2505,7 +2505,7 @@ wheels = [
 
 [[package]]
 name = "octop"
-version = "1.0.2b13"
+version = "1.0.2b16"
 source = { editable = "." }
 dependencies = [
     { name = "acme" },
@@ -2617,7 +2617,7 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "octop-browser", specifier = ">=1.0.0" },
     { name = "octop-gateway", specifier = ">=1.0.0" },
-    { name = "octop-harness", extras = ["all"], url = "https://github.com/CkEFFAF/octop-harness/releases/download/v1.0.2.post2/octop_harness-1.0.2.post2-py3-none-any.whl" },
+    { name = "octop-harness", extras = ["all"], url = "https://github.com/CkEFFAF/octop-harness/archive/d30b36cbb17e9e8403d01555a4f399667228263b.tar.gz" },
     { name = "octop-memory", specifier = ">=1.0.0" },
     { name = "onnxruntime", marker = "extra == 'knowledge-ocr'", specifier = ">=1.17" },
     { name = "openpyxl", specifier = ">=3.1" },
@@ -2712,7 +2712,7 @@ wheels = [
 [[package]]
 name = "octop-harness"
 version = "1.0.2.post2"
-source = { url = "https://github.com/CkEFFAF/octop-harness/releases/download/v1.0.2.post2/octop_harness-1.0.2.post2-py3-none-any.whl" }
+source = { url = "https://github.com/CkEFFAF/octop-harness/archive/d30b36cbb17e9e8403d01555a4f399667228263b.tar.gz" }
 dependencies = [
     { name = "deepagents" },
     { name = "httpx" },
@@ -2729,9 +2729,7 @@ dependencies = [
     { name = "octop-memory" },
     { name = "pyyaml" },
 ]
-wheels = [
-    { url = "https://github.com/CkEFFAF/octop-harness/releases/download/v1.0.2.post2/octop_harness-1.0.2.post2-py3-none-any.whl", hash = "sha256:2aeebce9989c0fcb2a1ac1b718382af8f50f6b84f80784ab38cb1658432e5df0" },
-]
+sdist = { hash = "sha256:fa0ee8c9c6c070bd2433f0d97850f50499207c7464e333f3e0e6b33e550bfeef" }
 
 [package.optional-dependencies]
 all = [
@@ -2807,7 +2805,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", marker = "extra == 'cli'", specifier = ">=13.0" },
 ]
-provides-extras = ["acp", "all", "bedrock", "cli", "desktop", "docker", "object-storage", "observability", "opensandbox", "remote-backends", "web-search-all"]
+provides-extras = ["cli", "bedrock", "remote-backends", "docker", "opensandbox", "observability", "acp", "desktop", "web-search-all", "object-storage", "all"]
 
 [[package]]
 name = "octop-memory"
