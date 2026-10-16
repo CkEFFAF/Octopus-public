@@ -6,6 +6,7 @@ import {
   executionApi,
   type RequestSnapshot,
 } from "../../../api/modules/execution";
+import { contextInsightsApi } from "../../../api/modules/contextInsights";
 import { apiErrorMessage } from "../../../utils/apiError";
 import styles from "./ChatDockContext.module.less";
 
@@ -91,6 +92,11 @@ export default function ContextRequestBrowser({
   const [sortKey, setSortKey] = useState<SortKey>("time");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [kindFilter, setKindFilter] = useState<string>("all");
+  const [viewGrain, setViewGrain] = useState<"step" | "turn">("step");
+  const [insightsDetail, setInsightsDetail] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const sectionBodyRef = useRef<HTMLDivElement>(null);
   const epoch = useRef(0);
   const busy = useRef(false);
@@ -136,6 +142,8 @@ export default function ContextRequestBrowser({
     setPrevious(null);
     setDetailOpen(false);
     setKindFilter("all");
+    setViewGrain("step");
+    setInsightsDetail(null);
     setError("");
     return () => {
       epoch.current += 1;
@@ -180,10 +188,21 @@ export default function ContextRequestBrowser({
               kindFilter,
             ),
           );
-    return [...filtered].sort((a, b) =>
+    const ordered = [...filtered].sort((a, b) =>
       compareRequests(a, b, sortKey, sortDir),
     );
-  }, [requests, sortKey, sortDir, kindFilter]);
+    if (viewGrain === "step") return ordered;
+    // Turn view: keep newest request per turn_id (fallback request_id).
+    const seen = new Set<string>();
+    const turns: RequestSnapshot[] = [];
+    for (const item of ordered) {
+      const key = String(item.turn_id || item.request_id);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      turns.push(item);
+    }
+    return turns;
+  }, [requests, sortKey, sortDir, kindFilter, viewGrain]);
 
   const selectedId = picked ?? sortedRequests[0]?.request_id ?? null;
   const selectedSummary = sortedRequests.find(
@@ -229,11 +248,15 @@ export default function ContextRequestBrowser({
       previousSummary
         ? executionApi.request(agentId, threadId, previousSummary.request_id)
         : Promise.resolve(null),
+      contextInsightsApi.request(agentId, threadId, selectedId, {
+        includeContent: false,
+      }),
     ])
-      .then(([current, prev]) => {
+      .then(([current, prev, insights]) => {
         if (!disposed) {
           setDetail(current);
           setPrevious(prev);
+          setInsightsDetail(insights as unknown as Record<string, unknown>);
         }
       })
       .catch((e) => {
@@ -292,6 +315,22 @@ export default function ContextRequestBrowser({
             ) : null}
           </h3>
           <div className={styles.sortControls}>
+            <Segmented
+              size="small"
+              value={viewGrain}
+              aria-label={t("chat.contextInspect.viewStep")}
+              onChange={(v) => setViewGrain(v as "step" | "turn")}
+              options={[
+                {
+                  value: "step",
+                  label: t("chat.contextInspect.viewStep"),
+                },
+                {
+                  value: "turn",
+                  label: t("chat.contextInspect.viewTurn"),
+                },
+              ]}
+            />
             <Segmented
               size="small"
               value={sortKey}
@@ -465,6 +504,52 @@ export default function ContextRequestBrowser({
                 )}
               </Tag>
             </div>
+            {insightsDetail?.effective_binding ? (
+              <Alert
+                type="info"
+                showIcon
+                message={t("chat.contextInspect.effectiveBinding")}
+                description={
+                  (insightsDetail.effective_binding as { execution_context?: unknown; reason_codes?: string[] })
+                    .execution_context
+                    ? JSON.stringify(
+                        (
+                          insightsDetail.effective_binding as {
+                            execution_context: unknown;
+                          }
+                        ).execution_context,
+                      )
+                    : t("chat.contextInspect.missingExecutionContext")
+                }
+              />
+            ) : null}
+            {Array.isArray(insightsDetail?.turn_steps) &&
+            (insightsDetail.turn_steps as unknown[]).length > 1 ? (
+              <div className={styles.tagPills}>
+                <span>{t("chat.contextInspect.turnSteps")}:</span>
+                {(
+                  insightsDetail.turn_steps as Array<{
+                    request_id?: string;
+                    seq?: number;
+                    status?: string;
+                  }>
+                ).map((step) => (
+                  <Button
+                    key={String(step.request_id)}
+                    size="small"
+                    type={
+                      step.request_id === selectedId ? "primary" : "default"
+                    }
+                    onClick={() =>
+                      step.request_id && setPicked(String(step.request_id))
+                    }
+                  >
+                    #{step.seq ?? "?"} · {step.status ?? "?"}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+            <p className={styles.hint}>{t("chat.contextInspect.retainedNote")}</p>
             <details className={styles.slimDetail}>
               <summary>{t("chat.contextInspect.techFields")}</summary>
               <dl className={styles.receiptFields}>

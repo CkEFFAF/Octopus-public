@@ -342,7 +342,27 @@ def test_observe_tool_result_records_tool_duration_ms(
     assert tool.payload.get("tool_duration_ms") == pytest.approx(250.0)
 
 
-def test_finish_turn_prunes_old_user_turns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_finish_turn_keeps_history_when_auto_prune_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DEC-T12: silent auto-prune is OFF — finish_turn must not delete older turns."""
+    monkeypatch.setattr("octop.infra.history.trajectory.service.TRAJECTORY_AUTO_PRUNE", False)
+    monkeypatch.setattr("octop.infra.history.trajectory.service.TRAJECTORY_RETENTION_USER_TURNS", 1)
+    service, _bus = _service(tmp_path)
+    service.observe_chunk("A1", "T1", {"type": "user", "content": "one"})
+    service.observe_chunk("A1", "T1", {"type": "user", "content": "two"})
+    service.finish_turn("T1")
+    users = service.list_events("T1", before_seq=None, limit=20, kinds=["user"])
+    assert len(users) == 2
+    assert "one" in users[0].summary
+    assert "two" in users[1].summary
+
+
+def test_finish_turn_optional_prune_when_explicitly_enabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Optional prune path remains available when TRAJECTORY_AUTO_PRUNE=True."""
+    monkeypatch.setattr("octop.infra.history.trajectory.service.TRAJECTORY_AUTO_PRUNE", True)
     monkeypatch.setattr("octop.infra.history.trajectory.service.TRAJECTORY_RETENTION_USER_TURNS", 1)
     service, _bus = _service(tmp_path)
     service.observe_chunk("A1", "T1", {"type": "user", "content": "one"})

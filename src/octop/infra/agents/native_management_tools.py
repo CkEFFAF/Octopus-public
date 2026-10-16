@@ -812,4 +812,52 @@ def build_native_management_tools(
             limit=limit,
         )
 
+    @operation()
+    async def context_request(
+        request_id: str,
+        thread_id: str = "",
+        include_content: bool = False,
+        cursor: int | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Read retained model-request composition (DEC-T16). Spec name: context.request."""
+        row, tid = _insights_thread(thread_id)
+        user = identity()
+        rid = (request_id or "").strip()
+        if not rid:
+            raise ValueError("request_id is required")
+        return await insights.request(
+            owner=user.id,
+            agent_id=row.agent_id,
+            thread_id=tid,
+            request_id=rid,
+            include_content=bool(include_content),
+            cursor=cursor,
+            limit=limit,
+        )
+
+    @operation()
+    async def context_trace_read(
+        event_id: str,
+        thread_id: str = "",
+        part: str = "all",
+        cursor: int | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Page authorized trajectory args/result/injection (DEC-T16). Spec name: context.trace_read."""
+        row, tid = _insights_thread(thread_id)
+        user = identity()
+        eid = (event_id or "").strip()
+        if not eid:
+            raise ValueError("event_id is required")
+        return await insights.trace_read(
+            owner=user.id,
+            agent_id=row.agent_id,
+            thread_id=tid,
+            event_id=eid,
+            part=part or "all",
+            cursor=cursor,
+            limit=limit,
+        )
+
     return tools

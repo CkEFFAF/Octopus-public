@@ -19,6 +19,9 @@ ENABLE_TRAJECTORY_KEY = "enable_trajectory"
 PAYLOAD_MAX_CHARS = 64_000
 SUMMARY_MAX_CHARS = 240
 TRAJECTORY_RETENTION_USER_TURNS = 50
+# DEC-T12 (0021): silent auto-prune is OFF. Optional prune must emit retention_gap
+# and must never claim coverage=complete for deleted ranges.
+TRAJECTORY_AUTO_PRUNE = False
 TRAJECTORY_SSE_REPLAY_MAX = 2_000
 
 _CLIP_PAYLOAD_KEYS = ("content", "text", "thinking", "args", "result")

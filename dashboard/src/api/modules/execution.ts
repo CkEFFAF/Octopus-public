@@ -45,6 +45,9 @@ export interface RequestSnapshot {
   agent_id: string;
   model: string | null;
   context_id: string | null;
+  turn_id?: string | null;
+  attempt_id?: string | null;
+  run_id?: string | null;
   estimated_input_tokens: number;
   estimated_tokens_by_kind?: Record<string, number>;
   component_count?: number | null;

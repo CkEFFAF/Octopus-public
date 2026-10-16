@@ -8,6 +8,10 @@ import {
 } from "../../../api/modules/octopThreads";
 import { isPendingThread } from "../hooks/useSessions";
 import { contextUsedPercent } from "../hooks/useChatContextWindow";
+import {
+  isCapacityResolved,
+  occupancyPercent,
+} from "../contextInsights/capacity";
 import styles from "../index.module.less";
 
 const DEFAULT_MAX = 128_000;
@@ -59,9 +63,6 @@ export default function ContextWindowRing({
     at: number;
     data: ContextUsageBreakdown;
   } | null>(null);
-  // Stream hint — kept in a ref so prefetch does not re-fire on every token tick.
-  const hintUsedRef = useRef(usedTokens ?? 0);
-  hintUsedRef.current = usedTokens ?? 0;
 
   const max = maxTokens > 0 ? maxTokens : DEFAULT_MAX;
   const hintUsed = usedTokens ?? 0;
@@ -92,17 +93,11 @@ export default function ContextWindowRing({
       }
       if (!opts?.silent) setLoading(true);
       try {
-        // Prefer a pure harness snapshot. Pass stream hint only as a fallback
-        // when we do not already have a segmented breakdown cached.
-        const haveSegments =
-          cached?.key === cacheKey &&
-          (cached.data.segments?.length ?? 0) > 0 &&
-          cached.data.used_tokens > 0;
-        const hint = hintUsedRef.current;
+        // DEC-T14: prefer Insights-backed context-usage (no preview params)
+        // so capacity_source is real. Preview overrides fake capacity.
         const data = await octopThreadsApi.contextUsage(agentId, threadId, {
-          maxTokens: max,
-          inputTokens: !haveSegments && hint > 0 ? hint : undefined,
-          mcpServers: selectedConnectors,
+          mcpServers:
+            selectedConnectors.length > 0 ? selectedConnectors : undefined,
         });
         if (data.used_tokens > 0) {
           cacheRef.current = { key: cacheKey, at: Date.now(), data };
@@ -121,52 +116,80 @@ export default function ContextWindowRing({
     [agentId, threadId, max, selectedConnectors, cacheKey],
   );
 
-  // Reset detail cache on thread/filter changes. The ring itself keeps growing
-  // from the live/persisted token hint and never needs a checkpoint read.
+  // Reset detail cache on thread/filter changes.
   useEffect(() => {
     setBreakdown(null);
     cacheRef.current = null;
   }, [cacheKey]);
 
-  const ringUsed = useMemo(() => {
-    if (hintUsed > 0) return Math.min(hintUsed, max);
-    if (breakdown && breakdown.used_tokens > 0) {
-      const breakdownMax =
-        breakdown.max_tokens > 0 ? breakdown.max_tokens : max;
-      return Math.min(breakdown.used_tokens, breakdownMax);
-    }
-    // Until prefetch returns, show last-call hint (capped so a stale
-    // turn-sum cannot flash a full ring).
-    return 0;
-  }, [breakdown, hintUsed, max]);
+  // Prefetch Insights breakdown so header ring can honor capacity_source
+  // (DEC-T14 / UI03) even when the popover never opens.
+  useEffect(() => {
+    if (!agentId || !threadId || isPendingThread(threadId)) return;
+    void loadBreakdown({ silent: true });
+  }, [agentId, threadId, loadBreakdown]);
 
-  const ringMax =
-    breakdown && breakdown.max_tokens > 0 ? breakdown.max_tokens : max;
+  const capacityResolved = isCapacityResolved(
+    breakdown?.capacity_source,
+    breakdown?.capacity_tokens ?? null,
+  );
+
+  const ringUsed = useMemo(() => {
+    if (breakdown && breakdown.used_tokens > 0) {
+      const cap =
+        capacityResolved && breakdown.capacity_tokens
+          ? breakdown.capacity_tokens
+          : breakdown.max_tokens > 0
+            ? breakdown.max_tokens
+            : max;
+      return Math.min(breakdown.used_tokens, cap);
+    }
+    if (hintUsed > 0) return Math.min(hintUsed, max);
+    return 0;
+  }, [breakdown, hintUsed, max, capacityResolved]);
+
+  const ringMax = capacityResolved
+    ? (breakdown?.capacity_tokens as number)
+    : breakdown && breakdown.max_tokens > 0
+      ? breakdown.max_tokens
+      : max;
 
   const { usedPct, strokeColor, dashOffset, circumference } = useMemo(() => {
-    const usedRatio = ringMax > 0 ? Math.min(ringUsed / ringMax, 1) : 0;
-    const usedPercent = contextUsedPercent(ringUsed, ringMax);
     const r = 13;
     const circ = 2 * Math.PI * r;
+    // DEC-T05 / UI03: no precise occupancy against unresolved capacity.
+    const precise = occupancyPercent(
+      ringUsed,
+      capacityResolved ? ringMax : null,
+      breakdown?.capacity_source,
+    );
+    const usedRatio =
+      precise != null && ringMax > 0 ? Math.min(ringUsed / ringMax, 1) : 0;
     let color = "var(--fn-color-success, #22c55e)";
-    if (usedRatio >= 0.8) {
-      color = "var(--fn-color-danger, #ef4444)";
-    } else if (usedRatio >= 0.5) {
-      color = "var(--fn-color-warning, #eab308)";
+    if (precise != null) {
+      if (usedRatio >= 0.8) {
+        color = "var(--fn-color-danger, #ef4444)";
+      } else if (usedRatio >= 0.5) {
+        color = "var(--fn-color-warning, #eab308)";
+      }
     }
     return {
-      usedPct: usedPercent,
+      usedPct: precise == null ? null : contextUsedPercent(ringUsed, ringMax),
       strokeColor: color,
       dashOffset: circ * (1 - usedRatio),
       circumference: circ,
     };
-  }, [ringUsed, ringMax]);
+  }, [ringUsed, ringMax, capacityResolved, breakdown?.capacity_source]);
 
-  const tooltip = t("chat.contextWindow.tooltip", {
-    used: formatTokenK(ringUsed),
-    max: formatTokenK(ringMax),
-    percent: usedPct,
-  });
+  const tooltip = capacityResolved
+    ? t("chat.contextWindow.tooltip", {
+        used: formatTokenK(ringUsed),
+        max: formatTokenK(ringMax),
+        percent: usedPct ?? 0,
+      })
+    : t("chat.contextWindow.tooltipUnknown", {
+        used: formatTokenK(ringUsed),
+      });
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
@@ -179,10 +202,21 @@ export default function ContextWindowRing({
     max_tokens: ringMax,
     used_tokens: ringUsed,
     segments: [] as ContextUsageBreakdown["segments"],
+    capacity_source: breakdown?.capacity_source,
+    capacity_tokens: breakdown?.capacity_tokens,
   };
   const displayUsed = display.used_tokens > 0 ? display.used_tokens : ringUsed;
-  const displayMax = display.max_tokens > 0 ? display.max_tokens : ringMax;
-  const displayPct = contextUsedPercent(displayUsed, displayMax);
+  const displayMax =
+    capacityResolved && display.capacity_tokens
+      ? display.capacity_tokens
+      : display.max_tokens > 0
+        ? display.max_tokens
+        : ringMax;
+  const displayPct = occupancyPercent(
+    displayUsed,
+    capacityResolved ? displayMax : null,
+    display.capacity_source ?? breakdown?.capacity_source,
+  );
   const segments =
     display.segments.length > 0
       ? display.segments
@@ -199,7 +233,11 @@ export default function ContextWindowRing({
         {t("chat.contextWindow.breakdownTitle")}
       </div>
       <div className={styles.contextUsageSubtitle}>
-        {t("chat.contextWindow.breakdownPercent", { percent: displayPct })}
+        {displayPct == null
+          ? t("chat.contextWindow.breakdownPercentUnknown")
+          : t("chat.contextWindow.breakdownPercent", {
+              percent: Math.round(displayPct),
+            })}
       </div>
       <div className={styles.contextUsageHint}>
         {t("chat.contextWindow.breakdownHint")}
@@ -295,7 +333,9 @@ export default function ContextWindowRing({
           transform="rotate(-90 16 16)"
         />
       </svg>
-      <span className={styles.contextRingLabel}>{usedPct}</span>
+      <span className={styles.contextRingLabel}>
+        {usedPct == null ? "—" : usedPct}
+      </span>
     </>
   );
 
@@ -303,7 +343,7 @@ export default function ContextWindowRing({
     <div
       className={styles.contextRingBtn}
       role="progressbar"
-      aria-valuenow={usedPct}
+      aria-valuenow={usedPct ?? undefined}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-label={tooltip}

@@ -1724,7 +1724,21 @@
       "pickRequest": "Pick a request above to inspect",
       "requestDetail": "Request detail",
       "techFields": "Technical fields",
-      "copy": "Copy"
+      "copy": "Copy",
+      "humanTurns": "Human turns",
+      "modelRequests": "Model requests",
+      "trajectoryEvents": "Trajectory events",
+      "coverage": "Coverage",
+      "viewStep": "Step",
+      "viewTurn": "Turn",
+      "turnSteps": "Steps in turn",
+      "effectiveBinding": "Effective execution target",
+      "missingExecutionContext": "No frozen execution context",
+      "toolSchemaCount": "Tool schema count",
+      "logicalCallCount": "Logical call count",
+      "attemptCount": "Attempt count",
+      "retainedNote": "Complete = retained content; truncations labeled; never fabricated",
+      "occupancyUnknown": "—"
     },
     "openPlanFile": "Plan file",
     "workMode": {
@@ -2004,6 +2018,8 @@
     "composerContextLabel": "Message context",
     "contextWindow": {
       "tooltip": "Context {{used}} / {{max}} · {{percent}}% (last model request)",
+      "tooltipUnknown": "Context {{used}} · capacity unknown",
+      "breakdownPercentUnknown": "Capacity unknown",
       "breakdownTitle": "Context Usage",
       "breakdownPercent": "{{percent}}% Full",
       "breakdownHint": "Shows current context-window occupancy, not this turn’s billed total.",
