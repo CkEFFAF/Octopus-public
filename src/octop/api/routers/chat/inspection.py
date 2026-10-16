@@ -150,3 +150,97 @@ async def get_request(
         thread_id,
         request_id,
     )
+
+
+@router.get(
+    "/agents/{agent_id}/threads/{thread_id}/context-insights",
+    summary="Unified context insights inspect (0021 DEC-T14)",
+)
+async def context_insights_inspect(
+    agent_id: str,
+    thread_id: str,
+    include: str | None = Query(None),
+    trend_limit: int = Query(20, ge=1, le=100),
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> Any:
+    """Dashboard Ring/stats and Agent tools share ContextInsightsService."""
+    from octop.infra.context_insights.service import ContextInsightsService
+
+    wanted = [part.strip() for part in (include or "").split(",") if part.strip()] or None
+    registry = server.app_runtime.agent_registry
+    execution = getattr(server.services, "execution", None) or getattr(
+        getattr(server, "app_runtime", None), "execution", None
+    )
+    service = ContextInsightsService(registry, server.services.repos, execution=execution)
+    return await service.inspect(
+        owner=int(user.id),
+        agent_id=agent_id,
+        thread_id=thread_id,
+        include=wanted,
+        trend_limit=trend_limit,
+    )
+
+
+@router.get(
+    "/agents/{agent_id}/threads/{thread_id}/context-insights/requests/{request_id}",
+    summary="Context request composition (0021 DEC-T16)",
+)
+async def context_insights_request(
+    agent_id: str,
+    thread_id: str,
+    request_id: str,
+    include_content: bool = Query(False),
+    cursor: int | None = Query(None, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> Any:
+    from octop.infra.context_insights.service import ContextInsightsService
+
+    registry = server.app_runtime.agent_registry
+    execution = getattr(server.services, "execution", None) or getattr(
+        getattr(server, "app_runtime", None), "execution", None
+    )
+    service = ContextInsightsService(registry, server.services.repos, execution=execution)
+    return await service.request(
+        owner=int(user.id),
+        agent_id=agent_id,
+        thread_id=thread_id,
+        request_id=request_id,
+        include_content=include_content,
+        cursor=cursor,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/agents/{agent_id}/threads/{thread_id}/context-insights/trace/{event_id}",
+    summary="Context trajectory part read (0021 DEC-T16)",
+)
+async def context_insights_trace_read(
+    agent_id: str,
+    thread_id: str,
+    event_id: str,
+    part: str = Query("all"),
+    cursor: int | None = Query(None, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> Any:
+    from octop.infra.context_insights.service import ContextInsightsService
+
+    registry = server.app_runtime.agent_registry
+    execution = getattr(server.services, "execution", None) or getattr(
+        getattr(server, "app_runtime", None), "execution", None
+    )
+    service = ContextInsightsService(registry, server.services.repos, execution=execution)
+    return await service.trace_read(
+        owner=int(user.id),
+        agent_id=agent_id,
+        thread_id=thread_id,
+        event_id=event_id,
+        part=part,
+        cursor=cursor,
+        limit=limit,
+    )

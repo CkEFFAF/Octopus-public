@@ -253,9 +253,43 @@ async def get_thread_context_usage(
     user: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
-    """Return persisted context-window usage for a thread (octop-harness snapshot)."""
-    _require_thread(server, agent_id, thread_id, user, as_user)
+    """Return persisted context-window usage for a thread (octop-harness snapshot).
+
+    DEC-T14: when no preview overrides are supplied, delegate through
+    ContextInsightsService so Ring shares the same breakdown as inspect/tools.
+    Preview query params (input_tokens / mcp / skills) keep the direct path.
+    """
+    owner_row = _require_thread(server, agent_id, thread_id, user, as_user)
     registry = server.app_runtime.agent_registry
+    preview = (
+        input_tokens is not None
+        or mcp_servers is not None
+        or skills is not None
+        or max_tokens != 128_000
+    )
+    if not preview:
+        from octop.infra.context_insights.service import ContextInsightsService
+
+        execution = getattr(server.services, "execution", None)
+        service = ContextInsightsService(registry, server.services.repos, execution=execution)
+        inspected = await service.inspect(
+            owner=int(getattr(owner_row, "user_id", user.id)),
+            agent_id=agent_id,
+            thread_id=thread_id,
+            include=["breakdown"],
+        )
+        breakdown = inspected["breakdown"]
+        return {
+            "max_tokens": breakdown["max_tokens"],
+            "used_tokens": breakdown["used_tokens"],
+            "segments": breakdown["segments"],
+            "capacity_source": breakdown.get("capacity_source"),
+            "capacity_tokens": breakdown.get("capacity_tokens"),
+            "compatibility_capacity_tokens": breakdown.get("compatibility_capacity_tokens"),
+            "meter_source": "context_insights",
+            "as_of": inspected.get("as_of"),
+            "schema_version": inspected.get("schema_version"),
+        }
     effective_max = registry.resolve_context_max_tokens(agent_id, fallback=max_tokens)
     breakdown = await compute_context_breakdown(
         registry,
@@ -275,6 +309,8 @@ async def get_thread_context_usage(
             for key in SEGMENT_KEYS
             if breakdown.segments.get(key, 0) > 0
         ],
+        "capacity_source": "compatibility_default",
+        "meter_source": "context_usage_preview",
     }
 
 
