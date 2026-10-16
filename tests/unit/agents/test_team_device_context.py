@@ -24,12 +24,13 @@ def peers() -> Any:
     device = SimpleNamespace(grant_version=7)
     devices = SimpleNamespace(owned=MagicMock(return_value=device))
     on_followup = AsyncMock()
+    on_member = AsyncMock(return_value={"messages": [AIMessage(content="Member finished")]})
 
     async def member(request: Any, **_: Any) -> Any:
         requests.append(_chat_request_payload(request, "member"))
         started.set()
         await release.wait()
-        return {"messages": [AIMessage(content="Member finished")]}
+        return await on_member(request)
 
     async def host(request: Any, **_: Any) -> Any:
         requests.append(_chat_request_payload(request, "host"))
@@ -79,6 +80,7 @@ def peers() -> Any:
         finish=finish,
         entries=entries,
         on_followup=on_followup,
+        on_member=on_member,
     )
 
 
@@ -425,6 +427,171 @@ async def test_member_default_target_policy_strips_parent_device(peers: Any) -> 
     finally:
         var_child_runnable_config.reset(token)
         await close(rig)
+
+
+@pytest.mark.asyncio
+async def test_ask_agent_member_recovers_with_real_callback_receipt(
+    peers: Any, tmp_path: Any
+) -> None:
+    """Exercise inbox context → member graph → callback sink → work_step retry."""
+    from deepagents import create_deep_agent
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from langchain_core.messages import HumanMessage, ToolMessage
+    from langchain_core.tools import tool
+    from octop_harness.observability.run_events import RunEventCallback
+
+    from octop.infra.agents.middleware.work_mode import WorkModeMiddleware
+    from octop.infra.db.migrate import run_migrations
+    from octop.infra.db.pool import SqlitePool
+    from octop.infra.db.services import RepoBundle
+    from octop.infra.execution.events import RunInspectionService
+    from octop.infra.execution.work_mode import WorkModeService, build_work_mode_tools
+
+    class Model(FakeMessagesListChatModel):
+        def bind_tools(self, tools: Any, **kwargs: Any) -> Any:
+            return self
+
+    @tool
+    def device_run(command: str) -> str:
+        """Probe a device (the transport boundary is stubbed in this regression)."""
+        return "GPU available"
+
+    rig = peers
+    db = SqlitePool(tmp_path / "member-callback.db")
+    run_migrations(db)
+    repos = RepoBundle.from_pool(db)
+    owner = repos.user_repo.create(username="owner", password_hash="unused", role="admin")
+    for agent in ("host", "member"):
+        repos.agent_repo.create(agent_id=agent, user_id=owner, name=agent)
+    repos.thread_repo.insert(
+        thread_id="room",
+        user_id=owner,
+        agent_id="host",
+        channel_type="dashboard",
+        session_key="work",
+    )
+    rig.tracker.devices.repos = repos
+    service = WorkModeService(repos)
+    member_states: list[Any] = []
+
+    async def run_member(request: Any) -> Any:
+        payload = _chat_request_payload(request, "member")
+        cfg = {
+            **payload["configurable"],
+            "thread_id": payload["thread_id"],
+            "user": payload["user"],
+            "work_mode": "agentic",
+        }
+        assert cfg["octop_task_run_id"] == "run-a"
+        repos.thread_repo.insert(
+            thread_id=cfg["thread_id"],
+            user_id=owner,
+            agent_id="member",
+            channel_type="dashboard",
+            session_key="peer:work",
+        )
+        model = Model(
+            responses=[
+                AIMessage(
+                    "",
+                    tool_calls=[
+                        {"id": "call_gpu", "name": "device_run", "args": {"command": "probe"}}
+                    ],
+                ),
+                AIMessage(
+                    "",
+                    tool_calls=[
+                        {
+                            "id": "call_bad_step",
+                            "name": "work_step",
+                            "args": {
+                                "stage": "execute",
+                                "status": "completed",
+                                "report": "GPU observed",
+                                "evidence_ids": ["call_bad_step"],
+                            },
+                        }
+                    ],
+                ),
+                AIMessage(
+                    "",
+                    tool_calls=[
+                        {
+                            "id": "call_retry",
+                            "name": "work_step",
+                            "args": {
+                                "stage": "execute",
+                                "status": "completed",
+                                "report": "GPU observed",
+                                "evidence_ids": ["call_gpu"],
+                            },
+                        }
+                    ],
+                ),
+                AIMessage(
+                    "",
+                    tool_calls=[
+                        {
+                            "id": "call_verify",
+                            "name": "work_step",
+                            "args": {
+                                "stage": "verify",
+                                "version": 1,
+                                "status": "completed",
+                                "report": "Receipt verified",
+                                "evidence_ids": ["tool:call_gpu"],
+                            },
+                        }
+                    ],
+                ),
+                AIMessage("Member verified"),
+            ]
+        )
+        callback = RunEventCallback(
+            lambda event: RunInspectionService(repos).tool_receipt("member", event)
+        )
+        graph = create_deep_agent(
+            model=model,
+            tools=[device_run, *build_work_mode_tools(service, "member")],
+            middleware=[WorkModeMiddleware(service, "member")],
+        )
+        result = await graph.ainvoke(
+            {"messages": [HumanMessage("Probe GPU")]},
+            config={"configurable": cfg, "callbacks": [callback]},
+        )
+        failed = next(
+            item
+            for item in result["messages"]
+            if isinstance(item, ToolMessage) and item.tool_call_id == "call_bad_step"
+        )
+        assert failed.status == "error"
+        state = service.begin(owner, "member", cfg)
+        assert state["status"] == "completed"
+        gpu = next(
+            item
+            for item in service.events.list(owner, "member", cfg["thread_id"], run_id="run-a")
+            if item["payload"].get("tool_call_id") == "call_gpu"
+        )
+        assert gpu["event_id"] != "tool:call_gpu"
+        assert all(
+            stage["evidence_ids"] == [gpu["event_id"]] for stage in state["payload"]["stages"]
+        )
+        member_states.append(state)
+        return result
+
+    rig.on_member.side_effect = run_member
+    try:
+        result = dispatch(rig)
+        await asyncio.wait_for(rig.started.wait(), 10)
+        assert service.events.get(owner, f"dispatch:{result.job_id}")["status"] == "accepted"
+        rig.release.set()
+        rig.finish.set()
+        await asyncio.wait_for(rig.tracker.wait_for_task_run(owner, "run-a"), 30)
+        assert len(member_states) == 1
+        assert service.events.get(owner, f"dispatch:{result.job_id}")["status"] == "completed"
+    finally:
+        await close(rig)
+        db.close()
 
 
 @pytest.mark.asyncio
