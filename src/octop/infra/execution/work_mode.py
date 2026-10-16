@@ -74,6 +74,35 @@ class WorkModeService:
             raise OctopError(ErrorCode.FORBIDDEN, "workflow mode changed within a run")
         return event
 
+    def _lookup_evidence(self, owner: int, run_id: str, identity: str) -> dict[str, Any] | None:
+        """Resolve a receipt id for this run.
+
+        Models often paste the raw ``operation_id`` / tool UUID from a tool
+        return instead of the RunEvent ``event_id`` (``operation:…`` / ``tool:…``).
+        Try those prefixes before rejecting. ``work_step`` itself is never evidence.
+        """
+        raw = str(identity or "").strip()
+        if not raw:
+            return None
+        candidates = [raw]
+        if ":" not in raw:
+            candidates.extend(
+                f"{prefix}:{raw}"
+                for prefix in ("operation", "tool", "dispatch", "job", "interaction", "plan")
+            )
+        for candidate in candidates:
+            item = self.events.get(owner, candidate)
+            if item is None:
+                continue
+            if (
+                item["run_id"] != run_id
+                or item["kind"] not in {"tool", "device", "job", "plan", "dispatch", "interaction"}
+                or item["payload"].get("name") == "work_step"
+            ):
+                continue
+            return item
+        return None
+
     def step(
         self,
         owner: int,
@@ -106,13 +135,8 @@ class WorkModeService:
             raise OctopError(ErrorCode.FORBIDDEN, "provide a bounded workflow report and evidence")
         evidence = []
         for identity in dict.fromkeys(evidence_ids):
-            item = self.events.get(owner, identity)
-            if (
-                item is None
-                or item["run_id"] != event["run_id"]
-                or item["kind"] not in {"tool", "device", "job", "plan", "dispatch", "interaction"}
-                or item["payload"].get("name") == "work_step"
-            ):
+            item = self._lookup_evidence(owner, event["run_id"], identity)
+            if item is None:
                 raise OctopError(ErrorCode.FORBIDDEN, "evidence must belong to this run")
             if item["status"] not in {"completed", "failed"}:
                 raise OctopError(ErrorCode.FORBIDDEN, "evidence has no final receipt")
@@ -295,10 +319,15 @@ def build_work_mode_tools(service: WorkModeService, agent_id: str) -> list[Any]:
         receipts = service.events.list(
             owner, agent_id, str(cfg["thread_id"]), run_id=str(cfg["octop_task_run_id"]), limit=100
         )
+        usable = [
+            item
+            for item in receipts
+            if item["kind"] != "workflow" and item["payload"].get("name") != "work_step"
+        ]
         return json.dumps(
             {
                 "workflow": event,
-                "receipts": [item for item in receipts if item["kind"] != "workflow"],
+                "receipts": usable,
             },
             ensure_ascii=False,
         )

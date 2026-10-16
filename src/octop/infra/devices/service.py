@@ -1384,6 +1384,53 @@ class DeviceService:
         op = self.repos.device_repo.get_operation(operation_id, owner)
         if op is None or op.action in STREAM_ACTIONS:
             return
+        inspect = RunInspectionService(self.repos)
+        event_id = f"operation:{operation_id}"
+        existing = inspect.events.get(owner, event_id)
+        if existing is not None:
+            # Always advance a receipt that was opened at submit time. Peer
+            # ask_agent can leave context.agent_id on the host while op.agent_id
+            # is the member; device_receipt's thread ownership check would
+            # otherwise skip the terminal status and block work_step evidence.
+            summary = {
+                **(existing.get("payload") or {}),
+                "operation_id": operation_id,
+                "action": op.action,
+                "device_id": op.device_id,
+            }
+            if op.result is not None:
+                summary["receipt"] = {
+                    key: value[:4096] if isinstance(value, str) else value
+                    for key, value in op.result.items()
+                    if key
+                    in {
+                        "job_id",
+                        "status",
+                        "returncode",
+                        "session_id",
+                        "sha256",
+                        "size",
+                        "recovery_id",
+                        "recovery_copy",
+                        "restored",
+                        "backup_path",
+                        "cancel_requested",
+                        "cancel_incomplete",
+                    }
+                    and isinstance(value, (str, int, float, bool, type(None)))
+                }
+            inspect.events.save(
+                event_id=event_id,
+                owner=owner,
+                agent_id=existing.get("agent_id"),
+                thread_id=existing.get("thread_id"),
+                run_id=str(existing["run_id"]),
+                context_id=existing.get("context_id"),
+                kind="device",
+                status=op.status,
+                payload=summary,
+            )
+            return
         context_id = op.params.get("execution_context_id")
         context = (
             ExecutionContextRepo(self.repos.db).get(owner, context_id)
@@ -1391,7 +1438,7 @@ class DeviceService:
             else None
         )
         if context and context.device_id == op.device_id and context.agent_id == op.agent_id:
-            RunInspectionService(self.repos).device_receipt(
+            inspect.device_receipt(
                 context, operation_id, op.action, op.status, op.params, op.result
             )
 
