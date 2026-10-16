@@ -70,6 +70,8 @@ def _capture(owner: int) -> dict[str, Any]:
             "octop_task_run_id",
             "conversation_mode",
             "work_mode",
+            "octop_target_policy",
+            "octop_explicit_target",
         )
         if key in cfg
     }
@@ -210,6 +212,19 @@ class PeerTaskTracker:
         def submit_peer(**kwargs: Any) -> Any:
             owner = int(kwargs["user_id"])
             snapshot = _capture(owner)
+            from octop.infra.agents.teams.target_visibility import apply_target_policy
+
+            cfg = snapshot.get("configurable") or {}
+            meta_in = kwargs.get("metadata") or {}
+            policy = meta_in.get("octop_target_policy") or cfg.get("octop_target_policy")
+            explicit = meta_in.get("octop_explicit_target") or cfg.get("octop_explicit_target")
+            snapshot = apply_target_policy(
+                snapshot,
+                policy=policy if isinstance(policy, str) else None,
+                explicit=explicit if isinstance(explicit, dict) else None,
+                devices=self.devices,
+                owner=owner,
+            )
             run_id = snapshot["configurable"].get("octop_task_run_id")
             if (owner, run_id) in self.cancelled_runs:
                 raise OctopError(ErrorCode.FORBIDDEN, "task already cancelled")
@@ -232,11 +247,26 @@ class PeerTaskTracker:
 
         async def invoke_peer(**kwargs: Any) -> Any:
             msg = inbox.get(kwargs.get("job_id")) if kwargs.get("job_id") else None
-            saved = (
-                self.context(msg.metadata, msg.user_id)
-                if msg is not None
-                else {**_capture(int(kwargs["user_id"])), "devices": self.devices}
-            )
+            if msg is not None:
+                saved = self.context(msg.metadata, msg.user_id)
+            else:
+                from octop.infra.agents.teams.target_visibility import apply_target_policy
+
+                owner = int(kwargs["user_id"])
+                snap = _capture(owner)
+                cfg = snap.get("configurable") or {}
+                snap = apply_target_policy(
+                    snap,
+                    policy=cfg.get("octop_target_policy")
+                    if isinstance(cfg.get("octop_target_policy"), str)
+                    else None,
+                    explicit=cfg.get("octop_explicit_target")
+                    if isinstance(cfg.get("octop_explicit_target"), dict)
+                    else None,
+                    devices=self.devices,
+                    owner=owner,
+                )
+                saved = {**snap, "devices": self.devices}
             token = _context.set(saved)
             try:
                 return await original_invoke(**kwargs)

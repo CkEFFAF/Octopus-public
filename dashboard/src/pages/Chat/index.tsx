@@ -1833,6 +1833,7 @@ function ChatPageInner() {
                   <DeviceTargetSelect
                     agentId={resolvedAgentId}
                     threadId={activeThreadId}
+                    roomUnify={isTeamChat}
                     defaultDeviceId={targetOption(
                       activeAgent?.config?.device_binding as
                         | { device_id?: string; target_kind?: string }

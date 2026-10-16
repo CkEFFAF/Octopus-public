@@ -264,7 +264,12 @@
       "missingDependency": "命令依赖未找到",
       "dependencies": "运行依赖",
       "notInstalled": "未安装"
-    }
+    },
+    "roomUnifyTitle": "房间统一执行设备",
+    "roomUnifyHint": "在此选择设备会统一本团队房间的后续 Run，不会改写各专家的默认设备绑定。",
+    "roomUnifySaved": "已统一本房间执行设备；未修改各专家默认绑定。",
+    "roomUnifyCleared": "已取消房间统一；专家将回落到各自默认。",
+    "clearRoomUnify": "取消房间统一"
   },
   "octopus": {
     "idle": "空闲",
@@ -1923,7 +1928,11 @@
       "members": "团队成员",
       "memberCount": "{{count}} 名成员",
       "emptyMembers": "暂无成员",
-      "hostNote": "主持人负责调度；下面是会在群聊中发言的专家。"
+      "hostNote": "主持人负责调度；下面是会在群聊中发言的专家。",
+      "defaultDevice": "默认设备",
+      "defaultModel": "模型",
+      "noDefaultDevice": "未绑定",
+      "noDefaultModel": "—"
     },
     "composerMore": "更多工具",
     "knowledgePicker": "知识库",

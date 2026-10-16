@@ -277,6 +277,43 @@ class TeamService:
             changed.append(row.agent_id)
         return changed
 
+    def _member_summary(self, team_agent_id: str, member: AgentRow) -> dict[str, Any]:
+        from octop.infra.agents.teams.target_visibility import (
+            binding_from_row,
+            expert_default_target,
+            model_ref_for_row,
+        )
+
+        binding = binding_from_row(member)
+        device_name = None
+        if isinstance(binding, dict) and binding.get("device_id"):
+            devices = getattr(self._repos, "device_repo", None)
+            if devices is not None and member.user_id is not None:
+                try:
+                    device = devices.get(str(binding["device_id"]))
+                    if (
+                        device is not None
+                        and getattr(device, "owner_user_id", None) == member.user_id
+                    ):
+                        device_name = getattr(device, "name", None)
+                except Exception:
+                    device_name = None
+        return {
+            "agent_id": member.agent_id,
+            "name": member.name,
+            "color": member.color,
+            "icon_name": member.icon_name,
+            "icon_url": member.icon_url,
+            "state": member.last_state or "unknown",
+            "busy": self.jobs.is_busy(team_agent_id, member.agent_id),
+            "is_shared": bool(int(member.is_shared or 0)),
+            "user_id": member.user_id,
+            "default_target": expert_default_target(
+                device_binding=binding, device_name=device_name
+            ),
+            "model_ref": model_ref_for_row(member),
+        }
+
     def team_payload(self, row: AgentRow) -> dict[str, Any]:
         ids = self.visible_member_ids(row.agent_id)
         member_rows = [self._repos.agent_repo.get(member_id) for member_id in ids]
@@ -294,17 +331,7 @@ class TeamService:
             "kind": TEAM_KIND,
             "member_ids": ids,
             "members": [
-                {
-                    "agent_id": member.agent_id,
-                    "name": member.name,
-                    "color": member.color,
-                    "icon_name": member.icon_name,
-                    "icon_url": member.icon_url,
-                    "state": member.last_state or "unknown",
-                    "busy": self.jobs.is_busy(row.agent_id, member.agent_id),
-                    "is_shared": bool(int(member.is_shared or 0)),
-                    "user_id": member.user_id,
-                }
+                self._member_summary(row.agent_id, member)
                 for member in member_rows
                 if member is not None
             ],
