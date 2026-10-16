@@ -72,6 +72,9 @@ NATIVE_TOOL_NAMES: tuple[str, ...] = (
     "octop_thread_status",
     "octop_thread_rename",
     "octop_device_select",
+    "context_inspect",
+    "context_events",
+    "context_file_ops",
 )
 
 
