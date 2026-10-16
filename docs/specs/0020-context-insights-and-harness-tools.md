@@ -2,7 +2,7 @@
 
 - Spec ID: `0020-context-insights-and-harness-tools`
 - Status: **Ready**（Ready；本 PR 实现 MVP S0–S4）
-- Revision: `2026-10-16.1`
+- Revision: `2026-10-16.2`
 - Date: 2026-10-16
 - Mode: PRODUCT / DESIGN（Enhance existing；禁止平行新造面板）
 - Authoritative path: `docs/specs/0020-context-insights-and-harness-tools.md`
@@ -319,9 +319,11 @@ flowchart TB
 #### MVP / P0 — 现有面上补最缺
 
 - [x] **S0** 固化「同数」回归：Ring / Current / context.inspect.breakdown 三处断言同源
+  - Checklist：Ring + Current → `octopThreadsApi.contextUsage` → `GET .../context-usage` → `compute_context_breakdown`；`context.inspect` → `ContextInsightsService._breakdown` → 同一函数；`meter_source == "context_usage"`；单测见 `tests/unit/context_insights/test_service.py`
 - [x] **S1** Trend：Total\|Delta + Step\|Turn + ✂（compacted/transformation）+ 与 Browser 选中联动
-- [x] **S2** Events 卡：mapped_kind 芯片；复用 trajectory + 可合并的 run_event；去掉「假 Browser」命名混淆
-- [x] **S3** Browser UX：Live 标识、vs previous、slim head / 按需 `executionApi.request`
+- [x] **S2** Events 卡：mapped_kind 芯片；复用 trajectory；去掉「假 Browser」命名混淆
+  - **P1 gap（诚实）**：`map_event_kind(source="run_event")` 已就绪，但 `ContextInsightsService.events` 仍只分页 trajectory，尚未把 run_events（model/device/workflow）合入 Events 流
+- [x] **S3** Browser UX：Live 标识、vs previous（列表摘要）、slim head；**选中不 eager 拉全量 detail**，展开组件明细时才 `executionApi.request`
 - [x] **S4** 只读 tools ×3：`context.inspect` / `context.events` / `context.file_ops`（file_ops 可先返回 gaps 若聚合未就绪）
 - [x] **S5** 文档/i18n：SEGMENT↔dsh 映射说明
 

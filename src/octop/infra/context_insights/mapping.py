@@ -42,7 +42,12 @@ def map_event_kind(
     payload: dict[str, Any] | None = None,
     source: str = "trajectory",
 ) -> str:
-    """Return a mapped_kind chip label; never invent evidence fields."""
+    """Return a mapped_kind chip label; never invent evidence fields.
+
+    P1: ``source="run_event"`` mapping is ready, but ``ContextInsightsService.events``
+    still pages trajectory only — folding run_events into the Events stream is tracked
+    as spec 0020 §5.2 P1 (not silent data invention).
+    """
     kind = (raw_kind or "").strip().lower()
     data = payload or {}
     if source == "run_event":
