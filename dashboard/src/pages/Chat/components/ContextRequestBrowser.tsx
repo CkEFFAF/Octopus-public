@@ -29,11 +29,13 @@ export default function ContextRequestBrowser({
   threadId,
   live,
   focusRequestId,
+  highlightRequestSeq,
 }: {
   agentId: string;
   threadId: string;
   live?: boolean;
   focusRequestId?: string;
+  highlightRequestSeq?: number | null;
 }) {
   const { t } = useTranslation();
   const [requests, setRequests] = useState<RequestSnapshot[]>([]);
@@ -94,6 +96,11 @@ export default function ContextRequestBrowser({
   useEffect(() => {
     if (focusRequestId) setPicked(focusRequestId);
   }, [focusRequestId]);
+  useEffect(() => {
+    if (highlightRequestSeq == null) return;
+    const match = requests.find((item) => item.seq === highlightRequestSeq);
+    if (match) setPicked(match.request_id);
+  }, [highlightRequestSeq, requests]);
   useEffect(() => {
     void refresh();
     const timer = setInterval(
@@ -187,7 +194,14 @@ export default function ContextRequestBrowser({
     <>
       <section>
         <div className={styles.requestHeading}>
-          <h3>{t("chat.contextInspect.requests")}</h3>
+          <h3>
+            {t("chat.contextInspect.requests")}
+            {live ? (
+              <Tag color="processing" style={{ marginLeft: 8 }}>
+                {t("chat.contextInspect.live")}
+              </Tag>
+            ) : null}
+          </h3>
           <Button size="small" loading={loading} onClick={() => void refresh()}>
             {t("common.refresh")}
           </Button>
@@ -357,7 +371,19 @@ export default function ContextRequestBrowser({
       </section>
       {selected && (
         <section>
-          <h3>{t("chat.contextInspect.finalRequest")}</h3>
+          <div className={styles.requestHeading}>
+            <h3>{t("chat.contextInspect.finalRequest")}</h3>
+            {previous && (
+              <Tag>
+                {t("chat.contextInspect.vsPrevious", {
+                  delta:
+                    delta == null
+                      ? "—"
+                      : `${delta >= 0 ? "+" : ""}${number(delta)}`,
+                })}
+              </Tag>
+            )}
+          </div>
           {(detail?.components_truncated || detail?.metadata_truncated) && (
             <Alert
               type="info"
@@ -366,13 +392,15 @@ export default function ContextRequestBrowser({
               })}
             />
           )}
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t("chat.contextInspect.search")}
-            allowClear
-          />
-          <div className={styles.browser}>
+          <details className={styles.slimDetail}>
+            <summary>{t("chat.contextInspect.expandComponents")}</summary>
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t("chat.contextInspect.search")}
+              allowClear
+            />
+            <div className={styles.browser}>
             {detail ? (
               detail.components
                 .filter(
@@ -437,6 +465,7 @@ export default function ContextRequestBrowser({
               <Spin size="small" />
             )}
           </div>
+          </details>
           {removedComponents.length > 0 && (
             <details className={styles.event}>
               <summary>
