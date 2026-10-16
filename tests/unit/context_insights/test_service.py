@@ -172,3 +172,85 @@ def test_file_op_avoids_broad_substring_matches() -> None:
     assert _file_op("interaction", {"tool": "apply_patch"}) == "writes"
     assert _file_op("interaction", {"tool": "codebase_search"}) == "searches"
     assert _file_op("interaction", {"op": "read"}) == "reads"
+
+
+@pytest.mark.asyncio
+async def test_inspect_stats_include_tool_calls_and_null_cost() -> None:
+    repo = MagicMock()
+    repo.trajectory_event_repo.list_before.return_value = [
+        _event(seq=1, kind="user", payload={"input_tokens": 10}),
+        _event(event_id="t1", seq=2, kind="tool", summary="bash", payload={}),
+        _event(event_id="t2", seq=3, kind="tool", summary="read", payload={}),
+        _event(event_id="a1", seq=4, kind="assistant", payload={"input_tokens": 20}),
+    ]
+    repo.usage_repo = MagicMock()
+    service = ContextInsightsService(MagicMock(), repo)
+    result = await service.inspect(owner=1, agent_id="a1", thread_id="t1", include=["stats"])
+    assert result["stats"]["tool_calls"] == 2
+    assert result["stats"]["cost"] is None
+    assert "cost_no_pricing_sot" in result["stats"]["gaps"]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_summary_honest_gaps_and_sessions() -> None:
+    usage = MagicMock()
+    usage.summary.return_value = {
+        "window": "last_7d",
+        "range_start": 1,
+        "range_end": 2,
+        "total_tokens": 1000,
+        "turns": 4,
+        "model_calls": 4,
+        "cache_hit_percent": 50,
+        "buckets": [
+            {"key": "2026-10-15", "label": "2026-10-15", "total_tokens": 600, "turns": 2},
+            {"key": "2026-10-14", "label": "2026-10-14", "total_tokens": 400, "turns": 2},
+        ],
+    }
+    usage.thread_rollup.return_value = [
+        {
+            "agent_id": "a1",
+            "thread_id": "th-1",
+            "input_tokens": 80,
+            "cache_read_tokens": 40,
+            "output_tokens": 20,
+            "total_tokens": 100,
+            "model_calls": 2,
+            "turns": 2,
+            "last_ts": 100,
+        },
+        {
+            "agent_id": "a1",
+            "thread_id": "th-2",
+            "input_tokens": 10,
+            "cache_read_tokens": 0,
+            "output_tokens": 5,
+            "total_tokens": 15,
+            "model_calls": 1,
+            "turns": 1,
+            "last_ts": 90,
+        },
+    ]
+    usage.count_active_threads.return_value = 2
+    threads = MagicMock()
+    threads.count_by_user.return_value = 9
+    threads.get_many.return_value = {
+        "th-1": SimpleNamespace(title="Hello", agent_id="a1", last_active=100),
+    }
+    repo = MagicMock()
+    repo.usage_repo = usage
+    repo.thread_repo = threads
+    service = ContextInsightsService(MagicMock(), repo)
+    result = await service.dashboard_summary(owner=7, window="last_7d", query="hello")
+    assert result["kpi"]["active_sessions"] == 2
+    assert result["kpi"]["total_sessions"] == 9
+    assert result["kpi"]["total_tokens"] == 1000
+    assert result["kpi"]["cost"] is None
+    assert result["kpi"]["balance"] is None
+    assert result["kpi"]["tool_calls"] is None
+    assert "cost_no_pricing_sot" in result["gaps"]
+    assert "balance_no_provider_sot" in result["gaps"]
+    assert len(result["sessions"]) == 1  # filtered by query
+    assert result["sessions"][0]["title"] == "Hello"
+    assert result["sessions"][0]["cost"] is None
+    assert result["by_day"][0]["cost"] is None

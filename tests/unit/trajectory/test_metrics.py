@@ -62,6 +62,7 @@ def test_aggregate_metrics_sums_durations_and_tokens() -> None:
     assert metrics == TrajectoryMetrics(
         turns=0,
         steps=5,
+        tool_calls=3,
         llm_duration_ms=3000.0,
         tool_duration_ms=1000.0,
         ttft_avg_ms=200.0,
@@ -84,6 +85,7 @@ def test_aggregate_metrics_counts_user_turns() -> None:
 
     assert metrics.turns == 2
     assert metrics.steps == 3
+    assert metrics.tool_calls == 0
     assert metrics.llm_duration_ms == 500.0
     assert metrics.tool_duration_ms is None
     assert metrics.ttft_avg_ms is None
