@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import time
 from collections.abc import Callable
@@ -13,9 +14,10 @@ def retry_file_lock[T](operation: Callable[[], T]) -> T:
         try:
             return operation()
         except PermissionError as exc:
+            winerror = getattr(exc, "winerror", None)
             if (
                 os.name != "nt"
-                or getattr(exc, "winerror", None) not in {5, 32, 33}
+                or not (winerror in {5, 32, 33} or (winerror is None and exc.errno == errno.EACCES))
                 or time.monotonic() >= deadline
             ):
                 raise

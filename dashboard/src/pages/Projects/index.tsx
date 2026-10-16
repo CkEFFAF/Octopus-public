@@ -25,7 +25,8 @@ import {
 } from "lucide-react";
 import { teamsApi, type TeamRecord } from "../../api/modules/teams";
 import { taskBoardApi, type BoardSnapshot } from "../../api/modules/taskBoard";
-import { useAgent } from "../../context/AgentContext";
+import EditAgentDrawer from "../Experts/components/EditAgentDrawer";
+import { useAgent, type OctopAgent } from "../../context/AgentContext";
 import { apiErrorMessage } from "../../utils/apiError";
 import PageShell from "../../layouts/PageShell";
 import { ExpertIcon } from "../Experts/components/iconForName";
@@ -39,6 +40,7 @@ export default function ProjectsPage() {
   const [teams, setTeams] = useState<TeamRecord[]>([]);
   const [board, setBoard] = useState<BoardSnapshot | null>(null);
   const [error, setError] = useState("");
+  const [editingExpert, setEditingExpert] = useState<OctopAgent | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
@@ -258,7 +260,19 @@ export default function ProjectsPage() {
                       <Button
                         size="small"
                         onClick={() =>
-                          goAgent(member.agent_id, "/personalization/skills")
+                          setEditingExpert(
+                            agents.find(
+                              (agent) => agent.agent_id === member.agent_id,
+                            ) ??
+                              ({
+                                agent_id: member.agent_id,
+                                name: member.name,
+                                state: member.state ?? "stopped",
+                                is_owner: false,
+                                user_id: member.user_id,
+                                config: {},
+                              } as OctopAgent),
+                          )
                         }
                       >
                         {tr("configuration")}
@@ -308,6 +322,16 @@ export default function ProjectsPage() {
           )}
         </>
       )}
+      <EditAgentDrawer
+        defaultsOnly
+        open={editingExpert !== null}
+        agent={editingExpert}
+        onClose={() => setEditingExpert(null)}
+        onSaved={() => {
+          void refresh({ silent: true, force: true });
+          void load();
+        }}
+      />
       <Modal
         title={tr(editing === "new" ? "newProject" : "manageMembers")}
         open={Boolean(editing)}

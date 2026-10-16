@@ -24,7 +24,6 @@ import AgentTrajectoryField from "./AgentTrajectoryField";
 import { workspaceApi } from "../../../api/modules/workspace";
 import { skillPackagesApi } from "../../../api/modules/skillPackages";
 import { devicesApi, type Device } from "../../../api/modules/devices";
-import { useCurrentUser } from "../../../hooks/useCurrentUser";
 import { LOCAL_TARGET, targetOption } from "../../Chat/hooks/deviceTarget";
 import { apiErrorMessage, isNotFoundApiError } from "../../../utils/apiError";
 import { isAgentChatReady } from "../../../utils/agentError";
@@ -39,7 +38,6 @@ import {
 import ExpertAvatarPicker from "./ExpertAvatarPicker";
 import WorkspaceDrawer from "../../Agent/Workspace/components/WorkspaceDrawer";
 import {
-  buildModelSelectOptions,
   defaultModelFromForm,
   defaultModelToForm,
 } from "../../../utils/modelOptions";
@@ -83,6 +81,8 @@ import {
   type PathMapping,
 } from "./agentBackendForm";
 import AgentBackendFields from "./AgentBackendFields";
+import ExpertModelDeviceFields from "./ExpertModelDeviceFields";
+import ExpertDefaultsEditor from "./ExpertDefaultsEditor";
 import ExpertComposerDefaultsFields from "./ExpertComposerDefaultsFields";
 import SkillCatalogDrawer from "./SkillCatalogDrawer";
 import SubagentCatalogDrawer from "./SubagentCatalogDrawer";
@@ -158,6 +158,7 @@ interface EditFormValues {
 }
 
 interface EditAgentDrawerProps {
+  defaultsOnly?: boolean;
   open: boolean;
   agent: OctopAgent | null;
   onClose: () => void;
@@ -233,7 +234,6 @@ function EditAgentDrawerBody({
   onSavingChange,
 }: EditAgentDrawerBodyProps) {
   const { t } = useTranslation();
-  const currentUser = useCurrentUser();
   const { modal, message } = App.useApp();
   const { refresh } = useAgent();
   const skillDisplayName = useSkillDisplayName();
@@ -254,7 +254,6 @@ function EditAgentDrawerBody({
   const [loading, setLoading] = useState(false);
   const [filesLoading, setFilesLoading] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
-  const boundDeviceId = Form.useWatch("device_id", form) as string | undefined;
   const [saving, setSaving] = useState(false);
   const [fileModalOpen, setFileModalOpen] = useState(false);
   const [editingFile, setEditingFile] = useState<string | null>(null);
@@ -881,101 +880,12 @@ function EditAgentDrawerBody({
                   }))}
                 />
               </Form.Item>
-              <Form.Item
-                name="default_model"
-                label={t("experts.defaultModelLabel")}
-              >
-                <Select
-                  loading={modelsLoading}
-                  placeholder={t("experts.defaultModelPlaceholder")}
-                  options={buildModelSelectOptions(
-                    models,
-                    t("experts.defaultModelAuto"),
-                  )}
-                  showSearch
-                  filterOption={(input, opt) =>
-                    ((opt?.label as string) ?? "")
-                      .toLowerCase()
-                      .includes(input.toLowerCase())
-                  }
-                />
-              </Form.Item>
-
-              <Form.Item
-                name="device_id"
-                label={t("experts.deviceBindingLabel")}
-                extra={t("experts.deviceBindingHint")}
-              >
-                <Select
-                  allowClear
-                  placeholder={t("experts.deviceBindingLocal")}
-                  options={[
-                    ...(currentUser?.role === "admin"
-                      ? [
-                          {
-                            value: LOCAL_TARGET,
-                            label: t("devices.localExecution"),
-                          },
-                        ]
-                      : []),
-                    ...devices
-                      .filter((item) => item.revoked_at === null)
-                      .map((item) => ({
-                        value: item.device_id,
-                        label: `${item.name}${
-                          item.online ? "" : ` · ${t("devices.offline")}`
-                        }`,
-                      })),
-                  ]}
-                  onChange={() => {
-                    form.setFieldValue("device_root_id", undefined);
-                    form.setFieldValue("device_working_dir", undefined);
-                  }}
-                />
-              </Form.Item>
-              {boundDeviceId &&
-                (boundDeviceId === LOCAL_TARGET ||
-                  devices.find((item) => item.device_id === boundDeviceId)
-                    ?.trust_mode === "owner") && (
-                  <Form.Item
-                    name="device_working_dir"
-                    label={t("devices.trust.workingDir")}
-                    extra={t("devices.trust.ownerHint")}
-                  >
-                    <Input
-                      placeholder={
-                        devices.find((item) => item.device_id === boundDeviceId)
-                          ?.runtime?.working_dir
-                      }
-                    />
-                  </Form.Item>
-                )}
-              {boundDeviceId &&
-                devices.find((item) => item.device_id === boundDeviceId)
-                  ?.trust_mode !== "owner" && (
-                  <Form.Item
-                    name="device_root_id"
-                    label={t("experts.deviceRootLabel")}
-                    rules={[
-                      {
-                        required: true,
-                        message: t("experts.deviceRootRequired"),
-                      },
-                    ]}
-                  >
-                    <Select
-                      options={
-                        devices
-                          .find((item) => item.device_id === boundDeviceId)
-                          ?.roots.filter((root) => root.read)
-                          .map((root) => ({
-                            value: root.id,
-                            label: `${root.name} · ${root.path}`,
-                          })) ?? []
-                      }
-                    />
-                  </Form.Item>
-                )}
+              <ExpertModelDeviceFields
+                form={form}
+                models={models}
+                modelsLoading={modelsLoading}
+                devices={devices}
+              />
 
               <AgentBackendFields
                 backends={backends}
@@ -1483,6 +1393,7 @@ function EditAgentDrawerBody({
 }
 
 export default function EditAgentDrawer({
+  defaultsOnly = false,
   open,
   agent,
   onClose,
@@ -1491,6 +1402,11 @@ export default function EditAgentDrawer({
   const { t } = useTranslation();
   const saveRef = useRef<(() => Promise<void>) | null>(null);
   const [saving, setSaving] = useState(false);
+  const [fullSettings, setFullSettings] = useState(false);
+  useEffect(() => {
+    setFullSettings(false);
+  }, [open, agent?.agent_id]);
+  const quick = defaultsOnly && !fullSettings;
 
   const handleSaveReady = useCallback((save: () => Promise<void>) => {
     saveRef.current = save;
@@ -1499,33 +1415,56 @@ export default function EditAgentDrawer({
   return (
     <Drawer
       open={open}
-      title={t("experts.editExpert")}
+      title={
+        quick
+          ? `${agent?.name ?? ""} · ${t("chat.agentProfile.configureDefaults")}`
+          : t("experts.editExpert")
+      }
       width={520}
-      onClose={onClose}
+      onClose={saving ? undefined : onClose}
+      maskClosable={!saving}
+      keyboard={!saving}
       destroyOnHidden
       footer={
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button className={styles.drawerCancelBtn} onClick={onClose}>
-            {t("common.cancel")}
-          </button>
-          <button
-            className={styles.drawerSaveBtn}
-            onClick={() => void saveRef.current?.()}
-            disabled={saving}
-          >
-            {saving ? t("experts.creating") : t("common.save")}
-          </button>
-        </div>
+        quick ? null : (
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button
+              className={styles.drawerCancelBtn}
+              onClick={onClose}
+              disabled={saving}
+            >
+              {t("common.cancel")}
+            </button>
+            <button
+              className={styles.drawerSaveBtn}
+              onClick={() => void saveRef.current?.()}
+              disabled={saving}
+            >
+              {saving ? t("experts.creating") : t("common.save")}
+            </button>
+          </div>
+        )
       }
     >
       {open && agent ? (
-        <EditAgentDrawerBody
-          agent={agent}
-          onClose={onClose}
-          onSaved={onSaved}
-          onSaveReady={handleSaveReady}
-          onSavingChange={setSaving}
-        />
+        quick ? (
+          <ExpertDefaultsEditor
+            key={agent.agent_id}
+            agent={agent}
+            onClose={onClose}
+            onSaved={onSaved}
+            onSavingChange={setSaving}
+            onFullSettings={() => setFullSettings(true)}
+          />
+        ) : (
+          <EditAgentDrawerBody
+            agent={agent}
+            onClose={onClose}
+            onSaved={onSaved}
+            onSaveReady={handleSaveReady}
+            onSavingChange={setSaving}
+          />
+        )
       ) : null}
     </Drawer>
   );

@@ -3,10 +3,11 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { Collapse, Drawer, Spin, Tag } from "antd";
+import { Button, Collapse, Drawer, Spin, Tag } from "antd";
 import { ChevronLeft } from "lucide-react";
 import { request } from "../api/request";
 import { withFromWorkspace } from "../utils/fromWorkspace";
@@ -19,6 +20,8 @@ import {
   type AgentSubagentSummary,
 } from "../api/modules/subagents";
 import { teamsApi, type TeamMemberSummary } from "../api/modules/teams";
+import EditAgentDrawer from "../pages/Experts/components/EditAgentDrawer";
+import { useCurrentUser } from "../hooks/useCurrentUser";
 import MbtiPersonaTag from "./MbtiPersonaTag";
 import { CopyableResourceId } from "./CopyableResourceId";
 import {
@@ -102,6 +105,7 @@ function ProfileEntityCard({
 
 interface AgentProfileDrawerProps {
   open: boolean;
+  configureDefaults?: boolean;
   agent: OctopAgent | null;
   isMobile?: boolean;
   onClose: () => void;
@@ -109,12 +113,16 @@ interface AgentProfileDrawerProps {
 
 export default function AgentProfileDrawer({
   open,
+  configureDefaults = false,
   agent,
   isMobile = false,
   onClose,
 }: AgentProfileDrawerProps) {
   const { t } = useTranslation();
-  const { agents } = useAgent();
+  const { agents, refresh } = useAgent();
+  const user = useCurrentUser();
+  const [editingAgent, setEditingAgent] = useState<OctopAgent | null>(null);
+  const [profileRevision, setProfileRevision] = useState(0);
   const skillDisplayName = useSkillDisplayName();
   const [loading, setLoading] = useState(false);
   const [filesLoading, setFilesLoading] = useState(false);
@@ -129,6 +137,21 @@ export default function AgentProfileDrawer({
   const [skillCatalogOpen, setSkillCatalogOpen] = useState(false);
   const [subagentCatalogOpen, setSubagentCatalogOpen] = useState(false);
   const [workspaceDrawerOpen, setWorkspaceDrawerOpen] = useState(false);
+
+  const configuredAgent = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open) configuredAgent.current = null;
+    if (
+      open &&
+      configureDefaults &&
+      agent &&
+      !isTeamAgent(agent) &&
+      configuredAgent.current !== agent.agent_id
+    ) {
+      configuredAgent.current = agent.agent_id;
+      setEditingAgent(agent);
+    }
+  }, [open, configureDefaults, agent]);
 
   const installedSlugs = useMemo(
     () => new Set(subagents.map((s) => s.slug)),
@@ -245,10 +268,11 @@ export default function AgentProfileDrawer({
     return () => {
       cancelled = true;
     };
-  }, [open, agent]);
+  }, [open, agent, profileRevision]);
 
   useEffect(() => {
     if (!open) {
+      setEditingAgent(null);
       setViewingFile(null);
       setFileContent("");
       setSkillCatalogOpen(false);
@@ -385,6 +409,14 @@ export default function AgentProfileDrawer({
           )}
         </div>
 
+        {!isTeam ? (
+          <div className={expertStyles.drawerSection}>
+            <Button onClick={() => setEditingAgent(agent)}>
+              {t("chat.agentProfile.configureDefaults")}
+            </Button>
+          </div>
+        ) : null}
+
         {isTeam ? (
           <div className={expertStyles.drawerSection}>
             <div className={expertStyles.drawerSectionTitle}>
@@ -409,7 +441,6 @@ export default function AgentProfileDrawer({
               ) : (
                 visibleTeamMembers.map((member) => {
                   const accent = member.color || "#0d9488";
-                  const stateKey = member.state || "unknown";
                   const target = member.default_target;
                   const targetLabel =
                     target?.target_kind === "local"
@@ -438,13 +469,39 @@ export default function AgentProfileDrawer({
                         </div>
                       }
                       title={member.name}
-                      description={`${t("chat.teamProfile.defaultDevice")}: ${targetLabel} · ${t("chat.teamProfile.defaultModel")}: ${modelLabel}`}
+                      description={`${t(
+                        "chat.teamProfile.defaultDevice",
+                      )}: ${targetLabel} · ${t(
+                        "chat.teamProfile.defaultModel",
+                      )}: ${modelLabel}`}
                       trailing={
-                        <span className={expertStyles.fileHint}>
-                          {t(`common.agentState.${stateKey}`, {
-                            defaultValue: stateKey,
+                        <Button
+                          size="small"
+                          aria-label={t("chat.agentProfile.configureMember", {
+                            name: member.name,
                           })}
-                        </span>
+                          onClick={() => {
+                            const found = agents.find(
+                              (item) => item.agent_id === member.agent_id,
+                            );
+                            setEditingAgent(
+                              found ??
+                                ({
+                                  agent_id: member.agent_id,
+                                  name: member.name,
+                                  state: member.state ?? "stopped",
+                                  is_owner:
+                                    member.user_id != null &&
+                                    member.user_id === user?.id,
+                                  is_shared: member.is_shared,
+                                  user_id: member.user_id,
+                                  config: {},
+                                } as OctopAgent),
+                            );
+                          }}
+                        >
+                          {t("chat.agentProfile.configureDefaults")}
+                        </Button>
                       }
                     />
                   );
@@ -760,9 +817,23 @@ export default function AgentProfileDrawer({
       profileTitle
     );
 
+  const defaultsEditor = (
+    <EditAgentDrawer
+      defaultsOnly
+      open={open && editingAgent !== null}
+      agent={editingAgent}
+      onClose={() => setEditingAgent(null)}
+      onSaved={() => {
+        void refresh({ silent: true, force: true });
+        setProfileRevision((value) => value + 1);
+      }}
+    />
+  );
+
   if (isMobile) {
     return (
       <>
+        {defaultsEditor}
         <Drawer
           open={open}
           title={mobileTitle}
@@ -805,6 +876,7 @@ export default function AgentProfileDrawer({
 
   return (
     <>
+      {defaultsEditor}
       <Drawer
         open={open}
         title={profileTitle}

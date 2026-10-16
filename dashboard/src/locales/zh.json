@@ -1625,6 +1625,7 @@
     "path_outside_root": "文件路径超出当前专家的存储根目录，无法读写。请改用存储根目录内的路径，或在专家设置中扩大存储根目录（Windows 上请显式指定盘符路径，例如 D:/octop-data）。"
   },
   "chat": {
+    "resizeComposer": "调整输入区高度",
     "contextInspect": {
       "sourceTypes": {
         "reference_file": "注入的参考文件",
@@ -1952,6 +1953,12 @@
     "teamBadge": "团队",
     "teamHostHover": "[{{name}}] 主持人",
     "agentProfile": {
+      "fullSettings": "完整专家设置",
+      "discardDefaults": "放弃未保存的修改并打开完整专家设置？",
+      "configureDefaults": "模型与设备",
+      "configureMember": "配置 {{name}} 的模型与设备",
+      "defaultsHint": "这里修改的是专家的持久默认配置。当前聊天显式选择的模型或执行目标优先；正在运行的轮次保持现有配置，更新按既有待重载规则生效。",
+      "defaultsReadOnly": "仅专家所有者或管理员可以修改这些默认配置。",
       "open": "查看专家详情",
       "title": "专家详情",
       "openTeam": "查看团队详情",
@@ -2483,6 +2490,11 @@
     "generate_video": "生成视频"
   },
   "chatUsage": {
+    "loading": "用量加载中…",
+    "unavailable": "历史未完整加载，用量暂不可用",
+    "loadedMessages": "已加载消息用量",
+    "noUsage": "暂无用量",
+    "turnDetails": "本轮用量详情",
     "latestRun": "最近一次请求",
     "sessionTotal": "本会话累计",
     "input": "输入",

@@ -13,7 +13,10 @@ import { useCurrentUser, useSetCurrentUser } from "../hooks/useCurrentUser";
 import { useUpdateStatus } from "../hooks/useUpdateStatus";
 import { prefetchRoute } from "../routes/prefetch";
 import { useServerCapabilities } from "../hooks/useServerCapabilities";
-import { useChatSidebarOpen } from "../pages/Chat/hooks/useChatSidebarState";
+import {
+  useChatSidebarOpen,
+  useChatSidebarState,
+} from "../pages/Chat/hooks/useChatSidebarState";
 import { EXPAND_CHAT_RAIL_EVENT } from "../pages/Chat/components/ChatSidebarPanel";
 import {
   CHAT_HISTORY_RAIL_ID,
@@ -428,6 +431,16 @@ export default function Sidebar({
   const showChatRailExpand = !isMinimal && !chatSidebarOpen;
 
   const isRailCollapsed = collapsed && !isMobile;
+  const {
+    sidebarWidth,
+    sidebarElRef,
+    handleSidebarResizeStart,
+    handleSidebarResizeKey,
+    isSidebarResizing,
+    sidebarBounds,
+  } = useChatSidebarState(Boolean(isMobile));
+  const resizeRecords =
+    isMinimal && minimalPane === "records" && !isMobile && !isRailCollapsed;
   const wordmarkSrc = isDark
     ? "/logo_horizontal_white.png"
     : "/logo_horizontal_dark.png";
@@ -769,13 +782,24 @@ export default function Sidebar({
   // Right border is drawn by MainLayout's RailEdgeControl.
   return (
     <div
+      ref={resizeRecords ? sidebarElRef : undefined}
       style={{
-        width: isRailCollapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH,
-        minWidth: isRailCollapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH,
+        position: "relative",
+        width: resizeRecords
+          ? sidebarWidth
+          : isRailCollapsed
+          ? COLLAPSED_WIDTH
+          : EXPANDED_WIDTH,
+        minWidth: resizeRecords
+          ? sidebarWidth
+          : isRailCollapsed
+          ? COLLAPSED_WIDTH
+          : EXPANDED_WIDTH,
         background: "var(--fn-sidebar-bg)",
         borderRight: "none",
-        transition:
-          "width 0.25s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+        transition: isSidebarResizing
+          ? "none"
+          : "width 0.25s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
@@ -814,6 +838,20 @@ export default function Sidebar({
 
       {userFooter}
       {customizer}
+      {resizeRecords ? (
+        <div
+          role="separator"
+          tabIndex={0}
+          aria-orientation="vertical"
+          aria-label={t("chat.resizeSidebar")}
+          aria-valuemin={sidebarBounds.min}
+          aria-valuemax={sidebarBounds.max}
+          aria-valuenow={sidebarWidth}
+          className={styles.recordsResizeHandle}
+          onPointerDown={handleSidebarResizeStart}
+          onKeyDown={handleSidebarResizeKey}
+        />
+      ) : null}
     </div>
   );
 }

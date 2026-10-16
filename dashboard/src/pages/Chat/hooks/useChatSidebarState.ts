@@ -1,4 +1,10 @@
-import { useCallback, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { beginPointerDragSession } from "../../../hooks/usePointerDragSession";
 
 export const CHAT_SIDEBAR_KEY = "octop:chat-sidebar:open";
@@ -26,7 +32,7 @@ function loadSidebarWidth(): number {
   try {
     const raw = localStorage.getItem(CHAT_SIDEBAR_WIDTH_KEY);
     if (!raw) return SIDEBAR_WIDTH_DEFAULT;
-    const n = Number.parseInt(raw, 10);
+    const n = Number(raw);
     if (
       Number.isFinite(n) &&
       n >= SIDEBAR_WIDTH_MIN &&
@@ -97,8 +103,16 @@ export function useChatSidebarOpen(): [
   return [value, setSidebarOpenGlobal];
 }
 
-function clampSidebarWidth(n: number): number {
-  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, n));
+export function sidebarWidthBounds(viewport: number, left: number) {
+  const max = Math.max(1, Math.min(SIDEBAR_WIDTH_MAX, viewport - left - 336));
+  return { min: Math.min(SIDEBAR_WIDTH_MIN, max), max };
+}
+function clampSidebarWidth(n: number, element: HTMLElement | null): number {
+  const bounds = sidebarWidthBounds(
+    window.innerWidth,
+    element?.getBoundingClientRect().left ?? 0,
+  );
+  return Math.min(bounds.max, Math.max(bounds.min, n));
 }
 
 function applySidebarWidth(el: HTMLElement | null, width: number) {
@@ -123,6 +137,51 @@ export function useChatSidebarState(isMobile: boolean) {
   const sidebarElRef = useRef<HTMLDivElement>(null);
   const resizeStartRef = useRef({ x: 0, width: 0 });
   const pendingWidthRef = useRef<number | null>(null);
+  const dragCleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => dragCleanup.current?.(), []);
+  const commitWidth = useCallback((width: number) => {
+    const next = clampSidebarWidth(width, sidebarElRef.current);
+    sidebarWidthRef.current = next;
+    applySidebarWidth(sidebarElRef.current, next);
+    setSidebarWidth(next);
+    try {
+      localStorage.setItem(CHAT_SIDEBAR_WIDTH_KEY, String(next));
+      window.dispatchEvent(
+        new CustomEvent("octop:chat-sidebar-width", { detail: next }),
+      );
+    } catch {
+      /* unavailable */
+    }
+  }, []);
+  useEffect(() => {
+    const sync = (event: Event) => {
+      const value = (event as CustomEvent<number>).detail;
+      sidebarWidthRef.current = value;
+      applySidebarWidth(sidebarElRef.current, value);
+      setSidebarWidth(value);
+    };
+    window.addEventListener("octop:chat-sidebar-width", sync);
+    return () => window.removeEventListener("octop:chat-sidebar-width", sync);
+  }, []);
+  useEffect(() => {
+    if (isMobile) return;
+    const clamp = () => {
+      if (sidebarElRef.current) commitWidth(sidebarWidthRef.current);
+    };
+    clamp();
+    window.addEventListener("resize", clamp);
+    return () => window.removeEventListener("resize", clamp);
+  }, [isMobile, commitWidth]);
+  const handleSidebarResizeKey = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      commitWidth(
+        sidebarWidthRef.current + (event.key === "ArrowRight" ? 20 : -20),
+      );
+    },
+    [commitWidth],
+  );
 
   const handleSidebarResizeStart = useCallback(
     (e: React.PointerEvent) => {
@@ -130,6 +189,8 @@ export function useChatSidebarState(isMobile: boolean) {
       e.preventDefault();
       e.stopPropagation();
 
+      dragCleanup.current?.();
+      dragCleanup.current = null;
       const handle = e.currentTarget as HTMLElement;
       setIsSidebarResizing(true);
       resizeStartRef.current = {
@@ -138,34 +199,29 @@ export function useChatSidebarState(isMobile: boolean) {
       };
       pendingWidthRef.current = sidebarWidthRef.current;
 
-      beginPointerDragSession({
+      dragCleanup.current = beginPointerDragSession({
         pointerId: e.pointerId,
         target: handle,
         cursor: "col-resize",
         onMove: (clientX) => {
           const next = clampSidebarWidth(
             resizeStartRef.current.width + clientX - resizeStartRef.current.x,
+            sidebarElRef.current,
           );
           pendingWidthRef.current = next;
           sidebarWidthRef.current = next;
           applySidebarWidth(sidebarElRef.current, next);
         },
         onEnd: () => {
+          dragCleanup.current = null;
           const finalWidth = pendingWidthRef.current ?? sidebarWidthRef.current;
           pendingWidthRef.current = null;
           setIsSidebarResizing(false);
-          sidebarWidthRef.current = finalWidth;
-          applySidebarWidth(sidebarElRef.current, finalWidth);
-          setSidebarWidth(finalWidth);
-          try {
-            localStorage.setItem(CHAT_SIDEBAR_WIDTH_KEY, String(finalWidth));
-          } catch {
-            /* ignore */
-          }
+          commitWidth(finalWidth);
         },
       });
     },
-    [isMobile],
+    [isMobile, commitWidth],
   );
 
   return {
@@ -175,5 +231,10 @@ export function useChatSidebarState(isMobile: boolean) {
     isSidebarResizing,
     sidebarElRef,
     handleSidebarResizeStart,
+    handleSidebarResizeKey,
+    sidebarBounds: sidebarWidthBounds(
+      window.innerWidth,
+      sidebarElRef.current?.getBoundingClientRect().left ?? 0,
+    ),
   };
 }

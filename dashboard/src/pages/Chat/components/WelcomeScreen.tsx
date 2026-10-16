@@ -1,3 +1,4 @@
+import { Dropdown } from "antd";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWelcomeQuickCardsLayout } from "../hooks/useWelcomeQuickCardsLayout";
@@ -35,6 +36,7 @@ interface WelcomeScreenProps {
   quickCards: WelcomeQuickCard[];
   hideMascot?: boolean;
   isTeam?: boolean;
+  onConfigure?: () => void;
 }
 
 export default function WelcomeScreen({
@@ -45,6 +47,7 @@ export default function WelcomeScreen({
   quickCards,
   hideMascot = false,
   isTeam = false,
+  onConfigure,
 }: WelcomeScreenProps) {
   const { t } = useTranslation();
   const [actionIndex, setActionIndex] = useState(0);
@@ -71,23 +74,50 @@ export default function WelcomeScreen({
       <div className={styles.welcomeInner}>
         <div className={styles.welcomeHeading} ref={headingRef}>
           {showMascot && (
-            <button
-              type="button"
-              className={styles.welcomeMascot}
-              onClick={handleMascotClick}
-              title={t("chatWelcome.mascotSwitchHint")}
-              aria-label={t("expertAnimation.preview")}
+            <Dropdown
+              disabled={!onConfigure}
+              trigger={["click"]}
+              menu={{
+                items: [
+                  {
+                    key: "configure",
+                    label: t("octopus.configuration"),
+                    onClick: onConfigure,
+                  },
+                  {
+                    key: "animate",
+                    label: t("chatWelcome.mascotSwitchHint"),
+                    onClick: handleMascotClick,
+                  },
+                ],
+              }}
             >
-              {resolveCharacter(iconUrl) || !iconUrl ? (
-                <AnimatedExpertAvatar
-                  species={resolveCharacter(iconUrl) ?? "swallow"}
-                  phase={welcomeActions[actionIndex]}
-                  size={132}
-                />
-              ) : (
-                <ExpertIcon iconUrl={iconUrl} size={132} />
-              )}
-            </button>
+              <button
+                type="button"
+                className={styles.welcomeMascot}
+                onClick={onConfigure ? undefined : handleMascotClick}
+                title={
+                  onConfigure
+                    ? t("octopus.configuration")
+                    : t("chatWelcome.mascotSwitchHint")
+                }
+                aria-label={
+                  onConfigure
+                    ? t("octopus.configuration")
+                    : t("expertAnimation.preview")
+                }
+              >
+                {resolveCharacter(iconUrl) || !iconUrl ? (
+                  <AnimatedExpertAvatar
+                    species={resolveCharacter(iconUrl) ?? "swallow"}
+                    phase={welcomeActions[actionIndex]}
+                    size={132}
+                  />
+                ) : (
+                  <ExpertIcon iconUrl={iconUrl} size={132} />
+                )}
+              </button>
+            </Dropdown>
           )}
           <h1 className={styles.welcomeTitle}>
             {isTeam

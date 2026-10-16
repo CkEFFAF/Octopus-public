@@ -6,14 +6,19 @@ import { AtSign, KanbanSquare, UserPlus, Activity } from "lucide-react";
 import { teamsApi, type TeamRecord } from "../../../api/modules/teams";
 import { useAgent } from "../../../context/AgentContext";
 import { ExpertIcon } from "../../Experts/components/iconForName";
+import styles from "../index.module.less";
 import { onToolEvent } from "../hooks/chatStore";
 
 export default function ProjectRoomBar({
   teamId,
+  compact = false,
   onMention,
+  onConfigureMember,
 }: {
   teamId: string;
+  compact?: boolean;
   onMention: (name: string) => void;
+  onConfigureMember: (agentId: string) => void;
 }) {
   const { t } = useTranslation();
   const { setActiveAgent } = useAgent();
@@ -84,7 +89,7 @@ export default function ProjectRoomBar({
               {
                 key: "profile",
                 label: t("octopus.configuration"),
-                onClick: () => go(member.agent_id, "/personalization/skills"),
+                onClick: () => onConfigureMember(member.agent_id),
               },
               {
                 key: "history",
@@ -142,36 +147,45 @@ export default function ProjectRoomBar({
   );
   return (
     <div
-      style={{
-        padding: "10px 20px",
-        display: "flex",
-        flexWrap: "wrap",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        borderBottom: "1px solid var(--fn-border-color,#e8e9ed)",
-      }}
+      className={compact ? styles.roomActions : undefined}
+      style={
+        compact
+          ? undefined
+          : {
+              padding: "10px 20px",
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              borderBottom: "1px solid var(--fn-border-color,#e8e9ed)",
+            }
+      }
     >
-      <Button
-        type="text"
-        onClick={() => navigate(`/projects?project=${teamId}`)}
-      >
-        <Space direction="vertical" size={0} style={{ textAlign: "left" }}>
-          <strong>{room.name}</strong>
-          <small style={{ color: "var(--fn-text-secondary)" }}>
-            {room.members.filter((member) => member.busy).length
-              ? t("octopus.membersWorking", {
-                  count: room.members.filter((member) => member.busy).length,
-                })
-              : t("octopus.idle")}
-          </small>
-        </Space>
-      </Button>
+      {!compact ? (
+        <Button
+          type="text"
+          onClick={() => navigate(`/projects?project=${teamId}`)}
+        >
+          <Space direction="vertical" size={0} style={{ textAlign: "left" }}>
+            <strong>{room.name}</strong>
+            <small style={{ color: "var(--fn-text-secondary)" }}>
+              {room.members.filter((member) => member.busy).length
+                ? t("octopus.membersWorking", {
+                    count: room.members.filter((member) => member.busy).length,
+                  })
+                : t("octopus.idle")}
+            </small>
+          </Space>
+        </Button>
+      ) : null}
       <Space wrap>
         <Button
           type="text"
           size="small"
           icon={<Activity size={14} />}
+          aria-label={t("octopus.usage")}
+          title={t("octopus.usage")}
           onClick={() => go(teamId, "/token-usage")}
         >
           {t("octopus.usage")}
@@ -180,6 +194,8 @@ export default function ProjectRoomBar({
           type="text"
           size="small"
           icon={<UserPlus size={14} />}
+          aria-label={t("octopus.manageMembers")}
+          title={t("octopus.manageMembers")}
           onClick={() => navigate(`/projects?project=${teamId}&edit=1`)}
         >
           {t("octopus.manageMembers")}
@@ -187,6 +203,8 @@ export default function ProjectRoomBar({
         <Button
           size="small"
           icon={<KanbanSquare size={14} />}
+          aria-label={t("octopus.board")}
+          title={t("octopus.board")}
           onClick={() => navigate(`/task-board?project=${teamId}`)}
         >
           {t("octopus.board")}
