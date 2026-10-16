@@ -1737,7 +1737,8 @@
       "toolSchemaCount": "工具 schema 数",
       "logicalCallCount": "逻辑调用数",
       "attemptCount": "Attempt 数",
-      "retainedNote": "完整=已保留内容；截断已标记，不伪造未采集数据"
+      "retainedNote": "完整=已保留内容；截断已标记，不伪造未采集数据",
+      "occupancyUnknown": "—"
     },
     "openPlanFile": "计划文件",
     "workMode": {
@@ -2017,6 +2018,8 @@
     "composerContextLabel": "消息附加上下文",
     "contextWindow": {
       "tooltip": "上下文占用 {{used}} / {{max}} · {{percent}}%（最近一次模型请求）",
+      "tooltipUnknown": "上下文占用 {{used}} · 容量未知",
+      "breakdownPercentUnknown": "容量未知",
       "breakdownTitle": "上下文使用",
       "breakdownPercent": "已用 {{percent}}%",
       "breakdownHint": "显示当前上下文窗口占用，不是本轮计费合计。",

@@ -1737,7 +1737,8 @@
       "toolSchemaCount": "Tool schema count",
       "logicalCallCount": "Logical call count",
       "attemptCount": "Attempt count",
-      "retainedNote": "Complete = retained content; truncations labeled; never fabricated"
+      "retainedNote": "Complete = retained content; truncations labeled; never fabricated",
+      "occupancyUnknown": "—"
     },
     "openPlanFile": "Plan file",
     "workMode": {
@@ -2017,6 +2018,8 @@
     "composerContextLabel": "Message context",
     "contextWindow": {
       "tooltip": "Context {{used}} / {{max}} · {{percent}}% (last model request)",
+      "tooltipUnknown": "Context {{used}} · capacity unknown",
+      "breakdownPercentUnknown": "Capacity unknown",
       "breakdownTitle": "Context Usage",
       "breakdownPercent": "{{percent}}% Full",
       "breakdownHint": "Shows current context-window occupancy, not this turn’s billed total.",
