@@ -7,6 +7,7 @@
 - Mode: PRODUCT / DESIGN（Enhance existing；禁止平行新造面板）
 - Authoritative path: `docs/specs/0020-context-insights-and-harness-tools.md`
 - Code baseline: `CkEFFAF/Octopus-public` @ `40492e2b`（工作区 `D:\Agent_Workspace\octopus\Octopus-public`）
+- Child（会话密度 + Insights 全页）: `0020.2-context-insights-dashboard`（**Ready** `2026-10-16.2`） — 双产品面：面 A 会话密度可展宽 + 面 B Insights 全页；dock 基线见 0020.1b
 - Reference: [bowenliang123/dsh-context](https://github.com/bowenliang123/dsh-context)（README / v0.72 能力面；**非** npm 插件宿主，能力进 Dashboard 一等公民）
 
 ---
@@ -337,7 +338,7 @@ flowchart TB
 
 #### P2
 
-- [ ] Insights 跨会话页（专家/房间/设备筛）
+- [ ] Insights 跨会话页（专家/房间/设备筛） → **规格见 `0020.2-context-insights-dashboard`（Ready 2026-10-16.2；双产品面：会话密度可展宽 + Insights 全页）**
 - [ ] Fleet / 团队编队 + hub/device/work_mode 叠层
 - [ ] 成本粗估
 
