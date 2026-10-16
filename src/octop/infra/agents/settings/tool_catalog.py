@@ -75,6 +75,8 @@ NATIVE_TOOL_NAMES: tuple[str, ...] = (
     "context_inspect",
     "context_events",
     "context_file_ops",
+    "context_request",
+    "context_trace_read",
 )
 
 

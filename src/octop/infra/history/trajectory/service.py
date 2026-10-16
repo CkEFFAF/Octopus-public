@@ -12,7 +12,10 @@ from typing import Any
 from octop.infra.history.trajectory.live import TrajectoryLiveBus
 from octop.infra.history.trajectory.metrics import TrajectoryMetrics, aggregate_metrics
 from octop.infra.history.trajectory.projector import project_harness_chunk
-from octop.infra.history.trajectory.settings import TRAJECTORY_RETENTION_USER_TURNS
+from octop.infra.history.trajectory.settings import (
+    TRAJECTORY_AUTO_PRUNE,
+    TRAJECTORY_RETENTION_USER_TURNS,
+)
 from octop.infra.history.trajectory.store import TrajectoryStore
 from octop.infra.history.trajectory.types import TrajectoryEvent
 
@@ -251,6 +254,9 @@ class TrajectoryService:
             self._publish(event, final=final)
 
     def _prune_retention(self, thread_id: str) -> None:
+        # DEC-T12: default OFF — session-lifetime retention (no silent DELETE).
+        if not TRAJECTORY_AUTO_PRUNE:
+            return
         deleted = self._store.prune_older_than_user_turns(
             thread_id, TRAJECTORY_RETENTION_USER_TURNS
         )
