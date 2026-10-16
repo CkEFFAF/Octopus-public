@@ -1717,7 +1717,13 @@
       "sortTime": "Time",
       "sortTokens": "Token",
       "sortAsc": "Ascending",
-      "sortDesc": "Descending"
+      "sortDesc": "Descending",
+      "noTags": "No tags to filter",
+      "noMatch": "No matching items",
+      "pickRequest": "Pick a request above to inspect",
+      "requestDetail": "Request detail",
+      "techFields": "Technical fields",
+      "copy": "Copy"
     },
     "openPlanFile": "Plan file",
     "workMode": {
@@ -2287,7 +2293,21 @@
         "before_estimated_tokens": "Message tokens before (estimated)",
         "after_estimated_tokens": "Message tokens after (estimated)",
         "summarized_count": "Summarized messages",
-        "preserved_count": "Retained messages"
+        "preserved_count": "Retained messages",
+        "command": "Command",
+        "cmd": "Command",
+        "argv": "Arguments",
+        "stdout": "stdout",
+        "stderr": "stderr",
+        "stdout_preview": "stdout preview",
+        "stderr_preview": "stderr preview",
+        "returncode": "Exit code",
+        "exit_code": "Exit code",
+        "run_id": "Run ID",
+        "context_id": "Context ID",
+        "request_id": "Request ID",
+        "event_id": "Event ID",
+        "command_preview": "Command preview"
       },
       "workflow": "Workflow",
       "dispatch": "Dispatch",
@@ -2297,7 +2317,18 @@
       "blocked": "Blocked",
       "bound": "Bound",
       "target": "Execution target",
-      "accepted": "Accepted"
+      "accepted": "Accepted",
+      "filterStatus": "Filter by status",
+      "filterKind": "Filter by kind",
+      "allKinds": "All kinds",
+      "noTags": "No tags to filter",
+      "noMatch": "No matching items",
+      "noCommand": "No command summary",
+      "techFields": "Technical fields",
+      "exitCode": "exit {{code}}",
+      "noOutput": "No output preview",
+      "outputPreview": "Output preview",
+      "outputTruncated": "Output was truncated"
     },
     "workflow": {
       "report": "Agent report",

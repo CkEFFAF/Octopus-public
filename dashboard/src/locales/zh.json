@@ -1717,7 +1717,13 @@
       "sortTime": "时间",
       "sortTokens": "Token",
       "sortAsc": "升序",
-      "sortDesc": "降序"
+      "sortDesc": "降序",
+      "noTags": "暂无标签可筛选",
+      "noMatch": "无匹配项",
+      "pickRequest": "点上方列表查看请求详情",
+      "requestDetail": "请求详情",
+      "techFields": "技术字段",
+      "copy": "复制"
     },
     "openPlanFile": "计划文件",
     "workMode": {
@@ -2287,7 +2293,21 @@
         "before_estimated_tokens": "压缩前消息 token（估算）",
         "after_estimated_tokens": "压缩后消息 token（估算）",
         "summarized_count": "已摘要消息数",
-        "preserved_count": "保留消息数"
+        "preserved_count": "保留消息数",
+        "command": "命令",
+        "cmd": "命令",
+        "argv": "参数",
+        "stdout": "标准输出",
+        "stderr": "标准错误",
+        "stdout_preview": "输出预览",
+        "stderr_preview": "错误预览",
+        "returncode": "退出码",
+        "exit_code": "退出码",
+        "run_id": "运行 ID",
+        "context_id": "上下文 ID",
+        "request_id": "请求 ID",
+        "event_id": "事件 ID",
+        "command_preview": "命令摘要"
       },
       "workflow": "工作阶段",
       "dispatch": "派工",
@@ -2297,7 +2317,18 @@
       "blocked": "受阻",
       "bound": "已绑定",
       "target": "执行目标",
-      "accepted": "已接收"
+      "accepted": "已接收",
+      "filterStatus": "按状态筛选",
+      "filterKind": "按种类筛选",
+      "allKinds": "全部种类",
+      "noTags": "暂无标签可筛选",
+      "noMatch": "无匹配项",
+      "noCommand": "无命令摘要",
+      "techFields": "技术字段",
+      "exitCode": "退出码 {{code}}",
+      "noOutput": "无输出摘要",
+      "outputPreview": "输出摘要",
+      "outputTruncated": "输出已截断"
     },
     "workflow": {
       "report": "专家报告",
