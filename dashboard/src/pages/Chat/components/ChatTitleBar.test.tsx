@@ -14,6 +14,28 @@ const session: Session = {
 const noop = vi.fn();
 
 describe("ChatTitleBar", () => {
+  it("places expert activity beside the title without absorbing its controls", () => {
+    render(
+      <ChatTitleBar
+        session={session}
+        title="Weekly recap"
+        onRename={noop}
+        onPin={noop}
+        onFork={noop}
+        onDelete={noop}
+        activity={<span data-testid="expert-activity">Expert · Idle</span>}
+      />,
+    );
+    const heading = screen.getByRole("heading", { name: "Weekly recap" });
+    const activity = screen.getByTestId("expert-activity");
+    expect(heading.parentElement).not.toContainElement(activity);
+    expect(heading.parentElement?.parentElement).toBe(activity.parentElement);
+    expect(
+      screen.getByRole("button", { name: "common.edit" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "更多" })).toBeInTheDocument();
+  });
+
   it("keeps the more menu beside the title edit control", () => {
     render(
       <ChatTitleBar

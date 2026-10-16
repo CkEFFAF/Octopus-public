@@ -25,7 +25,7 @@ import { navAllowed, userCan } from "../../utils/permissions";
 import { useChat } from "./hooks/useChat";
 import { useSessions, fetchAndSyncSessionArtifacts } from "./hooks/useSessions";
 import * as chatStore from "./hooks/chatStore";
-import { formatRunUsage, assistantTurnsFromEnd } from "./utils/chatMessages";
+import { assistantTurnsFromEnd } from "./utils/chatMessages";
 import { useChatSidebarState } from "./hooks/useChatSidebarState";
 import { useChatHistoryRail } from "./hooks/useChatHistoryRail";
 import { useChatDockPanel } from "./hooks/useChatDockPanel";
@@ -56,7 +56,6 @@ import {
 import { isFileToolName } from "./constants";
 import { browserApi } from "../../api/modules/browser";
 import { octopThreadsApi } from "../../api/modules/octopThreads";
-import type { TokenUsage } from "../../api/types";
 import type { ChatAttachment } from "./hooks/useChat";
 import MessageList from "./components/MessageList";
 import ChatInput, { type ChatInputHandle } from "./components/ChatInput";
@@ -93,7 +92,6 @@ import ChatSidebarPanel from "./components/ChatSidebarPanel";
 import ChatTitleBar from "./components/ChatTitleBar";
 import TeamChatBadge from "./components/TeamChatBadge";
 import ProjectRoomBar from "./components/ProjectRoomBar";
-import ChatComposerChrome from "./components/ChatComposerChrome";
 import DeviceTargetSelect from "./components/DeviceTargetSelect";
 import AskQuestionCard from "./components/AskQuestionCard";
 import {
@@ -645,37 +643,6 @@ function ChatPageInner() {
     activeAgent,
   );
 
-  const sessionUsage = useMemo(() => {
-    const acc: TokenUsage = {};
-    for (const msg of messages) {
-      const u = msg.usage;
-      if (!u) continue;
-      if (typeof u.input_tokens === "number") {
-        acc.input_tokens = (acc.input_tokens || 0) + u.input_tokens;
-      }
-      if (typeof u.cache_read_tokens === "number") {
-        acc.cache_read_tokens =
-          (acc.cache_read_tokens || 0) + u.cache_read_tokens;
-      }
-      if (typeof u.output_tokens === "number") {
-        acc.output_tokens = (acc.output_tokens || 0) + u.output_tokens;
-      }
-      if (typeof u.total_tokens === "number") {
-        acc.total_tokens = (acc.total_tokens || 0) + u.total_tokens;
-      }
-    }
-    if (!acc.input_tokens && !acc.output_tokens && !acc.total_tokens) {
-      return null;
-    }
-    return acc;
-  }, [messages]);
-  const sessionUsageLabel = formatRunUsage(sessionUsage, {
-    input: t("chatUsage.input"),
-    output: t("chatUsage.output"),
-    total: t("chatUsage.total"),
-    cacheHit: t("chatUsage.cacheHit"),
-  });
-
   const { resetNavForAgentSwitch, markInitialNavDone } = useChatNavigation({
     routeAgentId,
     threadId,
@@ -1225,6 +1192,17 @@ function ChatPageInner() {
     return name;
   }, [activeSession, t]);
 
+  const expertActivity =
+    resolvedAgentId && !showWelcome ? (
+      <ExpertActivity
+        phase={expertAnimation.phase}
+        name={activeAgent?.name}
+        iconUrl={activeAgent?.icon_url}
+        iconName={activeAgent?.icon_name}
+        color={activeAgent?.color}
+      />
+    ) : null;
+
   const handleOpenSpeakerProfile = useCallback(
     (agentId?: string) => {
       setProfileAgentId(
@@ -1354,12 +1332,16 @@ function ChatPageInner() {
                 {resolvedAgentId && !sharedExpertViewer && (
                   <div className={styles.mobileToolbarRight}>
                     <button
-                      className={styles.menuBtn}
+                      className={`${styles.menuBtn} ${
+                        expertActivity ? styles.mobileExpertButton : ""
+                      }`}
                       onClick={() => setAgentProfileOpen(true)}
                       title={profileOpenLabel}
                       aria-label={profileOpenLabel}
                     >
-                      <ProfileIcon size={18} strokeWidth={1.8} />
+                      {expertActivity || (
+                        <ProfileIcon size={18} strokeWidth={1.8} />
+                      )}
                     </button>
                     <button
                       className={styles.menuBtn}
@@ -1414,6 +1396,7 @@ function ChatPageInner() {
                 forkDisabled={sessionForkDisabled}
                 forkDisabledHint={sessionForkDisabledHint}
                 isTeam={isTeamChat}
+                activity={expertActivity}
               />
             )}
 
@@ -1690,9 +1673,6 @@ function ChatPageInner() {
                 </div>
               )}
 
-            <div className={styles.composerContextBar}>
-              <ChatComposerChrome sessionUsageLabel={sessionUsageLabel} />
-            </div>
             {pendingAsk ? (
               <div className={styles.askQuestionDock}>
                 <div className={styles.askQuestionDockInner}>
@@ -1762,15 +1742,6 @@ function ChatPageInner() {
                 </div>
               </div>
             ) : null}
-            {resolvedAgentId && !showWelcome && (
-              <ExpertActivity
-                phase={expertAnimation.phase}
-                name={activeAgent?.name}
-                iconUrl={activeAgent?.icon_url}
-                iconName={activeAgent?.icon_name}
-                color={activeAgent?.color}
-              />
-            )}
             <ChatInput
               ref={chatInputRef}
               onSend={wrappedHandleSend}
