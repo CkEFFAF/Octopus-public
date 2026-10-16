@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import click
 import pytest
 from click.testing import CliRunner
 
@@ -26,17 +25,17 @@ def test_chats_send_help_lists_mode() -> None:
     assert "--mode" in result.output
 
 
-def test_chats_list_requires_agent(monkeypatch: pytest.MonkeyPatch) -> None:
-    import octop.cli.support.ctx as ctx_mod
+def test_chats_list_requires_agent() -> None:
+    """Omit --agent: real require_agent must exit 2 (no monkeypatch).
 
-    def _missing(_agent: str | None) -> str:
-        click.echo("error: --agent is required", err=True)
-        raise SystemExit(2)
-
-    monkeypatch.setattr(ctx_mod, "require_agent", _missing)
+    Patching ctx.require_agent before the lazy chats import binds the mock into
+    chats.require_agent permanently for the process, poisoning later tests on
+    the same xdist worker. Exercise the real resolver instead.
+    """
     runner = CliRunner()
     result = runner.invoke(cli, ["chats", "list"])
     assert result.exit_code == 2
+    assert "--agent is required" in result.output
 
 
 def test_chats_list_uses_offline_db(monkeypatch: pytest.MonkeyPatch) -> None:
