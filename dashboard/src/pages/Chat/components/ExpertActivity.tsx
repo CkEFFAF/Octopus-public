@@ -23,19 +23,23 @@ export default function ExpertActivity({
   const { t } = useTranslation();
   const species = resolveCharacter(iconUrl);
   return (
-    <div className={styles.activity} data-phase={phase}>
+    <div
+      className={styles.activity}
+      data-phase={phase}
+      title={`${name ?? ""} · ${t(`expertAnimation.phases.${phase}`)}`}
+    >
       {species || !iconUrl ? (
         <AnimatedExpertAvatar
           species={species ?? "swallow"}
           phase={phase}
-          size={48}
+          size={28}
         />
       ) : (
         <ExpertAgentAvatar
           iconUrl={iconUrl}
           iconName={iconName}
           color={color}
-          size={40}
+          size={28}
         />
       )}
       <span className={styles.copy}>
