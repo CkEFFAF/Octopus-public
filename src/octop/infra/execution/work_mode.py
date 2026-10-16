@@ -7,7 +7,7 @@ import time
 from copy import deepcopy
 from typing import Any
 
-from langchain_core.tools import tool
+from langchain_core.tools import ToolException, tool
 from langgraph.config import get_config
 from octop_harness.middleware.pii import detect_pii
 
@@ -26,6 +26,13 @@ STAGES: dict[str, tuple[str, ...]] = {
     "computer_use": ("observe", "interact", "verify"),
     "deep_research": ("collect", "compare", "synthesize"),
 }
+
+
+def _is_evidence(item: dict[str, Any]) -> bool:
+    return (
+        item["kind"] in {"tool", "device", "job", "plan", "dispatch", "interaction"}
+        and item["payload"].get("name") != "work_step"
+    )
 
 
 def _report(value: str, limit: int = 2000) -> str:
@@ -74,7 +81,9 @@ class WorkModeService:
             raise OctopError(ErrorCode.FORBIDDEN, "workflow mode changed within a run")
         return event
 
-    def _lookup_evidence(self, owner: int, run_id: str, identity: str) -> dict[str, Any] | None:
+    def _lookup_evidence(
+        self, owner: int, run_id: str, identity: str, *, agent_id: str, thread_id: str
+    ) -> dict[str, Any] | None:
         """Resolve a receipt id for this run.
 
         Models often paste the raw ``operation_id`` / tool UUID from a tool
@@ -94,14 +103,28 @@ class WorkModeService:
             item = self.events.get(owner, candidate)
             if item is None:
                 continue
-            if (
-                item["run_id"] != run_id
-                or item["kind"] not in {"tool", "device", "job", "plan", "dispatch", "interaction"}
-                or item["payload"].get("name") == "work_step"
-            ):
+            if item["run_id"] != run_id or not _is_evidence(item):
                 continue
             return item
-        return None
+        # Harness callback UUIDs identify events; the model sees ToolMessage's
+        # tool_call_id. Resolve that alias only within the invoking workflow.
+        alias = raw.removeprefix("tool:")
+        if ":" in alias:
+            return None
+        found = None
+        before = None
+        while True:
+            page = self.events.list(
+                owner, agent_id, thread_id, run_id=run_id, before=before, limit=100
+            )
+            for item in page:
+                if _is_evidence(item) and item["payload"].get("tool_call_id") == alias:
+                    if found is not None:
+                        return None  # An ambiguous alias is not a receipt identity.
+                    found = item
+            if len(page) < 100:
+                return found
+            before = page[-1]["seq"]
 
     def step(
         self,
@@ -135,7 +158,9 @@ class WorkModeService:
             raise OctopError(ErrorCode.FORBIDDEN, "provide a bounded workflow report and evidence")
         evidence = []
         for identity in dict.fromkeys(evidence_ids):
-            item = self._lookup_evidence(owner, event["run_id"], identity)
+            item = self._lookup_evidence(
+                owner, event["run_id"], identity, agent_id=agent_id, thread_id=event["thread_id"]
+            )
             if item is None:
                 raise OctopError(ErrorCode.FORBIDDEN, "evidence must belong to this run")
             if item["status"] not in {"completed", "failed"}:
@@ -198,6 +223,10 @@ class WorkModeService:
         payload = event["payload"]
         mode = payload["mode"]
         successful = [item for item in evidence if item["status"] == "completed"]
+        if mode == "agentic" and stage == "verify" and evidence and not successful:
+            raise OctopError(
+                ErrorCode.FORBIDDEN, "reference a successful final receipt for verification"
+            )
         if mode == "cowork" and stage == "handoff":
             raise OctopError(ErrorCode.FORBIDDEN, "only the user can resolve this handoff")
         if (
@@ -301,35 +330,66 @@ def build_work_mode_tools(service: WorkModeService, agent_id: str) -> list[Any]:
         """
         cfg = get_config().get("configurable") or {}
         owner = int(cfg.get("user") or 0)
-        event = (
-            service.step(
+        # Scope/configuration failures must still propagate. Only validation of
+        # a step in an already accessible workflow is recoverable tool input.
+        event = service.begin(owner, agent_id, cfg)
+        error = None
+        if stage:
+            try:
+                event = service.step(
+                    owner,
+                    agent_id,
+                    cfg,
+                    stage=stage,
+                    version=version,
+                    status=status,
+                    report=report,
+                    evidence_ids=evidence_ids or [],
+                    decision=decision,
+                )
+            except OctopError as exc:
+                if exc.code not in {ErrorCode.FORBIDDEN, ErrorCode.WORKFLOW_CONFLICT}:
+                    raise
+                error = exc
+                event = service.begin(owner, agent_id, cfg)
+        usable: list[dict[str, Any]] = []
+        before = None
+        while len(usable) < 100:
+            receipts = service.events.list(
                 owner,
                 agent_id,
-                cfg,
-                stage=stage,
-                version=version,
-                status=status,
-                report=report,
-                evidence_ids=evidence_ids or [],
-                decision=decision,
+                str(cfg["thread_id"]),
+                run_id=str(cfg["octop_task_run_id"]),
+                before=before,
+                limit=100,
             )
-            if stage
-            else service.begin(owner, agent_id, cfg)
-        )
-        receipts = service.events.list(
-            owner, agent_id, str(cfg["thread_id"]), run_id=str(cfg["octop_task_run_id"]), limit=100
-        )
-        usable = [
-            item
-            for item in receipts
-            if item["kind"] != "workflow" and item["payload"].get("name") != "work_step"
-        ]
-        return json.dumps(
+            usable.extend(
+                item
+                for item in receipts
+                if _is_evidence(item) and item["status"] in {"completed", "failed"}
+            )
+            if len(receipts) < 100:
+                break
+            before = receipts[-1]["seq"]
+        usable = usable[:100]
+        response = json.dumps(
             {
                 "workflow": event,
                 "receipts": usable,
+                **(
+                    {
+                        "error": {"code": error.code.value, "message": error.message},
+                        "retry": "Use the latest workflow version/current stage and final receipt event_ids listed here. If evidence is missing, gather it or record blocked without invented evidence.",
+                    }
+                    if error
+                    else {}
+                ),
             },
             ensure_ascii=False,
         )
+        if error:
+            raise ToolException(response)
+        return response
 
+    work_step.handle_tool_error = True
     return [work_step]
