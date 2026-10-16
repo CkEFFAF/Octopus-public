@@ -22,6 +22,10 @@ import {
   type MappedContextKind,
 } from "../contextInsights/mapEventKind";
 import { CONTEXT_SEGMENT_COLORS } from "../contextInsights/segmentColors";
+import {
+  isCapacityResolved,
+  occupancyPercent,
+} from "../contextInsights/capacity";
 import styles from "./ChatDockContext.module.less";
 import ContextRequestBrowser from "./ContextRequestBrowser";
 import RunReceiptBrowser from "./RunReceiptBrowser";
@@ -142,7 +146,12 @@ export default function ChatDockContext({
           ? {
               max_tokens: inspected.breakdown.max_tokens,
               used_tokens: inspected.breakdown.used_tokens,
-              segments: inspected.breakdown.segments as ContextUsageBreakdown["segments"],
+              capacity_source: inspected.breakdown.capacity_source,
+              capacity_tokens: inspected.breakdown.capacity_tokens,
+              compatibility_capacity_tokens:
+                inspected.breakdown.compatibility_capacity_tokens,
+              segments: inspected.breakdown
+                .segments as ContextUsageBreakdown["segments"],
             }
           : null;
         setUsage(window);
@@ -279,10 +288,15 @@ export default function ChatDockContext({
     el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [picked, eventSortKey, eventSortDir, visible]);
 
-  const pct =
-    usage && usage.max_tokens > 0
-      ? Math.min(100, (usage.used_tokens / usage.max_tokens) * 100)
-      : 0;
+  const capacityResolved = isCapacityResolved(
+    usage?.capacity_source,
+    usage?.capacity_tokens ?? null,
+  );
+  const pct = occupancyPercent(
+    usage?.used_tokens,
+    usage?.capacity_tokens ?? null,
+    usage?.capacity_source,
+  );
   const segmentTotal =
     usage?.segments.reduce((sum, s) => sum + Math.max(s.tokens, 0), 0) ?? 0;
 
@@ -366,9 +380,18 @@ export default function ChatDockContext({
               <div className={styles.occupancy}>
                 <strong>
                   {number(usage?.used_tokens)}{" "}
-                  <small>/ {number(usage?.max_tokens)}</small>
+                  <small>
+                    /{" "}
+                    {capacityResolved
+                      ? number(usage?.capacity_tokens)
+                      : "—"}
+                  </small>
                 </strong>
-                <b>{pct.toFixed(1)}%</b>
+                <b>
+                  {pct == null
+                    ? t("chat.contextInspect.occupancyUnknown")
+                    : `${pct.toFixed(1)}%`}
+                </b>
               </div>
               <div
                 className={styles.bar}
@@ -380,7 +403,11 @@ export default function ChatDockContext({
                     key={s.key}
                     style={{
                       width: `${
-                        segmentTotal ? (pct * s.tokens) / segmentTotal : 0
+                        segmentTotal
+                          ? ((capacityResolved && pct != null ? pct : 100) *
+                              s.tokens) /
+                            segmentTotal
+                          : 0
                       }%`,
                       background: CONTEXT_SEGMENT_COLORS[s.key],
                     }}

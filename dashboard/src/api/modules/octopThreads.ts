@@ -131,6 +131,12 @@ export interface ContextUsageBreakdown {
   max_tokens: number;
   used_tokens: number;
   segments: ContextUsageSegment[];
+  /** Insights/DEC-T05: harness | compatibility_default */
+  capacity_source?: string;
+  /** Real capacity when known; null under compatibility default. */
+  capacity_tokens?: number | null;
+  compatibility_capacity_tokens?: number;
+  meter_source?: string;
 }
 
 export interface HistoryMigrationStatus {
