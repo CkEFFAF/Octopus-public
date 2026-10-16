@@ -1690,6 +1690,28 @@
         "tool": "Tools",
         "compacted": "Compacted",
         "unknown": "Other"
+      },
+      "events": "Events",
+      "live": "Live",
+      "trendTotal": "Total",
+      "trendDelta": "Delta",
+      "trendStep": "Step",
+      "trendTurn": "Turn",
+      "meterSame": "Occupancy matches the header ring (same context-usage / compute_context_breakdown source).",
+      "vsPrevious": "vs previous {{delta}}",
+      "expandComponents": "Expand request components",
+      "mappedKinds": {
+        "all": "All",
+        "inject": "Inject",
+        "compact": "Compact",
+        "prune": "Prune",
+        "switch": "Switch",
+        "mode": "Mode",
+        "model": "Model",
+        "user": "User",
+        "assistant": "Assistant",
+        "tool": "Tool",
+        "other": "Other"
       }
     },
     "openPlanFile": "Plan file",

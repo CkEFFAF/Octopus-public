@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+### 新增
+
+- Context Insights 面板（0020）：Trend Total/Delta 与 Step/Turn、Events mapped_kind 芯片、Browser Live / vs previous / 按需展开组件明细，以及只读 `context.inspect` / `context.events` / `context.file_ops` 工具；占用数字与顶栏圆环同源（`compute_context_breakdown`）。
+
+### 修复
+
+- `context.events` 在 kinds 过滤时按匹配行计算 `has_more`，`token_delta` 改为相对上一步的增量而非绝对 `input_tokens`；收紧 file_ops 工具名匹配，避免 `openai` / `thread_ready` 等误判。
+
 ## [1.0.2b15] - 2026-10-16
 
 ### 修复

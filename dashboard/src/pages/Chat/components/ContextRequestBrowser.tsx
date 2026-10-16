@@ -29,17 +29,20 @@ export default function ContextRequestBrowser({
   threadId,
   live,
   focusRequestId,
+  highlightRequestSeq,
 }: {
   agentId: string;
   threadId: string;
   live?: boolean;
   focusRequestId?: string;
+  highlightRequestSeq?: number | null;
 }) {
   const { t } = useTranslation();
   const [requests, setRequests] = useState<RequestSnapshot[]>([]);
   const [picked, setPicked] = useState<string | null>(null);
   const [detail, setDetail] = useState<RequestSnapshot | null>(null);
   const [previous, setPrevious] = useState<RequestSnapshot | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [before, setBefore] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -86,6 +89,7 @@ export default function ContextRequestBrowser({
     setBefore(null);
     setDetail(null);
     setPrevious(null);
+    setDetailOpen(false);
     setError("");
     return () => {
       epoch.current += 1;
@@ -94,6 +98,11 @@ export default function ContextRequestBrowser({
   useEffect(() => {
     if (focusRequestId) setPicked(focusRequestId);
   }, [focusRequestId]);
+  useEffect(() => {
+    if (highlightRequestSeq == null) return;
+    const match = requests.find((item) => item.seq === highlightRequestSeq);
+    if (match) setPicked(match.request_id);
+  }, [highlightRequestSeq, requests]);
   useEffect(() => {
     void refresh();
     const timer = setInterval(
@@ -127,11 +136,15 @@ export default function ContextRequestBrowser({
       : undefined);
   const previousSummary =
     selectedSummary && requests.find((item) => item.seq < selectedSummary.seq);
+  // Selecting a request must not eagerly pull full component detail (S3).
   useEffect(() => {
-    if (!selectedId) return;
-    let disposed = false;
     setDetail(null);
     setPrevious(null);
+    setDetailOpen(false);
+  }, [selectedId]);
+  useEffect(() => {
+    if (!selectedId || !detailOpen) return;
+    let disposed = false;
     void Promise.all([
       executionApi.request(agentId, threadId, selectedId),
       previousSummary
@@ -155,6 +168,7 @@ export default function ContextRequestBrowser({
     agentId,
     threadId,
     selectedId,
+    detailOpen,
     selectedSummary?.status,
     previousSummary?.request_id,
     t,
@@ -180,14 +194,22 @@ export default function ContextRequestBrowser({
     ? Object.values(selected.composition).reduce((sum, value) => sum + value, 0)
     : 0;
   const delta =
-    previous && selected
-      ? selected.estimated_input_tokens - previous.estimated_input_tokens
+    previousSummary && selectedSummary
+      ? selectedSummary.estimated_input_tokens -
+        previousSummary.estimated_input_tokens
       : null;
   return (
     <>
       <section>
         <div className={styles.requestHeading}>
-          <h3>{t("chat.contextInspect.requests")}</h3>
+          <h3>
+            {t("chat.contextInspect.requests")}
+            {live ? (
+              <Tag color="processing" style={{ marginLeft: 8 }}>
+                {t("chat.contextInspect.live")}
+              </Tag>
+            ) : null}
+          </h3>
           <Button size="small" loading={loading} onClick={() => void refresh()}>
             {t("common.refresh")}
           </Button>
@@ -357,7 +379,19 @@ export default function ContextRequestBrowser({
       </section>
       {selected && (
         <section>
-          <h3>{t("chat.contextInspect.finalRequest")}</h3>
+          <div className={styles.requestHeading}>
+            <h3>{t("chat.contextInspect.finalRequest")}</h3>
+            {previousSummary && (
+              <Tag>
+                {t("chat.contextInspect.vsPrevious", {
+                  delta:
+                    delta == null
+                      ? "—"
+                      : `${delta >= 0 ? "+" : ""}${number(delta)}`,
+                })}
+              </Tag>
+            )}
+          </div>
           {(detail?.components_truncated || detail?.metadata_truncated) && (
             <Alert
               type="info"
@@ -366,13 +400,20 @@ export default function ContextRequestBrowser({
               })}
             />
           )}
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t("chat.contextInspect.search")}
-            allowClear
-          />
-          <div className={styles.browser}>
+          <details
+            className={styles.slimDetail}
+            onToggle={(e) => {
+              if (e.currentTarget.open) setDetailOpen(true);
+            }}
+          >
+            <summary>{t("chat.contextInspect.expandComponents")}</summary>
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t("chat.contextInspect.search")}
+              allowClear
+            />
+            <div className={styles.browser}>
             {detail ? (
               detail.components
                 .filter(
@@ -437,6 +478,7 @@ export default function ContextRequestBrowser({
               <Spin size="small" />
             )}
           </div>
+          </details>
           {removedComponents.length > 0 && (
             <details className={styles.event}>
               <summary>

@@ -1690,6 +1690,28 @@
         "tool": "工具",
         "compacted": "压缩",
         "unknown": "其他"
+      },
+      "events": "事件",
+      "live": "实时",
+      "trendTotal": "总量",
+      "trendDelta": "增量",
+      "trendStep": "按步",
+      "trendTurn": "按回合",
+      "meterSame": "占用数字与顶栏圆环同源（context-usage / compute_context_breakdown）。",
+      "vsPrevious": "相对上一次 {{delta}}",
+      "expandComponents": "展开请求组成明细",
+      "mappedKinds": {
+        "all": "全部",
+        "inject": "注入",
+        "compact": "压缩",
+        "prune": "剪枝",
+        "switch": "切换",
+        "mode": "模式",
+        "model": "模型",
+        "user": "用户",
+        "assistant": "助手",
+        "tool": "工具",
+        "other": "其他"
       }
     },
     "openPlanFile": "计划文件",
