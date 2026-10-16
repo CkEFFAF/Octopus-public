@@ -3,13 +3,16 @@ import { Alert, Button, Empty, Input, Segmented, Spin, Tag } from "antd";
 import { ArrowDownAZ, ArrowUpAZ, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
-  octopThreadsApi,
   type ContextUsageBreakdown,
 } from "../../../api/modules/octopThreads";
 import {
+  contextInsightsApi,
+  type CoverageBlock,
+  type InsightsStats,
+} from "../../../api/modules/contextInsights";
+import {
   trajectoryApi,
   type TrajectoryEvent,
-  type TrajectoryMetrics,
 } from "../../../api/modules/trajectory";
 import { apiErrorMessage } from "../../../utils/apiError";
 import {
@@ -100,7 +103,9 @@ export default function ChatDockContext({
   const requestSection = useRef<HTMLDivElement>(null);
   const eventsBodyRef = useRef<HTMLDivElement>(null);
   const [usage, setUsage] = useState<ContextUsageBreakdown | null>(null);
-  const [metrics, setMetrics] = useState<TrajectoryMetrics | null>(null);
+  const [metrics, setMetrics] = useState<InsightsStats | null>(null);
+  const [coverage, setCoverage] = useState<CoverageBlock | null>(null);
+  const [insightsAsOf, setInsightsAsOf] = useState<string | null>(null);
   const [events, setEvents] = useState<TrajectoryEvent[]>([]);
   const [cursor, setCursor] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -122,17 +127,28 @@ export default function ChatDockContext({
       inflight.current = true;
       setLoading(true);
       try {
-        const [window, stats, history] = await Promise.all([
-          octopThreadsApi.contextUsage(agentId, threadId),
-          trajectoryApi.metrics(agentId, threadId),
+        const [inspected, history] = await Promise.all([
+          contextInsightsApi.inspect(agentId, threadId, {
+            include: ["stats", "breakdown", "trend", "execution", "meters"],
+            trendLimit: 40,
+          }),
           trajectoryApi.history(agentId, threadId, {
             limit: 120,
             beforeSeq: older,
           }),
         ]);
         if (stamp !== epoch.current) return;
+        const window: ContextUsageBreakdown | null = inspected.breakdown
+          ? {
+              max_tokens: inspected.breakdown.max_tokens,
+              used_tokens: inspected.breakdown.used_tokens,
+              segments: inspected.breakdown.segments as ContextUsageBreakdown["segments"],
+            }
+          : null;
         setUsage(window);
-        setMetrics(stats);
+        setMetrics(inspected.stats ?? null);
+        setCoverage(inspected.coverage ?? null);
+        setInsightsAsOf(inspected.as_of ?? null);
         setError("");
         setEvents((previous) => {
           const merged = new Map(
@@ -166,6 +182,8 @@ export default function ChatDockContext({
     paged.current = false;
     setUsage(null);
     setMetrics(null);
+    setCoverage(null);
+    setInsightsAsOf(null);
     setEvents([]);
     setCursor(null);
     setPicked(null);
@@ -282,6 +300,15 @@ export default function ChatDockContext({
         <div>
           <h2>{t("chat.contextInspect.title")}</h2>
           <p>{t("chat.contextInspect.subtitle")}</p>
+          {coverage ? (
+            <p className={styles.hint}>
+              {t("chat.contextInspect.coverage")}: {coverage.coverage}
+              {coverage.reason_codes?.length
+                ? ` · ${coverage.reason_codes.join(", ")}`
+                : ""}
+              {insightsAsOf ? ` · ${insightsAsOf}` : ""}
+            </p>
+          ) : null}
         </div>
         <Button
           aria-label={t("common.refresh")}
@@ -298,8 +325,18 @@ export default function ChatDockContext({
           <div className={styles.summaryGrid}>
             <div className={styles.stats}>
               {[
-                [t("chat.contextInspect.turns"), number(metrics?.turns)],
-                [t("chat.contextInspect.steps"), number(metrics?.steps)],
+                [
+                  t("chat.contextInspect.humanTurns"),
+                  number(metrics?.human_turns ?? metrics?.turns),
+                ],
+                [
+                  t("chat.contextInspect.modelRequests"),
+                  number(metrics?.model_requests),
+                ],
+                [
+                  t("chat.contextInspect.trajectoryEvents"),
+                  number(metrics?.trajectory_events ?? metrics?.steps),
+                ],
                 [t("chat.contextInspect.input"), number(metrics?.input_tokens)],
                 [
                   t("chat.contextInspect.output"),
