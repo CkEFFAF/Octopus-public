@@ -67,24 +67,44 @@ class ContextInsightsService:
     ) -> dict[str, Any]:
         del owner, agent_id  # ACL enforced by caller
         size = max(1, min(int(limit), 100))
-        # Fetch one extra to compute has_more; filter by mapped kind after.
-        raw = self._repos.trajectory_event_repo.list_before(
-            thread_id, before_seq=before_seq, limit=size + 1, kinds=None
-        )
         mapped_filter = {k.strip().lower() for k in (kinds or []) if k and k.strip()}
+        # Over-fetch when filtering so has_more reflects another *matching* row,
+        # not merely that the unfiltered window was full (false positive).
+        fetch_limit = size + 1 if not mapped_filter else min(500, max((size + 1) * 8, 80))
+        raw = self._repos.trajectory_event_repo.list_before(
+            thread_id, before_seq=before_seq, limit=fetch_limit, kinds=None
+        )
+        # list_before returns oldest→newest. Compute real deltas vs prior step
+        # with input_tokens; never treat absolute input_tokens as delta.
+        token_delta_by_id: dict[str, int | None] = {}
+        prev_tokens: int | None = None
+        for event in raw:
+            raw_tokens = event.payload.get("input_tokens")
+            if raw_tokens is None:
+                token_delta_by_id[event.event_id] = None
+                continue
+            try:
+                tokens = int(raw_tokens)
+            except (TypeError, ValueError):
+                token_delta_by_id[event.event_id] = None
+                continue
+            token_delta_by_id[event.event_id] = (
+                None if prev_tokens is None else tokens - prev_tokens
+            )
+            prev_tokens = tokens
+
+        # P1 gap: run_event kinds (model/device/workflow) are not merged into
+        # this trajectory page yet — see mapping.map_event_kind(source="run_event")
+        # and spec 0020 §5.2 P1 "配置变更 → Events".
         items: list[dict[str, Any]] = []
-        # Prefer newest-first presentation for tools.
-        newest_first = list(reversed(raw))
-        for event in newest_first:
+        saw_extra_match = False
+        for event in reversed(raw):
             mapped = map_event_kind(event.kind, payload=event.payload, source="trajectory")
             if mapped_filter and mapped not in mapped_filter and event.kind not in mapped_filter:
                 continue
-            token_delta = None
-            if event.payload.get("input_tokens") is not None:
-                try:
-                    token_delta = int(event.payload.get("input_tokens") or 0)
-                except (TypeError, ValueError):
-                    token_delta = None
+            if len(items) >= size:
+                saw_extra_match = True
+                break
             items.append(
                 {
                     "event_id": event.event_id,
@@ -93,14 +113,12 @@ class ContextInsightsService:
                     "mapped_kind": mapped,
                     "raw_kind": event.kind,
                     "summary": event.summary,
-                    "token_delta": token_delta,
+                    "token_delta": token_delta_by_id.get(event.event_id),
                     "producer": event.payload.get("producer") or event.payload.get("source"),
                     "request_seq": event.request_seq,
                 }
             )
-            if len(items) >= size:
-                break
-        has_more = len(newest_first) > size
+        has_more = saw_extra_match
         next_before = items[-1]["seq"] if has_more and items else None
         return {"events": items, "has_more": has_more, "next_before_seq": next_before}
 
@@ -249,15 +267,47 @@ def _file_path(payload: dict[str, Any]) -> str | None:
     return None
 
 
+_READ_TOOLS = frozenset(
+    {"read_file", "read", "cat", "open_file", "read_text", "read_bytes"}
+)
+_WRITE_TOOLS = frozenset(
+    {
+        "write_file",
+        "edit_file",
+        "write",
+        "apply_patch",
+        "str_replace",
+        "create_file",
+        "delete_file",
+    }
+)
+_SEARCH_TOOLS = frozenset(
+    {"grep", "glob", "search", "find", "rg", "codebase_search", "file_search"}
+)
+
+
+def _tool_name_tokens(name: str) -> set[str]:
+    """Split tool/kind identifiers into whole tokens (avoid 'open'∈'openai')."""
+    cleaned = name.strip().lower()
+    if not cleaned:
+        return set()
+    parts = {cleaned}
+    for sep in ("_", "-", ".", "/", ":"):
+        if sep in cleaned:
+            parts.update(p for p in cleaned.split(sep) if p)
+    return parts
+
+
 def _file_op(kind: Any, payload: dict[str, Any]) -> str | None:
-    name = str(payload.get("tool") or payload.get("name") or kind or "").lower()
-    if any(token in name for token in ("read_file", "read", "cat", "open")):
+    name = str(payload.get("tool") or payload.get("name") or kind or "")
+    tokens = _tool_name_tokens(name)
+    if tokens & _READ_TOOLS:
         return "reads"
-    if any(token in name for token in ("write_file", "edit_file", "write", "apply_patch")):
+    if tokens & _WRITE_TOOLS:
         return "writes"
-    if any(token in name for token in ("grep", "glob", "search", "find")):
+    if tokens & _SEARCH_TOOLS:
         return "searches"
-    op = str(payload.get("op") or payload.get("operation") or "").lower()
+    op = str(payload.get("op") or payload.get("operation") or "").strip().lower()
     if op in {"read", "reads"}:
         return "reads"
     if op in {"write", "writes", "edit"}:

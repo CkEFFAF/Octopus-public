@@ -42,6 +42,7 @@ export default function ContextRequestBrowser({
   const [picked, setPicked] = useState<string | null>(null);
   const [detail, setDetail] = useState<RequestSnapshot | null>(null);
   const [previous, setPrevious] = useState<RequestSnapshot | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [before, setBefore] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -88,6 +89,7 @@ export default function ContextRequestBrowser({
     setBefore(null);
     setDetail(null);
     setPrevious(null);
+    setDetailOpen(false);
     setError("");
     return () => {
       epoch.current += 1;
@@ -134,11 +136,15 @@ export default function ContextRequestBrowser({
       : undefined);
   const previousSummary =
     selectedSummary && requests.find((item) => item.seq < selectedSummary.seq);
+  // Selecting a request must not eagerly pull full component detail (S3).
   useEffect(() => {
-    if (!selectedId) return;
-    let disposed = false;
     setDetail(null);
     setPrevious(null);
+    setDetailOpen(false);
+  }, [selectedId]);
+  useEffect(() => {
+    if (!selectedId || !detailOpen) return;
+    let disposed = false;
     void Promise.all([
       executionApi.request(agentId, threadId, selectedId),
       previousSummary
@@ -162,6 +168,7 @@ export default function ContextRequestBrowser({
     agentId,
     threadId,
     selectedId,
+    detailOpen,
     selectedSummary?.status,
     previousSummary?.request_id,
     t,
@@ -187,8 +194,9 @@ export default function ContextRequestBrowser({
     ? Object.values(selected.composition).reduce((sum, value) => sum + value, 0)
     : 0;
   const delta =
-    previous && selected
-      ? selected.estimated_input_tokens - previous.estimated_input_tokens
+    previousSummary && selectedSummary
+      ? selectedSummary.estimated_input_tokens -
+        previousSummary.estimated_input_tokens
       : null;
   return (
     <>
@@ -373,7 +381,7 @@ export default function ContextRequestBrowser({
         <section>
           <div className={styles.requestHeading}>
             <h3>{t("chat.contextInspect.finalRequest")}</h3>
-            {previous && (
+            {previousSummary && (
               <Tag>
                 {t("chat.contextInspect.vsPrevious", {
                   delta:
@@ -392,7 +400,12 @@ export default function ContextRequestBrowser({
               })}
             />
           )}
-          <details className={styles.slimDetail}>
+          <details
+            className={styles.slimDetail}
+            onToggle={(e) => {
+              if (e.currentTarget.open) setDetailOpen(true);
+            }}
+          >
             <summary>{t("chat.contextInspect.expandComponents")}</summary>
             <Input
               value={search}
