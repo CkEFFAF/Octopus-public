@@ -67,6 +67,7 @@ class TrajectoryHistoryOut(BaseModel):
 class TrajectoryMetricsOut(BaseModel):
     turns: int
     steps: int
+    tool_calls: int = 0
     llm_duration_ms: float | None = None
     tool_duration_ms: float | None = None
     ttft_avg_ms: float | None = None

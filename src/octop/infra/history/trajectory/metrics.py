@@ -12,6 +12,7 @@ from octop.infra.history.trajectory.types import TrajectoryEvent
 class TrajectoryMetrics:
     turns: int
     steps: int
+    tool_calls: int
     llm_duration_ms: float | None
     tool_duration_ms: float | None
     ttft_avg_ms: float | None
@@ -97,6 +98,7 @@ def aggregate_metrics(events: Sequence[TrajectoryEvent]) -> TrajectoryMetrics:
     return TrajectoryMetrics(
         turns=sum(1 for event in events if event.kind == "user"),
         steps=len(events),
+        tool_calls=len(tool_events),
         llm_duration_ms=_sum_payload(assistant_events, "llm_duration_ms"),
         tool_duration_ms=_sum_payload(tool_events, "tool_duration_ms"),
         ttft_avg_ms=_avg_payload(assistant_events, "ttft_ms"),
