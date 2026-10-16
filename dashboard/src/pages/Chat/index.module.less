@@ -389,3 +389,59 @@
   line-height: 1.6;
   color: var(--fn-text-secondary);
 }
+
+.chatTitleActions {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.roomActions {
+  flex-shrink: 0;
+}
+.chatHeaderFallback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 57px;
+  padding: 0 var(--chat-column-pad-x, 24px);
+  border-bottom: 1px solid var(--fn-border-primary);
+}
+@container chat-main (max-width: 900px) {
+  .roomActions :global(.ant-btn) > span:not(:global(.ant-btn-icon)) {
+    display: none;
+  }
+  .roomActions :global(.ant-space) {
+    gap: 2px !important;
+  }
+  .chatTitleLeft > :last-child {
+    flex-shrink: 1;
+  }
+}
+
+.mobileToolbar {
+  flex-wrap: wrap;
+}
+.mobileRoomActions {
+  flex: 1 0 100%;
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+@media (max-width: 767px) {
+  .chatTitleBar {
+    height: auto;
+    max-height: none;
+    flex-basis: auto;
+    flex-wrap: wrap;
+    padding-block: 6px;
+    gap: 4px;
+  }
+  .chatTitleLeft {
+    min-width: 160px;
+  }
+  .chatTitleActions {
+    flex: 1 0 100%;
+    display: flex;
+    justify-content: flex-end;
+  }
+}

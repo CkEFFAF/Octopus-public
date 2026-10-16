@@ -6,6 +6,7 @@ import {
   useMemo,
   forwardRef,
   useImperativeHandle,
+  type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { App } from "antd";
@@ -66,6 +67,7 @@ import type {
   QueuedChatItem,
 } from "../hooks/useChatMessageQueue";
 import type { HitlSessionPolicy } from "../utils/hitlSessionPolicy";
+import { useComposerResize } from "../hooks/useComposerResize";
 import styles from "../index.module.less";
 
 /** Imperative handle exposed via ref for programmatic text injection. */
@@ -78,6 +80,7 @@ export interface ChatInputHandle {
 }
 
 interface ChatInputProps {
+  footer?: ReactNode;
   onSend: (text: string, attachments?: ChatAttachment[]) => void;
   /** Queue a message while the current turn is still streaming. */
   onQueue?: (item: EnqueueChatItemInput) => "ok" | "empty" | "full";
@@ -146,6 +149,7 @@ interface ChatInputProps {
 const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
   function ChatInput(
     {
+      footer,
       onSend,
       onQueue,
       queuedItems = [],
@@ -398,8 +402,6 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     }, [text, agentId, threadId]);
     const submitRef = useRef<() => void>(() => {});
 
-    const MIN_TEXTAREA_HEIGHT = 36;
-
     const {
       slashMenuOpen,
       slashMenuIndex,
@@ -509,7 +511,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     );
 
     const resetComposerAfterSubmit = useCallback(
-      (prevHeight: number, submittedText: string) => {
+      (_prevHeight: number, submittedText: string) => {
         setText("");
         writeInputDraft(agentId, threadId, "");
         clearAttachments();
@@ -519,26 +521,8 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
         ignoreInitialTextRef.current = submittedText;
         prevInitialTextRef.current = initialText;
         onComposerCleared?.();
-        requestAnimationFrame(() => {
-          const ta = textareaRef.current;
-          if (ta && prevHeight > MIN_TEXTAREA_HEIGHT) {
-            ta.style.transition = "none";
-            ta.style.height = `${prevHeight}px`;
-            // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-            ta.offsetHeight;
-            ta.style.transition = "";
-            ta.style.height = `${MIN_TEXTAREA_HEIGHT}px`;
-          }
-        });
       },
-      [
-        agentId,
-        threadId,
-        clearAttachments,
-        MIN_TEXTAREA_HEIGHT,
-        initialText,
-        onComposerCleared,
-      ],
+      [agentId, threadId, clearAttachments, initialText, onComposerCleared],
     );
 
     const submitMessage = useCallback(() => {
@@ -687,50 +671,6 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       }
     }, [text, onUserInput]);
 
-    const adjustHeight = useCallback(() => {
-      const ta = textareaRef.current;
-      if (!ta) return;
-      // Measure the content height on a detached clone instead of collapsing
-      // the live textarea to height:"auto". That transient shrink reflows the
-      // flex layout and makes the message list viewport (a sibling above the
-      // composer) grow for a moment; browsers clamp the list scrollTop to the
-      // larger viewport and the clamp STICKS after the height is restored —
-      // while a reply streams, follow-pins then snap the list back down, i.e.
-      // the per-keystroke up/down jitter. A clone never touches live layout.
-      const target = (() => {
-        const clone = ta.cloneNode(false) as HTMLTextAreaElement;
-        clone.value = ta.value;
-        const rect = ta.getBoundingClientRect();
-        clone.style.cssText = [
-          "position:fixed",
-          "left:-9999px",
-          "top:0",
-          "visibility:hidden",
-          "height:auto",
-          "min-height:0",
-          "max-height:none",
-          "transition:none",
-          `width:${rect.width}px`,
-        ].join(";");
-        document.body.appendChild(clone);
-        const h = clone.scrollHeight;
-        document.body.removeChild(clone);
-        return Math.max(Math.min(h, 160), MIN_TEXTAREA_HEIGHT);
-      })();
-      const current = ta.getBoundingClientRect().height;
-      if (Math.abs(target - current) < 0.5) return; // height unchanged
-      // Disable transition during the write so the resize is instant.
-      ta.style.transition = "none";
-      ta.style.height = `${target}px`;
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-      ta.offsetHeight; // force reflow
-      ta.style.transition = "";
-    }, [MIN_TEXTAREA_HEIGHT]);
-
-    useEffect(() => {
-      adjustHeight();
-    }, [text, adjustHeight]);
-
     const handlePolish = useCallback(async () => {
       const draft = text.trim();
       if (!draft || !agentId || polishing || isStreaming || disabled) return;
@@ -760,6 +700,8 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       }
     }, [text, agentId, polishing, isStreaming, disabled, selectedModel, t]);
 
+    const composerResize = useComposerResize(isMobile);
+
     const canSend = Boolean(
       (text.trim() || attachments.length > 0) && !disabled,
     );
@@ -767,6 +709,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     return (
       <div
         ref={shellRef}
+        data-chat-composer
         className={`${styles.chatInput} ${dragOver ? styles.dropActive : ""}`}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
@@ -780,7 +723,26 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             onReclaim={handleReclaimQueued}
           />
         )}
-        <div className={styles.inputWrapper}>
+        <div
+          className={`${styles.inputWrapper} ${styles.resizableComposer}`}
+          ref={composerResize.wrapperRef}
+          style={{
+            height: composerResize.height,
+            minHeight: composerResize.minHeight,
+          }}
+        >
+          <div
+            role="separator"
+            tabIndex={0}
+            aria-orientation="horizontal"
+            aria-label={t("chat.resizeComposer")}
+            aria-valuemin={Math.round(composerResize.minHeight)}
+            aria-valuemax={Math.round(composerResize.maxHeight)}
+            aria-valuenow={Math.round(composerResize.height)}
+            className={styles.composerResizeHandle}
+            onPointerDown={composerResize.onPointerDown}
+            onKeyDown={composerResize.onKeyDown}
+          />
           <ChatInputPreviewBar
             attachments={attachments}
             uploading={uploading}
@@ -958,9 +920,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             onChange={handleFileChange}
           />
         </div>
-        {!isMobile && (
-          <p className={styles.aiDisclaimer}>{t("chatWelcome.aiDisclaimer")}</p>
-        )}
+        {footer ? <div className={styles.chatUsageFooter}>{footer}</div> : null}
       </div>
     );
   },

@@ -37,6 +37,7 @@ interface ChatSidebarPanelProps {
   forkDisabledHint?: string;
   onSidebarOpenChange: (open: boolean) => void;
   onSidebarResizeStart: (e: React.PointerEvent) => void;
+  onSidebarResizeKey?: (e: React.KeyboardEvent) => void;
   /** Mounted in MainLayout left rail (between app nav and content). */
   layoutRail?: boolean;
   /**
@@ -71,6 +72,7 @@ export default function ChatSidebarPanel({
   forkDisabledHint,
   onSidebarOpenChange,
   onSidebarResizeStart,
+  onSidebarResizeKey,
   layoutRail = false,
   navEmbedded = false,
 }: ChatSidebarPanelProps) {
@@ -163,6 +165,8 @@ export default function ChatSidebarPanel({
               isSidebarResizing ? styles.sidebarResizeHandleActive : ""
             }`}
             onPointerDown={onSidebarResizeStart}
+            onKeyDown={onSidebarResizeKey}
+            tabIndex={0}
             role="separator"
             aria-orientation="vertical"
             aria-label={t("chat.resizeSidebar", "调整侧栏宽度")}

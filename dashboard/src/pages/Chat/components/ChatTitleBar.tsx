@@ -36,6 +36,7 @@ interface ChatTitleBarProps {
   forkDisabledHint?: string;
   isTeam?: boolean;
   activity?: ReactNode;
+  actions?: ReactNode;
 }
 
 export default function ChatTitleBar({
@@ -49,6 +50,7 @@ export default function ChatTitleBar({
   forkDisabledHint,
   isTeam = false,
   activity,
+  actions,
 }: ChatTitleBarProps) {
   const { t } = useTranslation();
   const [collapseThinking, setCollapseThinking] = useCollapseThinking(isTeam);
@@ -210,6 +212,9 @@ export default function ChatTitleBar({
         )}
         {activity}
       </div>
+      {actions ? (
+        <div className={styles.chatTitleActions}>{actions}</div>
+      ) : null}
     </div>
   );
 }

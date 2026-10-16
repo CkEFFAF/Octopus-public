@@ -243,3 +243,29 @@
     display: none !important;
   }
 }
+
+.recordsResizeHandle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 20;
+  &:hover,
+  &:focus-visible {
+    background: var(--fn-color-brand-glow);
+    outline: none;
+  }
+  &::after {
+    content: "";
+    position: absolute;
+    right: 3px;
+    top: 45%;
+    height: 32px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--fn-border-primary);
+  }
+}

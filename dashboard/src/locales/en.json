@@ -1625,6 +1625,7 @@
     "path_outside_root": "The file path is outside this expert's storage root, so it cannot be read or written. Use a path under the storage root, or widen the storage root in expert settings (on Windows, set an explicit drive path such as D:/octop-data)."
   },
   "chat": {
+    "resizeComposer": "Resize message input height",
     "contextInspect": {
       "sourceTypes": {
         "reference_file": "Injected reference file",
@@ -1952,6 +1953,12 @@
     "teamBadge": "Team",
     "teamHostHover": "[{{name}}] Host",
     "agentProfile": {
+      "fullSettings": "Full expert settings",
+      "discardDefaults": "Discard unsaved changes and open full expert settings?",
+      "configureDefaults": "Model & device",
+      "configureMember": "Configure {{name}} model and device",
+      "defaultsHint": "These are this expert’s saved defaults. A model or execution target explicitly selected in the current chat takes priority. An active turn keeps its existing configuration; updates apply through the normal pending reload.",
+      "defaultsReadOnly": "Only this expert’s owner or an administrator can change these defaults.",
       "open": "View expert details",
       "title": "Expert details",
       "openTeam": "View team details",
@@ -2483,6 +2490,11 @@
     "generate_video": "Generate video"
   },
   "chatUsage": {
+    "loading": "Loading usage…",
+    "unavailable": "Usage unavailable while history is incomplete",
+    "loadedMessages": "Loaded message usage",
+    "noUsage": "No usage yet",
+    "turnDetails": "Turn usage details",
     "latestRun": "Latest run",
     "sessionTotal": "Session total",
     "input": "input",

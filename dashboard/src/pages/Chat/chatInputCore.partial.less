@@ -848,3 +848,65 @@
     height: 28px;
   }
 }
+
+.resizableComposer {
+  position: relative;
+  min-height: 120px;
+  .inputRow {
+    flex: 1;
+    min-height: 36px;
+    align-items: stretch;
+  }
+  .textarea {
+    height: 100% !important;
+    min-height: 36px;
+    max-height: none;
+    overflow-y: auto;
+    transition: none;
+  }
+  .imagePreviewBar {
+    max-height: 40%;
+    flex-shrink: 0;
+    overflow-y: auto;
+  }
+  .actionsRow {
+    flex-shrink: 0;
+  }
+}
+.composerResizeHandle {
+  position: absolute;
+  top: -6px;
+  left: 16px;
+  right: 16px;
+  height: 12px;
+  z-index: 3;
+  cursor: row-resize;
+  touch-action: none;
+  border-radius: 6px;
+  &::after {
+    content: "";
+    display: block;
+    width: 36px;
+    height: 3px;
+    border-radius: 3px;
+    margin: 4px auto;
+    background: var(--fn-border-primary);
+  }
+  &:hover,
+  &:focus-visible {
+    background: var(--fn-color-brand-glow);
+    outline: none;
+  }
+  @media (max-width: 767px) {
+    touch-action: pan-y;
+    cursor: default;
+  }
+}
+.chatUsageFooter {
+  max-width: var(--chat-column-max, 960px);
+  margin: 8px auto 0;
+  font-size: 11px;
+  color: var(--fn-text-tertiary);
+  text-align: center;
+  line-height: 1.4;
+}

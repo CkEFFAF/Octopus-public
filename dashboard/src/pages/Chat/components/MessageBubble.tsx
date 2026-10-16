@@ -1,3 +1,4 @@
+import { formatTokenUsage } from "../utils/chatUsage";
 import { memo, useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { Image, Tooltip } from "antd";
 import { message as antMessage } from "@/utils/antdMessage";
@@ -96,37 +97,6 @@ interface MessageBubbleProps {
   onRunShellCommand?: (code: string) => void;
   shellCommandDisabled?: boolean;
   shellCommandDisabledTitle?: string;
-}
-
-function formatTokenUsage(
-  usage: ChatMessage["usage"],
-  labels: { input: string; output: string; total: string; cacheHit: string },
-): string[] {
-  if (!usage) return [];
-
-  const parts: string[] = [];
-  if (typeof usage.input_tokens === "number") {
-    parts.push(`${usage.input_tokens} ${labels.input}`);
-  }
-  if (
-    typeof usage.cache_read_tokens === "number" &&
-    usage.cache_read_tokens > 0
-  ) {
-    const percent =
-      typeof usage.input_tokens === "number" && usage.input_tokens > 0
-        ? ` (${Math.round(
-            (usage.cache_read_tokens / usage.input_tokens) * 100,
-          )}%)`
-        : "";
-    parts.push(`${usage.cache_read_tokens} ${labels.cacheHit}${percent}`);
-  }
-  if (typeof usage.output_tokens === "number") {
-    parts.push(`${usage.output_tokens} ${labels.output}`);
-  }
-  if (typeof usage.total_tokens === "number") {
-    parts.push(`${usage.total_tokens} ${labels.total}`);
-  }
-  return parts;
 }
 
 function formatErrorDebugTags(errorInfo: ChatMessage["errorInfo"]): string[] {
@@ -1054,7 +1024,15 @@ function MessageBubble({
                 </div>
               )}
               {usageParts.length > 0 && (
-                <div className={styles.msgUsage}>{usageParts.join(" / ")}</div>
+                <Tooltip title={usageParts.join(" / ")}>
+                  <button
+                    type="button"
+                    className={styles.msgActionBtn}
+                    aria-label={t("chatUsage.turnDetails")}
+                  >
+                    ⓘ
+                  </button>
+                </Tooltip>
               )}
             </div>
           )}

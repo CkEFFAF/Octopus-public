@@ -91,6 +91,7 @@ import {
 import ChatSidebarPanel from "./components/ChatSidebarPanel";
 import ChatTitleBar from "./components/ChatTitleBar";
 import TeamChatBadge from "./components/TeamChatBadge";
+import ChatUsageFooter from "./components/ChatUsageFooter";
 import ProjectRoomBar from "./components/ProjectRoomBar";
 import DeviceTargetSelect from "./components/DeviceTargetSelect";
 import AskQuestionCard from "./components/AskQuestionCard";
@@ -152,6 +153,7 @@ function ChatPageInner() {
     isSidebarResizing,
     sidebarElRef,
     handleSidebarResizeStart,
+    handleSidebarResizeKey,
   } = useChatSidebarState(isMobile);
 
   // Pre-fill text from router state or module-level pending prefill
@@ -213,6 +215,8 @@ function ChatPageInner() {
   const sharedExpertViewer = isSharedExpertViewer(activeAgent ?? {});
   const isTeamChat = isTeamAgent(activeAgent);
   const [agentProfileOpen, setAgentProfileOpen] = useState(false);
+  const [profileConfigureDefaults, setProfileConfigureDefaults] =
+    useState(false);
   const [profileAgentId, setProfileAgentId] = useState<string | null>(null);
   const profileAgent = useMemo(() => {
     if (!profileAgentId || profileAgentId === activeAgent?.agent_id) {
@@ -228,6 +232,9 @@ function ChatPageInner() {
       kind: "expert",
       member_ids: undefined,
       description: null,
+      is_owner: false,
+      user_id: null,
+      config: {},
     };
   }, [profileAgentId, agents, activeAgent]);
   const profileOpenLabel = isTeamChat
@@ -1221,13 +1228,28 @@ function ChatPageInner() {
 
   const handleOpenSpeakerProfile = useCallback(
     (agentId?: string) => {
+      setProfileConfigureDefaults(sharedExpertViewer);
       setProfileAgentId(
         agentId && agentId !== resolvedAgentId ? agentId : null,
       );
       setAgentProfileOpen(true);
     },
-    [resolvedAgentId],
+    [resolvedAgentId, sharedExpertViewer],
   );
+
+  const roomActions =
+    isTeamChat && resolvedAgentId ? (
+      <ProjectRoomBar
+        compact
+        teamId={resolvedAgentId}
+        onMention={(name) => chatInputRef.current?.mentionExpert(name)}
+        onConfigureMember={(agentId) => {
+          setProfileAgentId(agentId);
+          setProfileConfigureDefaults(true);
+          setAgentProfileOpen(true);
+        }}
+      />
+    ) : null;
 
   const chatSidebarPanel = (
     <ChatSidebarPanel
@@ -1267,6 +1289,7 @@ function ChatPageInner() {
       forkDisabledHint={sessionForkDisabledHint}
       onSidebarOpenChange={setSidebarOpen}
       onSidebarResizeStart={handleSidebarResizeStart}
+      onSidebarResizeKey={handleSidebarResizeKey}
       layoutRail={!isMinimalLayout}
       navEmbedded={isMinimalLayout}
     />
@@ -1311,6 +1334,7 @@ function ChatPageInner() {
         >
           {/* Main chat area */}
           <div
+            data-chat-main
             className={[
               styles.chatMain,
               turnRailVisible ? styles.chatMainWithTurnRail : "",
@@ -1398,9 +1422,18 @@ function ChatPageInner() {
                     )}
                   </div>
                 )}
+                {roomActions ? (
+                  <div className={styles.mobileRoomActions}>{roomActions}</div>
+                ) : null}
               </div>
             )}
 
+            {!isMobile && (!activeSession || !activeSessionTitle) ? (
+              <div className={styles.chatHeaderFallback}>
+                {expertActivity}
+                {roomActions}
+              </div>
+            ) : null}
             {!isMobile && activeSession && activeSessionTitle && (
               <ChatTitleBar
                 session={activeSession}
@@ -1413,13 +1446,7 @@ function ChatPageInner() {
                 forkDisabledHint={sessionForkDisabledHint}
                 isTeam={isTeamChat}
                 activity={expertActivity}
-              />
-            )}
-
-            {isTeamChat && resolvedAgentId && (
-              <ProjectRoomBar
-                teamId={resolvedAgentId}
-                onMention={(name) => chatInputRef.current?.mentionExpert(name)}
+                actions={roomActions}
               />
             )}
 
@@ -1476,10 +1503,15 @@ function ChatPageInner() {
                   onPromptClick={handlePromptClick}
                   hideMascot={isStreaming || liveSpeakers.length > 0}
                   isTeam={isTeamChat}
+                  onConfigure={() => {
+                    setProfileAgentId(resolvedAgentId ?? null);
+                    setProfileConfigureDefaults(!isTeamChat);
+                    setAgentProfileOpen(true);
+                  }}
                 />
               ) : (
                 <ChatAgentProfileProvider
-                  canOpen={Boolean(resolvedAgentId) && !sharedExpertViewer}
+                  canOpen={Boolean(resolvedAgentId)}
                   onOpen={handleOpenSpeakerProfile}
                   isTeam={isTeamChat}
                 >
@@ -1760,6 +1792,18 @@ function ChatPageInner() {
             ) : null}
             <ChatInput
               ref={chatInputRef}
+              footer={
+                <ChatUsageFooter
+                  key={`${resolvedAgentId}/${activeThreadId}`}
+                  messages={messages}
+                  hasMore={historyHasMore}
+                  loading={historyLoading || historyRefreshing}
+                  unavailable={
+                    Boolean(activeThreadId) &&
+                    (Boolean(historyError) || !historyHydrated)
+                  }
+                />
+              }
               onSend={wrappedHandleSend}
               onQueue={enqueueQueued}
               queuedItems={queuedItems}
@@ -1856,17 +1900,19 @@ function ChatPageInner() {
             addTab={dockAddTab}
           />
 
-          {!sharedExpertViewer && (
+          {
             <AgentProfileDrawer
               open={agentProfileOpen}
               agent={profileAgent}
+              configureDefaults={profileConfigureDefaults}
               isMobile={isMobile}
               onClose={() => {
                 setAgentProfileOpen(false);
+                setProfileConfigureDefaults(false);
                 setProfileAgentId(null);
               }}
             />
-          )}
+          }
           {trajectoryEnabled && (
             <TrajectoryDrawer
               agentId={resolvedAgentId ?? ""}
