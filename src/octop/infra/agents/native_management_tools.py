@@ -744,7 +744,6 @@ def build_native_management_tools(
                 "expert_defaults_unchanged": True,
             }
 
-
     # --- Context Insights (spec 0020; read-only; shared service) ---
     from octop.infra.context_insights.service import ContextInsightsService
 

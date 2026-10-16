@@ -28,7 +28,11 @@ class ContextInsightsService:
         trend_limit: int = 20,
     ) -> dict[str, Any]:
         wanted = set(include or ("stats", "breakdown", "trend", "execution"))
-        out: dict[str, Any] = {"agent_id": agent_id, "thread_id": thread_id, "meter_source": "context_usage"}
+        out: dict[str, Any] = {
+            "agent_id": agent_id,
+            "thread_id": thread_id,
+            "meter_source": "context_usage",
+        }
         if "breakdown" in wanted or "stats" in wanted:
             breakdown = await self._breakdown(agent_id, thread_id)
             if "breakdown" in wanted:
@@ -158,9 +162,7 @@ class ContextInsightsService:
             op = _file_op(event.get("kind"), payload)
             if op is None:
                 continue
-            row = files.setdefault(
-                path, {"path": path, "reads": 0, "writes": 0, "searches": 0}
-            )
+            row = files.setdefault(path, {"path": path, "reads": 0, "writes": 0, "searches": 0})
             row[op] = int(row.get(op, 0) or 0) + 1
             for key, alias in (
                 ("lines_added", "lines_added"),
@@ -267,9 +269,7 @@ def _file_path(payload: dict[str, Any]) -> str | None:
     return None
 
 
-_READ_TOOLS = frozenset(
-    {"read_file", "read", "cat", "open_file", "read_text", "read_bytes"}
-)
+_READ_TOOLS = frozenset({"read_file", "read", "cat", "open_file", "read_text", "read_bytes"})
 _WRITE_TOOLS = frozenset(
     {
         "write_file",
@@ -315,4 +315,3 @@ def _file_op(kind: Any, payload: dict[str, Any]) -> str | None:
     if op in {"search", "searches"}:
         return "searches"
     return None
-

@@ -62,7 +62,11 @@ def map_event_kind(
     if mapped == "compact":
         return "compact"
     transform = data.get("transformation") if isinstance(data.get("transformation"), dict) else None
-    if transform and str(transform.get("kind") or "") in {"summarization", "message_rewrite", "prune"}:
+    if transform and str(transform.get("kind") or "") in {
+        "summarization",
+        "message_rewrite",
+        "prune",
+    }:
         return "compact" if transform.get("kind") != "prune" else "prune"
     if str(data.get("prune") or data.get("pruned") or "").lower() in {"1", "true", "yes"}:
         return "prune"
