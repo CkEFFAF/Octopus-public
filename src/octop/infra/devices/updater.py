@@ -302,7 +302,14 @@ def resolve_software_version(
 
         return version(package_name)
     except Exception:
-        return os.environ.get("OCTOP_SOFTWARE_VERSION", "0.0.0")
+        explicit_version = os.environ.get("OCTOP_SOFTWARE_VERSION")
+        if explicit_version:
+            return explicit_version
+        if package_name == "octop":
+            from octop import __version__
+
+            return __version__
+        return "0.0.0"
 
 
 class DeviceUpdater:

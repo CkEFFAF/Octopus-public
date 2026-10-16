@@ -113,6 +113,7 @@ MODULES=(
   infra/devices/browser.py
   infra/devices/resources.py
   infra/devices/state_io.py
+  infra/devices/updater.py infra/devices/update_policy.py
   infra/devices/desktop.py infra/desktop/__init__.py infra/desktop/capture.py infra/desktop/input.py
   infra/skills/external_sources.py infra/skills/skill_packages.py infra/utils/frontmatter.py
   infra/utils/git_workbench.py
@@ -187,6 +188,9 @@ if platform.system() != "Linux" or platform.machine() != sys.argv[2]:
 site.addsitedir(str(root / "packages"))
 import click, websockets
 from octop.infra.devices.network import DeviceNetwork
+from octop.infra.devices.client import DeviceClient
+from octop.infra.devices.update_policy import DeviceUpdatePolicy, WindowLocal, may_cutover
+from octop.infra.devices.updater import DeviceUpdater, detect_busy, resolve_software_version
 print("native device imports OK", platform.machine(), ssl.OPENSSL_VERSION)
 PYTHON
   "$DEVICE_PY" "${PAYLOAD}/launch.py" device --help >/dev/null

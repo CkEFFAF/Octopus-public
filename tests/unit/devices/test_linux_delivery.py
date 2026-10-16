@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -116,6 +117,84 @@ assert 'octop.infra.desktop.setup' not in sys.modules
 assert DeviceDesktop.__name__ == 'DeviceDesktop'
 """
     result = _isolated_python(device_payload, ["-c", code, str(device_payload)])
+    assert result.returncode == 0, result.stderr
+
+
+def test_device_payload_reaches_hello_and_loads_update_policy(
+    device_payload: Path, repo_root: Path
+) -> None:
+    code = """
+import asyncio, json, os, pathlib, sys
+from importlib.metadata import PackageNotFoundError, version
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+root = pathlib.Path(sys.argv[1])
+sys.path.insert(0, str(root / 'packages'))
+os.environ.pop('OCTOP_SOFTWARE_VERSION', None)
+from octop import __version__
+from octop.infra.devices.client import DeviceClient
+
+try:
+    version('octop')
+except PackageNotFoundError:
+    pass
+else:
+    raise AssertionError('isolated payload unexpectedly has Octop distribution metadata')
+assert __version__ == sys.argv[2]
+
+class HelloSent(Exception):
+    pass
+
+class Socket:
+    async def send(self, raw):
+        frame = json.loads(raw)
+        assert frame['type'] == 'hello'
+        assert frame['device_id'] == 'packaging-smoke'
+        assert frame['software_version'] == __version__ == sys.argv[2]
+        raise HelloSent
+
+class OfflineConnect:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return Socket()
+
+    async def __aexit__(self, *args):
+        pass
+
+async def main():
+    client = DeviceClient(root / 'smoke-state')
+    state = {
+        'server_url': 'https://packaging.invalid',
+        'device_id': 'packaging-smoke',
+        'device_token': 'odv_fake_packaging_token',
+    }
+    # Execute the real run path up to hello without opening a socket or enrolling.
+    with patch.object(client, 'load_state', return_value=state), patch(
+        'websockets.asyncio.client.connect', OfflineConnect
+    ):
+        try:
+            await client.run(SimpleNamespace(close=AsyncMock()))
+        except HelloSent:
+            pass
+        else:
+            raise AssertionError('device never sent hello')
+
+    assert client._probe_busy(SimpleNamespace()) == (False, [])
+    # An incomplete offer exercises policy/updater imports and stops before download.
+    client._pending_update_offer = {'target_version': 'packaging-smoke'}
+    report = client.consume_pending_update_offer(install_dir=root / 'smoke-install')
+    assert report['status'] == 'failed'
+    assert report['error'] == 'incomplete offer'
+
+asyncio.run(main())
+"""
+    project = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
+    result = _isolated_python(
+        device_payload, ["-c", code, str(device_payload), project["project"]["version"]]
+    )
     assert result.returncode == 0, result.stderr
 
 
