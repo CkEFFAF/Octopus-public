@@ -115,10 +115,14 @@ it("shows actual summarization separately from request deltas and retains remove
   expect(
     await screen.findByText("chat.contextInspect.summarization"),
   ).toBeInTheDocument();
+  // Components stay behind expand (S3 / 0020.1b detail card).
+  fireEvent.click(screen.getByText("chat.contextInspect.expandComponents"));
   expect(
     await screen.findByText("chat.contextInspect.summarySource"),
   ).toBeInTheDocument();
-  fireEvent.click(screen.getByText("chat.contextInspect.removedComponents"));
+  fireEvent.click(
+    await screen.findByText("chat.contextInspect.removedComponents"),
+  );
   expect(screen.getByText("Original retained context")).toBeInTheDocument();
   expect(screen.getByText("Summary of earlier context")).toBeInTheDocument();
 });
@@ -219,6 +223,7 @@ it("inspects a correlated request even when it is older than the loaded request 
       "old-request",
     ),
   );
+  fireEvent.click(screen.getByText("chat.contextInspect.expandComponents"));
   expect(await screen.findByText("Retained exact request")).toBeInTheDocument();
   expect(executionApi.request).not.toHaveBeenCalledWith(
     "expert",

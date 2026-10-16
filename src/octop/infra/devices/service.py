@@ -1379,7 +1379,12 @@ class DeviceService:
 
     def _record_execution_receipt(self, operation_id: str, owner: int) -> None:
         from octop.infra.db.repos.execution import ExecutionContextRepo
-        from octop.infra.execution.events import STREAM_ACTIONS, RunInspectionService
+        from octop.infra.execution.events import (
+            STREAM_ACTIONS,
+            RunInspectionService,
+            bound_receipt_fields,
+            command_preview_from_params,
+        )
 
         op = self.repos.device_repo.get_operation(operation_id, owner)
         if op is None or op.action in STREAM_ACTIONS:
@@ -1398,27 +1403,11 @@ class DeviceService:
                 "action": op.action,
                 "device_id": op.device_id,
             }
+            preview = command_preview_from_params(op.params or {})
+            if preview and not summary.get("command_preview"):
+                summary["command_preview"] = preview
             if op.result is not None:
-                summary["receipt"] = {
-                    key: value[:4096] if isinstance(value, str) else value
-                    for key, value in op.result.items()
-                    if key
-                    in {
-                        "job_id",
-                        "status",
-                        "returncode",
-                        "session_id",
-                        "sha256",
-                        "size",
-                        "recovery_id",
-                        "recovery_copy",
-                        "restored",
-                        "backup_path",
-                        "cancel_requested",
-                        "cancel_incomplete",
-                    }
-                    and isinstance(value, (str, int, float, bool, type(None)))
-                }
+                summary["receipt"] = bound_receipt_fields(op.result)
             inspect.events.save(
                 event_id=event_id,
                 owner=owner,

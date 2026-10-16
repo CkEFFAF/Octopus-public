@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Empty, Input, Select, Spin, Tag } from "antd";
+import { Alert, Button, Empty, Input, Segmented, Spin, Tag } from "antd";
 import { ArrowDownAZ, ArrowUpAZ } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -59,6 +59,12 @@ function compareRequests(
   return dir === "asc" ? d : -d;
 }
 
+function truncateMiddle(value: string, max = 48): string {
+  if (value.length <= max) return value;
+  const keep = Math.floor((max - 1) / 2);
+  return `${value.slice(0, keep)}…${value.slice(-keep)}`;
+}
+
 export default function ContextRequestBrowser({
   agentId,
   threadId,
@@ -84,6 +90,7 @@ export default function ContextRequestBrowser({
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("time");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [kindFilter, setKindFilter] = useState<string>("all");
   const sectionBodyRef = useRef<HTMLDivElement>(null);
   const epoch = useRef(0);
   const busy = useRef(false);
@@ -128,6 +135,7 @@ export default function ContextRequestBrowser({
     setDetail(null);
     setPrevious(null);
     setDetailOpen(false);
+    setKindFilter("all");
     setError("");
     return () => {
       epoch.current += 1;
@@ -152,13 +160,32 @@ export default function ContextRequestBrowser({
     return () => clearInterval(timer);
   }, [refresh, live]);
 
-  const sortedRequests = useMemo(
-    () =>
-      [...requests].sort((a, b) => compareRequests(a, b, sortKey, sortDir)),
-    [requests, sortKey, sortDir],
-  );
+  const kindOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of requests) {
+      for (const kind of Object.keys(item.composition ?? {})) {
+        counts.set(kind, (counts.get(kind) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [requests]);
 
-  const selectedId = picked ?? sortedRequests[0]?.request_id;
+  const sortedRequests = useMemo(() => {
+    const filtered =
+      kindFilter === "all"
+        ? requests
+        : requests.filter((item) =>
+            Object.prototype.hasOwnProperty.call(
+              item.composition ?? {},
+              kindFilter,
+            ),
+          );
+    return [...filtered].sort((a, b) =>
+      compareRequests(a, b, sortKey, sortDir),
+    );
+  }, [requests, sortKey, sortDir, kindFilter]);
+
+  const selectedId = picked ?? sortedRequests[0]?.request_id ?? null;
   const selectedSummary = sortedRequests.find(
     (item) => item.request_id === selectedId,
   );
@@ -184,14 +211,18 @@ export default function ContextRequestBrowser({
     [...requests]
       .filter((item) => item.seq < selectedSummary.seq)
       .sort((a, b) => b.seq - a.seq)[0];
-  // Selecting a request must not eagerly pull full component detail (S3).
+  // Selecting a listed request must not eagerly pull full component detail (S3).
+  // Focus / highlight of an ID missing from the page still needs a detail fetch.
+  const needsFocusFetch =
+    !!selectedId && !selectedSummary && selectedId === picked;
   useEffect(() => {
     setDetail(null);
     setPrevious(null);
-    setDetailOpen(false);
-  }, [selectedId]);
+    if (needsFocusFetch) setDetailOpen(true);
+    else setDetailOpen(false);
+  }, [selectedId, needsFocusFetch]);
   useEffect(() => {
-    if (!selectedId || !detailOpen) return;
+    if (!selectedId || (!detailOpen && !needsFocusFetch)) return;
     let disposed = false;
     void Promise.all([
       executionApi.request(agentId, threadId, selectedId),
@@ -217,6 +248,7 @@ export default function ContextRequestBrowser({
     threadId,
     selectedId,
     detailOpen,
+    needsFocusFetch,
     selectedSummary?.status,
     previousSummary?.request_id,
     t,
@@ -231,11 +263,6 @@ export default function ContextRequestBrowser({
       previous?.components.filter((c) => !currentHashes.has(c.sha256)) ?? []
     );
   }, [detail, previous]);
-  // Trend bars always chronological (old -> new) for left-to-right time axis.
-  const points = useMemo(
-    () => [...requests].sort((a, b) => a.seq - b.seq),
-    [requests],
-  );
   useEffect(() => {
     if (highlightRequestSeq == null || !sectionBodyRef.current) return;
     const el = sectionBodyRef.current.querySelector(
@@ -243,12 +270,6 @@ export default function ContextRequestBrowser({
     );
     el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [highlightRequestSeq, sortKey, sortDir, sortedRequests]);
-  const max = Math.max(
-    1,
-    ...points.map(
-      (item) => item.actual_usage?.input_tokens ?? item.estimated_input_tokens,
-    ),
-  );
   const total = selected
     ? Object.values(selected.composition).reduce((sum, value) => sum + value, 0)
     : 0;
@@ -271,7 +292,7 @@ export default function ContextRequestBrowser({
             ) : null}
           </h3>
           <div className={styles.sortControls}>
-            <Select
+            <Segmented
               size="small"
               value={sortKey}
               aria-label={t("chat.contextInspect.sortBy")}
@@ -295,14 +316,42 @@ export default function ContextRequestBrowser({
                   ? t("chat.contextInspect.sortAsc")
                   : t("chat.contextInspect.sortDesc")
               }
-              onClick={() =>
-                setSortDir((d) => (d === "asc" ? "desc" : "asc"))
-              }
+              onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
             />
-            <Button size="small" loading={loading} onClick={() => void refresh()}>
+            <Button
+              size="small"
+              loading={loading}
+              onClick={() => void refresh()}
+            >
               {t("common.refresh")}
             </Button>
           </div>
+        </div>
+        <div className={styles.tagPills}>
+          {kindOptions.length > 0 ? (
+            <Segmented
+              size="small"
+              value={kindFilter}
+              onChange={(v) => setKindFilter(String(v))}
+              options={[
+                {
+                  value: "all",
+                  label: t("chat.contextInspect.mappedKinds.all"),
+                },
+                ...kindOptions.map(([kind, count]) => ({
+                  value: kind,
+                  label: `${t(
+                    `chat.contextInspect.componentKinds.${kind}`,
+                    kind,
+                  )} ${count}`,
+                })),
+              ]}
+            />
+          ) : (
+            <span className={styles.tagEmpty}>
+              {t("chat.contextInspect.noTags")}
+            </span>
+          )}
         </div>
         {error && <Alert type="error" message={error} />}
         {!requests.length ? (
@@ -314,82 +363,145 @@ export default function ContextRequestBrowser({
               description={t("chat.contextInspect.noRequests")}
             />
           )
+        ) : !sortedRequests.length ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={t("chat.contextInspect.noMatch")}
+          >
+            <Button size="small" onClick={() => setKindFilter("all")}>
+              {t("chat.contextInspect.mappedKinds.all")}
+            </Button>
+          </Empty>
         ) : (
           <div
             ref={sectionBodyRef}
             className={`${styles.sectionBody} ${styles.sectionBodyBrowser}`}
+            role="listbox"
+            aria-label={t("chat.contextInspect.requests")}
           >
-            <div className={styles.trend}>
-              {points.map((item) => (
-                <button
-                  key={item.request_id}
-                  data-request-seq={item.seq}
-                  className={
-                    selected?.request_id === item.request_id
-                      ? styles.selected
-                      : ""
-                  }
-                  onClick={() => setPicked(item.request_id)}
-                  aria-label={`${t("chat.contextInspect.request")} ${item.seq}`}
-                  title={`${item.model ?? "—"} · ${
-                    item.actual_usage ? "" : "≈"
-                  }${number(
-                    item.actual_usage?.input_tokens ??
-                      item.estimated_input_tokens,
-                  )}`}
-                >
-                  <i
-                    style={{
-                      height: `${Math.max(
-                        3,
-                        ((item.actual_usage?.input_tokens ??
-                          item.estimated_input_tokens) /
-                          max) *
-                          100,
-                      )}%`,
-                    }}
-                  />
-                  <small>{item.seq}</small>
-                </button>
-              ))}
+            <div className={styles.requestList}>
+              {sortedRequests.map((item) => {
+                const tokens = tokenOfRequest(item);
+                const active = selectedId === item.request_id;
+                return (
+                  <button
+                    key={item.request_id}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    data-request-seq={item.seq}
+                    className={`${styles.requestRow} ${
+                      active ? styles.requestRowActive : ""
+                    }`}
+                    onClick={() => setPicked(item.request_id)}
+                  >
+                    <span className={styles.requestRowMain}>
+                      <b>
+                        #{item.seq}
+                        {item.model ? ` · ${item.model}` : ""}
+                      </b>
+                      <Tag>
+                        {t(
+                          `chat.contextInspect.requestStatus.${item.status}`,
+                          item.status,
+                        )}
+                      </Tag>
+                    </span>
+                    <span className={styles.requestRowMeta}>
+                      <small>
+                        {item.actual_usage ? "" : "≈"}
+                        {number(tokens)}
+                      </small>
+                      {item.duration_ms != null && (
+                        <small>{(item.duration_ms / 1000).toFixed(1)}s</small>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            <div className={styles.requestHeading}>
-              <Select
+            {before != null && (
+              <Button
                 size="small"
-                value={selectedId}
-                onChange={setPicked}
-                options={[
-                  ...sortedRequests,
-                  ...(selected && !selectedSummary ? [selected] : []),
-                ].map((item) => ({
-                  value: item.request_id,
-                  label: `#${item.seq} · ${item.model ?? "—"}`,
-                }))}
-              />
+                loading={loading}
+                onClick={() => void refresh(before)}
+              >
+                {t("chat.contextInspect.older")}
+              </Button>
+            )}
+          </div>
+        )}
+      </section>
+      <section>
+        <div className={styles.cardHead}>
+          <h3>{t("chat.contextInspect.requestDetail")}</h3>
+          {previousSummary && selectedSummary && (
+            <Tag>
+              {t("chat.contextInspect.vsPrevious", {
+                delta:
+                  delta == null
+                    ? "—"
+                    : `${delta >= 0 ? "+" : ""}${number(delta)}`,
+              })}
+            </Tag>
+          )}
+        </div>
+        {!selected ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={t("chat.contextInspect.pickRequest")}
+          />
+        ) : (
+          <div className={`${styles.sectionBody} ${styles.sectionBodyDetail}`}>
+            <div className={styles.requestHeading}>
+              <strong>
+                #{selected.seq}
+                {selected.model ? ` · ${selected.model}` : ""}
+              </strong>
               <Tag>
                 {t(
-                  `chat.contextInspect.requestStatus.${selected?.status}`,
-                  selected?.status ?? "",
+                  `chat.contextInspect.requestStatus.${selected.status}`,
+                  selected.status,
                 )}
               </Tag>
             </div>
+            <details className={styles.slimDetail}>
+              <summary>{t("chat.contextInspect.techFields")}</summary>
+              <dl className={styles.receiptFields}>
+                <div>
+                  <dt>request_id</dt>
+                  <dd>
+                    <code>{selected.request_id}</code>{" "}
+                    <Button
+                      size="small"
+                      type="link"
+                      onClick={() =>
+                        void navigator.clipboard?.writeText(selected.request_id)
+                      }
+                    >
+                      {t("chat.contextInspect.copy")}
+                    </Button>
+                  </dd>
+                </div>
+              </dl>
+            </details>
             <div className={styles.stats}>
               {[
                 [
                   t("chat.contextInspect.estimatedInput"),
-                  `≈${number(selected?.estimated_input_tokens)}`,
+                  `≈${number(selected.estimated_input_tokens)}`,
                 ],
                 [
                   t("chat.contextInspect.input"),
-                  number(selected?.actual_usage?.input_tokens),
+                  number(selected.actual_usage?.input_tokens),
                 ],
                 [
                   t("chat.contextInspect.output"),
-                  number(selected?.actual_usage?.output_tokens),
+                  number(selected.actual_usage?.output_tokens),
                 ],
                 [
                   t("chat.contextInspect.cache"),
-                  selected?.actual_usage?.input_tokens
+                  selected.actual_usage?.input_tokens
                     ? `${(
                         (selected.actual_usage.cache_read_tokens /
                           selected.actual_usage.input_tokens) *
@@ -399,7 +511,7 @@ export default function ContextRequestBrowser({
                 ],
                 [
                   t("chat.contextInspect.modelTime"),
-                  selected?.duration_ms == null
+                  selected.duration_ms == null
                     ? "—"
                     : `${(selected.duration_ms / 1000).toFixed(1)}s`,
                 ],
@@ -417,7 +529,7 @@ export default function ContextRequestBrowser({
               ))}
             </div>
             <div className={styles.bar}>
-              {Object.entries(selected?.composition ?? {}).map(
+              {Object.entries(selected.composition ?? {}).map(
                 ([kind, value]) => (
                   <i
                     key={kind}
@@ -430,7 +542,7 @@ export default function ContextRequestBrowser({
               )}
             </div>
             <div className={styles.legend}>
-              {Object.entries(selected?.composition ?? {}).map(
+              {Object.entries(selected.composition ?? {}).map(
                 ([kind, value]) => (
                   <div key={kind}>
                     <i style={{ background: palette[kind] ?? "#a178d9" }} />
@@ -443,7 +555,7 @@ export default function ContextRequestBrowser({
               )}
             </div>
             <p>{t("chat.contextInspect.requestTruth")}</p>
-            {selected?.transformation && (
+            {selected.transformation && (
               <Alert
                 type="info"
                 message={t(
@@ -459,149 +571,132 @@ export default function ContextRequestBrowser({
                 })}
               />
             )}
-            {before != null && (
-              <Button
-                size="small"
-                loading={loading}
-                onClick={() => void refresh(before)}
-              >
-                {t("chat.contextInspect.older")}
-              </Button>
+            {(detail?.components_truncated || detail?.metadata_truncated) && (
+              <Alert
+                type="info"
+                message={t("chat.contextInspect.detailsBounded", {
+                  count: detail.omitted_component_count ?? 0,
+                })}
+              />
+            )}
+            <details
+              className={styles.slimDetail}
+              onToggle={(e) => {
+                if (e.currentTarget.open) setDetailOpen(true);
+              }}
+            >
+              <summary>{t("chat.contextInspect.expandComponents")}</summary>
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t("chat.contextInspect.search")}
+                allowClear
+              />
+              <div className={styles.browser}>
+                {detail ? (
+                  detail.components
+                    .filter(
+                      (component) =>
+                        !search ||
+                        component.content
+                          .toLowerCase()
+                          .includes(search.toLowerCase()),
+                    )
+                    .map((component, index) => (
+                      <details
+                        className={styles.event}
+                        key={`${component.kind}:${component.index}:${index}`}
+                      >
+                        <summary>
+                          <i
+                            className={styles.componentDot}
+                            style={{
+                              background: palette[component.kind] ?? "#a178d9",
+                            }}
+                          />
+                          <b>
+                            {t(
+                              `chat.contextInspect.componentKinds.${component.kind}`,
+                              component.kind,
+                            )}{" "}
+                            {component.index + 1}
+                          </b>
+                          {component.source_type === "conversation_summary" && (
+                            <Tag>{t("chat.contextInspect.summarySource")}</Tag>
+                          )}
+                          {component.source_path && (
+                            <Tag title={component.source_path}>
+                              {t(
+                                `chat.contextInspect.sourceTypes.${component.source_type}`,
+                                {
+                                  defaultValue: component.source_type,
+                                },
+                              )}
+                            </Tag>
+                          )}
+                          {previous && !olderHashes.has(component.sha256) && (
+                            <Tag color="green">
+                              {t("chat.contextInspect.changed")}
+                            </Tag>
+                          )}
+                          <small>≈{number(component.estimated_tokens)}</small>
+                        </summary>
+                        <pre>{component.content || "—"}</pre>
+                        {component.source_path && (
+                          <code title={component.source_path}>
+                            {truncateMiddle(component.source_path)}
+                          </code>
+                        )}
+                        {component.content_truncated && (
+                          <p>{t("chat.contextInspect.truncated")}</p>
+                        )}
+                        {(component.source_id || component.tool_call_id) && (
+                          <details className={styles.slimDetail}>
+                            <summary>
+                              {t("chat.contextInspect.techFields")}
+                            </summary>
+                            <p>
+                              {component.source_id ?? component.tool_call_id}
+                            </p>
+                          </details>
+                        )}
+                      </details>
+                    ))
+                ) : (
+                  <Spin size="small" />
+                )}
+              </div>
+            </details>
+            {removedComponents.length > 0 && (
+              <details className={styles.event}>
+                <summary>
+                  {t("chat.contextInspect.removedComponents", {
+                    count: removedComponents.length,
+                  })}
+                </summary>
+                {removedComponents.map((component, index) => (
+                  <details
+                    className={styles.event}
+                    key={`${component.sha256}:${index}`}
+                  >
+                    <summary>
+                      {t(
+                        `chat.contextInspect.componentKinds.${component.kind}`,
+                        component.kind,
+                      )}{" "}
+                      · ≈{number(component.estimated_tokens)}
+                    </summary>
+                    <pre>{component.content || "—"}</pre>
+                    {component.content_truncated && (
+                      <p>{t("chat.contextInspect.truncated")}</p>
+                    )}
+                  </details>
+                ))}
+              </details>
             )}
           </div>
         )}
       </section>
-      {selected && (
-        <section>
-          <div className={styles.requestHeading}>
-            <h3>{t("chat.contextInspect.finalRequest")}</h3>
-            {previousSummary && (
-              <Tag>
-                {t("chat.contextInspect.vsPrevious", {
-                  delta:
-                    delta == null
-                      ? "—"
-                      : `${delta >= 0 ? "+" : ""}${number(delta)}`,
-                })}
-              </Tag>
-            )}
-          </div>
-          {(detail?.components_truncated || detail?.metadata_truncated) && (
-            <Alert
-              type="info"
-              message={t("chat.contextInspect.detailsBounded", {
-                count: detail.omitted_component_count ?? 0,
-              })}
-            />
-          )}
-          <details
-            className={styles.slimDetail}
-            onToggle={(e) => {
-              if (e.currentTarget.open) setDetailOpen(true);
-            }}
-          >
-            <summary>{t("chat.contextInspect.expandComponents")}</summary>
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={t("chat.contextInspect.search")}
-              allowClear
-            />
-            <div className={styles.browser}>
-            {detail ? (
-              detail.components
-                .filter(
-                  (component) =>
-                    !search ||
-                    component.content
-                      .toLowerCase()
-                      .includes(search.toLowerCase()),
-                )
-                .map((component, index) => (
-                  <details
-                    className={styles.event}
-                    key={`${component.kind}:${component.index}:${index}`}
-                  >
-                    <summary>
-                      <i
-                        className={styles.componentDot}
-                        style={{
-                          background: palette[component.kind] ?? "#a178d9",
-                        }}
-                      />
-                      <b>
-                        {t(
-                          `chat.contextInspect.componentKinds.${component.kind}`,
-                          component.kind,
-                        )}{" "}
-                        {component.index + 1}
-                      </b>
-                      {component.source_type === "conversation_summary" && (
-                        <Tag>{t("chat.contextInspect.summarySource")}</Tag>
-                      )}
-                      {component.source_path && (
-                        <Tag title={component.source_path}>
-                          {t(
-                            `chat.contextInspect.sourceTypes.${component.source_type}`,
-                            {
-                              defaultValue: component.source_type,
-                            },
-                          )}
-                        </Tag>
-                      )}
-                      {previous && !olderHashes.has(component.sha256) && (
-                        <Tag color="green">
-                          {t("chat.contextInspect.changed")}
-                        </Tag>
-                      )}
-                      <small>≈{number(component.estimated_tokens)}</small>
-                    </summary>
-                    <pre>{component.content || "—"}</pre>
-                    {component.source_path && (
-                      <code>{component.source_path}</code>
-                    )}
-                    {component.content_truncated && (
-                      <p>{t("chat.contextInspect.truncated")}</p>
-                    )}
-                    {(component.source_id || component.tool_call_id) && (
-                      <p>{component.source_id ?? component.tool_call_id}</p>
-                    )}
-                  </details>
-                ))
-            ) : (
-              <Spin size="small" />
-            )}
-          </div>
-          </details>
-          {removedComponents.length > 0 && (
-            <details className={styles.event}>
-              <summary>
-                {t("chat.contextInspect.removedComponents", {
-                  count: removedComponents.length,
-                })}
-              </summary>
-              {removedComponents.map((component, index) => (
-                <details
-                  className={styles.event}
-                  key={`${component.sha256}:${index}`}
-                >
-                  <summary>
-                    {t(
-                      `chat.contextInspect.componentKinds.${component.kind}`,
-                      component.kind,
-                    )}{" "}
-                    · ≈{number(component.estimated_tokens)}
-                  </summary>
-                  <pre>{component.content || "—"}</pre>
-                  {component.content_truncated && (
-                    <p>{t("chat.contextInspect.truncated")}</p>
-                  )}
-                </details>
-              ))}
-            </details>
-          )}
-        </section>
-      )}
     </>
   );
 }
