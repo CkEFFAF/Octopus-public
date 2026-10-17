@@ -628,15 +628,21 @@ class DeviceService:
         return self.set_capability_policy(owner, device_id, seeded, actor=actor or str(owner))
 
     def _active_mcp_names_for_owner(self, owner: int) -> set[str]:
+        """Names the owner can use — drives missing/unauthorized pack alerts.
+
+        Must pass a real config path into ``load_config`` (mypy + so a failed
+        load does not silently yield an empty set and hide missing alerts).
+        """
         try:
             from octop.config import load_config
             from octop.infra.connectors.service import ConnectorService
+            from octop.infra.utils.paths import PathLayout
 
             svc = ConnectorService(
                 repo=self.repos.connector_repo,
                 secret_repo=self.repos.secret_repo,
                 settings_repo=self.repos.settings_repo,
-                config=load_config(),
+                config=load_config(PathLayout.from_env().config),
             )
             return set(svc.list_active_mcp_server_names(owner))
         except Exception:

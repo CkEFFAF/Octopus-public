@@ -1589,17 +1589,19 @@ class GlobalProcessor:
 
         extra_defaults = self._agent_manager.default_mcp_servers(agent_id)
         should_apply = (explicit is None) if apply_defaults is None else apply_defaults
+        # DEC-C05/C06: Dashboard/Cron explicit (incl. []) opts out of account+device
+        # *defaults*, but device deny still applies to the explicit list.
         device_defaults: list[str] = []
         deny_mcp: list[str] = []
-        if should_apply:
-            pack = self._agent_manager.device_mcp_pack_for_turn(
-                user_id,
-                agent_id=agent_id,
-                thread_id=thread_id,
-            )
-            if isinstance(pack, tuple) and len(pack) >= 2:
+        pack = self._agent_manager.device_mcp_pack_for_turn(
+            user_id,
+            agent_id=agent_id,
+            thread_id=thread_id,
+        )
+        if isinstance(pack, tuple) and len(pack) >= 2:
+            if should_apply:
                 device_defaults = list(pack[0] or [])
-                deny_mcp = list(pack[1] or [])
+            deny_mcp = list(pack[1] or [])
         merged = self._agent_manager.merge_turn_mcp_servers(
             user_id,
             explicit,

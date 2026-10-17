@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -167,3 +169,65 @@ def test_deny_removes_after_union() -> None:
         deny_mcp_servers=["jdcloud-mon"],
     )
     assert merged == ["account_open", "expert"]
+
+
+def test_deny_applies_on_dashboard_explicit() -> None:
+    """DEC-C05: Dashboard explicit picks still lose names on device deny."""
+    merged = _merge(
+        explicit=["expert", "jdcloud-mon"],
+        apply_defaults=False,
+        extra_defaults=["account_open"],
+        device_defaults=["jdcloud-mon"],
+        deny_mcp_servers=["jdcloud-mon"],
+    )
+    assert merged == ["expert"]
+
+
+def test_deny_applies_on_cron_explicit() -> None:
+    """DEC-C05: Cron explicit picks are filtered by device deny (no default union)."""
+    merged = _merge(
+        explicit=["picked", "jdcloud-mon"],
+        apply_defaults=False,
+        extra_defaults=[],
+        device_defaults=["jdcloud-mon"],
+        deny_mcp_servers=["jdcloud-mon"],
+    )
+    assert merged == ["picked"]
+
+
+def test_active_mcp_names_passes_config_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """load_config must receive PathLayout.config — bare load_config() is mypy-red and hides alerts."""
+    from octop.config import OctopConfig
+    from octop.infra.devices.service import DeviceService
+    from octop.infra.utils.paths import PathLayout
+
+    captured: dict[str, object] = {}
+
+    def fake_load_config(path):  # noqa: ANN001
+        captured["path"] = path
+        return OctopConfig()
+
+    class _FakeConnectorSvc:
+        def __init__(self, **kwargs):  # noqa: ANN003
+            captured["config"] = kwargs.get("config")
+
+        def list_active_mcp_server_names(self, _uid: int) -> list[str]:
+            return ["ok", "jdcloud-mon"]
+
+    monkeypatch.setenv("OCTOP_HOME", str(tmp_path))
+    monkeypatch.setattr("octop.config.load_config", fake_load_config)
+    # Patch where DeviceService imports it from inside the method.
+    import octop.infra.connectors.service as connectors_service
+
+    monkeypatch.setattr(connectors_service, "ConnectorService", _FakeConnectorSvc)
+
+    repos = MagicMock()
+    repos.connector_repo = MagicMock()
+    repos.secret_repo = MagicMock()
+    repos.settings_repo = MagicMock()
+    service = DeviceService(repos)
+    names = service._active_mcp_names_for_owner(1)
+    assert names == {"ok", "jdcloud-mon"}
+    assert captured["path"] == PathLayout.from_env().config
+    assert isinstance(captured["path"], type(tmp_path))
+
