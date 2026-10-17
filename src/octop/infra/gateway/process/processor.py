@@ -1346,8 +1346,10 @@ class GlobalProcessor:
             message_kwargs[INBOUND_ATTACHMENTS_KEY] = attachments
 
         explicit_mcp = meta.get("mcp_servers")
-        # Dashboard always sends mcp_servers (possibly []); trust that list so
-        # users can opt out of default_open for a turn. Missing key → IM-style defaults.
+        # 0025.1 DEC-C06′: missing key → full defaults; [] → true opt-out;
+        # non-empty list → explicit ∪ scoped (expert+device), no account default_open.
+        # FE omits the key on cold start (DEC-C13); only sends [] when user cleared
+        # or ask/plan/team restricted.
         if isinstance(explicit_mcp, list):
             apply_defaults = False
         else:
@@ -1576,9 +1578,11 @@ class GlobalProcessor:
         client sees a clear MCP load error. IM ingress uses ``False`` so a
         flaky connector does not abort the whole message turn.
 
-        When ``apply_defaults`` is false (Dashboard ``mcp_servers`` key present,
-        including ``[]``), account default_open **and** the device capability
-        pack are both skipped (0025 DEC-C06).
+        0025.1 DEC-C06′ / DEC-C14:
+        - Missing key (``apply_defaults`` true): account ∪ expert ∪ device.
+        - ``explicit=[]`` + ``apply_defaults`` false: true opt-out (no layers).
+        - Non-empty explicit + ``apply_defaults`` false: explicit ∪ expert ∪
+          device (no account ``default_open``). Device deny still applies.
 
         **0028 DEC-I03 hard invariant:** team hosts always return ``None`` —
         expert lists, account ``default_open``, Dashboard explicit picks, and
@@ -1596,8 +1600,13 @@ class GlobalProcessor:
 
         extra_defaults = self._agent_manager.default_mcp_servers(agent_id)
         should_apply = (explicit is None) if apply_defaults is None else apply_defaults
-        # DEC-C05/C06: Dashboard/Cron explicit (incl. []) opts out of account+device
-        # *defaults*, but device deny still applies to the explicit list.
+        # True opt-out skips device pack load into defaults; deny still loads
+        # for non-empty explicit (DEC-C05).
+        opted_out = (
+            apply_defaults is False
+            and isinstance(explicit, list)
+            and len(explicit) == 0
+        )
         device_defaults: list[str] = []
         deny_mcp: list[str] = []
         pack = self._agent_manager.device_mcp_pack_for_turn(
@@ -1606,7 +1615,10 @@ class GlobalProcessor:
             thread_id=thread_id,
         )
         if isinstance(pack, tuple) and len(pack) >= 2:
-            if should_apply:
+            if not opted_out and (
+                should_apply
+                or (isinstance(explicit, list) and len(explicit) > 0)
+            ):
                 device_defaults = list(pack[0] or [])
             deny_mcp = list(pack[1] or [])
         merged = self._agent_manager.merge_turn_mcp_servers(

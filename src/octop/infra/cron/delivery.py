@@ -206,14 +206,15 @@ class CronDeliveryService:
                 device_defaults = list(pack[0] or [])
                 deny_mcp = list(pack[1] or [])
             if servers:
-                # Explicit cron picks opt out of account+device defaults (same as
-                # Dashboard) but device deny still filters the explicit list (DEC-C05).
+                # 0025.1 DEC-C14: explicit cron picks skip account default_open but
+                # still union expert + device pack; deny still applies (DEC-C05).
                 servers = (
                     self._agent_manager.merge_turn_mcp_servers(
                         session.user_id,
                         servers,
                         apply_defaults=False,
                         extra_defaults=extra_defaults,
+                        device_defaults=device_defaults or None,
                         deny_mcp_servers=deny_mcp or None,
                     )
                     or []

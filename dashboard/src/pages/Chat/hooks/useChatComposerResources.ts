@@ -74,6 +74,8 @@ export function useChatComposerResources(
   const isNewSession = !activeThreadId || isPendingThread(activeThreadId);
   const composerTouchedRef = useRef(false);
   const [selectedConnectors, setSelectedConnectors] = useState<string[]>([]);
+  /** 0025.1: true after user clears connectors (or saved empty opt-out). */
+  const [mcpServersOptOut, setMcpServersOptOut] = useState(false);
   const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState<
     string[]
   >([]);
@@ -127,10 +129,14 @@ export function useChatComposerResources(
     // get the same reset so their per-agent saved prefs resolve cleanly.
     setSelectedKnowledgeBaseIds([]);
     setSelectedConnectors([]);
+    setMcpServersOptOut(false);
   }, [resolvedAgentId]);
 
   useEffect(() => {
-    if (isNewSession) composerTouchedRef.current = false;
+    if (isNewSession) {
+      composerTouchedRef.current = false;
+      setMcpServersOptOut(false);
+    }
   }, [isNewSession]);
 
   // Auto = omit turn model; backend applies the expert default.
@@ -203,6 +209,7 @@ export function useChatComposerResources(
     if (teamHost) {
       setSelectedConnectors([]);
       setChatConnectors([]);
+      setMcpServersOptOut(true);
       return;
     }
     let cancelled = false;
@@ -236,22 +243,34 @@ export function useChatComposerResources(
             options.filter((o) => o.default_open).map((o) => o.mcp_server_name),
             expertMcpServers ?? [],
           );
-          setSelectedConnectors((prev) =>
-            resolveInitialConnectors({
+          const saved = resolvedAgentId
+            ? loadSavedConnectors(resolvedAgentId)
+            : [];
+          const hasSaved = resolvedAgentId
+            ? hasSavedConnectors(resolvedAgentId)
+            : false;
+          setSelectedConnectors((prev) => {
+            const next = resolveInitialConnectors({
               prev,
-              saved: resolvedAgentId
-                ? loadSavedConnectors(resolvedAgentId)
-                : [],
-              hasSaved: resolvedAgentId
-                ? hasSavedConnectors(resolvedAgentId)
-                : false,
+              saved,
+              hasSaved,
               defaults,
               allowed,
               ignorePrev: isNewSession && !composerTouchedRef.current,
               ignoreSaved: isNewSession,
               preferPrev: composerTouchedRef.current,
-            }),
-          );
+            });
+            // Existing session with saved [] = prior clear → keep true opt-out.
+            if (
+              !isNewSession &&
+              hasSaved &&
+              next.length === 0 &&
+              !composerTouchedRef.current
+            ) {
+              setMcpServersOptOut(true);
+            }
+            return next;
+          });
         });
     };
     loadConnectors();
@@ -426,10 +445,13 @@ export function useChatComposerResources(
     (names: string[]) => {
       if (teamHost) {
         setSelectedConnectors([]);
+        setMcpServersOptOut(true);
         return;
       }
       composerTouchedRef.current = true;
       setSelectedConnectors(names);
+      // Empty after user edit = true opt-out; any pick clears the flag.
+      setMcpServersOptOut(names.length === 0);
       if (resolvedAgentId) saveConnectors(resolvedAgentId, names);
     },
     [resolvedAgentId, teamHost],
@@ -568,6 +590,7 @@ export function useChatComposerResources(
     hitlPolicy,
     handleHitlPolicyChange,
     selectedConnectors,
+    mcpServersOptOut: teamHost || mcpServersOptOut,
     selectedKnowledgeBaseIds,
     chatConnectors,
     chatKnowledgeBases,

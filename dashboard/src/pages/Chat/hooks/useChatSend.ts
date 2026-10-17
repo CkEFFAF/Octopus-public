@@ -28,6 +28,7 @@ import {
   resolveTurnModelRef,
 } from "../utils/chatMessages";
 import { parseSkillSlugsInText } from "../utils/skillSlash";
+import { resolveTurnMcpServersPayload } from "../utils/resolveTurnMcpServersPayload";
 
 interface UseChatSendParams {
   resolvedAgentId: string | null | undefined;
@@ -36,6 +37,8 @@ interface UseChatSendParams {
   messagesLength: number;
   selectedModel: string | null;
   selectedConnectors: string[];
+  /** 0025.1: user cleared connectors (or team host) → send mcp_servers []. */
+  mcpServersOptOut?: boolean;
   selectedKnowledgeBaseIds: string[];
   selectedTargetAgents?: string[];
   reasoningMode: "auto" | "enabled" | "disabled";
@@ -77,6 +80,7 @@ function deriveThreadTitle(msg: string): string {
 export type ChatSendOverrides = {
   selectedModel?: string | null;
   selectedConnectors?: string[];
+  mcpServersOptOut?: boolean;
   selectedKnowledgeBaseIds?: string[];
   selectedTargetAgents?: string[];
   composerContext?: UserComposerContext;
@@ -102,6 +106,7 @@ export function useChatSend({
   messagesLength,
   selectedModel,
   selectedConnectors,
+  mcpServersOptOut = false,
   selectedKnowledgeBaseIds,
   selectedTargetAgents = EMPTY_TARGET_AGENTS,
   reasoningMode,
@@ -174,6 +179,11 @@ export function useChatSend({
       const connectors = restricted
         ? []
         : overrides?.selectedConnectors ?? selectedConnectors;
+      // 0025.1: omit mcp_servers on cold empty; [] only for clear / ask·plan.
+      const mcpServers = resolveTurnMcpServersPayload(connectors, {
+        restricted,
+        optedOut: overrides?.mcpServersOptOut ?? mcpServersOptOut,
+      });
       const knowledgeBaseIds =
         overrides?.selectedKnowledgeBaseIds ?? selectedKnowledgeBaseIds;
       const targetAgents = restricted
@@ -212,7 +222,7 @@ export function useChatSend({
           attachments,
           tid,
           modelOverride,
-          connectors,
+          mcpServers,
           knowledgeBaseIds,
           targetAgents,
           composerContext,
@@ -284,7 +294,7 @@ export function useChatSend({
           undefined,
           modelOverride,
           tid,
-          connectors,
+          mcpServers,
           knowledgeBaseIds,
           targetAgents,
           composerContext?.reasoningMode ?? reasoningMode,
@@ -310,6 +320,7 @@ export function useChatSend({
       resolvedAgentId,
       selectedModel,
       selectedConnectors,
+      mcpServersOptOut,
       selectedKnowledgeBaseIds,
       selectedTargetAgents,
       reasoningMode,

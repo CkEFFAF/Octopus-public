@@ -160,6 +160,40 @@ def test_ac_c09_union_idempotent() -> None:
     assert merged == ["jdcloud-mon"]
 
 
+def test_ac_d01_missing_key_unions_account_expert_device() -> None:
+    """0025.1 AC-D01 / DEC-C06′: missing key → full defaults."""
+    merged = _merge(
+        explicit=None,
+        apply_defaults=True,
+        extra_defaults=["expert"],
+        device_defaults=["jdcloud-mon"],
+    )
+    assert merged == ["account_open", "expert", "jdcloud-mon"]
+
+
+def test_ac_d02_empty_explicit_true_opt_out() -> None:
+    """0025.1 AC-D02: [] opts out of account, expert, and device."""
+    merged = _merge(
+        explicit=[],
+        apply_defaults=False,
+        extra_defaults=["expert"],
+        device_defaults=["jdcloud-mon"],
+    )
+    assert merged is None
+
+
+def test_ac_d04_nonempty_explicit_unions_scoped_not_account() -> None:
+    """0025.1 AC-D04 / DEC-C14: picks ∪ expert ∪ device, no account default_open."""
+    merged = _merge(
+        explicit=["expert"],
+        apply_defaults=False,
+        extra_defaults=[],
+        device_defaults=["jdcloud-mon"],
+    )
+    assert merged == ["expert", "jdcloud-mon"]
+    assert "account_open" not in (merged or [])
+
+
 def test_deny_removes_after_union() -> None:
     merged = _merge(
         explicit=None,
@@ -176,11 +210,13 @@ def test_deny_applies_on_dashboard_explicit() -> None:
     merged = _merge(
         explicit=["expert", "jdcloud-mon"],
         apply_defaults=False,
-        extra_defaults=["account_open"],
+        extra_defaults=["expert"],
         device_defaults=["jdcloud-mon"],
         deny_mcp_servers=["jdcloud-mon"],
     )
     assert merged == ["expert"]
+    # 0025.1: account default_open must not sneak in on non-empty explicit.
+    assert "account_open" not in (merged or [])
 
 
 def test_deny_applies_on_cron_explicit() -> None:

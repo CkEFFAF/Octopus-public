@@ -39,10 +39,11 @@ def merge_mcp_servers_with_defaults(
     *,
     apply_defaults: bool | None = None,
 ) -> list[str] | None:
-    """Resolve turn MCP servers.
+    """Resolve turn MCP servers against a defaults bucket.
 
     - ``apply_defaults=True``: always union explicit picks with defaults (Cron / IM).
-    - ``apply_defaults=False``: trust explicit list as-is (Dashboard can opt out).
+    - ``apply_defaults=False``: trust explicit list as-is (used by callers that
+      already decided opt-out; prefer ``merge_turn_mcp_servers`` for 0025.1 layers).
     - ``apply_defaults=None``: apply defaults only when ``explicit is None``.
     """
     should_apply = (explicit is None) if apply_defaults is None else apply_defaults

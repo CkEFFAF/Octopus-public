@@ -225,6 +225,7 @@ async def test_deliver_agent_explicit_mcp_overrides_defaults() -> None:
         ["picked__1"],
         apply_defaults=False,
         extra_defaults=[],
+        device_defaults=None,
         deny_mcp_servers=None,
     )
     gateway.push_session_text.assert_awaited()
@@ -328,6 +329,7 @@ async def test_deliver_agent_explicit_still_applies_device_deny() -> None:
         ["picked__1", "blocked"],
         apply_defaults=False,
         extra_defaults=[],
+        device_defaults=["jdcloud-mon"],
         deny_mcp_servers=["blocked"],
     )
     gateway.push_session_text.assert_awaited()

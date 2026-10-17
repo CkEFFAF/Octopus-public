@@ -423,7 +423,133 @@ async def test_dashboard_explicit_still_applies_device_deny() -> None:
         ["kept", "blocked"],
         apply_defaults=False,
         extra_defaults=[],
-        device_defaults=None,
+        device_defaults=["jdcloud-mon"],
         deny_mcp_servers=["blocked"],
     )
 
+
+
+@pytest.mark.asyncio
+async def test_dashboard_missing_mcp_key_applies_defaults() -> None:
+    """0025.1 AC-D01/D05: omit mcp_servers key → apply_defaults True + device pack."""
+    agent_manager = MagicMock()
+    agent_manager.merge_turn_mcp_servers = MagicMock(return_value=["jdcloud-mon"])
+    agent_manager.prepare_chat_mcp = AsyncMock(return_value=[])
+    agent_manager.get_row = MagicMock(return_value=None)
+    agent_manager.default_mcp_servers = MagicMock(return_value=["expert"])
+    agent_manager.default_knowledge_base_ids = MagicMock(return_value=[])
+    agent_manager.device_mcp_pack_for_turn = MagicMock(
+        return_value=(["jdcloud-mon"], [], "dev-1")
+    )
+    agent_manager.providers_for_agent.return_value = MagicMock()
+    agent_manager.providers_for_agent.return_value.is_model_ref_usable = MagicMock(
+        return_value=False
+    )
+    agent_manager.providers_for_agent.return_value.resolve_explicit_default_model = MagicMock(
+        return_value=None
+    )
+    agent_manager.providers_for_agent.return_value.resolve_model_for_multimodal_turn = MagicMock(
+        side_effect=lambda ref, **_k: ref
+    )
+    agent_manager.get_thread_model = MagicMock(return_value=None)
+
+    processor = GlobalProcessor(
+        agent_manager=agent_manager,
+        thread_registry=MagicMock(),
+        audit_repo=MagicMock(),
+        agent_repo=MagicMock(get=MagicMock(return_value=MagicMock(default_model=None))),
+        user_repo=MagicMock(),
+        connector_repo=MagicMock(),
+        dispatcher=SlashDispatcher(),
+        usage_repo=None,
+        gateway=None,
+    )
+    msg = InboundMessage(
+        channel_id="ws",
+        channel_type="dashboard",
+        tenant_id="agent-1",
+        channel_subject=ChannelSubject(subject_id="1"),
+        content=[TextContent(text="hi")],
+        metadata={},
+    )
+    request = await processor._build_dashboard_request(
+        msg,
+        agent_id="agent-1",
+        user_id=1,
+        session_key="sk",
+        thread_id="thr",
+        meta=msg.metadata or {},
+    )
+    assert request.get("mcp_servers") == ["jdcloud-mon"]
+    agent_manager.merge_turn_mcp_servers.assert_called_once_with(
+        1,
+        None,
+        apply_defaults=True,
+        extra_defaults=["expert"],
+        device_defaults=["jdcloud-mon"],
+        deny_mcp_servers=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_dashboard_nonempty_unions_device_pack() -> None:
+    """0025.1 AC-D04 / DEC-C14: non-empty explicit still loads device pack."""
+    agent_manager = MagicMock()
+    agent_manager.merge_turn_mcp_servers = MagicMock(
+        return_value=["picked", "jdcloud-mon", "expert"]
+    )
+    agent_manager.prepare_chat_mcp = AsyncMock(return_value=[])
+    agent_manager.get_row = MagicMock(return_value=None)
+    agent_manager.default_mcp_servers = MagicMock(return_value=["expert"])
+    agent_manager.default_knowledge_base_ids = MagicMock(return_value=[])
+    agent_manager.device_mcp_pack_for_turn = MagicMock(
+        return_value=(["jdcloud-mon"], [], "dev-1")
+    )
+    agent_manager.providers_for_agent.return_value = MagicMock()
+    agent_manager.providers_for_agent.return_value.is_model_ref_usable = MagicMock(
+        return_value=False
+    )
+    agent_manager.providers_for_agent.return_value.resolve_explicit_default_model = MagicMock(
+        return_value=None
+    )
+    agent_manager.providers_for_agent.return_value.resolve_model_for_multimodal_turn = MagicMock(
+        side_effect=lambda ref, **_k: ref
+    )
+    agent_manager.get_thread_model = MagicMock(return_value=None)
+
+    processor = GlobalProcessor(
+        agent_manager=agent_manager,
+        thread_registry=MagicMock(),
+        audit_repo=MagicMock(),
+        agent_repo=MagicMock(get=MagicMock(return_value=MagicMock(default_model=None))),
+        user_repo=MagicMock(),
+        connector_repo=MagicMock(),
+        dispatcher=SlashDispatcher(),
+        usage_repo=None,
+        gateway=None,
+    )
+    msg = InboundMessage(
+        channel_id="ws",
+        channel_type="dashboard",
+        tenant_id="agent-1",
+        channel_subject=ChannelSubject(subject_id="1"),
+        content=[TextContent(text="hi")],
+        metadata={"mcp_servers": ["picked"]},
+    )
+    request = await processor._build_dashboard_request(
+        msg,
+        agent_id="agent-1",
+        user_id=1,
+        session_key="sk",
+        thread_id="thr",
+        meta=msg.metadata or {},
+    )
+    assert request.get("mcp_servers") == ["picked", "jdcloud-mon", "expert"]
+    agent_manager.merge_turn_mcp_servers.assert_called_once_with(
+        1,
+        ["picked"],
+        apply_defaults=False,
+        extra_defaults=["expert"],
+        device_defaults=["jdcloud-mon"],
+        deny_mcp_servers=None,
+    )

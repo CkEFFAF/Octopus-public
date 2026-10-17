@@ -103,3 +103,25 @@ def test_merge_turn_mcp_servers_unions_extra_defaults() -> None:
     # IM / Cron force defaults.
     assert merge_mcp_servers_with_defaults([], ["a"], apply_defaults=True) == ["a"]
     assert merge_mcp_servers_with_defaults(None, ["a"], apply_defaults=True) == ["a"]
+
+
+def test_merge_turn_nonempty_unions_scoped_not_account() -> None:
+    """0025.1 DEC-C14: non-empty explicit still unions expert + device."""
+    from octop.infra.connectors.service import ConnectorService
+
+    class _Svc:
+        def list_default_open_mcp_server_names(self, _uid: int) -> list[str]:
+            return ["always"]
+
+        def list_active_mcp_server_names(self, _uid: int) -> list[str]:
+            return ["always", "expert", "device", "picked"]
+
+    svc = _Svc()
+    assert ConnectorService.merge_turn_mcp_servers(
+        svc,  # type: ignore[arg-type]
+        1,
+        ["picked"],
+        apply_defaults=False,
+        extra_defaults=["expert"],
+        device_defaults=["device"],
+    ) == ["picked", "expert", "device"]

@@ -174,3 +174,21 @@ describe("useChatComposerResources — per-expert KB selection", () => {
     );
   });
 });
+
+describe("useChatComposerResources — 0025.1 mcpServersOptOut", () => {
+  it("marks opt-out when user clears connectors; cold start stays false", async () => {
+    const { result } = renderHook(() =>
+      useChatComposerResources("expertA", null),
+    );
+    await waitFor(() => expect(result.current.chatConnectors.length).toBe(2));
+    expect(result.current.mcpServersOptOut).toBe(false);
+
+    act(() => result.current.handleConnectorsChange([]));
+    expect(result.current.selectedConnectors).toEqual([]);
+    expect(result.current.mcpServersOptOut).toBe(true);
+
+    act(() => result.current.handleConnectorsChange(["c1"]));
+    expect(result.current.mcpServersOptOut).toBe(false);
+  });
+});
+
