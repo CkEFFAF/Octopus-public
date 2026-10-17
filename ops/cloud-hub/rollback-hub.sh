@@ -76,12 +76,17 @@ ACCOUNT_HOME="$(hub_account_home "${USER_NAME}")"
 UV_BIN="$(hub_resolve_uv "${ACCOUNT_HOME}" "${UV_BIN}")"
 
 if [[ -z "${TARGET_SHA}" ]]; then
-  meta="$(hub_latest_version_meta "${REPO_DIR}")"
+  meta="$(hub_select_rollback_meta "${REPO_DIR}")"
   if [[ -z "${meta}" ]]; then
-    echo "no version records under $(hub_versions_dir "${REPO_DIR}"); pass --sha" >&2
+    echo "no suitable version record under $(hub_versions_dir "${REPO_DIR}"); pass --sha (prefer label=pre-upgrade)" >&2
     exit 1
   fi
   TARGET_SHA="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["git_sha"])' "${meta}")"
+  current_sha="$(git -C "${REPO_DIR}" rev-parse HEAD 2>/dev/null || true)"
+  if [[ -n "${current_sha}" && "${TARGET_SHA}" == "${current_sha}" ]]; then
+    echo "selected rollback SHA ${TARGET_SHA} equals current HEAD; pass --sha for an older commit" >&2
+    exit 1
+  fi
   echo "==> using recorded ${meta} -> ${TARGET_SHA}"
 fi
 

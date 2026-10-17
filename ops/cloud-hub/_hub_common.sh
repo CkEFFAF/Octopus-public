@@ -229,6 +229,37 @@ hub_latest_version_meta() {
   ls -1t "${vdir}"/*.json 2>/dev/null | head -n1 || true
 }
 
+hub_select_rollback_meta() {
+  # Prefer newest record labeled pre-upgrade (the SHA we left before upgrade).
+  # Fall back to newest record whose git_sha differs from current HEAD.
+  # Never silently pick post-upgrade/current HEAD as the rollback target.
+  local repo_dir="$1"
+  local vdir
+  vdir="$(hub_versions_dir "${repo_dir}")"
+  local current
+  current="$(git -C "${repo_dir}" rev-parse HEAD 2>/dev/null || echo "")"
+  local f label sha
+  # Pass 1: newest pre-upgrade
+  while IFS= read -r f; do
+    [[ -z "${f}" ]] && continue
+    label="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("label",""))' "${f}" 2>/dev/null || true)"
+    if [[ "${label}" == "pre-upgrade" ]]; then
+      printf '%s\n' "${f}"
+      return 0
+    fi
+  done < <(ls -1t "${vdir}"/*.json 2>/dev/null || true)
+  # Pass 2: newest whose sha != HEAD
+  while IFS= read -r f; do
+    [[ -z "${f}" ]] && continue
+    sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("git_sha",""))' "${f}" 2>/dev/null || true)"
+    if [[ -n "${sha}" && "${sha}" != "unknown" && "${sha}" != "${current}" ]]; then
+      printf '%s\n' "${f}"
+      return 0
+    fi
+  done < <(ls -1t "${vdir}"/*.json 2>/dev/null || true)
+  return 0
+}
+
 hub_smoke() {
   local host="${1:-127.0.0.1}"
   local port="${2:-8188}"
