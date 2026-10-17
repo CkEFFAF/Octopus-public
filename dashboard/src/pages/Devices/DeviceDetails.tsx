@@ -10,8 +10,15 @@ import {
 import { useServerTimezone } from "../../hooks/useServerTimezone";
 import { formatServerDateTime } from "../../utils/formatMessageTime";
 import DeviceCapabilities from "./DeviceCapabilities";
+import DeviceCapabilityPolicyPanel from "./DeviceCapabilityPolicy";
 
-export default function DeviceDetails({ device }: { device: Device }) {
+export default function DeviceDetails({
+  device,
+  onDeviceUpdated,
+}: {
+  device: Device;
+  onDeviceUpdated?: (device: Device) => void;
+}) {
   const { t } = useTranslation();
   const timezone = useServerTimezone();
   const [status, setStatus] = useState<DeviceStatus | null>(null);
@@ -149,6 +156,10 @@ export default function DeviceDetails({ device }: { device: Device }) {
           : t("devices.none")}
       </div>
       <DeviceCapabilities device={device} />
+      <DeviceCapabilityPolicyPanel
+        device={device}
+        onSaved={onDeviceUpdated}
+      />
       <h3>
         {t(
           device.trust_mode === "owner"
