@@ -2329,6 +2329,43 @@ class AgentManager:
         """Return the configured context cap for *agent_id* (``max_input_length``)."""
         return config_context_max_tokens(self.get_config(agent_id), fallback=fallback)
 
+    def resolve_context_capacity(self, agent_id: str, thread_id: str) -> tuple[int | None, str]:
+        """Resolve the selected model window and explicit runtime cap with provenance."""
+        from octop.infra.agents.settings.runtime_limits import agent_max_input_tokens
+
+        row = self.get_row(agent_id)
+        if row is None:
+            raise ValueError("expert unavailable")
+        cfg = self.get_config(agent_id)
+        override = agent_max_input_tokens(cfg)
+        thread = self._repos.thread_repo.get(thread_id)
+        # The authorized conversation owner may be using a shared expert;
+        # provider ownership remains with the expert's owner.
+        if thread is not None and thread.agent_id != agent_id:
+            raise ValueError("conversation unavailable")
+        store = self.providers_for_agent(agent_id)
+        ref = (
+            (thread.model_ref if thread is not None else None)
+            or self.get_thread_model(agent_id, thread_id)
+            or store.resolve_explicit_default_model(row, cfg)
+            or self.resolve_fallback_model_ref(row.user_id)
+        )
+        window: int | None = None
+        if isinstance(ref, str) and store.is_model_ref_usable(ref):
+            provider, _, model_id = ref.partition("/")
+            for source in store.iter_usable_rows():
+                if source.name != provider:
+                    continue
+                model: dict[str, Any] = next(
+                    (m for m in source.get_models() if m.get("id") == model_id), {}
+                )
+                raw = model.get("context_window") or model.get("max_input_tokens")
+                if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0:
+                    window = raw
+        if override is not None:
+            return min(override, window) if window else override, "agent_config"
+        return (window, "model") if window else (None, "compatibility_default")
+
     async def list_skill_summaries(
         self,
         agent_id: str,

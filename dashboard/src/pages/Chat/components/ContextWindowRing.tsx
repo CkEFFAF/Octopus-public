@@ -39,6 +39,8 @@ interface ContextWindowRingProps {
   agentId?: string | null;
   threadId?: string | null;
   selectedConnectors?: string[];
+  selectedModel?: string | null;
+  selectedCapacityTokens?: number | null;
   isMobile?: boolean;
   onInspect?: () => void;
 }
@@ -49,6 +51,8 @@ export default function ContextWindowRing({
   agentId,
   threadId,
   selectedConnectors = [],
+  selectedModel,
+  selectedCapacityTokens,
   isMobile = false,
   onInspect,
 }: ContextWindowRingProps) {
@@ -63,6 +67,7 @@ export default function ContextWindowRing({
     at: number;
     data: ContextUsageBreakdown;
   } | null>(null);
+  const requestIdRef = useRef(0);
 
   const max = maxTokens > 0 ? maxTokens : DEFAULT_MAX;
   const hintUsed = usedTokens ?? 0;
@@ -73,9 +78,11 @@ export default function ContextWindowRing({
         agentId ?? "",
         threadId ?? "",
         String(max),
+        selectedModel ?? "",
+        String(usedTokens),
         selectedConnectors.join(","),
       ].join("|"),
-    [agentId, threadId, max, selectedConnectors],
+    [agentId, threadId, max, selectedConnectors, selectedModel, usedTokens],
   );
 
   const loadBreakdown = useCallback(
@@ -92,13 +99,12 @@ export default function ContextWindowRing({
         return;
       }
       if (!opts?.silent) setLoading(true);
+      const requestId = ++requestIdRef.current;
       try {
         // DEC-T14: prefer Insights-backed context-usage (no preview params)
         // so capacity_source is real. Preview overrides fake capacity.
-        const data = await octopThreadsApi.contextUsage(agentId, threadId, {
-          mcpServers:
-            selectedConnectors.length > 0 ? selectedConnectors : undefined,
-        });
+        const data = await octopThreadsApi.contextUsage(agentId, threadId);
+        if (requestId !== requestIdRef.current) return;
         if (data.used_tokens > 0) {
           cacheRef.current = { key: cacheKey, at: Date.now(), data };
           setBreakdown(data);
@@ -108,18 +114,22 @@ export default function ContextWindowRing({
           setBreakdown(null);
         }
       } catch {
-        if (!opts?.silent) setBreakdown(null);
+        if (requestId === requestIdRef.current) setBreakdown(null);
       } finally {
-        if (!opts?.silent) setLoading(false);
+        if (requestId === requestIdRef.current) setLoading(false);
       }
     },
-    [agentId, threadId, max, selectedConnectors, cacheKey],
+    [agentId, threadId, cacheKey],
   );
 
   // Reset detail cache on thread/filter changes.
   useEffect(() => {
     setBreakdown(null);
     cacheRef.current = null;
+    requestIdRef.current += 1;
+    return () => {
+      requestIdRef.current += 1;
+    };
   }, [cacheKey]);
 
   // Prefetch Insights breakdown so header ring can honor capacity_source
@@ -129,30 +139,44 @@ export default function ContextWindowRing({
     void loadBreakdown({ silent: true });
   }, [agentId, threadId, loadBreakdown]);
 
-  const capacityResolved = isCapacityResolved(
-    breakdown?.capacity_source,
-    breakdown?.capacity_tokens ?? null,
-  );
+  // Model selection is saved asynchronously. Its catalog capacity is already
+  // known locally, so an older GET must not restore the previous denominator.
+  const selectedCapacity =
+    selectedCapacityTokens != null && selectedCapacityTokens > 0
+      ? Math.min(selectedCapacityTokens, max)
+      : null;
+  const capacitySource = selectedCapacity
+    ? "model"
+    : breakdown?.capacity_source;
+  const capacityResolved =
+    selectedCapacity != null ||
+    isCapacityResolved(
+      breakdown?.capacity_source,
+      breakdown?.capacity_tokens ?? null,
+    );
 
   const ringUsed = useMemo(() => {
     if (breakdown && breakdown.used_tokens > 0) {
       const cap =
-        capacityResolved && breakdown.capacity_tokens
+        selectedCapacity ??
+        (capacityResolved && breakdown.capacity_tokens
           ? breakdown.capacity_tokens
           : breakdown.max_tokens > 0
           ? breakdown.max_tokens
-          : max;
+          : max);
       return Math.min(breakdown.used_tokens, cap);
     }
     if (hintUsed > 0) return Math.min(hintUsed, max);
     return 0;
-  }, [breakdown, hintUsed, max, capacityResolved]);
+  }, [breakdown, hintUsed, max, capacityResolved, selectedCapacity]);
 
-  const ringMax = capacityResolved
-    ? (breakdown?.capacity_tokens as number)
-    : breakdown && breakdown.max_tokens > 0
-    ? breakdown.max_tokens
-    : max;
+  const ringMax =
+    selectedCapacity ??
+    (capacityResolved
+      ? (breakdown?.capacity_tokens as number)
+      : breakdown && breakdown.max_tokens > 0
+      ? breakdown.max_tokens
+      : max);
 
   const { usedPct, strokeColor, dashOffset, circumference } = useMemo(() => {
     const r = 13;
@@ -161,7 +185,7 @@ export default function ContextWindowRing({
     const precise = occupancyPercent(
       ringUsed,
       capacityResolved ? ringMax : null,
-      breakdown?.capacity_source,
+      capacitySource,
     );
     const usedRatio =
       precise != null && ringMax > 0 ? Math.min(ringUsed / ringMax, 1) : 0;
@@ -179,7 +203,7 @@ export default function ContextWindowRing({
       dashOffset: circ * (1 - usedRatio),
       circumference: circ,
     };
-  }, [ringUsed, ringMax, capacityResolved, breakdown?.capacity_source]);
+  }, [ringUsed, ringMax, capacityResolved, capacitySource]);
 
   const tooltip = capacityResolved
     ? t("chat.contextWindow.tooltip", {
@@ -198,12 +222,18 @@ export default function ContextWindowRing({
     }
   };
 
-  const display = breakdown ?? {
+  const detail = breakdown ?? {
     max_tokens: ringMax,
     used_tokens: ringUsed,
     segments: [] as ContextUsageBreakdown["segments"],
     capacity_source: undefined,
     capacity_tokens: undefined,
+  };
+  const display = {
+    ...detail,
+    max_tokens: ringMax,
+    capacity_tokens: capacityResolved ? ringMax : null,
+    capacity_source: capacitySource,
   };
   const displayUsed = display.used_tokens > 0 ? display.used_tokens : ringUsed;
   const displayMax =

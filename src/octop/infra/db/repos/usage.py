@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from dataclasses import dataclass
@@ -476,18 +477,36 @@ class UsageRepo:
         }
 
     def last_thread_input_tokens(self, *, agent_id: str, thread_id: str) -> int:
-        """Most recent turn's prompt tokens for *thread_id* (context-ring fallback)."""
+        """Last model-call input, never the sum of a multi-call billing row."""
         with self._db.connect() as conn:
+            messages = conn.execute(
+                "SELECT m.message_json FROM thread_messages m JOIN threads t ON t.thread_id=m.thread_id "
+                "WHERE t.agent_id=? AND m.thread_id=? AND m.role IN ('ai','assistant') "
+                "ORDER BY m.seq DESC LIMIT 25",
+                (agent_id, thread_id),
+            ).fetchall()
+            for message in messages:
+                try:
+                    data = json.loads(message["message_json"])
+                    data = data.get("data", data)
+                    data = data.get("kwargs", data)
+                    stamped = (data.get("additional_kwargs") or {}).get("context_usage") or {}
+                    usage = stamped or data.get("usage_metadata") or {}
+                    value = usage.get("last_input_tokens") or usage.get("input_tokens")
+                    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+                        return value
+                except (ValueError, TypeError, AttributeError):
+                    continue
             row = conn.execute(
                 """
-                SELECT input_tokens FROM usage_log
+                SELECT input_tokens, model_calls FROM usage_log
                 WHERE agent_id = ? AND thread_id = ?
                 ORDER BY ts DESC, id DESC
                 LIMIT 1
                 """,
                 (agent_id, thread_id),
             ).fetchone()
-        if row is None:
+        if row is None or int(row["model_calls"] or 1) != 1:
             return 0
         return int(row["input_tokens"] or 0)
 

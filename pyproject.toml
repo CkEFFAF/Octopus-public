@@ -25,7 +25,7 @@ dependencies = [
     "apscheduler>=3.10,<4",
     "argon2-cffi>=23.1",
     "pyjwt>=2.8",
-    "octop-harness[all] @ https://github.com/CkEFFAF/octop-harness/archive/3a82d260b7a6faaf8d4a888d71424c559727327d.tar.gz",
+    "octop-harness[all] @ https://github.com/CkEFFAF/octop-harness/archive/2ac4d602f931c985dae3cf4bc36a72b9c7104fbd.tar.gz",
     "octop-memory>=1.0.0",
     "lark-oapi>=1.7.3",
     "octop-gateway>=1.0.0",

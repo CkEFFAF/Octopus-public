@@ -14,7 +14,7 @@ export function isCapacityResolved(
   capacityTokens?: number | null,
 ): boolean {
   if (capacitySource === "compatibility_default") return false;
-  if (capacitySource === "harness") {
+  if (["harness", "model", "agent_config"].includes(capacitySource ?? "")) {
     return typeof capacityTokens === "number" && capacityTokens > 0;
   }
   // Missing / unknown / capacity_unresolved → do not invent precision.

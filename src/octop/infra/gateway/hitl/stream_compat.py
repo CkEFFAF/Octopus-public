@@ -69,8 +69,10 @@ def install_harness_hitl_compat() -> None:
 
     original = LangGraphProtocol._project_chunk
 
-    def _project_chunk(self: Any, chunk: Any, splitter: Any) -> list[dict[str, Any]]:
-        events = original(self, chunk, splitter)
+    def _project_chunk(
+        self: Any, chunk: Any, splitter: Any, invocation_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        events = original(self, chunk, splitter, invocation_id)
         if isinstance(chunk, dict):
             events = merge_hitl_projection(events, chunk.get("interrupts"))
         return events

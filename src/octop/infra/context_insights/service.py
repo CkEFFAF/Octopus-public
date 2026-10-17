@@ -601,6 +601,12 @@ class ContextInsightsService:
                 max_tokens = COMPATIBILITY_CAPACITY_TOKENS
                 capacity_source = "compatibility_default"
                 capacity_tokens = None
+        resolve_capacity = getattr(self._registry, "resolve_context_capacity", None)
+        if callable(resolve_capacity):
+            resolved_capacity = resolve_capacity(agent_id, thread_id)
+            if isinstance(resolved_capacity, tuple) and len(resolved_capacity) == 2:
+                capacity_tokens, capacity_source = resolved_capacity
+                max_tokens = capacity_tokens or compatibility
         result = await compute_context_breakdown(
             self._registry,
             agent_id=agent_id,
@@ -609,7 +615,7 @@ class ContextInsightsService:
             usage_repo=getattr(self._repos, "usage_repo", None),
         )
         return {
-            "max_tokens": result.max_tokens,
+            "max_tokens": capacity_tokens or result.max_tokens,
             "used_tokens": result.used_tokens,
             "capacity_tokens": capacity_tokens,
             "capacity_source": capacity_source,

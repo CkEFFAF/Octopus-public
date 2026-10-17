@@ -51,7 +51,9 @@ def _empty_breakdown(*, max_tokens: int) -> ContextBreakdownResult:
 def _usage_to_breakdown(usage: Any, *, fallback_max_tokens: int) -> ContextBreakdownResult:
     raw_segments = getattr(usage, "segments", None) or {}
     segments = {key: int(raw_segments.get(key, 0) or 0) for key in SEGMENT_KEYS}
-    used = int(getattr(usage, "used_tokens", 0) or 0)
+    # The snapshot can have been clipped against an old/default window. The
+    # observed last request size is retained separately and is not billing sum.
+    used = int(getattr(usage, "input_tokens", 0) or getattr(usage, "used_tokens", 0) or 0)
     cap = int(getattr(usage, "max_tokens", fallback_max_tokens) or fallback_max_tokens or 128_000)
     return ContextBreakdownResult(max_tokens=cap, used_tokens=used, segments=segments)
 

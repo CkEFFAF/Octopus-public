@@ -195,10 +195,17 @@ def build_native_management_tools(
             "knowledge_base_ids",
             "mcp_servers",
             "tools_disabled",
+            "device_binding",
         }
         fields = {
             key: value for key, value in values.items() if key in allowed and value is not None
         }
+        if "device_binding" in fields:
+            if execution is None:
+                raise OctopError(ErrorCode.FORBIDDEN, "execution service unavailable")
+            fields["device_binding"] = execution.validate_expert_binding(
+                user.id, fields["device_binding"]
+            )
         for key, maximum in (
             ("name", 80),
             ("description", 500),
@@ -362,15 +369,21 @@ def build_native_management_tools(
         knowledge_base_ids: list[str] | None = None,
         mcp_servers: list[str] | None = None,
         tools_disabled: list[str] | None = None,
+        device_binding: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Create an expert with explicit configuration and existing resource references."""
+        """Create an expert. device_binding sets its owned device/local default.
+
+        For example {"target_kind":"device","device_id":"id","working_dir":"/work"}.
+        To dispatch using that default choose ask_agent(target_policy="member_default");
+        inherit keeps the caller's device. This does not grant new device permissions.
+        """
         from octop.infra.agents.manager import AgentCreateSpec
 
         fields = validate_fields(locals())
-        disabled = fields.pop("tools_disabled", [])
-        row = await manager.create(
-            AgentCreateSpec(user_id=identity().id, config={"tools_disabled": disabled}, **fields)
-        )
+        config: dict[str, Any] = {"tools_disabled": fields.pop("tools_disabled", [])}
+        if "device_binding" in fields:
+            config["device_binding"] = fields.pop("device_binding")
+        row = await manager.create(AgentCreateSpec(user_id=identity().id, config=config, **fields))
         return {**expert_payload(row, detail=True), "saved": True}
 
     @operation(writes=True)
@@ -385,17 +398,29 @@ def build_native_management_tools(
         knowledge_base_ids: list[str] | None = None,
         mcp_servers: list[str] | None = None,
         tools_disabled: list[str] | None = None,
+        device_binding: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Configure your expert. Omitted fields stay; empty strings/lists clear a field."""
+        """Configure your expert. device_binding sets its owned device/local default; {} clears it.
+
+        Omitted fields stay. Defaults affect later turns. For a peer dispatch on
+        this device use ask_agent(target_policy="member_default") or "explicit";
+        the default "inherit" deliberately keeps the caller's target.
+        """
         fields = dict(locals())
         fields.pop("target_agent_id")
         row = owned(target_agent_id, kind="expert")
         fields = validate_fields(fields, row.agent_id)
         if not fields:
             raise ValueError("supply at least one configuration field")
-        if "tools_disabled" in fields:
+        if "tools_disabled" in fields or "device_binding" in fields:
             cfg = manager.get_config(row.agent_id)
-            cfg["tools_disabled"] = fields.pop("tools_disabled")
+            for key in ("tools_disabled", "device_binding"):
+                if key in fields:
+                    value = fields.pop(key)
+                    if key == "device_binding" and not value:
+                        cfg.pop(key, None)
+                    else:
+                        cfg[key] = value
             fields["config_json"] = json.dumps(cfg)
         if "default_model" in fields:
             cfg = json.loads(

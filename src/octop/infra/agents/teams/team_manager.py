@@ -549,7 +549,10 @@ class TeamManager:
         )
         tracker = getattr(harness_team, "_octop_peer_tasks", None)
         if not isinstance(tracker, PeerTaskTracker):
-            tracker = PeerTaskTracker(getattr(self._agent_manager, "_device_service", None))
+            tracker = PeerTaskTracker(
+                getattr(self._agent_manager, "_device_service", None),
+                prepare_request=getattr(self._agent_manager, "_prepare_stream_request", None),
+            )
             tracker.install(harness_team)
         self._peer_tasks = tracker
 
