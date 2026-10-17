@@ -140,6 +140,7 @@ async def test_create_backup_offloads_to_thread(monkeypatch: pytest.MonkeyPatch)
     server.services = MagicMock()
     server.services.db = object()
     server.services.config.database = object()
+    server.services.config.backup = object()
     server.paths = object()
     server.app_runtime = MagicMock()
 
@@ -148,6 +149,7 @@ async def test_create_backup_offloads_to_thread(monkeypatch: pytest.MonkeyPatch)
     assert result == {"ok": True, "item": entry.to_dict()}
     assert called["pool"] is server.services.db
     assert called["options"].include_chats is False
+    assert called["backup"] is server.services.config.backup
 
 
 @pytest.mark.asyncio
@@ -169,6 +171,7 @@ async def test_create_backup_passes_selected_content(monkeypatch: pytest.MonkeyP
     server = MagicMock()
     server.services.db = object()
     server.services.config.database = object()
+    server.services.config.backup = object()
 
     body = backup_router.CreateBackupBody(
         include_config=False,
@@ -178,6 +181,7 @@ async def test_create_backup_passes_selected_content(monkeypatch: pytest.MonkeyP
     await backup_router.create_backup(body=body, _=None, server=server)
 
     assert called["options"] == body
+    assert called["backup"] is server.services.config.backup
 
 
 @pytest.mark.asyncio
@@ -218,3 +222,47 @@ async def test_backup_status_reports_idle_and_busy() -> None:
     async with hold_backup_lock("create"):
         busy = await backup_router.get_backup_status(_=None)
         assert busy == {"busy": True, "operation": "create"}
+
+
+def test_create_and_store_manual_backup_calls_finalize(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Manual create helper must finalize after place (integrity/offsite/verify)."""
+    from octop.config import BackupConfig
+
+    entry = BackupFileInfo(
+        name="octop-backup-20260101T000000Z.tar.gz",
+        size=12,
+        modified_at="2026-01-01T00:00:00+00:00",
+        created_at="2026-01-01T00:00:00+00:00",
+    )
+    finalize_calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        backup_router,
+        "create_system_backup",
+        lambda **_k: entry.name,
+    )
+    monkeypatch.setattr(
+        backup_router,
+        "place_backup_file",
+        lambda _paths, _name, _src: entry,
+    )
+
+    def _fake_finalize(**kwargs: Any) -> dict[str, object]:
+        finalize_calls.append(kwargs)
+        return {"verify_status": "ok", "offsite_status": "skipped"}
+
+    monkeypatch.setattr(backup_router, "finalize_backup_artifact", _fake_finalize)
+
+    backup_cfg = BackupConfig(alert_webhook_url="https://hooks.example/x")
+    out = backup_router._create_and_store_manual_backup(
+        paths=MagicMock(),
+        agent_rows=[],
+        pool=MagicMock(),
+        db_config=MagicMock(),
+        options=backup_router.CreateBackupBody(),
+        backup=backup_cfg,
+    )
+    assert out is entry
+    assert len(finalize_calls) == 1
+    assert finalize_calls[0]["entry"] is entry
+    assert finalize_calls[0]["backup"] is backup_cfg

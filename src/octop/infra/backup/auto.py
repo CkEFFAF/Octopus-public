@@ -137,9 +137,19 @@ def persist_backup_config(config_path: Path, backup: BackupConfig) -> OctopConfi
     return load_config(config_path)
 
 
-def backup_config_from_payload(payload: dict[str, Any]) -> BackupConfig:
-    """Validate an API/CLI payload into ``BackupConfig``."""
-    defaults = BackupConfig()
+def backup_config_from_payload(
+    payload: dict[str, Any],
+    *,
+    defaults: BackupConfig | None = None,
+) -> BackupConfig:
+    """Validate an API/CLI payload into ``BackupConfig``.
+
+    When *defaults* is provided (e.g. current on-disk backup config), missing
+    offsite/alert fields are preserved instead of resetting to empty factory
+    defaults. ``PUT /backup/auto`` only sends schedule/include fields, so it
+    must pass the existing config here (0026 Medium).
+    """
+    defaults = defaults if defaults is not None else BackupConfig()
     schedule = str(payload.get("schedule", defaults.schedule)).strip() or defaults.schedule
     try:
         build_trigger(schedule)
