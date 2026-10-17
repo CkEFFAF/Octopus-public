@@ -1,6 +1,6 @@
 # 云中枢短运维清单（Ubuntu 24）
 
-- 对齐规格：`docs/specs/0009-cloud-hub-production.md`（Accepted / rev `2026-10-12.3`）
+- 对齐规格：`docs/specs/0009-cloud-hub-production.md`（Accepted / rev `2026-10-12.3`）；数据面韧性见 **`docs/specs/0026-ops-data-resilience.md`** 与 `docs/octopus/backup-restore-drill.md`
 - 主机：`111.228.42.228`（4C8G Ubuntu 24）；产品域名：`https://octop.effaf.me`
 - 脚本：`ops/cloud-hub/`（`install-hub.sh` / `smoke-hub.sh` / systemd 示例）
 - 更新：2026-10-12（S1+S2：HTTP IP 冒烟 + systemd 系统单元 + `~/OctopData` + 只管理端）
@@ -60,7 +60,7 @@ OCTOP_HOME=/root/OctopData OCTOP_BIND_HOST=0.0.0.0 OCTOP_PORT=8188 \
 
 ubuntu 用户把路径换成 `/home/ubuntu/octopus` 与 `/home/ubuntu/OctopData`。
 
-**禁止双开**：同一 `OCTOP_HOME` 只跑一个管理端实例。
+**禁止双开**：同一 `OCTOP_HOME`（生产规范 `~/OctopData`）只跑一个管理端实例。备份/异地/校验见 `docs/octopus/backup-restore-drill.md`（0026）。
 
 ## systemd（S2 常驻）
 
