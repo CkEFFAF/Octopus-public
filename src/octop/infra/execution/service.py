@@ -253,6 +253,44 @@ class ExecutionService:
             run_id=run_id,
         )
 
+    def validate_expert_binding(self, owner: int, binding: dict[str, Any]) -> dict[str, Any]:
+        """Validate a bounded default target without creating an execution or changing grants."""
+        if not isinstance(binding, dict) or not set(binding) <= {
+            "device_id",
+            "target_kind",
+            "root_id",
+            "working_dir",
+        }:
+            raise OctopError(ErrorCode.FORBIDDEN, "invalid expert device binding")
+        if not binding:
+            return {}
+        device_id, root_id = binding.get("device_id"), binding.get("root_id")
+        kind = binding.get("target_kind", "device")
+        if root_id is not None and not isinstance(root_id, str):
+            raise OctopError(ErrorCode.FORBIDDEN, "invalid expert device binding")
+        if kind == "local":
+            if device_id or root_id:
+                raise OctopError(ErrorCode.FORBIDDEN, "local target cannot select a device root")
+            self.local_backend(owner)
+        elif kind == "device" and isinstance(device_id, str) and device_id.strip():
+            device = self.devices.owned(owner, device_id)
+            root = next((r for r in device.roots if r["id"] == root_id), None)
+            if device.trust_mode != "owner" and (root is None or not root.get("read")):
+                raise OctopError(
+                    ErrorCode.FORBIDDEN, "expert device requires a readable shared root"
+                )
+        else:
+            raise OctopError(ErrorCode.FORBIDDEN, "invalid expert target kind")
+        directory = binding.get("working_dir")
+        if directory is not None and (
+            not isinstance(directory, str)
+            or not directory.strip()
+            or "\x00" in directory
+            or len(directory) > 4096
+        ):
+            raise OctopError(ErrorCode.FORBIDDEN, "invalid expert working directory")
+        return {**binding, "target_kind": kind}
+
     def get(self, owner: int, context_id: str) -> ExecutionContext:
         context = self.contexts.get(owner, context_id)
         if context is None:

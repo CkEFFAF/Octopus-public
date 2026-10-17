@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from octop.infra.db.migrate import run_migrations
@@ -9,6 +10,7 @@ from octop.infra.db.pool import SqlitePool
 from octop.infra.db.repos.agents import AgentRepo
 from octop.infra.db.repos.usage import UsageRepo
 from octop.infra.db.repos.users import UserRepo
+from octop.infra.db.services import RepoBundle
 
 
 def test_thread_totals_aggregate(tmp_path: Path):
@@ -43,6 +45,36 @@ def test_thread_totals_aggregate(tmp_path: Path):
     assert totals["total_tokens"] == 20
     assert totals["model_calls"] == 2
     assert totals["turns"] == 2
+
+
+def test_context_fallback_uses_last_call_not_billing_sum(tmp_path):
+    db = SqlitePool(tmp_path / "window.db")
+    run_migrations(db)
+    repos = RepoBundle.from_pool(db)
+    owner = repos.user_repo.create(username="owner", password_hash="x", role="admin")
+    repos.agent_repo.create(agent_id="gpu", user_id=owner, name="GPU")
+    repos.thread_repo.insert(
+        thread_id="t", agent_id="gpu", user_id=owner, channel_type="dashboard", session_key="s"
+    )
+    repo = UsageRepo(db)
+    repo.record(
+        agent_id="gpu",
+        user_id=owner,
+        thread_id="t",
+        input_tokens=4_364_569,
+        output_tokens=100,
+        model_calls=51,
+    )
+    assert repo.last_thread_input_tokens(agent_id="gpu", thread_id="t") == 0
+    with db.connect() as c:
+        c.execute(
+            "INSERT INTO thread_messages(thread_id,seq,role,message_json,created_at) VALUES(?,?,?,?,?)",
+            ("t", 1, "ai", json.dumps({"data": {"usage_metadata": {"input_tokens": 418_748}}}), 1),
+        )
+        c.commit()
+    assert repo.last_thread_input_tokens(agent_id="gpu", thread_id="t") == 418_748
+    assert repo.last_thread_input_tokens(agent_id="foreign", thread_id="t") == 0
+    db.close()
 
 
 def test_migration_repair_preserves_fully_cached_input(tmp_path: Path) -> None:

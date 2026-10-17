@@ -19,6 +19,16 @@ def test_segment_keys_stable() -> None:
     assert "skills" in SEGMENT_KEYS
 
 
+@pytest.mark.asyncio
+async def test_snapshot_default_cap_does_not_hide_real_request_size():
+    usage = _usage(used=128_000, segments={"conversation": 418_748})
+    usage.input_tokens = 418_748
+    result = await compute_context_breakdown(
+        _registry(usage), agent_id="gpu", thread_id="t", max_tokens=1_000_000
+    )
+    assert result.used_tokens == 418_748
+
+
 def test_segment_keys_match_harness_when_available() -> None:
     pytest.importorskip("octop_harness.context_usage")
     from octop_harness.context_usage import SEGMENT_KEYS as HARNESS_KEYS

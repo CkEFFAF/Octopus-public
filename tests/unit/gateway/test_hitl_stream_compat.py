@@ -79,3 +79,31 @@ def test_merge_keeps_actionable_hitl_required() -> None:
         [{"value": {"action_requests": [{"name": "ask_user_question", "args": {}}]}}],
     )
     assert events == [existing]
+
+
+def test_installed_projection_preserves_peer_isolation_and_interrupts(monkeypatch):
+    from langchain_core.messages import AIMessageChunk
+    from octop_harness.protocols.langgraph import LangGraphProtocol
+    from octop_harness.protocols.think_splitter import ThinkSplitter
+
+    from octop.infra.gateway.hitl import stream_compat
+
+    monkeypatch.setattr(stream_compat, "_INSTALLED", False)
+    monkeypatch.setattr(LangGraphProtocol, "_project_chunk", LangGraphProtocol._project_chunk)
+    stream_compat.install_harness_hitl_compat()
+    protocol = LangGraphProtocol(graph=None)
+    chunk = {
+        "type": "messages",
+        "data": (
+            AIMessageChunk(content="CHILD"),
+            {"langgraph_node": "model", "harness_invocation_id": "child"},
+        ),
+        "interrupts": [{"value": {"action_requests": [{"name": "execute", "args": {}}]}}],
+    }
+    events = protocol._project_chunk(chunk, ThinkSplitter(), "parent")
+    assert len(events) == 1 and events[0]["type"] == "hitl_required"
+    chunk["data"] = (
+        AIMessageChunk(content="HOST"),
+        {"langgraph_node": "model", "harness_invocation_id": "parent"},
+    )
+    assert protocol._project_chunk(chunk, ThinkSplitter(), "parent")[0]["content"] == "HOST"

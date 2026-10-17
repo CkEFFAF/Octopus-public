@@ -119,6 +119,115 @@ async def close(rig: Any) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("background", [False, True])
+@pytest.mark.parametrize("policy", ["inherit", "member_default", "explicit"])
+async def test_real_execution_context_rebound_on_every_peer_restore(
+    peers, tmp_path, background, policy
+):
+    from octop.infra.agents.manager import AgentManager
+    from octop.infra.db.migrate import run_migrations
+    from octop.infra.db.pool import SqlitePool
+    from octop.infra.db.services import RepoBundle
+    from octop.infra.devices.service import DeviceService
+    from octop.infra.execution.service import ExecutionService
+
+    rig = peers
+    db = SqlitePool(tmp_path / "peer.db")
+    run_migrations(db)
+    repos = RepoBundle.from_pool(db)
+    owner = repos.user_repo.create(username="owner", password_hash="unused", role="admin")
+    for aid in ("host", "member"):
+        repos.agent_repo.create(agent_id=aid, user_id=owner, name=aid)
+    for tid, aid in (("room", "host"), ("room~member", "member")):
+        repos.thread_repo.insert(
+            thread_id=tid, agent_id=aid, user_id=owner, channel_type="dashboard", session_key=tid
+        )
+    devices = DeviceService(repos, local_state_dir=tmp_path / "runtime")
+    device = devices.enroll(
+        owner_user_id=owner,
+        name="GPU",
+        platform="linux",
+        capabilities=["files_read"],
+        permissions=["files_read"],
+        roots=[],
+        trust_mode="restricted",
+    )["device"]["device_id"]
+    cloud = devices.enroll(
+        owner_user_id=owner,
+        name="Cloud",
+        platform="linux",
+        capabilities=["files_read"],
+        permissions=["files_read"],
+        roots=[],
+        trust_mode="restricted",
+    )["device"]["device_id"]
+    executions = ExecutionService(devices)
+    parent = executions.resolve(
+        owner, agent_id="host", thread_id="room", device_id=device, run_id="parent"
+    )
+    rig.tracker.devices = devices
+    manager = SimpleNamespace(
+        get_config=lambda aid: {"device_binding": {"device_id": cloud}} if aid == "member" else {},
+        _device_service=devices,
+    )
+    rig.tracker.prepare_request = lambda aid, req: AgentManager._prepare_stream_request(
+        manager, aid, req
+    )
+    token = var_child_runnable_config.set(
+        {
+            "configurable": {
+                "user": owner,
+                "octop_task_run_id": "parent",
+                "work_mode": "ask",
+                "octop_target_policy": policy,
+                "octop_explicit_target": {"device_id": cloud, "target_kind": "device"}
+                if policy == "explicit"
+                else None,
+                "octop_execution_context": parent.public(),
+                "octop_device_target": {"device_id": device, "grant_version": parent.grant_version},
+            }
+        }
+    )
+    try:
+        if background:
+            rig.team.submit_peer(
+                from_agent_id="host",
+                to_agent_id="member",
+                user_id=owner,
+                message="Read",
+                source_thread_id="room",
+            )
+            await asyncio.wait_for(rig.started.wait(), 5)
+            request = rig.requests[-1]
+        else:
+            await rig.team._invoke_peer(
+                from_agent_id="host",
+                to_agent_id="member",
+                user_id=owner,
+                message="Read",
+                source_thread_id="room",
+                source="ask_agent",
+                source_session_key=None,
+            )
+            request = _chat_request_payload(
+                rig.entries["member"].agent.call.call_args.args[0], "member"
+            )
+        cfg = request["configurable"]
+        context = executions.get(owner, cfg["octop_execution_context"]["context_id"])
+        assert context.agent_id == "member" and context.thread_id == "room~member"
+        assert context.device_id == (device if policy == "inherit" else cloud)
+        assert context.work_mode == "ask"
+        assert context.context_id != parent.context_id
+    finally:
+        var_child_runnable_config.reset(token)
+        rig.release.set()
+        rig.finish.set()
+        await close(rig)
+        await devices.shutdown()
+        db.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["craft", "ask", "plan"])
 async def test_async_member_and_followup_keep_snapshot_and_hold_task(peers: Any, mode: str) -> None:
     rig = peers

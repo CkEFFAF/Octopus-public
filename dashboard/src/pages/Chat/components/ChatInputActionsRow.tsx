@@ -1157,6 +1157,12 @@ export default function ChatInputActionsRow({
       <div className={styles.secondaryActions}>{renderSecondaryActions()}</div>
       <div className={styles.inputActions}>
         <ContextWindowRing
+          selectedModel={effectiveModelRef}
+          selectedCapacityTokens={
+            effectiveModel?.context_window ??
+            effectiveModel?.contextWindow ??
+            effectiveModel?.max_input_tokens
+          }
           usedTokens={contextUsedTokens}
           maxTokens={contextMaxTokens}
           agentId={agentId}

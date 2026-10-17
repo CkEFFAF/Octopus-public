@@ -45,6 +45,57 @@ async def call(tools: Any, tool_name: str, **args: Any) -> dict[str, Any]:
     return json.loads(await tools[tool_name].ainvoke(args))
 
 
+async def test_owned_expert_device_defaults_create_update_clear_and_reject(native, tmp_path):
+    _c, srv, _auth, _aid, uid, tools = native
+    devices = srv.app_runtime.devices
+    enrolled = devices.enroll(
+        owner_user_id=uid,
+        name="Cloud",
+        platform="linux",
+        capabilities=["files_read"],
+        permissions=["files_read"],
+        roots=[],
+        trust_mode="owner",
+    )
+    did = enrolled["device"]["device_id"]
+    created = await call(
+        tools,
+        "octop_expert_create",
+        name="Bound expert",
+        device_binding={"device_id": did, "working_dir": str(tmp_path)},
+    )
+    assert created["saved"] and created["default_target"]["device_id"] == did
+    aid = created["agent_id"]
+    updated = await call(
+        tools, "octop_expert_update", target_agent_id=aid, description="Still bound"
+    )
+    assert updated["default_target"]["device_id"] == did
+    for binding in (
+        {"device_id": "foreign"},
+        {"target_kind": "local", "device_id": did},
+        {"device_id": did, "working_dir": "bad\x00dir"},
+        {"device_id": did, "grant_version": 999},
+    ):
+        rejected = await call(
+            tools,
+            "octop_expert_update",
+            target_agent_id=aid,
+            name="Must not persist",
+            device_binding=binding,
+        )
+        assert "error" in rejected
+        assert srv.app_runtime.agent_registry.get_row(aid).name == "Bound expert"
+    cleared = await call(tools, "octop_expert_update", target_agent_id=aid, device_binding={})
+    assert cleared["default_target"] is None
+    local = await call(
+        tools,
+        "octop_expert_update",
+        target_agent_id=aid,
+        device_binding={"target_kind": "local", "working_dir": str(tmp_path)},
+    )
+    assert local["default_target"]["target_kind"] == "local"
+
+
 async def test_expert_configuration_subagent_and_group_are_real(native: Any) -> None:
     c, srv, auth, aid, uid, tools = native
     registry = srv.app_runtime.agent_registry

@@ -394,7 +394,13 @@ def install_harness_target_patches() -> None:
         replacement = StructuredTool.from_function(
             coroutine=ask_agent,
             name="ask_agent",
-            description=ask.description,
+            description=(
+                ask.description + " Execution target: inherit keeps the caller's device even when "
+                "the member conversation selected another device. To use the member's saved "
+                "default choose target_policy='member_default'. For another device choose "
+                "target_policy='explicit' and device_id; merely naming it in the message "
+                "does not switch devices. Selection never changes an in-flight run."
+            ),
             args_schema=schema,
         )
         return [replacement if getattr(t, "name", None) == "ask_agent" else t for t in tools]

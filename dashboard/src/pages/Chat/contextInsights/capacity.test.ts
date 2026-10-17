@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { isCapacityResolved, occupancyPercent } from "./capacity";
 
 describe("isCapacityResolved", () => {
+  it("accepts model metadata and explicit real 128k capacity", () => {
+    expect(occupancyPercent(418_748, 1_000_000, "model")).toBeCloseTo(41.8748);
+    expect(isCapacityResolved("agent_config", 128_000)).toBe(true);
+  });
   it("treats harness capacity as resolved", () => {
     expect(isCapacityResolved("harness", 200_000)).toBe(true);
   });
@@ -25,9 +29,7 @@ describe("occupancyPercent", () => {
   });
 
   it("returns null for compatibility default (no fake precision)", () => {
-    expect(occupancyPercent(4200, 128_000, "compatibility_default")).toBe(
-      null,
-    );
+    expect(occupancyPercent(4200, 128_000, "compatibility_default")).toBe(null);
   });
 
   it("returns 0 when unused against a resolved window", () => {

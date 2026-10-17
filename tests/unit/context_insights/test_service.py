@@ -41,6 +41,24 @@ def _thread_row(owner: int = 1, agent_id: str = "a1") -> SimpleNamespace:
     return SimpleNamespace(user_id=owner, agent_id=agent_id, thread_id="t1")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "cap,source", [(128_000, "agent_config"), (1_000_000, "model"), (None, "compatibility_default")]
+)
+async def test_capacity_provenance_not_numeric_guess(monkeypatch, cap, source):
+    compute = AsyncMock(
+        return_value=SimpleNamespace(max_tokens=cap or 128_000, used_tokens=42_000, segments={})
+    )
+    monkeypatch.setattr("octop.infra.context_insights.service.compute_context_breakdown", compute)
+    registry = MagicMock()
+    registry.resolve_context_max_tokens.return_value = 128_000
+    registry.resolve_context_capacity.return_value = (cap, source)
+    result = await ContextInsightsService(registry, _repos_with_thread())._breakdown("a1", "t1")
+    assert result["capacity_tokens"] == cap
+    assert result["capacity_source"] == source
+    assert compute.call_args.kwargs["max_tokens"] == (cap or 128_000)
+
+
 def _repos_with_thread() -> MagicMock:
     repo = MagicMock()
     repo.thread_repo.get.return_value = _thread_row()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from contextvars import ContextVar
 from copy import deepcopy
 from typing import Any
@@ -49,6 +50,12 @@ def restore_peer_context(request: dict[str, Any]) -> dict[str, Any]:
     for key in ("skills", "mcp_servers"):
         if inherited.get(key) == []:
             request[key] = []
+    prepare = context.get("prepare_request")
+    if prepare is not None and request.get("agent_id"):
+        # Rebind the frozen target to the actual callee before its raw harness
+        # call. Every restore (including inbox follow-ups) must retain that
+        # identity rather than reinstalling the caller's context afterwards.
+        request = prepare(str(request["agent_id"]), request)
     return request
 
 
@@ -104,8 +111,9 @@ def _restore_request(request: Any) -> Any:
 
 
 class PeerTaskTracker:
-    def __init__(self, devices: Any) -> None:
+    def __init__(self, devices: Any, prepare_request: Callable[..., Any] | None = None) -> None:
         self.devices = devices
+        self.prepare_request = prepare_request
         self.jobs: dict[tuple[int, str, str], tuple[Any, str]] = {}
         self.cancelled_runs: set[tuple[int, str]] = set()
 
@@ -162,7 +170,7 @@ class PeerTaskTracker:
             return None
         if str(saved.get("owner")) != str(owner):
             raise RuntimeError("inbox owner changed")
-        return {**deepcopy(saved), "devices": self.devices}
+        return {**deepcopy(saved), "devices": self.devices, "prepare_request": self.prepare_request}
 
     async def wait_for_task_run(self, owner: int, run_id: str) -> None:
         while True:
@@ -280,7 +288,7 @@ class PeerTaskTracker:
                     devices=self.devices,
                     owner=owner,
                 )
-                saved = {**snap, "devices": self.devices}
+                saved = {**snap, "devices": self.devices, "prepare_request": self.prepare_request}
             token = _context.set(saved)
             try:
                 return await original_invoke(**kwargs)
