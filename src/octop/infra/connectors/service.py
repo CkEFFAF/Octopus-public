@@ -552,27 +552,43 @@ class ConnectorService:
         *,
         apply_defaults: bool | None = None,
         extra_defaults: list[str] | None = None,
+        device_defaults: list[str] | None = None,
+        deny_mcp_servers: list[str] | None = None,
     ) -> list[str] | None:
-        """Resolve turn MCP servers vs the user's default_open set.
+        """Resolve turn MCP servers vs default_open, expert, and device packs.
 
         Dashboard passes an explicit list (``apply_defaults=False``) so users can
-        opt out for a turn. IM uses ``explicit is None`` + defaults. Cron follows
-        defaults when the job has no picks; explicit Cron picks win as-is.
-        ``extra_defaults`` (expert composer picks) are unioned with default_open
-        when defaults apply, but only names still available to *user_id*.
+        opt out of **account default_open and device packs** for a turn (0025).
+        IM uses ``explicit is None`` + defaults. Cron follows defaults when the
+        job has no picks; explicit Cron picks win as-is.
+        ``extra_defaults`` (expert composer picks) and ``device_defaults``
+        (resolved device capability pack) are unioned with default_open when
+        defaults apply, but only names still available to *user_id*.
+        ``deny_mcp_servers`` removes names after the union (any layer).
         """
         defaults = list(self.list_default_open_mcp_server_names(user_id))
-        if extra_defaults:
-            allowed = set(self.list_active_mcp_server_names(user_id))
-            for name in extra_defaults:
+        allowed = set(self.list_active_mcp_server_names(user_id))
+        for bucket in (extra_defaults, device_defaults):
+            if not bucket:
+                continue
+            for name in bucket:
                 text = str(name).strip()
                 if text and text in allowed and text not in defaults:
                     defaults.append(text)
-        return merge_mcp_servers_with_defaults(
+        merged = merge_mcp_servers_with_defaults(
             explicit,
             defaults,
             apply_defaults=apply_defaults,
         )
+        if not merged:
+            return None
+        deny = {
+            str(name).strip() for name in (deny_mcp_servers or []) if name and str(name).strip()
+        }
+        if not deny:
+            return merged
+        filtered = [name for name in merged if name not in deny]
+        return filtered or None
 
     def validate_mcp_servers_for_user(self, user_id: int, names: list[str]) -> list[str]:
         allowed = set(self.list_active_mcp_server_names(user_id))

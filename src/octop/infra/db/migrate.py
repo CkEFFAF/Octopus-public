@@ -2014,6 +2014,13 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
         conn.executescript(sql)
 
 
+def _ensure_device_capability_policy_schema(db: DatabasePool) -> None:
+    """0025 S0: capability_policy_json on devices."""
+    if not _table_exists(db, "devices"):
+        return
+    _ensure_column(db, "devices", "capability_policy_json", "TEXT")
+
+
 def _ensure_device_update_schema(db: DatabasePool) -> None:
     """0017: software_version / update_status on devices."""
     if not _table_exists(db, "devices"):
@@ -2054,6 +2061,14 @@ def run_migrations(db: DatabasePool) -> None:
         if version == 27:
             _ensure_device_update_schema(db)
             _ensure_cron_jobs_schema(db)
+            with db.connect() as conn:
+                if db.dialect == "postgresql":
+                    conn.execute("UPDATE _schema_version SET version = %s", (version,))
+                else:
+                    conn.execute("UPDATE _schema_version SET version = ?", (version,))
+            continue
+        if version == 28:
+            _ensure_device_capability_policy_schema(db)
             with db.connect() as conn:
                 if db.dialect == "postgresql":
                     conn.execute("UPDATE _schema_version SET version = %s", (version,))
