@@ -3,7 +3,7 @@ requires = ["hatchling>=1.18"]
 build-backend = "hatchling.build"
 
 [tool.hatch.metadata]
-# This fork pins its canonical model catalog to a verified GitHub release wheel.
+# Pin the reviewed harness source revision, including the canonical model catalog.
 allow-direct-references = true
 
 [project]
@@ -25,7 +25,7 @@ dependencies = [
     "apscheduler>=3.10,<4",
     "argon2-cffi>=23.1",
     "pyjwt>=2.8",
-    "octop-harness[all] @ https://github.com/CkEFFAF/octop-harness/releases/download/v1.0.2.post2/octop_harness-1.0.2.post2-py3-none-any.whl",
+    "octop-harness[all] @ https://github.com/CkEFFAF/octop-harness/archive/d30b36cbb17e9e8403d01555a4f399667228263b.tar.gz",
     "octop-memory>=1.0.0",
     "lark-oapi>=1.7.3",
     "octop-gateway>=1.0.0",

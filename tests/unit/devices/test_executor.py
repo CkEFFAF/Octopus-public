@@ -500,7 +500,8 @@ def pid_alive(pid):
 @pytest.mark.parametrize("cancel", [False, True])
 async def test_command_timeout_cancel_stops_parent_and_child(tmp_path, cancel):
     executor, root = make_executor(tmp_path, command=True)
-    script = "import subprocess,sys,time;from pathlib import Path;p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)']);Path('child.pid').write_text(str(p.pid));Path('parent.pid').write_text(str(__import__('os').getpid()));time.sleep(60)"
+    # File existence signals readiness only after the complete PID is published.
+    script = "import subprocess,sys,time;from pathlib import Path;p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)']);Path('child.pid').write_text(str(p.pid));Path('parent.pid.tmp').write_text(str(__import__('os').getpid()));Path('parent.pid.tmp').replace('parent.pid');time.sleep(60)"
     task = asyncio.create_task(
         call(
             executor,

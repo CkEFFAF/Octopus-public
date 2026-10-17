@@ -140,8 +140,8 @@ export default function ContextWindowRing({
         capacityResolved && breakdown.capacity_tokens
           ? breakdown.capacity_tokens
           : breakdown.max_tokens > 0
-            ? breakdown.max_tokens
-            : max;
+          ? breakdown.max_tokens
+          : max;
       return Math.min(breakdown.used_tokens, cap);
     }
     if (hintUsed > 0) return Math.min(hintUsed, max);
@@ -151,8 +151,8 @@ export default function ContextWindowRing({
   const ringMax = capacityResolved
     ? (breakdown?.capacity_tokens as number)
     : breakdown && breakdown.max_tokens > 0
-      ? breakdown.max_tokens
-      : max;
+    ? breakdown.max_tokens
+    : max;
 
   const { usedPct, strokeColor, dashOffset, circumference } = useMemo(() => {
     const r = 13;
@@ -202,16 +202,16 @@ export default function ContextWindowRing({
     max_tokens: ringMax,
     used_tokens: ringUsed,
     segments: [] as ContextUsageBreakdown["segments"],
-    capacity_source: breakdown?.capacity_source,
-    capacity_tokens: breakdown?.capacity_tokens,
+    capacity_source: undefined,
+    capacity_tokens: undefined,
   };
   const displayUsed = display.used_tokens > 0 ? display.used_tokens : ringUsed;
   const displayMax =
     capacityResolved && display.capacity_tokens
       ? display.capacity_tokens
       : display.max_tokens > 0
-        ? display.max_tokens
-        : ringMax;
+      ? display.max_tokens
+      : ringMax;
   const displayPct = occupancyPercent(
     displayUsed,
     capacityResolved ? displayMax : null,

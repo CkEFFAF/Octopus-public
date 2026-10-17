@@ -16,6 +16,14 @@ from octop.infra.devices.service import DeviceService
 # These builtins operate on the management host backend, not DeviceService.
 _HOST_TOOLS = {"ls", "read_file", "write_file", "edit_file", "glob", "grep", "execute"}
 
+_EXPERT_STORAGE_HINT = (
+    "Expert memory and skills under /.agent/ belong to the control center's storage backend. "
+    "They may be on a different machine from this execution target. "
+    "Use file tools to read, edit and read back expert content. "
+    "A device shell permission error does not diagnose expert storage access. "
+    "Do not move expert storage or change OS permissions to address a storage policy error.\n"
+)
+
 
 class DeviceTargetMiddleware(AgentMiddleware[Any, Any]):
     def __init__(
@@ -59,6 +67,7 @@ class DeviceTargetMiddleware(AgentMiddleware[Any, Any]):
             hint += (
                 "The working directory is a default. Use /.agent/ for internal expert materials.\n"
             )
+            hint += _EXPERT_STORAGE_HINT
             hint += json.dumps(
                 {
                     "target_kind": "local",
@@ -110,7 +119,7 @@ class DeviceTargetMiddleware(AgentMiddleware[Any, Any]):
             hint = (
                 "\n\n[Execution target]\nProject filesystem and execute tools operate on this device. "
                 "Paths use the device OS. The working directory is a default. "
-                "Use /.agent/ for internal expert materials.\n" + summary
+                "Use /.agent/ for internal expert materials.\n" + _EXPERT_STORAGE_HINT + summary
             )
         content = request.system_message.content if request.system_message else ""
         merged = (
