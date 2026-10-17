@@ -12,6 +12,7 @@ from octop.infra.backup.store import (
     write_backup_file,
 )
 from octop.infra.backup.system_archive import create_system_backup, restore_system_backup
+from octop.infra.backup.verify import verify_backup_archive
 from octop.infra.backup.workspace_archive import export_workspace_zip, import_workspace_zip
 
 __all__ = [
@@ -29,5 +30,6 @@ __all__ = [
     "prune_auto_backups",
     "read_backup_file",
     "restore_system_backup",
+    "verify_backup_archive",
     "write_backup_file",
 ]
