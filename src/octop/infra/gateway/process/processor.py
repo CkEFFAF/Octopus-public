@@ -777,6 +777,7 @@ class GlobalProcessor:
             explicit=None,
             apply_defaults=True,
             raise_on_failure=False,
+            thread_id=thread_id,
         )
         message_kwargs: dict[str, Any] = {}
         attachments = inbound_attachments_from_parts(msg.content)
@@ -1357,6 +1358,7 @@ class GlobalProcessor:
             user_id=user_id,
             explicit=explicit_mcp,
             apply_defaults=apply_defaults,
+            thread_id=thread_id,
         )
         if mcp_servers:
             # Keep history chips aligned with the servers actually injected.
@@ -1566,12 +1568,17 @@ class GlobalProcessor:
         explicit: list[str] | None,
         apply_defaults: bool | None = None,
         raise_on_failure: bool = True,
+        thread_id: str | None = None,
     ) -> list[str] | None:
-        """Merge turn picks with default_open and ensure tools are loaded.
+        """Merge turn picks with default_open / device pack and ensure tools load.
 
         Dashboard / HTTP paths should keep ``raise_on_failure=True`` so the
         client sees a clear MCP load error. IM ingress uses ``False`` so a
         flaky connector does not abort the whole message turn.
+
+        When ``apply_defaults`` is false (Dashboard ``mcp_servers`` key present,
+        including ``[]``), account default_open **and** the device capability
+        pack are both skipped (0025 DEC-C06).
         """
         from octop.infra.agents.teams import is_team_agent  # noqa: PLC0415
         from octop.infra.errors import ErrorCode, OctopError  # noqa: PLC0415
@@ -1581,11 +1588,27 @@ class GlobalProcessor:
             return None
 
         extra_defaults = self._agent_manager.default_mcp_servers(agent_id)
+        should_apply = (explicit is None) if apply_defaults is None else apply_defaults
+        # DEC-C05/C06: Dashboard/Cron explicit (incl. []) opts out of account+device
+        # *defaults*, but device deny still applies to the explicit list.
+        device_defaults: list[str] = []
+        deny_mcp: list[str] = []
+        pack = self._agent_manager.device_mcp_pack_for_turn(
+            user_id,
+            agent_id=agent_id,
+            thread_id=thread_id,
+        )
+        if isinstance(pack, tuple) and len(pack) >= 2:
+            if should_apply:
+                device_defaults = list(pack[0] or [])
+            deny_mcp = list(pack[1] or [])
         merged = self._agent_manager.merge_turn_mcp_servers(
             user_id,
             explicit,
             apply_defaults=apply_defaults,
             extra_defaults=extra_defaults,
+            device_defaults=device_defaults or None,
+            deny_mcp_servers=deny_mcp or None,
         )
         if not merged:
             return None

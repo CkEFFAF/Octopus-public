@@ -269,7 +269,18 @@
     "roomUnifyHint": "Selecting a device here unifies this team room for the next runs. It does not change each expert's default device binding.",
     "roomUnifySaved": "Room execution target saved. Expert default bindings were not changed.",
     "roomUnifyCleared": "Room execution target cleared. Experts fall back to their own defaults.",
-    "clearRoomUnify": "Clear room unify"
+    "clearRoomUnify": "Clear room unify",
+    "capabilityPolicy": {
+      "title": "Device capability pack",
+      "hint": "Experts bound to this device auto-union these MCP servers on IM / default turns (applies next turn). Unbind or retarget revokes them without rewriting expert lists.",
+      "defaultOpenWarning": "Put cloud MCP (e.g. monitoring) on the device pack — do not enable account default_open, or it leaks to GPU / laptop experts.",
+      "mcpPlaceholder": "Select or type MCP server names",
+      "save": "Save pack",
+      "savedNextTurn": "Saved — applies on the next turn",
+      "saveFailed": "Failed to save device capability pack",
+      "missingTitle": "Missing or unauthorized",
+      "missingDesc": "These MCP names are on the device pack but unavailable to your account: {{names}}"
+    }
   },
   "octopus": {
     "idle": "Idle",
@@ -6560,12 +6571,13 @@
       "enable": "Enable connector",
       "enableHint": "When off, agents will not load tools from this MCP.",
       "defaultOpen": "Selected by default in chat",
-      "defaultOpenHint": "When on, your Dashboard, IM, and Cron (with no manual picks) include this MCP by default.",
+      "defaultOpenHint": "Account-global inject (all experts): when on, your Dashboard / IM / Cron (no manual picks) include this MCP. Prefer a device capability pack for cloud MCP — do not use this as device auth.",
       "defaultOpenRequiresEnable": "Enable the connector first.",
       "authorizing": "Authorizing…",
       "probeOk": "Probe ok — found {{count}} tools",
       "deleteConfirm": "Delete MCP server \"{{name}}\"?",
-      "deleteConfirmHint": "Saved servers are removed immediately; unsaved drafts are dropped from this editor only."
+      "deleteConfirmHint": "Saved servers are removed immediately; unsaved drafts are dropped from this editor only.",
+      "defaultOpenWarning": "When on, tools inject into default turns for every expert on your account (extra tokens). Put cloud monitoring on a device pack instead of default_open. Dashboard [] opts out of account+device defaults for that turn."
     },
     "configuredBadge": "Connected",
     "clickToConnect": "Click to connect",

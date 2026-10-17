@@ -81,7 +81,7 @@ async def test_deliver_agent_stamps_composer_on_human_message() -> None:
 
     agent_manager = MagicMock()
     agent_manager.merge_turn_mcp_servers = MagicMock(
-        side_effect=lambda _uid, explicit, apply_defaults=None, extra_defaults=None: (
+        side_effect=lambda _uid, explicit, apply_defaults=None, extra_defaults=None, **_kw: (
             list(explicit) if explicit else None
         )
     )
@@ -143,7 +143,12 @@ async def test_deliver_agent_merges_default_open_when_empty() -> None:
     await service.deliver(_command(mcp_servers=()))
 
     agent_manager.merge_turn_mcp_servers.assert_called_once_with(
-        1, None, apply_defaults=True, extra_defaults=[]
+        1,
+        None,
+        apply_defaults=True,
+        extra_defaults=[],
+        device_defaults=None,
+        deny_mcp_servers=None,
     )
     agent_manager.prepare_chat_mcp.assert_awaited()
     gateway.push_session_text.assert_awaited()
@@ -216,7 +221,11 @@ async def test_deliver_agent_explicit_mcp_overrides_defaults() -> None:
     await service.deliver(_command(mcp_servers=("picked__1",)))
 
     agent_manager.merge_turn_mcp_servers.assert_called_once_with(
-        1, ["picked__1"], apply_defaults=False, extra_defaults=[]
+        1,
+        ["picked__1"],
+        apply_defaults=False,
+        extra_defaults=[],
+        deny_mcp_servers=None,
     )
     gateway.push_session_text.assert_awaited()
 
@@ -277,3 +286,49 @@ async def test_deliver_agent_attaches_expert_knowledge_bases() -> None:
     )
     await service.deliver(_command())
     gateway.push_session_text.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_deliver_agent_explicit_still_applies_device_deny() -> None:
+    """Cron explicit picks must still pass device deny into merge (DEC-C05)."""
+    session = _dashboard_session()
+    agent_row = MagicMock()
+    agent_row.default_model = None
+
+    async def _stream(_aid: str, request: dict):
+        assert request.get("mcp_servers") == ["picked__1"]
+        yield {"type": "token", "content": "ok"}
+
+    agent_manager = MagicMock()
+    agent_manager.merge_turn_mcp_servers = MagicMock(return_value=["picked__1"])
+    agent_manager.default_mcp_servers = MagicMock(return_value=[])
+    agent_manager.device_mcp_pack_for_turn = MagicMock(
+        return_value=(["jdcloud-mon"], ["blocked"], "dev-1")
+    )
+    agent_manager.prepare_chat_mcp = AsyncMock(return_value=[])
+    agent_manager.stream = _stream
+    agent_manager.get_row = MagicMock(return_value=agent_row)
+
+    gateway = MagicMock()
+    gateway.run_in_session = _run_locked
+    gateway.require_session = MagicMock(return_value=session)
+    gateway.push_session_text = AsyncMock()
+    gateway.notify_dashboard_push = AsyncMock()
+
+    service = CronDeliveryService(
+        gateway=gateway,
+        agent_manager=agent_manager,
+        repos=MagicMock(),
+    )
+    await service.deliver(_command(mcp_servers=("picked__1", "blocked")))
+
+    agent_manager.device_mcp_pack_for_turn.assert_called()
+    agent_manager.merge_turn_mcp_servers.assert_called_once_with(
+        1,
+        ["picked__1", "blocked"],
+        apply_defaults=False,
+        extra_defaults=[],
+        deny_mcp_servers=["blocked"],
+    )
+    gateway.push_session_text.assert_awaited()
+

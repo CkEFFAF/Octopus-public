@@ -1012,7 +1012,15 @@ export default function DevicesPage() {
         rootClassName="devices-drawer"
       >
         {detailsDevice && (
-          <DeviceDetails key={detailsDevice.device_id} device={detailsDevice} />
+          <DeviceDetails
+            key={detailsDevice.device_id}
+            device={detailsDevice}
+            onDeviceUpdated={(next) => {
+              setDevices((prev) =>
+                prev.map((d) => (d.device_id === next.device_id ? { ...d, ...next } : d)),
+              );
+            }}
+          />
         )}
       </Drawer>
       <Modal

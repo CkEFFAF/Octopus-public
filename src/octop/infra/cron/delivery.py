@@ -196,13 +196,25 @@ class CronDeliveryService:
         else:
             servers = [name.strip() for name in command.mcp_servers if name.strip()]
             extra_defaults = self._agent_manager.default_mcp_servers(command.agent_id)
+            pack = self._agent_manager.device_mcp_pack_for_turn(
+                session.user_id,
+                agent_id=command.agent_id,
+            )
+            device_defaults: list[str] = []
+            deny_mcp: list[str] = []
+            if isinstance(pack, tuple) and len(pack) >= 2:
+                device_defaults = list(pack[0] or [])
+                deny_mcp = list(pack[1] or [])
             if servers:
+                # Explicit cron picks opt out of account+device defaults (same as
+                # Dashboard) but device deny still filters the explicit list (DEC-C05).
                 servers = (
                     self._agent_manager.merge_turn_mcp_servers(
                         session.user_id,
                         servers,
                         apply_defaults=False,
                         extra_defaults=extra_defaults,
+                        deny_mcp_servers=deny_mcp or None,
                     )
                     or []
                 )
@@ -213,6 +225,8 @@ class CronDeliveryService:
                         None,
                         apply_defaults=True,
                         extra_defaults=extra_defaults,
+                        device_defaults=device_defaults or None,
+                        deny_mcp_servers=deny_mcp or None,
                     )
                     or []
                 )

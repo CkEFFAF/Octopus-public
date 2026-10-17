@@ -1674,13 +1674,56 @@ class AgentManager:
         *,
         apply_defaults: bool | None = None,
         extra_defaults: list[str] | None = None,
+        device_defaults: list[str] | None = None,
+        deny_mcp_servers: list[str] | None = None,
     ) -> list[str] | None:
-        """Resolve turn MCP servers vs default_open plus optional expert defaults."""
+        """Resolve turn MCP vs default_open, expert list, and device capability pack."""
         return self._connector_svc.merge_turn_mcp_servers(
             user_id,
             explicit,
             apply_defaults=apply_defaults,
             extra_defaults=extra_defaults,
+            device_defaults=device_defaults,
+            deny_mcp_servers=deny_mcp_servers,
+        )
+
+    def device_mcp_pack_for_turn(
+        self,
+        user_id: int,
+        *,
+        agent_id: str | None = None,
+        thread_id: str | None = None,
+        resolved_device_id: str | None = None,
+    ) -> tuple[list[str], list[str], str | None]:
+        """Load device-pack MCP defaults/denies for this turn's resolved device.
+
+        Returns ``(mcp_servers, deny_mcp_servers, device_id)``. Empty when there
+        is no device target (local / unbound) or no capability_policy.
+        """
+        from octop.infra.devices.capability_policy import parse_capability_policy
+        from octop.infra.execution.service import ExecutionService
+
+        device_id = resolved_device_id
+        if device_id is None and self._device_service is not None:
+            try:
+                device_id = ExecutionService(self._device_service).peek_resolved_device_id(
+                    user_id,
+                    agent_id=agent_id,
+                    thread_id=thread_id,
+                )
+            except Exception:
+                device_id = None
+        if not device_id or self._device_service is None:
+            return [], [], None
+        try:
+            row = self._device_service.owned(user_id, device_id)
+        except Exception:
+            return [], [], None
+        policy = parse_capability_policy(row.capability_policy)
+        return (
+            list(policy.get("mcp_servers") or []),
+            list(policy.get("deny_mcp_servers") or []),
+            device_id,
         )
 
     def default_mcp_servers(self, agent_id: str) -> list[str]:
