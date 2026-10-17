@@ -8,8 +8,6 @@ import subprocess
 import textwrap
 from pathlib import Path
 
-import pytest
-
 REPO = Path(__file__).resolve().parents[2]
 OPS = REPO / "ops" / "cloud-hub"
 
@@ -39,6 +37,23 @@ def test_s0_artifacts_exist_and_executable() -> None:
         if name.endswith(".sh"):
             mode = path.stat().st_mode
             assert mode & stat.S_IXUSR, f"{name} should be executable"
+    # git index must carry +x (100755) so clones stay runnable
+    listed = subprocess.check_output(
+        ["git", "ls-files", "--stage", "--", "ops/cloud-hub"],
+        cwd=REPO,
+        text=True,
+    )
+    for name in (
+        "install-hub.sh",
+        "upgrade-hub.sh",
+        "rollback-hub.sh",
+        "_hub_common.sh",
+        "smoke-hub.sh",
+    ):
+        assert any(
+            line.startswith("100755 ") and line.endswith(f"ops/cloud-hub/{name}")
+            for line in listed.splitlines()
+        ), f"{name} missing git +x (100755)"
 
 
 def test_install_defaults_loopback_and_gates() -> None:
@@ -81,6 +96,8 @@ def test_upgrade_rollback_skeleton() -> None:
     assert "--sha" in rollback
     assert "uv sync --frozen" in rollback
     assert "pre-upgrade" in upgrade
+    assert "hub_select_rollback_meta" in rollback
+    assert "hub_select_rollback_meta" in (OPS / "_hub_common.sh").read_text(encoding="utf-8")
 
 
 def test_ssh_ufw_checklist_covers_ac_s04() -> None:
@@ -202,6 +219,72 @@ def test_hub_record_version_retention(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
         env={**os.environ, "HUB_VERSION_RETENTION": "2"},
+    )
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    assert "OK" in proc.stdout
+
+
+def test_hub_select_rollback_prefers_pre_upgrade(tmp_path: Path) -> None:
+    """Without --sha, rollback must restore the latest pre-upgrade SHA, not post-upgrade/current."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "test"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    (repo / "f.txt").write_text("old", encoding="utf-8")
+    subprocess.run(["git", "add", "f.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "old"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    old_sha = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    script = textwrap.dedent(
+        f"""\
+        set -euo pipefail
+        source "{OPS / "_hub_common.sh"}"
+        hub_record_version "{repo}" "pre-upgrade"
+        """
+    )
+    subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)
+    (repo / "f.txt").write_text("new", encoding="utf-8")
+    subprocess.run(["git", "add", "f.txt"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "new"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    script = textwrap.dedent(
+        f"""\
+        set -euo pipefail
+        source "{OPS / "_hub_common.sh"}"
+        hub_record_version "{repo}" "post-upgrade"
+        meta=$(hub_select_rollback_meta "{repo}")
+        test -n "$meta"
+        sha=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["git_sha"])' "$meta")
+        test "$sha" = "{old_sha}"
+        echo OK
+        """
+    )
+    proc = subprocess.run(
+        ["bash", "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
     )
     assert proc.returncode == 0, proc.stderr + proc.stdout
     assert "OK" in proc.stdout
