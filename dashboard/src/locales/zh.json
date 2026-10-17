@@ -269,7 +269,18 @@
     "roomUnifyHint": "在此选择设备会统一本团队房间的后续 Run，不会改写各专家的默认设备绑定。",
     "roomUnifySaved": "已统一本房间执行设备；未修改各专家默认绑定。",
     "roomUnifyCleared": "已取消房间统一；专家将回落到各自默认。",
-    "clearRoomUnify": "取消房间统一"
+    "clearRoomUnify": "取消房间统一",
+    "capabilityPolicy": {
+      "title": "设备能力策略包",
+      "hint": "绑定到本设备的专家在 IM / 未选手动连接器的回合会自动并入下列 MCP（下一轮生效）。解绑或换设备后自动收回，不会改写专家名单。",
+      "defaultOpenWarning": "云 MCP（如监控）请写进设备策略包，不要对账号开启「默认注入 / default_open」，否则会泄漏到 GPU / 笔记本等其它设备上的专家。",
+      "mcpPlaceholder": "选择或输入 MCP server 名",
+      "save": "保存策略包",
+      "savedNextTurn": "已保存，下一轮对话生效",
+      "saveFailed": "保存设备策略包失败",
+      "missingTitle": "缺工具 / 未授权",
+      "missingDesc": "下列 MCP 在设备包中引用，但当前账号不可用：{{names}}"
+    }
   },
   "octopus": {
     "idle": "空闲",
@@ -6560,12 +6571,13 @@
       "enable": "启用连接器",
       "enableHint": "关闭后专家不会加载此 MCP 的工具。",
       "defaultOpen": "对话默认选中",
-      "defaultOpenHint": "开启后，你的 Dashboard、IM 与 Cron（未手动选连接器时）会默认带上此 MCP。",
+      "defaultOpenHint": "账号全局注入（所有专家）：开启后你的 Dashboard / IM / Cron（未选手动连接器时）默认带上此 MCP。云 MCP 请改用设备策略包，勿靠此项授权。",
       "defaultOpenRequiresEnable": "需先启用连接器。",
       "authorizing": "授权中…",
       "probeOk": "探测成功，发现 {{count}} 个工具",
       "deleteConfirm": "确定删除 MCP 服务器「{{name}}」？",
-      "deleteConfirmHint": "已保存的服务器将立即删除；尚未保存的配置只会从当前编辑中移除。"
+      "deleteConfirmHint": "已保存的服务器将立即删除；尚未保存的配置只会从当前编辑中移除。",
+      "defaultOpenWarning": "开启后会注入到你账号下所有专家的默认回合（额外消耗 token）。云监控等应按设备写入策略包，而不是开账号 default_open。Dashboard 可用空列表退出本轮账号+设备默认。"
     },
     "configuredBadge": "已连接",
     "clickToConnect": "点击连接",

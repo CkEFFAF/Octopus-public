@@ -53,6 +53,18 @@ export interface Device {
   online: boolean;
   last_seen_at: number | null;
   revoked_at: number | null;
+  capability_policy?: DeviceCapabilityPolicy | null;
+  missing_or_unauthorized?: string[];
+  reload_status?: string;
+  effective_next_turn?: boolean;
+}
+
+export interface DeviceCapabilityPolicy {
+  schema_version?: number;
+  mcp_servers?: string[];
+  skill_package_ids?: string[];
+  deny_mcp_servers?: string[];
+  deny_skill_package_ids?: string[];
 }
 
 export interface DeviceStatus {
@@ -238,6 +250,22 @@ export const devicesApi = {
     request<Device>(`${devicePath(id)}/trust-policy`, {
       method: "PUT",
       body: JSON.stringify(policy),
+    }),
+  getCapabilityPolicy: (id: string) =>
+    request<{
+      device_id: string;
+      capability_policy: DeviceCapabilityPolicy | null;
+      missing_or_unauthorized: string[];
+    }>(`${devicePath(id)}/capability-policy`),
+  setCapabilityPolicy: (id: string, policy: DeviceCapabilityPolicy) =>
+    request<Device>(`${devicePath(id)}/capability-policy`, {
+      method: "PUT",
+      body: JSON.stringify(policy),
+    }),
+  seedCapabilityMcp: (id: string, mcp_servers: string[]) =>
+    request<Device>(`${devicePath(id)}/capability-policy/seed-mcp`, {
+      method: "POST",
+      body: JSON.stringify({ mcp_servers }),
     }),
   desktopTarget: () => request<DesktopTargetState>("/devices/desktop-target"),
   switchDesktopTarget: (

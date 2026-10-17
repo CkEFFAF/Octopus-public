@@ -8,6 +8,8 @@
 
 ### 新增
 
+- 0025 S0：设备 `capability_policy_json` 能力策略包；MCP resolve 在 apply_defaults 时并入「专家 ∪ 设备包 ∪ 账号 default_open」，Dashboard `[]` 同时退出账号与设备默认；Device Manager 可编辑并告警缺失 MCP；提供 seed API/脚本（不改写专家名单）。
+
 - Context Insights 面板（0020）：Trend Total/Delta 与 Step/Turn、Events mapped_kind 芯片、Browser Live / vs previous / 按需展开组件明细，以及只读 `context.inspect` / `context.events` / `context.file_ops` 工具；占用数字与顶栏圆环同源（`compute_context_breakdown`）。
 
 ### 修复
