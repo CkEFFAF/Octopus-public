@@ -134,3 +134,6 @@ docs/octopus/workstation-move-steps.md
 docs/octopus/verification.md
 docs/octopus/deploy-other-devices.md
 docs/octopus/implementation-plan.md
+
+# 0027 hub upgrade version records (host-local)
+.octop-hub-versions/

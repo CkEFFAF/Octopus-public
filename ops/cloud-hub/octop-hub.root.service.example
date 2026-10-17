@@ -1,9 +1,10 @@
-# Example unit for cloud box running as root (repo /root/octopus).
-# Install: sudo cp ops/cloud-hub/octop-hub.root.service.example /etc/systemd/system/octop-hub.service
-# Prefer: sudo ./ops/cloud-hub/install-hub.sh --user root --repo /root/octopus --home /root/OctopData
+# BOOTSTRAP-ONLY example (0027 DEC-S03). Prefer User=octop / ubuntu.
+# Requires: sudo ./ops/cloud-hub/install-hub.sh --user root --allow-root ...
+# Do not use as the documented production main path.
+# Bind remains 127.0.0.1; public bind needs --allow-public-bind.
 
 [Unit]
-Description=Octopus cloud hub (octop)
+Description=Octopus cloud hub (octop) — bootstrap root (discouraged)
 Documentation=file:docs/octopus/cloud-hub-ops.md
 After=network-online.target
 Wants=network-online.target
@@ -13,7 +14,7 @@ Type=simple
 WorkingDirectory=/root/octopus
 Environment="HOME=/root"
 Environment=OCTOP_HOME=/root/OctopData
-Environment=OCTOP_BIND_HOST=0.0.0.0
+Environment=OCTOP_BIND_HOST=127.0.0.1
 Environment=OCTOP_PORT=8188
 Environment=OCTOP_SERVICE_MODE=systemd
 Environment=PATH=/root/.local/bin:/usr/bin:/bin

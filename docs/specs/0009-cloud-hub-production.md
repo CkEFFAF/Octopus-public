@@ -146,3 +146,16 @@
 - 2026-10-12.3: Coder S1+S2：`ops/cloud-hub/` 系统单元模板 + install/smoke；ops/规格对齐 `OCTOP_HOME`（纠正 `--home`）；Tunnel 文档增补云机源站；静态测试。未做 S3/S4；未在云机执行破坏性操作；未 push/PR。
 - 2026-10-12.transition: 对齐 0010 双路径（包内 HTTPS 不变；过渡靠 env）。
 - 2026-10-12.4: 交叉引用 0010 **双路径**——开箱/包默认仍域名 HTTPS；设备过渡连 HTTP IP 用 `OCTOP_DEVICE_SERVER`，与 DEC-001/005 一致。
+- 2026-10-17.errata: 交叉 **0027** Ready — 生产默认升级为 loopback + 非 root + 90 drop-in + install/upgrade/rollback；Accepted 正文不改，见上方 Errata。
+
+## Errata / 生产默认升级（0027）
+
+> **不覆盖**上文 Accepted 正文。自 2026-10-17 起，云 hub **生产默认**以 Ready 规格
+> [`0027-ops-host-runtime.md`](./0027-ops-host-runtime.md) 为准：
+>
+> - 默认绑定 **`127.0.0.1`**（拓扑 A）；`0.0.0.0` 须 `--allow-public-bind`（非默认）
+> - 强制 **非 root** 服务用户（`octop` / `ubuntu`）；root 仅 bootstrap + `--allow-root`
+> - systemd 真相源：单元 + **唯一** `90-octop.conf`；清理残留 `50-*`
+> - 正式 `install-hub` / `upgrade-hub` / `rollback-hub`；运维清单见 `docs/octopus/cloud-hub-ops.md`
+>
+> 0009 DEC-005「本周先 HTTP IP」视为历史联调决议；新装/升级按 0027 AC-S01/S05 执行。

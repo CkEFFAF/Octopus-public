@@ -1,0 +1,30 @@
+# Preferred production example: User=octop, bind 127.0.0.1 (0027 DEC-S02/S03).
+# Prefer: sudo ./ops/cloud-hub/install-hub.sh --user octop \
+#   --repo /home/octop/octopus --home /home/octop/OctopData --sync --frozen
+# Also install drop-in from 90-octop.conf.in (install-hub.sh does this).
+
+[Unit]
+Description=Octopus cloud hub (octop)
+Documentation=file:docs/octopus/cloud-hub-ops.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=octop
+Group=octop
+WorkingDirectory=/home/octop/octopus
+Environment="HOME=/home/octop"
+Environment=OCTOP_HOME=/home/octop/OctopData
+Environment=OCTOP_BIND_HOST=127.0.0.1
+Environment=OCTOP_PORT=8188
+Environment=OCTOP_SERVICE_MODE=systemd
+Environment=PATH=/home/octop/.local/bin:/usr/bin:/bin
+ExecStart=/home/octop/.local/bin/uv run octop run
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

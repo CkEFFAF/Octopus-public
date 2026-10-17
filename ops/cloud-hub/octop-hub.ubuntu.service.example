@@ -1,5 +1,6 @@
-# Example unit for User=ubuntu (repo /home/ubuntu/octopus).
-# Prefer: sudo ./ops/cloud-hub/install-hub.sh --user ubuntu --repo /home/ubuntu/octopus --home /home/ubuntu/OctopData
+# Transition example: User=ubuntu, bind 127.0.0.1 (0027 DEC-S02/S03).
+# Prefer: sudo ./ops/cloud-hub/install-hub.sh --user ubuntu \
+#   --repo /home/ubuntu/octopus --home /home/ubuntu/OctopData --sync --frozen
 
 [Unit]
 Description=Octopus cloud hub (octop)
@@ -10,10 +11,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=ubuntu
+Group=ubuntu
 WorkingDirectory=/home/ubuntu/octopus
 Environment="HOME=/home/ubuntu"
 Environment=OCTOP_HOME=/home/ubuntu/OctopData
-Environment=OCTOP_BIND_HOST=0.0.0.0
+Environment=OCTOP_BIND_HOST=127.0.0.1
 Environment=OCTOP_PORT=8188
 Environment=OCTOP_SERVICE_MODE=systemd
 Environment=PATH=/home/ubuntu/.local/bin:/usr/bin:/bin

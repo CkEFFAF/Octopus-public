@@ -1,0 +1,16 @@
+# Authoritative high-priority drop-in (0027 DEC-S01).
+# Path: /etc/systemd/system/octop-hub.service.d/90-octop.conf
+# install/upgrade archives other *.conf so only this file may override ExecStart.
+# Do not put secrets here.
+
+[Service]
+@USER_LINE@@GROUP_LINE@Environment="HOME=@ACCOUNT_HOME@"
+Environment=OCTOP_HOME=@OCTOP_HOME@
+Environment=OCTOP_BIND_HOST=@BIND_HOST@
+Environment=OCTOP_PORT=@PORT@
+Environment=OCTOP_SERVICE_MODE=systemd
+Environment=PATH=@UV_DIR@:/usr/bin:/bin
+# Cleared then set so residual lower-priority ExecStart= lines cannot win.
+ExecStart=
+ExecStart=@UV_BIN@ run octop run
+WorkingDirectory=@REPO_DIR@
