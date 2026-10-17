@@ -2,7 +2,7 @@
 
 - Spec ID: `0025-mcp-skill-capability-scopes`
 - Status: **Ready**
-- Revision: `2026-10-17.1`
+- Revision: `2026-10-17.2`
 - Date: 2026-10-17（Asia/Shanghai）
 - Mode: ENHANCEMENT（Enhance existing merge；禁止平行第二套授权）
 - Authoritative path: `docs/specs/0025-mcp-skill-capability-scopes.md`
@@ -49,7 +49,7 @@ MCP、Skill（及同类能力附件：账号连接器注入、主机 skill packa
 | **DEC-C03** | **合并规则 = resolve-time union + deny**：禁止 copy-on-bind 写入专家名单。生效集 = 各层贡献做并集，再减 deny，再与用户可用连接器/已安装包做交集。 |
 | **DEC-C04** | **设备包跟随执行设备**：贡献设备包的 `device_id` = 本轮 **已解析** `ExecutionContext.device_id`（与 0019 resolve 链一致：显式 → 会话/房间 → 专家 binding → 账户默认）。**不是**仅看专家默认 binding；房间统一切到 GPU 时，包随 GPU，不泄漏笔记本包。`target_kind=local` / 无 `device_id` → 无设备包贡献。 |
 | **DEC-C05** | **优先级 / 冲突**：① turn 显式名单（含 Dashboard `[]`）最高；② deny 任一层命中即剔除；③ 其余层 **union**（专家 ∪ 设备包 ∪ 账号 default_open）；④ 最后 `validate_*_for_user` / 包存在性过滤。专家「故意多挂」与设备包并存，不互相覆盖。 |
-| **DEC-C06** | **Dashboard `[]` opt-out**：保持今日语义——`metadata.mcp_servers` 出现（含空数组）→ `apply_defaults=False`，**同时** opt-out **账号 default_open 与设备包**（二者同属「defaults」）。UI 必须披露「本回合已关闭默认注入（账号+设备）」。IM/缺 key 仍 `apply_defaults=True`。 |
+| **DEC-C06′** | **三态（0025.1）**：(1) **缺 key** → `apply_defaults=True`：账号 `default_open` ∪ 专家 ∪ 设备包；(2) **`[]`** → 真 opt-out：三层都不注入；(3) **非空 list** → `explicit ∪ 专家 ∪ 设备包`，**不含**账号 `default_open`。FE 冷启动未清空时须**省略** key（见 `0025.1-dashboard-mcp-defaults-inherit.md` DEC-C13–C15）。 |
 | **DEC-C07** | **设备级 ≠ default_open**：设备包只影响「本轮执行落在该 `device_id`」的回合；绝不账号内全专家注入。 |
 | **DEC-C08** | **解绑自动收回**：仅改 binding / 解析设备变化即可；因 resolve-time 合并，无需从专家行删除。禁止把设备包永久拷进 `agents.mcp_servers`。 |
 | **DEC-C09** | **生效时机**：策略/绑定写入立即落库；与 0016 一致返回/调度 `reload_status`（`pending_current_turn` \| `scheduled`）；**下一轮** `_resolve_turn_mcp_servers` / skill resolve + `prepare_chat_mcp` 生效。进行中回合不强制热换工具集。 |
@@ -123,16 +123,16 @@ S0 用设备行内 JSON 足够。
 
 ```text
 function effective_mcp(user_id, agent_id, turn_meta, resolved_device_id):
-  explicit = turn_meta.mcp_servers   # missing | list
-  apply_defaults = explicit is missing
-  expert = AgentManager.default_mcp_servers(agent_id)
-  account = list_default_open_mcp_server_names(user_id) if apply_defaults else []
-  device = load_device_pack(resolved_device_id).mcp_servers if (apply_defaults and resolved_device_id) else []
+  explicit = turn_meta.mcp_servers   # missing | [] | non-empty list
+  if explicit is missing:
+    account, expert, device = full defaults layers
+  elif explicit == []:
+    return []   # true opt-out (0025.1)
+  else:
+    account = []   # user already picked; do not re-inject account default_open
+    expert, device = scoped defaults (always union with explicit)
   deny = expert_deny ∪ device_pack.deny_mcp_servers ∪ account_deny
-  base = (explicit or []) ∪ (expert if apply_defaults or explicit is missing else [])
-  # 精确对齐今日：explicit 出现时以 merge_mcp_servers_with_defaults 行为为准；
-  # 本规格要求：apply_defaults 时 union(expert, device, account)；否则仅 explicit（可含用户勾选）
-  merged = unique(union(explicit_or_empty, expert_if_defaults, device, account))
+  merged = unique(union(explicit_or_empty, expert, device, account))
   merged = [n for n in merged if n not in deny]
   return intersect(merged, list_active_mcp_server_names(user_id))
 
@@ -220,7 +220,7 @@ Coder 实现时以 **最小改动扩展** `merge_turn_mcp_servers` / skill packa
 | **AC-C01** | Given 云设备 D 策略含 `jdcloud-mon` 且用户可用该连接器；When 新专家仅 binding→D、专家 `mcp_servers=[]`、账号 default_open 关；Then 下一 IM/缺 key 回合生效集 **含** jdcloud-mon。 |
 | **AC-C02** | Given 同账号另一专家 binding→GPU 设备（包不含 jdcloud-mon）；When 回合解析到 GPU；Then 生效集 **不含** jdcloud-mon（除非专家名单或 default_open 显式有）。 |
 | **AC-C03** | Given 专家曾因 D 获得设备包 MCP；When 解绑或改绑到无该 MCP 的设备；Then 下一轮生效集不再含仅来自 D 包的项；专家行 `mcp_servers` 未被偷偷改写。 |
-| **AC-C04** | Given Dashboard 发送 `mcp_servers: []`；When 回合开始；Then 不注入 default_open **也不**注入设备包；UI/日志可观察 opt-out。 |
+| **AC-C04** | Given Dashboard 发送 `mcp_servers: []`（用户清空 / ask·plan·team）；When 回合开始；Then 不注入 default_open **也不**注入设备/专家默认；UI/日志可观察 opt-out。冷启动未清空时 FE **不得**发 `[]`（应省略 key，见 0025.1 AC-D01）。 |
 | **AC-C05** | Given 设备包含用户不可用的名；When resolve；Then 该名不进入工具集，且管理台或 API 返回 missing 告警（非静默当已授权）。 |
 | **AC-C06** | Given team host；When resolve；Then 仍无 MCP。 |
 | **AC-C07** | Given 改设备包；When 保存；Then 落库成功并给出 `reload_status` 或等价「下一轮生效」信号；进行中 turn 工具集不变。 |
@@ -294,3 +294,4 @@ Skill: 字段可同 migration；resolve 可同 PR 或紧随 S0.1。
 | Rev | 变更 |
 | --- | --- |
 | `2026-10-17.1` | 首版 Ready：三级作用域、union+deny、设备包跟 resolved device、迁移与 S0 切片；并入 0025-probe。 |
+| `2026-10-17.2` | DEC-C06′ / 0025.1：Dashboard 三态（缺 key / `[]` / 非空）；FE 省略冷启动空 key；非空仍 union 专家+设备。 |

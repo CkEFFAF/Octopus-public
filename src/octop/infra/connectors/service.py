@@ -557,29 +557,66 @@ class ConnectorService:
     ) -> list[str] | None:
         """Resolve turn MCP servers vs default_open, expert, and device packs.
 
-        Dashboard passes an explicit list (``apply_defaults=False``) so users can
-        opt out of **account default_open and device packs** for a turn (0025).
-        IM uses ``explicit is None`` + defaults. Cron follows defaults when the
-        job has no picks; explicit Cron picks win as-is.
-        ``extra_defaults`` (expert composer picks) and ``device_defaults``
-        (resolved device capability pack) are unioned with default_open when
-        defaults apply, but only names still available to *user_id*.
-        ``deny_mcp_servers`` removes names after the union (any layer).
+        0025.1 DEC-C06′ three-state:
+
+        - Missing key / ``apply_defaults=True``: account ``default_open`` ∪ expert
+          ∪ device pack ∪ explicit (IM / Cron-with-defaults).
+        - ``explicit=[]`` with ``apply_defaults=False``: true opt-out — no layers.
+        - Non-empty ``explicit`` with ``apply_defaults=False``: explicit ∪ expert ∪
+          device pack, **without** account ``default_open`` (Dashboard picks).
+
+        ``deny_mcp_servers`` removes names after the union (any layer). Scoped
+        names (expert/device) are filtered to servers still available to
+        *user_id*; explicit picks are kept as-is for later prepare/validate.
         """
-        defaults = list(self.list_default_open_mcp_server_names(user_id))
         allowed = set(self.list_active_mcp_server_names(user_id))
+        should_apply_account = (
+            (explicit is None) if apply_defaults is None else apply_defaults
+        )
+        # True Dashboard/Cron opt-out: empty list must not re-inject any layer.
+        if (
+            apply_defaults is False
+            and isinstance(explicit, list)
+            and len(explicit) == 0
+        ):
+            return None
+
+        scoped: list[str] = []
         for bucket in (extra_defaults, device_defaults):
             if not bucket:
                 continue
             for name in bucket:
                 text = str(name).strip()
-                if text and text in allowed and text not in defaults:
-                    defaults.append(text)
-        merged = merge_mcp_servers_with_defaults(
-            explicit,
-            defaults,
-            apply_defaults=apply_defaults,
-        )
+                if text and text in allowed and text not in scoped:
+                    scoped.append(text)
+
+        account: list[str] = []
+        if should_apply_account:
+            for name in self.list_default_open_mcp_server_names(user_id):
+                text = str(name).strip()
+                if text and text not in account:
+                    account.append(text)
+
+        if not should_apply_account:
+            # Explicit list present: union scoped only (no account default_open).
+            # Empty + apply_defaults False already returned; empty + None → None.
+            if isinstance(explicit, list) and len(explicit) == 0:
+                return None
+            merged = merge_mcp_servers_with_defaults(
+                explicit,
+                scoped,
+                apply_defaults=True,
+            )
+        else:
+            defaults = list(account)
+            for name in scoped:
+                if name not in defaults:
+                    defaults.append(name)
+            merged = merge_mcp_servers_with_defaults(
+                explicit,
+                defaults,
+                apply_defaults=True,
+            )
         if not merged:
             return None
         deny = {
