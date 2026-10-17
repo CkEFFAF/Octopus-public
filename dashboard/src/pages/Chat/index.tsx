@@ -631,6 +631,7 @@ function ChatPageInner() {
     selectedModel,
     setSelectedModel,
     selectedConnectors,
+    mcpServersOptOut,
     selectedKnowledgeBaseIds,
     chatConnectors,
     chatKnowledgeBases,
@@ -736,6 +737,7 @@ function ChatPageInner() {
     messagesLength: messages.length,
     selectedModel,
     selectedConnectors,
+    mcpServersOptOut: isTeamChat || mcpServersOptOut,
     selectedKnowledgeBaseIds,
     reasoningMode,
     reasoningEffort,
@@ -829,11 +831,14 @@ function ChatPageInner() {
       // Bypass skill-recording intercept — queued text must not be swallowed
       // after it has already left the queue. Target the queued thread/agent so
       // background streamEnd flushes do not send into the active session.
+      const queuedConnectors = item.composerContext?.connectors;
       const ok = handleSend(item.text, item.attachments, {
         composerContext: item.composerContext,
         modelRef: item.modelRef,
         selectedModel: item.composerContext?.model ?? item.modelRef ?? null,
-        selectedConnectors: item.composerContext?.connectors,
+        selectedConnectors: queuedConnectors,
+        // Explicit empty chips in the queued snapshot = user clear / restricted.
+        mcpServersOptOut: Array.isArray(queuedConnectors) && queuedConnectors.length === 0,
         selectedKnowledgeBaseIds: item.composerContext?.knowledgeBaseIds,
         selectedTargetAgents: item.composerContext?.targetAgents,
         threadId: ctx.threadId,
