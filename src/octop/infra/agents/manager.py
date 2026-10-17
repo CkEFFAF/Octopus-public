@@ -68,6 +68,7 @@ from octop.infra.backend.docker_spec import (
 from octop.infra.backend.ephemeral import EphemeralWorkspaces, has_ephemeral_workspace
 from octop.infra.backend.resolver import (
     default_agent_backend_spec,
+    gate_local_fs_isolation,
     resolve_agent_backend_spec,
     windows_neutralize_host_root,
 )
@@ -2834,7 +2835,8 @@ class AgentManager:
         )
         # Windows: the dashboard defaults local backends to root_dir "/", which
         # resolves to a drive other than the workspace and breaks path checks.
-        return windows_neutralize_host_root(resolved, workspace_dir=workspace_dir)
+        neutralized = windows_neutralize_host_root(resolved, workspace_dir=workspace_dir)
+        return gate_local_fs_isolation(neutralized)
 
     def resolved_backend_spec(self, agent_id: str) -> Any:
         """Backend spec for *agent_id* with Octop docker enrichments applied."""
