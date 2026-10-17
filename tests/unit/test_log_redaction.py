@@ -34,3 +34,22 @@ def test_ordinary_log_formatting_is_retained() -> None:
     assert QuerySecretFilter().filter(record)
     assert record.args == ("/api/health", 200)
     assert record.getMessage() == "GET /api/health 200"
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.private.sig",
+        "authorization=Bearer secret-token-value",
+        "Bearer eyJhbGciOiJIUzI1NiJ9.abc.def",
+        "jwt_secret=super-secret-value",
+    ],
+)
+def test_authorization_and_bearer_are_redacted(message: str) -> None:
+    from octop.infra.utils.log_redaction import redact_secrets
+
+    out = redact_secrets(message)
+    assert "private" not in out.lower() or "[REDACTED]" in out
+    assert "super-secret-value" not in out
+    assert "secret-token-value" not in out
+    assert "[REDACTED]" in out

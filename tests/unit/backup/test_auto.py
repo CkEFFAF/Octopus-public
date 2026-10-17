@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from octop.config import BackupConfig, load_config
+from octop.config import BackupConfig, BackupOffsiteConfig, load_config
 from octop.infra.backup.auto import (
     AUTO_BACKUP_JOB_ID,
     apply_auto_backup_schedule,
@@ -137,3 +137,89 @@ def test_apply_auto_backup_schedule_registers_when_enabled(tmp_path: Path) -> No
     kwargs = cron.schedule_system_job.call_args
     assert kwargs.args[0] == AUTO_BACKUP_JOB_ID
     assert kwargs.kwargs["trigger"] == "cron:0 4 * * *"
+
+
+def test_backup_config_from_payload_preserves_offsite_alert_when_defaults_passed() -> None:
+    """PUT /backup/auto body omits offsite/alert — must not reset to empty defaults."""
+    existing = BackupConfig(
+        auto_enabled=True,
+        schedule="cron:0 4 * * *",
+        retention_count=14,
+        offsite=BackupOffsiteConfig(
+            enabled=True,
+            type="hook",
+            hook_argv=["/usr/local/bin/offsite-push", "{archive}"],
+            rsync_target="",
+        ),
+        alert_webhook_url="https://hooks.example/backup",
+        disk_free_percent_min=20.0,
+    )
+    updated = backup_config_from_payload(
+        {
+            "auto_enabled": False,
+            "schedule": "cron:0 5 * * *",
+            "retention_count": 7,
+            "include_chats": True,
+        },
+        defaults=existing,
+    )
+    assert updated.auto_enabled is False
+    assert updated.schedule == "cron:0 5 * * *"
+    assert updated.retention_count == 7
+    assert updated.include_chats is True
+    assert updated.offsite.enabled is True
+    assert updated.offsite.hook_argv == ["/usr/local/bin/offsite-push", "{archive}"]
+    assert updated.alert_webhook_url == "https://hooks.example/backup"
+    assert updated.disk_free_percent_min == 20.0
+
+
+def test_put_auto_settings_preserves_offsite_alert(tmp_path: Path) -> None:
+    """Dashboard PUT must merge into current config, not wipe offsite/alert."""
+    from octop.api.routers import backup as backup_router
+    from octop.infra.backup.auto import persist_backup_config, update_server_backup_config
+
+    cfg_path = tmp_path / "config.json"
+    load_config(cfg_path)
+    persist_backup_config(
+        cfg_path,
+        BackupConfig(
+            auto_enabled=True,
+            schedule="cron:0 4 * * *",
+            retention_count=14,
+            offsite=BackupOffsiteConfig(
+                enabled=True,
+                type="rsync",
+                rsync_target="backup@host:/octop/",
+            ),
+            alert_webhook_url="https://hooks.example/keep",
+            disk_free_percent_min=12.5,
+        ),
+    )
+
+    server = MagicMock()
+    server.paths.config = cfg_path
+    server.services = None
+    server.app_runtime = None
+    server.config = load_config(cfg_path)
+
+    # Exercise real update path used by the router.
+    body = backup_router.AutoBackupSettingsBody(
+        auto_enabled=False,
+        schedule="cron:15 3 * * *",
+        retention_count=10,
+        include_chats=True,
+    )
+    current = load_config(cfg_path).backup
+    merged = backup_config_from_payload(body.model_dump(), defaults=current)
+    update_server_backup_config(server, merged)
+
+    reloaded = load_config(cfg_path).backup
+    assert reloaded.auto_enabled is False
+    assert reloaded.schedule == "cron:15 3 * * *"
+    assert reloaded.retention_count == 10
+    assert reloaded.include_chats is True
+    assert reloaded.offsite.enabled is True
+    assert reloaded.offsite.type == "rsync"
+    assert reloaded.offsite.rsync_target == "backup@host:/octop/"
+    assert reloaded.alert_webhook_url == "https://hooks.example/keep"
+    assert reloaded.disk_free_percent_min == 12.5
