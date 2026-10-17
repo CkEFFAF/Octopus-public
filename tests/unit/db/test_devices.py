@@ -93,6 +93,7 @@ def test_public_device_hides_authentication_and_copies_grants(
         "runtime",
         "software_version",
         "update_status",
+        "capability_policy",
     }
     assert public["online"] is True
     assert public["roots"][0]["path"] == "C:\\Shared"
@@ -278,7 +279,7 @@ def test_migration_preserves_rows_when_applied_again(
     assert repo.get(device.device_id) == device
     assert repo.get_operation(operation.operation_id) == operation
     with db.connect() as conn:
-        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 27
+        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 28
 
 
 def test_device_repo_is_wired_into_services(db: SqlitePool, tmp_path: Path) -> None:
@@ -286,3 +287,19 @@ def test_device_repo_is_wired_into_services(db: SqlitePool, tmp_path: Path) -> N
     services = SharedServices(paths=PathLayout(tmp_path), config=OctopConfig(), repos=bundle)
     assert services.device_repo is bundle.device_repo
     assert isinstance(bundle.device_repo, DeviceRepo)
+
+
+def test_capability_policy_roundtrip(repo: DeviceRepo, owners: tuple[int, int]) -> None:
+    row = create_device(repo, owners[0])
+    assert row.capability_policy is None
+    assert row.public()["capability_policy"] is None
+    updated = repo.update(
+        row.device_id,
+        capability_policy_json={"mcp_servers": ["jdcloud-mon"]},
+    )
+    assert updated is not None
+    assert updated.capability_policy is not None
+    assert updated.capability_policy["mcp_servers"] == ["jdcloud-mon"]
+    cleared = repo.update(row.device_id, capability_policy_json=None)
+    assert cleared is not None
+    assert cleared.capability_policy is None

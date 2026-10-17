@@ -253,6 +253,61 @@ class ExecutionService:
             run_id=run_id,
         )
 
+    def peek_resolved_device_id(
+        self,
+        owner: int,
+        *,
+        agent_id: str | None = None,
+        thread_id: str | None = None,
+        device_id: str | None = None,
+        target_kind: str | None = None,
+        binding: dict[str, Any] | None = None,
+    ) -> str | None:
+        """Same 0019 resolve chain as ``resolve``, without creating an ExecutionContext.
+
+        Returns the device_id that would contribute a capability pack, or None
+        when the target is local / unbound / missing.
+        """
+        if thread_id is not None:
+            thread = self.devices.repos.thread_repo.get(thread_id)
+            if (
+                thread is None
+                or thread.user_id != owner
+                or (agent_id and thread.agent_id != agent_id)
+            ):
+                return None
+            agent_id = agent_id or thread.agent_id
+        if agent_id is not None and binding is None:
+            agent = self.devices.repos.agent_repo.get(agent_id)
+            if agent is None or agent.user_id != owner:
+                return None
+            binding = json.loads(agent.config_json or "{}").get("device_binding") or {}
+        saved = self.contexts.selection(owner, thread_id) if thread_id else {}
+        binding = binding or {}
+        defaults = self.default_target(owner)
+        explicit = {"device_id": device_id, "target_kind": target_kind or "device"}
+        candidates = [
+            explicit,
+            saved,
+            binding,
+            defaults,
+        ]
+        for value in candidates:
+            if not self.has_target(value):
+                continue
+            kind = value.get("target_kind", "device")
+            if kind == "local":
+                return None
+            selected = value.get("device_id")
+            if isinstance(selected, str) and selected.strip():
+                try:
+                    self.devices.owned(owner, selected)
+                except Exception:
+                    return None
+                return selected
+            return None
+        return None
+
     def validate_expert_binding(self, owner: int, binding: dict[str, Any]) -> dict[str, Any]:
         """Validate a bounded default target without creating an execution or changing grants."""
         if not isinstance(binding, dict) or not set(binding) <= {
