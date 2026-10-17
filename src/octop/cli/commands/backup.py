@@ -10,7 +10,8 @@ import click
 
 from octop.config import load_config
 from octop.i18n import tr
-from octop.infra.backup.auto import create_and_store_auto_backup
+from octop.infra.backup.alerts import AlertSettings, check_disk_and_alert
+from octop.infra.backup.auto import create_and_store_auto_backup, finalize_backup_artifact
 from octop.infra.backup.move import (
     MigrationError,
     create_migration_archive,
@@ -18,6 +19,7 @@ from octop.infra.backup.move import (
 )
 from octop.infra.backup.store import place_backup_file
 from octop.infra.backup.system_archive import create_system_backup, restore_system_backup
+from octop.infra.backup.verify import verify_backup_archive
 from octop.infra.db.factory import open_database
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.services import build_shared_services
@@ -156,15 +158,22 @@ def create(
                 entry = place_backup_file(paths, suggested, tmp_path)
                 dest = paths.backup_file(entry.name)
                 size = entry.size
+                meta = finalize_backup_artifact(paths=paths, entry=entry, backup=config.backup)
             else:
                 dest = output
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 tmp_path.replace(dest)
                 size = dest.stat().st_size
+                meta = None
     finally:
         db.close()
 
     click.echo(f"wrote {dest} ({size} bytes)")
+    if meta is not None:
+        click.echo(
+            f"integrity ok sha256={meta.get('sha256')} offsite={meta.get('offsite_status')} "
+            f"verify={meta.get('verify_status')}"
+        )
 
 
 @backup.group("auto")
@@ -219,9 +228,14 @@ def auto_run(home: Path | None) -> None:
             include_knowledge=config.backup.include_knowledge,
             include_chats=config.backup.include_chats,
         )
+        meta = finalize_backup_artifact(paths=paths, entry=entry, backup=config.backup)
     finally:
         db.close()
     click.echo(f"wrote {paths.backup_file(entry.name)} ({entry.size} bytes)")
+    click.echo(
+        f"integrity ok sha256={meta.get('sha256')} offsite={meta.get('offsite_status')} "
+        f"verify={meta.get('verify_status')}"
+    )
     if deleted:
         click.echo(f"pruned: {', '.join(deleted)}")
 
@@ -266,3 +280,72 @@ def restore(
     )
     db.close()
     click.echo(f"restored: {result}")
+
+
+@backup.command("verify")
+@click.argument("archive", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option(
+    "--no-update-sidecar", is_flag=True, help="Do not rewrite verify_status on the sidecar."
+)
+def verify_cmd(archive: Path, no_update_sidecar: bool) -> None:
+    """Verify archive sha256 against the integrity sidecar and list tar members."""
+    result = verify_backup_archive(archive, update_sidecar=not no_update_sidecar)
+    click.echo(
+        f"{'ok' if result.ok else 'FAILED'}: {result.message} "
+        f"(members={result.member_count} sha256={result.sha256})"
+    )
+    if not result.ok:
+        raise SystemExit(1)
+
+
+@backup.command("health-check")
+@click.option(
+    "--home", type=click.Path(path_type=Path), default=None, help="Octop home (default OCTOP_HOME)."
+)
+def health_check_cmd(home: Path | None) -> None:
+    """Disk free-space check (AC-B06 skeleton); alerts when below threshold."""
+    paths = _paths(home)
+    config = load_config(paths.config)
+    settings = AlertSettings(
+        webhook_url=config.backup.alert_webhook_url,
+        disk_free_percent_min=config.backup.disk_free_percent_min,
+    )
+    from octop.infra.backup.alerts import disk_free_percent
+
+    free_pct = disk_free_percent(paths.root)
+    click.echo(
+        f"disk_free_percent={free_pct:.2f} threshold={settings.disk_free_percent_min} home={paths.root}"
+    )
+    delivery = check_disk_and_alert(settings, home=paths.root)
+    if delivery is None:
+        click.echo("disk ok")
+    else:
+        click.echo(
+            f"alert kind={delivery.kind} delivered={delivery.delivered} detail={delivery.detail}"
+        )
+        raise SystemExit(2)
+
+
+@backup.command("drill")
+@click.option("--dry-run", is_flag=True, default=True, help="Print runbook steps only (default).")
+@click.option(
+    "--home", type=click.Path(path_type=Path), default=None, help="Octop home for path hints."
+)
+def drill_cmd(dry_run: bool, home: Path | None) -> None:
+    """Restore-drill helper. S0 is dry-run / runbook only (AC-B04)."""
+    paths = _paths(home)
+    click.echo("0026 restore drill (dry-run). Full runbook: docs/octopus/backup-restore-drill.md")
+    click.echo(f"OCTOP_HOME hint: {paths.root}")
+    steps = [
+        "1. Pick a verified archive under $OCTOP_HOME/backups/ (octop backup verify <file>).",
+        "2. Stop the hub service (systemctl stop octop-hub) — do not restore over a live writer.",
+        "3. Restore into an *isolated* empty directory, e.g.:",
+        "     mkdir -p /tmp/octop-drill && OCTOP_HOME=/tmp/octop-drill octop backup restore <archive> --yes",
+        "4. Optionally start a throwaway process against that home and hit /api/health.",
+        "5. Record RTO/RPO and outcome in audit / ops notes; destroy the drill home.",
+        "6. Quarterly: empty OctopData + install-hub / upgrade path per 0027 runbook.",
+    ]
+    for line in steps:
+        click.echo(line)
+    if dry_run:
+        click.echo("dry-run complete (no restore executed).")

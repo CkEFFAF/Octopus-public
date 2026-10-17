@@ -50,7 +50,7 @@ _MAX_IMPORT_BYTES = 512 * 1024 * 1024
 class AutoBackupSettingsBody(BaseModel):
     auto_enabled: bool = False
     schedule: str = Field(default="cron:0 4 * * *", min_length=1)
-    retention_count: int = Field(default=7, ge=1, le=365)
+    retention_count: int = Field(default=14, ge=1, le=365)
     include_config: bool = True
     include_workspaces: bool = True
     include_skill_packages: bool = True
