@@ -15,11 +15,12 @@ from pydantic import BaseModel, Field
 
 from octop.api.common.content_disposition import content_disposition
 from octop.api.deps import get_server, require_permission
-from octop.config import DatabaseConfig, load_config
+from octop.config import BackupConfig, DatabaseConfig, load_config
 from octop.infra.backup.auto import (
     AUTO_BACKUP_JOB_ID,
     backup_config_from_payload,
     backup_status_payload,
+    finalize_backup_artifact,
     hold_backup_lock,
     raise_if_backup_busy,
     run_auto_backup,
@@ -50,7 +51,7 @@ _MAX_IMPORT_BYTES = 512 * 1024 * 1024
 class AutoBackupSettingsBody(BaseModel):
     auto_enabled: bool = False
     schedule: str = Field(default="cron:0 4 * * *", min_length=1)
-    retention_count: int = Field(default=7, ge=1, le=365)
+    retention_count: int = Field(default=14, ge=1, le=365)
     include_config: bool = True
     include_workspaces: bool = True
     include_skill_packages: bool = True
@@ -105,8 +106,13 @@ def _create_and_store_manual_backup(
     pool: DatabasePool,
     db_config: DatabaseConfig,
     options: CreateBackupBody,
+    backup: BackupConfig,
 ) -> BackupFileInfo:
-    """Sync create + place for ``asyncio.to_thread`` (keeps the event loop free)."""
+    """Sync create + place + finalize for ``asyncio.to_thread``.
+
+    Finalize writes the integrity sidecar, optional offsite, and local verify
+    (0026 S0 — API create must not skip this step).
+    """
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp) / "backup.tar.gz"
         filename = create_system_backup(
@@ -122,7 +128,9 @@ def _create_and_store_manual_backup(
             include_knowledge=options.include_knowledge,
             include_chats=options.include_chats,
         )
-        return place_backup_file(paths, filename, tmp_path)
+        entry = place_backup_file(paths, filename, tmp_path)
+    finalize_backup_artifact(paths=paths, entry=entry, backup=backup)
+    return entry
 
 
 def _restore_stored_backup(
@@ -249,8 +257,14 @@ async def put_auto_backup_settings(
     _: Any = Depends(require_permission("backup")),
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
-    """Persist auto-backup settings and reschedule the in-process system job."""
-    backup = backup_config_from_payload(body.model_dump())
+    """Persist auto-backup settings and reschedule the in-process system job.
+
+    Dashboard body only carries schedule/include fields. Merge with the
+    existing on-disk backup config so offsite/alert settings are not wiped
+    (silent degrade with no alert).
+    """
+    current = load_config(server.paths.config).backup
+    backup = backup_config_from_payload(body.model_dump(), defaults=current)
     update_server_backup_config(server, backup)
     return {"ok": True, **_auto_settings_payload(server)}
 
@@ -289,6 +303,7 @@ async def create_backup(
             pool=server.services.db,
             db_config=server.services.config.database,
             options=options,
+            backup=server.services.config.backup,
         )
     return {"ok": True, "item": entry.to_dict()}
 
