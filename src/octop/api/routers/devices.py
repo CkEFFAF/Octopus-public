@@ -134,6 +134,20 @@ class UpdateBody(StrictBody):
     remote_grant_mode: str | None = Field(default=None, pattern="^(confirm|owner_auto)$")
 
 
+class CapabilityPolicyBody(StrictBody):
+    """0025 device capability pack (MCP / Skill scopes)."""
+
+    schema_version: int | None = Field(default=1, ge=1, le=1)
+    mcp_servers: list[str] = Field(default_factory=list, max_length=64)
+    skill_package_ids: list[str] = Field(default_factory=list, max_length=64)
+    deny_mcp_servers: list[str] = Field(default_factory=list, max_length=64)
+    deny_skill_package_ids: list[str] = Field(default_factory=list, max_length=64)
+
+
+class SeedCapabilityMcpBody(StrictBody):
+    mcp_servers: list[str] = Field(min_length=1, max_length=16)
+
+
 class GrantProposalBody(StrictBody):
     permissions: list[str] = Field(max_length=6)
     roots: list[RootBody] = Field(default_factory=list, max_length=20)
@@ -330,6 +344,50 @@ async def update(
     service: DeviceService = Depends(device_service),
 ) -> dict[str, Any]:
     return await service.update(int(user.id), device_id, **body.model_dump(exclude_unset=True))
+
+
+@router.get("/devices/{device_id}/capability-policy")
+async def get_capability_policy(
+    device_id: str,
+    user: Any = Depends(current_user),
+    service: DeviceService = Depends(device_service),
+) -> dict[str, Any]:
+    return await asyncio.to_thread(service.capability_policy_alerts, int(user.id), device_id)
+
+
+@router.put("/devices/{device_id}/capability-policy")
+async def put_capability_policy(
+    device_id: str,
+    body: CapabilityPolicyBody,
+    user: Any = Depends(current_user),
+    service: DeviceService = Depends(device_service),
+) -> dict[str, Any]:
+    actor = getattr(user, "username", None) or str(user.id)
+    return await asyncio.to_thread(
+        service.set_capability_policy,
+        int(user.id),
+        device_id,
+        body.model_dump(),
+        actor=actor,
+    )
+
+
+@router.post("/devices/{device_id}/capability-policy/seed-mcp")
+async def seed_capability_mcp(
+    device_id: str,
+    body: SeedCapabilityMcpBody,
+    user: Any = Depends(current_user),
+    service: DeviceService = Depends(device_service),
+) -> dict[str, Any]:
+    """Idempotent ops seed (e.g. jdcloud-mon) into the device pack — not expert lists."""
+    actor = getattr(user, "username", None) or str(user.id)
+    return await asyncio.to_thread(
+        service.seed_capability_mcp,
+        int(user.id),
+        device_id,
+        body.mcp_servers,
+        actor=actor,
+    )
 
 
 @router.get("/devices/{device_id}/grant-status")
