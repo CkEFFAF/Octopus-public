@@ -15,6 +15,7 @@
 - Context Insights 面板（0020）：Trend Total/Delta 与 Step/Turn、Events mapped_kind 芯片、Browser Live / vs previous / 按需展开组件明细，以及只读 `context.inspect` / `context.events` / `context.file_ops` 工具；占用数字与顶栏圆环同源（`compute_context_breakdown`）。
 
 ### 修复
+- 0025.1：网页对话冷启动省略 `mcp_servers` key 以继承设备/专家默认；`[]` 仍为真 opt-out；非空勾选仍 union 专家+设备包（不含账号 default_open）。
 
 - 专家派发按实际被调用专家、会话和运行重新绑定执行上下文，保留继承、专家默认与显式目标策略，以及账户、权限版本和只读模式边界。
 - 上下文占比读取当前会话模型容量与专家运行上限，区分真实配置和兼容回退；模型调用、模型切换和会话切换后刷新圆环，管理端重启后不再用累计计费用量代替单次请求占用。

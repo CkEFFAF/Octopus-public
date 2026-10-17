@@ -2625,8 +2625,8 @@ async function sendTurnWebSocket(
       };
       if (threadId) payload.thread_id = threadId;
       if (modelRef) payload.model = modelRef;
-      // Always send the array (including []) so the server can honor Dashboard
-      // opt-out of default_open connectors for this turn.
+      // 0025.1: only write key when caller passed a list (incl. []).
+      // undefined/null → omit key so BE applies full defaults (DEC-C13).
       if (mcpServers !== undefined && mcpServers !== null) {
         payload.mcp_servers = mcpServers;
       }
