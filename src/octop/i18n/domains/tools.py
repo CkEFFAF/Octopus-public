@@ -21,6 +21,7 @@ HITL_TOOL_EXCLUDE: frozenset[str] = frozenset(
         # Memory
         "memory_search",
         "memory_get",
+        "memory_list",
         # Knowledge base
         "search_knowledge",
         # Cron

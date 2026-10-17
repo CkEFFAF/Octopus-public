@@ -2617,7 +2617,7 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "octop-browser", specifier = ">=1.0.0" },
     { name = "octop-gateway", specifier = ">=1.0.0" },
-    { name = "octop-harness", extras = ["all"], url = "https://github.com/CkEFFAF/octop-harness/archive/d30b36cbb17e9e8403d01555a4f399667228263b.tar.gz" },
+    { name = "octop-harness", extras = ["all"], url = "https://github.com/CkEFFAF/octop-harness/archive/3a82d260b7a6faaf8d4a888d71424c559727327d.tar.gz" },
     { name = "octop-memory", specifier = ">=1.0.0" },
     { name = "onnxruntime", marker = "extra == 'knowledge-ocr'", specifier = ">=1.17" },
     { name = "openpyxl", specifier = ">=3.1" },
@@ -2712,7 +2712,7 @@ wheels = [
 [[package]]
 name = "octop-harness"
 version = "1.0.2.post2"
-source = { url = "https://github.com/CkEFFAF/octop-harness/archive/d30b36cbb17e9e8403d01555a4f399667228263b.tar.gz" }
+source = { url = "https://github.com/CkEFFAF/octop-harness/archive/3a82d260b7a6faaf8d4a888d71424c559727327d.tar.gz" }
 dependencies = [
     { name = "deepagents" },
     { name = "httpx" },
@@ -2729,7 +2729,7 @@ dependencies = [
     { name = "octop-memory" },
     { name = "pyyaml" },
 ]
-sdist = { hash = "sha256:fa0ee8c9c6c070bd2433f0d97850f50499207c7464e333f3e0e6b33e550bfeef" }
+sdist = { hash = "sha256:a2e09ae32a0c2b3fb9a6062f9b4cbfa6ba76686c5cf90ad2d873582617e5e5fe" }
 
 [package.optional-dependencies]
 all = [
@@ -2788,7 +2788,7 @@ requires-dist = [
     { name = "mss", marker = "extra == 'all'", specifier = ">=9.0" },
     { name = "mss", marker = "extra == 'desktop'", specifier = ">=9.0" },
     { name = "octop-browser", specifier = ">=0.9.9" },
-    { name = "octop-memory", specifier = ">=0.9.9" },
+    { name = "octop-memory", specifier = ">=1.0.0" },
     { name = "opensandbox", marker = "extra == 'opensandbox'", specifier = ">=0.1.16,<1.2" },
     { name = "oss2", marker = "extra == 'all'", specifier = ">=2.18" },
     { name = "oss2", marker = "extra == 'object-storage'", specifier = ">=2.18" },
