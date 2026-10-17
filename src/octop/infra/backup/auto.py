@@ -12,14 +12,23 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from octop.config import BackupConfig, OctopConfig, load_config
+from octop.config import BackupConfig, BackupOffsiteConfig, OctopConfig, load_config
+from octop.infra.backup.alerts import AlertSettings, check_disk_and_alert, emit_alert
+from octop.infra.backup.integrity import (
+    build_integrity_for_archive,
+    integrity_sidecar_path,
+    save_integrity_for_archive,
+)
+from octop.infra.backup.offsite import OffsiteSinkSettings, run_offsite
 from octop.infra.backup.store import (
     BackupFileInfo,
     is_auto_backup_filename,
     place_backup_file,
     prune_auto_backups,
+    resolve_backup_path,
 )
 from octop.infra.backup.system_archive import create_system_backup
+from octop.infra.backup.verify import verify_backup_archive
 from octop.infra.cron.trigger import build_trigger
 from octop.infra.db.repos.audit import ACTOR_SYSTEM
 from octop.infra.errors import ErrorCode, OctopError
@@ -114,6 +123,15 @@ def persist_backup_config(config_path: Path, backup: BackupConfig) -> OctopConfi
         "include_plugins": backup.include_plugins,
         "include_knowledge": backup.include_knowledge,
         "include_chats": backup.include_chats,
+        "alert_webhook_url": backup.alert_webhook_url,
+        "disk_free_percent_min": backup.disk_free_percent_min,
+        "offsite": {
+            "enabled": backup.offsite.enabled,
+            "type": backup.offsite.type,
+            "hook_argv": list(backup.offsite.hook_argv),
+            "rsync_target": backup.offsite.rsync_target,
+            "rsync_extra_args": list(backup.offsite.rsync_extra_args),
+        },
     }
     _atomic_write_json(config_path, raw)
     return load_config(config_path)
@@ -133,6 +151,28 @@ def backup_config_from_payload(payload: dict[str, Any]) -> BackupConfig:
         raise OctopError(ErrorCode.SLASH_BAD_ARGS, "retention_count must be an integer") from exc
     if retention < 1:
         raise OctopError(ErrorCode.SLASH_BAD_ARGS, "retention_count must be >= 1")
+    offsite_raw = payload.get("offsite")
+    if isinstance(offsite_raw, dict):
+        offsite = BackupOffsiteConfig(
+            enabled=bool(offsite_raw.get("enabled", defaults.offsite.enabled)),
+            type=str(offsite_raw.get("type", defaults.offsite.type) or defaults.offsite.type),
+            hook_argv=[
+                str(x) for x in (offsite_raw.get("hook_argv") or defaults.offsite.hook_argv)
+            ],
+            rsync_target=str(offsite_raw.get("rsync_target", defaults.offsite.rsync_target) or ""),
+            rsync_extra_args=[
+                str(x)
+                for x in (offsite_raw.get("rsync_extra_args") or defaults.offsite.rsync_extra_args)
+            ],
+        )
+    else:
+        offsite = defaults.offsite
+    try:
+        disk_min = float(payload.get("disk_free_percent_min", defaults.disk_free_percent_min))
+    except (TypeError, ValueError) as exc:
+        raise OctopError(
+            ErrorCode.SLASH_BAD_ARGS, "disk_free_percent_min must be a number"
+        ) from exc
     return BackupConfig(
         auto_enabled=bool(payload.get("auto_enabled", defaults.auto_enabled)),
         schedule=schedule,
@@ -145,7 +185,89 @@ def backup_config_from_payload(payload: dict[str, Any]) -> BackupConfig:
         include_plugins=bool(payload.get("include_plugins", defaults.include_plugins)),
         include_knowledge=bool(payload.get("include_knowledge", defaults.include_knowledge)),
         include_chats=bool(payload.get("include_chats", defaults.include_chats)),
+        offsite=offsite,
+        alert_webhook_url=str(payload.get("alert_webhook_url", defaults.alert_webhook_url) or ""),
+        disk_free_percent_min=disk_min,
     )
+
+
+def alert_settings_from_backup(backup: BackupConfig) -> AlertSettings:
+    return AlertSettings(
+        webhook_url=backup.alert_webhook_url,
+        disk_free_percent_min=backup.disk_free_percent_min,
+    )
+
+
+def offsite_settings_from_backup(backup: BackupConfig) -> OffsiteSinkSettings:
+    return OffsiteSinkSettings(
+        enabled=backup.offsite.enabled,
+        type=backup.offsite.type,
+        hook_argv=tuple(backup.offsite.hook_argv),
+        rsync_target=backup.offsite.rsync_target,
+        rsync_extra_args=tuple(backup.offsite.rsync_extra_args),
+    )
+
+
+def finalize_backup_artifact(
+    *,
+    paths: PathLayout,
+    entry: BackupFileInfo,
+    backup: BackupConfig,
+) -> dict[str, object]:
+    """Write integrity sidecar, optional offsite, local verify (0026 S0).
+
+    When offsite is enabled and fails, raises ``OctopError`` after alerting —
+    overall backup must not be marked successful (DEC-B01 / AC-B02).
+    """
+    archive = resolve_backup_path(paths, entry.name)
+    integrity = build_integrity_for_archive(archive, home=paths.root)
+    sidecar = save_integrity_for_archive(integrity, archive)
+
+    offsite_settings = offsite_settings_from_backup(backup)
+    offsite_result = run_offsite(
+        archive,
+        offsite_settings,
+        integrity_path=sidecar,
+        backup_id=integrity.backup_id,
+    )
+    integrity.offsite = [offsite_result.entry]
+    if not offsite_result.ok:
+        integrity.verify_status = "failed"
+        save_integrity_for_archive(integrity, archive)
+        emit_alert(
+            alert_settings_from_backup(backup),
+            "offsite_failed",
+            f"offsite failed for {entry.name}",
+            detail={
+                "backup": entry.name,
+                "sink": offsite_result.entry.sink,
+                "error": offsite_result.entry.detail,
+            },
+        )
+        raise OctopError(
+            ErrorCode.INTERNAL_ERROR,
+            f"backup offsite failed: {offsite_result.entry.detail or offsite_result.entry.status}",
+        )
+
+    save_integrity_for_archive(integrity, archive)
+    verified = verify_backup_archive(archive, update_sidecar=True)
+    if not verified.ok:
+        emit_alert(
+            alert_settings_from_backup(backup),
+            "backup_failed",
+            f"backup verify failed for {entry.name}",
+            detail={"backup": entry.name, "message": verified.message},
+        )
+        raise OctopError(ErrorCode.INTERNAL_ERROR, f"backup verify failed: {verified.message}")
+
+    check_disk_and_alert(alert_settings_from_backup(backup), home=paths.root)
+    return {
+        "backup_id": integrity.backup_id,
+        "integrity": str(integrity_sidecar_path(archive)),
+        "offsite_status": offsite_result.entry.status,
+        "verify_status": verified.verify_status,
+        "sha256": verified.sha256,
+    }
 
 
 def create_and_store_auto_backup(
@@ -219,6 +341,15 @@ async def run_auto_backup(server: OctopServer) -> BackupFileInfo | None:
         except Exception as exc:
             logger.exception("auto backup failed")
             try:
+                emit_alert(
+                    alert_settings_from_backup(config.backup),
+                    "backup_failed",
+                    "auto backup failed",
+                    detail={"error": str(exc)[:500]},
+                )
+            except Exception:
+                logger.exception("failed to emit backup_failed alert")
+            try:
                 server.services.audit_repo.write(
                     actor=ACTOR_SYSTEM,
                     action="backup.auto_failed",
@@ -230,20 +361,53 @@ async def run_auto_backup(server: OctopServer) -> BackupFileInfo | None:
             return None
 
         try:
+            finalize_meta = finalize_backup_artifact(
+                paths=server.paths,
+                entry=entry,
+                backup=config.backup,
+            )
+        except Exception as exc:
+            logger.exception("auto backup finalize/offsite failed")
+            try:
+                emit_alert(
+                    alert_settings_from_backup(config.backup),
+                    "backup_failed",
+                    "auto backup finalize failed",
+                    detail={"backup": entry.name, "error": str(exc)[:500]},
+                )
+            except Exception:
+                logger.exception("failed to emit finalize alert")
+            try:
+                server.services.audit_repo.write(
+                    actor=ACTOR_SYSTEM,
+                    action="backup.auto_failed",
+                    target=entry.name,
+                    payload=str(exc)[:500],
+                )
+            except Exception:
+                logger.exception("failed to write backup.auto_failed audit")
+            return None
+
+        try:
             server.services.audit_repo.write(
                 actor=ACTOR_SYSTEM,
                 action="backup.auto_ok",
                 target=entry.name,
-                payload=json.dumps({"size": entry.size, "pruned": deleted}),
+                payload=json.dumps(
+                    {"size": entry.size, "pruned": deleted, **finalize_meta},
+                    default=str,
+                ),
             )
         except Exception:
             logger.exception("failed to write backup.auto_ok audit")
 
         logger.info(
-            "auto backup wrote %s (%d bytes); pruned %d",
+            "auto backup wrote %s (%d bytes); pruned %d; offsite=%s verify=%s",
             entry.name,
             entry.size,
             len(deleted),
+            finalize_meta.get("offsite_status"),
+            finalize_meta.get("verify_status"),
         )
         return entry
 
