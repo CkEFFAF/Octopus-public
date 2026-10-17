@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from octop.infra.backup.integrity import integrity_sidecar_path
 from octop.infra.backup.manifest import BackupManifest
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.utils.paths import PathLayout
@@ -216,7 +217,9 @@ def read_backup_file(paths: PathLayout, filename: str) -> bytes:
 
 def delete_backup_file(paths: PathLayout, filename: str) -> None:
     path = resolve_backup_path(paths, filename)
+    sidecar = integrity_sidecar_path(path)
     path.unlink()
+    sidecar.unlink(missing_ok=True)
 
 
 def is_auto_backup_filename(name: str) -> bool:
