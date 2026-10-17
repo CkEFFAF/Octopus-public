@@ -225,3 +225,18 @@ def backend_spec_supports_execution(spec: Any) -> bool:
         if isinstance(routes, dict):
             return any(backend_spec_supports_execution(route) for route in routes.values())
     return False
+
+
+def gate_local_fs_isolation(spec: Any, *, enforce: bool | None = None) -> Any:
+    """Apply 0028 FS isolation gate to a resolved local backend spec.
+
+    When the gate rejects (production require-bwrap + missing bwrap), raise
+    ``PermissionError``. Degrade / allow paths return *spec* unchanged so
+    harness can still apply path rewrite.
+    """
+    from octop.infra.isolation.fs_gate import assert_local_fs_isolation  # noqa: PLC0415
+
+    if enforce is False:
+        return spec
+    assert_local_fs_isolation(spec)
+    return spec
