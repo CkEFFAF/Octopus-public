@@ -53,6 +53,21 @@ async def _serve(server: Any) -> None:
     await server.serve()
 
 
+def _check_dev_prod_home_or_warn(server: OctopServer) -> None:
+    """0028 AC-I03: refuse / warn when a non-prod env points at a marked prod home."""
+    try:
+        from octop.infra.isolation.home_guard import check_dev_prod_home_separation
+    except Exception:
+        logger.warning("home separation check import failed", exc_info=True)
+        return
+    home = getattr(getattr(server, "paths", None), "root", None)
+    result = check_dev_prod_home_separation(home)
+    if result.status == "fail":
+        raise RuntimeError(result.detail)
+    if result.status == "warn":
+        logger.warning("home separation: %s", result.detail)
+
+
 async def run_foreground(
     *,
     host: str | None,
@@ -73,6 +88,7 @@ async def run_foreground(
 
     srv = OctopServer()
     await srv.start()
+    _check_dev_prod_home_or_warn(srv)
     bwrap_task = _schedule_linux_bubblewrap_ensure()
     # Greenfield deferral leaves services unset until /setup/database binds.
     cfg = srv.services.config if srv.services is not None else srv.config

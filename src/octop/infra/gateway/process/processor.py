@@ -1579,12 +1579,19 @@ class GlobalProcessor:
         When ``apply_defaults`` is false (Dashboard ``mcp_servers`` key present,
         including ``[]``), account default_open **and** the device capability
         pack are both skipped (0025 DEC-C06).
-        """
-        from octop.infra.agents.teams import is_team_agent  # noqa: PLC0415
-        from octop.infra.errors import ErrorCode, OctopError  # noqa: PLC0415
 
-        # Team hosts only dispatch — never attach MCP tools.
-        if is_team_agent(self._agent_manager.get_row(agent_id)):
+        **0028 DEC-I03 hard invariant:** team hosts always return ``None`` —
+        expert lists, account ``default_open``, Dashboard explicit picks, and
+        device ``capability_policy_json`` pack (0025) must not inject MCP onto
+        the host. Keep device-pack lookup *after* this early return.
+        """
+        from octop.infra.errors import ErrorCode, OctopError  # noqa: PLC0415
+        from octop.infra.isolation.team_host_mcp import (  # noqa: PLC0415
+            team_host_blocks_mcp,
+        )
+
+        # Team hosts only dispatch — never attach MCP tools (0028 AC-I01).
+        if team_host_blocks_mcp(self._agent_manager.get_row(agent_id)):
             return None
 
         extra_defaults = self._agent_manager.default_mcp_servers(agent_id)
