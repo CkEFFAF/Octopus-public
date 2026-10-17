@@ -93,3 +93,32 @@ def test_composite_uses_default() -> None:
         require_bwrap=True,
     )
     assert decision.mode == "reject"
+
+
+def test_scoped_root_gates_even_when_virtual_mode_false() -> None:
+    """virtual_mode:false must not skip the bwrap gate (0028 DEC-I01 / Reviewer)."""
+    missing = evaluate_local_fs_isolation(
+        {"type": "local_shell", "root_dir": "/home/u/ws", "virtual_mode": False},
+        platform="linux",
+        bwrap_on_path=False,
+        require_bwrap=True,
+    )
+    assert missing.mode == "reject"
+    assert missing.requires_bwrap is True
+
+    present = evaluate_local_fs_isolation(
+        {"type": "filesystem", "root_dir": "/var/octop/ws", "virtual_mode": False},
+        platform="linux",
+        bwrap_on_path=True,
+        require_bwrap=True,
+    )
+    assert present.mode == "allow"
+    assert present.requires_bwrap is True
+
+    degrade = evaluate_local_fs_isolation(
+        {"type": "local_shell", "root_dir": "/tmp/ws", "virtual_mode": False},
+        platform="linux",
+        bwrap_on_path=False,
+        require_bwrap=False,
+    )
+    assert degrade.mode == "degrade"

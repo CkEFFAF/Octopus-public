@@ -1,9 +1,9 @@
 """FS isolation gate for scoped ``root_dir`` (0028 DEC-I01 / AC-I02).
 
-On Linux, a non-host ``root_dir`` with ``virtual_mode`` is expected to run under
-bubblewrap (or an equivalent jail). Missing ``bwrap`` must not silently write
-host-sensitive paths: either reject high-risk local shell use or degrade with
-an explicit warning when the require-bwrap policy is off.
+On Linux, a non-host ``root_dir`` is expected to run under bubblewrap (or an
+equivalent jail), regardless of ``virtual_mode``. Missing ``bwrap`` must not
+silently write host-sensitive paths: either reject high-risk local shell use or
+degrade with an explicit warning when the require-bwrap policy is off.
 """
 
 from __future__ import annotations
@@ -78,9 +78,9 @@ def evaluate_local_fs_isolation(
     """Evaluate whether a local backend may run high-risk file/shell tools.
 
     Only ``local_shell`` / ``filesystem`` (and composite defaults of those) with
-    a non-host ``root_dir`` and ``virtual_mode`` truthy are gated. Host-rooted
-    backends and remote sandboxes (docker / opensandbox) are left to their own
-    isolation story.
+    a non-host ``root_dir`` are gated — ``virtual_mode`` false does **not**
+    bypass the bwrap requirement (DEC-I01). Host-rooted backends and remote
+    sandboxes (docker / opensandbox) are left to their own isolation story.
     """
     plat = platform if platform is not None else sys.platform
     linux = str(plat).startswith("linux")
@@ -122,15 +122,8 @@ def evaluate_local_fs_isolation(
             bwrap_available=available,
         )
 
-    virtual = bool(spec.get("virtual_mode", True))
-    if not virtual:
-        return FsIsolationDecision(
-            mode="allow",
-            reason="virtual_mode disabled; path rewrite / jail not in scope",
-            requires_bwrap=False,
-            bwrap_available=available,
-        )
-
+    # virtual_mode only controls path-rewrite semantics in harness; a scoped
+    # root_dir still requires bwrap on Linux (Reviewer Medium / DEC-I01).
     if not linux:
         return FsIsolationDecision(
             mode="degrade",
