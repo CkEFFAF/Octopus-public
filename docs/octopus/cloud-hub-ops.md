@@ -3,6 +3,7 @@
 - 对齐规格：
   - **`docs/specs/0027-ops-host-runtime.md`**（Ready / rev `2026-10-17.1`）— **生产默认以本规格为准**（loopback、非 root、90 drop-in、install/upgrade/rollback）
   - `docs/specs/0009-cloud-hub-production.md`（Accepted / rev `2026-10-12.4`；见文末 Errata → 0027）
+  - **`docs/specs/0026-ops-data-resilience.md`** — 数据面备份/异地/校验；演练见 `docs/octopus/backup-restore-drill.md`
 - 主机：`111.228.42.228`（4C8G Ubuntu 24）；产品域名：`https://octop.effaf.me`
 - 脚本：`ops/cloud-hub/`（`install-hub.sh` / `upgrade-hub.sh` / `rollback-hub.sh` / `smoke-hub.sh` / systemd + `90-octop` / `ssh-ufw-checklist.md`）
 - 更新：2026-10-17（0027 S0：默认 `127.0.0.1` + 非 root + 正式升级骨架）

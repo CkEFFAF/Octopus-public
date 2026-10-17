@@ -89,18 +89,32 @@ class TlsConfig:
 
 
 @dataclass(frozen=True)
+class BackupOffsiteConfig:
+    """Pluggable offsite sink (0026). Credentials stay in env / secret files."""
+
+    enabled: bool = False
+    type: str = "hook"  # hook | rsync | s3_compatible (S0: hook/rsync)
+    hook_argv: list[str] = field(default_factory=list)
+    rsync_target: str = ""
+    rsync_extra_args: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class BackupConfig:
     """Automatic system backup settings persisted in config.json."""
 
     auto_enabled: bool = False
     schedule: str = "cron:0 4 * * *"
-    retention_count: int = 7
+    retention_count: int = 14  # 0026 DEC-B04 local auto N=14
     include_config: bool = True
     include_workspaces: bool = True
     include_skill_packages: bool = True
     include_plugins: bool = True
     include_knowledge: bool = True
     include_chats: bool = False
+    offsite: BackupOffsiteConfig = field(default_factory=BackupOffsiteConfig)
+    alert_webhook_url: str = ""
+    disk_free_percent_min: float = 15.0
 
 
 _VALID_MOBILE_BACKENDS = frozenset({"physical", "redroid", "emulator", "none"})
@@ -209,6 +223,36 @@ def _parse_capabilities_section(raw: object) -> CapabilitiesConfig:
     return CapabilitiesConfig(mobile=_parse_mobile_capabilities(mobile_raw))
 
 
+def _parse_backup_offsite(raw: object) -> BackupOffsiteConfig:
+    if raw is None:
+        return BackupOffsiteConfig()
+    if not isinstance(raw, dict):
+        raise ValueError("config.backup.offsite must be an object")
+    defaults = BackupOffsiteConfig()
+    sink_type = str(raw.get("type", defaults.type)).strip().lower() or defaults.type
+    hook_raw = raw.get("hook_argv", defaults.hook_argv)
+    if isinstance(hook_raw, str):
+        import shlex
+
+        hook_argv = list(shlex.split(hook_raw))
+    elif isinstance(hook_raw, list):
+        hook_argv = [str(x) for x in hook_raw]
+    else:
+        hook_argv = list(defaults.hook_argv)
+    extra_raw = raw.get("rsync_extra_args", defaults.rsync_extra_args)
+    if isinstance(extra_raw, list):
+        extra = [str(x) for x in extra_raw]
+    else:
+        extra = list(defaults.rsync_extra_args)
+    return BackupOffsiteConfig(
+        enabled=bool(raw.get("enabled", defaults.enabled)),
+        type=sink_type,
+        hook_argv=hook_argv,
+        rsync_target=str(raw.get("rsync_target", defaults.rsync_target) or ""),
+        rsync_extra_args=extra,
+    )
+
+
 def _parse_backup_section(raw: object) -> BackupConfig:
     if raw is None:
         return BackupConfig()
@@ -222,6 +266,10 @@ def _parse_backup_section(raw: object) -> BackupConfig:
         raise ValueError("config.backup.retention_count must be an integer") from exc
     if retention < 1:
         raise ValueError("config.backup.retention_count must be >= 1")
+    try:
+        disk_min = float(raw.get("disk_free_percent_min", defaults.disk_free_percent_min))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("config.backup.disk_free_percent_min must be a number") from exc
     return BackupConfig(
         auto_enabled=bool(raw.get("auto_enabled", defaults.auto_enabled)),
         schedule=schedule,
@@ -234,6 +282,9 @@ def _parse_backup_section(raw: object) -> BackupConfig:
         include_plugins=bool(raw.get("include_plugins", defaults.include_plugins)),
         include_knowledge=bool(raw.get("include_knowledge", defaults.include_knowledge)),
         include_chats=bool(raw.get("include_chats", defaults.include_chats)),
+        offsite=_parse_backup_offsite(raw.get("offsite")),
+        alert_webhook_url=str(raw.get("alert_webhook_url", defaults.alert_webhook_url) or ""),
+        disk_free_percent_min=disk_min,
     )
 
 
@@ -594,6 +645,52 @@ def load_config(path: Path) -> OctopConfig:
         backup = replace(
             backup,
             include_chats=_coerce_bool("OCTOP_BACKUP_INCLUDE_CHATS", v, backup.include_chats),
+        )
+    if v := os.environ.get("OCTOP_BACKUP_ALERT_WEBHOOK_URL"):
+        backup = replace(backup, alert_webhook_url=v.strip())
+    if v := os.environ.get("OCTOP_BACKUP_DISK_FREE_PERCENT_MIN"):
+        try:
+            disk_min = float(v.strip())
+        except ValueError:
+            logger.warning(
+                "env OCTOP_BACKUP_DISK_FREE_PERCENT_MIN invalid; keeping %s",
+                backup.disk_free_percent_min,
+            )
+        else:
+            backup = replace(backup, disk_free_percent_min=disk_min)
+    if v := os.environ.get("OCTOP_BACKUP_OFFSITE_ENABLED"):
+        backup = replace(
+            backup,
+            offsite=replace(
+                backup.offsite,
+                enabled=_coerce_bool("OCTOP_BACKUP_OFFSITE_ENABLED", v, backup.offsite.enabled),
+            ),
+        )
+    if v := os.environ.get("OCTOP_BACKUP_OFFSITE_TYPE"):
+        backup = replace(
+            backup,
+            offsite=replace(backup.offsite, type=v.strip().lower() or backup.offsite.type),
+        )
+    if v := os.environ.get("OCTOP_BACKUP_OFFSITE_HOOK"):
+        import json as _json
+        import shlex as _shlex
+
+        raw_hook = v.strip()
+        if raw_hook.startswith("["):
+            try:
+                parsed = _json.loads(raw_hook)
+                hook_argv = (
+                    [str(x) for x in parsed] if isinstance(parsed, list) else _shlex.split(raw_hook)
+                )
+            except _json.JSONDecodeError:
+                hook_argv = _shlex.split(raw_hook)
+        else:
+            hook_argv = _shlex.split(raw_hook)
+        backup = replace(backup, offsite=replace(backup.offsite, hook_argv=hook_argv))
+    if v := os.environ.get("OCTOP_BACKUP_OFFSITE_RSYNC_TARGET"):
+        backup = replace(
+            backup,
+            offsite=replace(backup.offsite, rsync_target=v.strip()),
         )
 
     return OctopConfig(

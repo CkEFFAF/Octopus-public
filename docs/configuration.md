@@ -1,12 +1,21 @@
 # Configuration
 
-Octop stores all of its state under `~/.octop/`. The directory is created
-on first server start (or by `octop init` / `octop run`).
+Octop stores all of its state under a single data-plane root resolved by
+**`OCTOP_HOME`** (0026 DEC-B05):
+
+| Context | Path |
+|---------|------|
+| Development (unset `OCTOP_HOME`) | `~/.octop/` |
+| Production hub / cloud | service-user **`~/OctopData`** (e.g. `/home/octop/OctopData`) or `/var/lib/octop` |
+| Docker | `OCTOP_DATA` is only a **mount alias** for the same `OCTOP_HOME` semantics |
+
+The directory is created on first server start (or by `octop init` /
+`octop run`). Do not run two managers against the same home.
 
 ## Filesystem layout
 
 ```
-~/.octop/
+$OCTOP_HOME/   # default ~/.octop  |  production ~/OctopData
 ├── config.json              # process-level settings (host, port, CORS, DB, TLS, …)
 ├── env                      # optional dotenv (OCTOP_DATABASE_*, API keys, …); loaded at server start
 ├── octop.db                 # SQLite — users, agents, providers, sessions, audit
@@ -132,7 +141,7 @@ Each variable, when set, takes precedence over the matching key in
 
 | Variable | Type | Default | Effect |
 |----------|------|---------|--------|
-| `OCTOP_HOME` | path | `~/.octop` | Install root (DB, secrets, workspaces, plugins) |
+| `OCTOP_HOME` | path | `~/.octop` (dev) / `~/OctopData` (prod hub) | Single data-plane root (DB, secrets, workspaces, backups, plugins) |
 | `OCTOP_BIND_HOST` | string | `127.0.0.1` | Listen address (use `0.0.0.0` for LAN access) |
 | `OCTOP_PORT` | int | `8088` | Listen port (`0`–`65535`; `0` asks the OS for a free port) |
 | `OCTOP_LOG_LEVEL` | string | `info` | One of `debug` `info` `warning` `error` |
