@@ -9,7 +9,25 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from octop.infra.db.pool import DatabasePool
-from octop.infra.db.repos._base import DbRow, map_rows, partial_updates
+from octop.infra.db.repos._base import UNSET, DbRow, map_rows, optional_updates, partial_updates
+
+
+def _capability_policy(row: DbRow) -> dict[str, Any] | None:
+    from octop.infra.devices.capability_policy import (
+        dump_capability_policy,
+        parse_capability_policy,
+    )
+
+    try:
+        raw = row["capability_policy_json"]
+    except (KeyError, IndexError):
+        return None
+    if raw is None:
+        return None
+    policy = parse_capability_policy(raw)
+    if dump_capability_policy(policy) is None:
+        return None
+    return policy
 
 
 @dataclass(frozen=True)
@@ -37,6 +55,7 @@ class DeviceRow:
     runtime_metadata: dict[str, Any] | None = None
     software_version: str | None = None
     update_status: str | None = None
+    capability_policy: dict[str, Any] | None = None
 
     @classmethod
     def from_row(cls, row: DbRow) -> DeviceRow:
@@ -76,6 +95,7 @@ class DeviceRow:
             runtime_metadata=json.loads(row["runtime_metadata"]),
             software_version=_opt_str("software_version"),
             update_status=_opt_str("update_status"),
+            capability_policy=_capability_policy(row),
         )
 
     def public(self, *, online: bool = False) -> dict[str, Any]:
@@ -99,6 +119,9 @@ class DeviceRow:
             "runtime": deepcopy(self.runtime_metadata or {}),
             "software_version": self.software_version,
             "update_status": self.update_status,
+            "capability_policy": (
+                deepcopy(self.capability_policy) if self.capability_policy else None
+            ),
         }
 
 
@@ -226,7 +249,16 @@ class DeviceRepo:
         permissions: list[str] | None = None,
         roots: list[dict[str, Any]] | None = None,
         remote_grant_mode: str | None = None,
+        capability_policy_json: object = UNSET,
     ) -> DeviceRow | None:
+        from octop.infra.devices.capability_policy import dump_capability_policy
+
+        policy_param: object = UNSET
+        if capability_policy_json is not UNSET:
+            if isinstance(capability_policy_json, dict):
+                policy_param = dump_capability_policy(capability_policy_json)
+            else:
+                policy_param = capability_policy_json
         clauses, params = partial_updates(
             [
                 ("name", name),
@@ -235,6 +267,9 @@ class DeviceRepo:
                 ("remote_grant_mode", remote_grant_mode),
             ]
         )
+        extra_clauses, extra_params = optional_updates([("capability_policy_json", policy_param)])
+        clauses.extend(extra_clauses)
+        params.extend(extra_params)
         if not clauses:
             return self.get(device_id)
         if permissions is not None or roots is not None:

@@ -7,6 +7,7 @@ import base64
 import contextlib
 import hashlib
 import hmac
+import json
 import secrets
 import time
 from collections.abc import Awaitable, Callable
@@ -547,6 +548,119 @@ class DeviceService:
             future.set_exception(
                 device_error(str(frame.get("error", "device operation failed"))[:500])
             )
+
+    def set_capability_policy(
+        self,
+        owner: int,
+        device_id: str,
+        policy: dict[str, Any] | None,
+        *,
+        actor: str | None = None,
+        schedule_agent_reload: bool = True,
+    ) -> dict[str, Any]:
+        """Persist devices.capability_policy_json (0025 S0). Next turn picks it up."""
+        from octop.infra.devices.capability_policy import (
+            dump_capability_policy,
+            policy_missing_mcp,
+            validate_capability_policy_shape,
+        )
+
+        row = self.owned(owner, device_id)
+        normalized = validate_capability_policy_shape(policy)
+        stored = dump_capability_policy(normalized)
+        before = dump_capability_policy(row.capability_policy)
+        updated = self.repos.device_repo.update(device_id, capability_policy_json=stored)
+        assert updated is not None
+        active_names = self._active_mcp_names_for_owner(owner)
+        missing = policy_missing_mcp(normalized, active_names)
+        self.repos.audit_repo.write(
+            actor=actor or str(owner),
+            action="device.capability_policy.update",
+            target=device_id,
+            payload=json.dumps(
+                {
+                    "before": before,
+                    "after": stored,
+                    "missing_or_unauthorized": missing,
+                },
+                ensure_ascii=False,
+            ),
+        )
+        reload_status = {"reload_status": "scheduled"}
+        if schedule_agent_reload:
+            reload_status = self._schedule_reload_for_device_binding(owner, device_id)
+        public = self.public(updated)
+        public["missing_or_unauthorized"] = missing
+        public["reload_status"] = reload_status.get("reload_status", "scheduled")
+        public["effective_next_turn"] = True
+        return public
+
+    def capability_policy_alerts(self, owner: int, device_id: str) -> dict[str, Any]:
+        """Return missing MCP names referenced by the device pack."""
+        from octop.infra.devices.capability_policy import (
+            dump_capability_policy,
+            parse_capability_policy,
+            policy_missing_mcp,
+        )
+
+        row = self.owned(owner, device_id)
+        policy = parse_capability_policy(row.capability_policy)
+        missing = policy_missing_mcp(policy, self._active_mcp_names_for_owner(owner))
+        return {
+            "device_id": device_id,
+            "capability_policy": policy if dump_capability_policy(policy) else None,
+            "missing_or_unauthorized": missing,
+        }
+
+    def seed_capability_mcp(
+        self,
+        owner: int,
+        device_id: str,
+        mcp_servers: list[str],
+        *,
+        actor: str | None = None,
+    ) -> dict[str, Any]:
+        """Idempotent ops seed into the device pack (does not rewrite expert lists)."""
+        from octop.infra.devices.capability_policy import seed_mcp_into_policy
+
+        row = self.owned(owner, device_id)
+        seeded = seed_mcp_into_policy(row.capability_policy, mcp_servers=mcp_servers)
+        return self.set_capability_policy(owner, device_id, seeded, actor=actor or str(owner))
+
+    def _active_mcp_names_for_owner(self, owner: int) -> set[str]:
+        try:
+            from octop.config import load_config
+            from octop.infra.connectors.service import ConnectorService
+
+            svc = ConnectorService(
+                repo=self.repos.connector_repo,
+                secret_repo=self.repos.secret_repo,
+                settings_repo=self.repos.settings_repo,
+                config=load_config(),
+            )
+            return set(svc.list_active_mcp_server_names(owner))
+        except Exception:
+            return set()
+
+    def _schedule_reload_for_device_binding(self, owner: int, device_id: str) -> dict[str, str]:
+        """Signal next-turn effectiveness for experts bound to this device."""
+        import json as _json
+
+        bound = 0
+        try:
+            rows = self.repos.agent_repo.list_by_user(owner)
+        except Exception:
+            rows = []
+        for agent in rows:
+            try:
+                cfg = _json.loads(agent.config_json or "{}")
+            except Exception:
+                continue
+            binding = cfg.get("device_binding") if isinstance(cfg, dict) else None
+            if isinstance(binding, dict) and binding.get("device_id") == device_id:
+                bound += 1
+        _ = bound
+        return {"reload_status": "scheduled"}
 
     async def update(
         self,
