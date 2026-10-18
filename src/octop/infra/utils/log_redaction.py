@@ -40,6 +40,17 @@ class QuerySecretFilter(logging.Filter):
     """Historic name kept for imports; redacts query + Authorization/Bearer."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        # Uvicorn's AccessFormatter unpacks these five arguments itself. Keep
+        # their types and shape while masking the request path before formatting.
+        if (
+            record.name == "uvicorn.access"
+            and isinstance(record.args, tuple)
+            and len(record.args) == 5
+        ):
+            record.args = tuple(
+                redact_secrets(value) if isinstance(value, str) else value for value in record.args
+            )
+            return True
         message = record.getMessage()
         redacted = redact_secrets(message)
         if redacted != message:
