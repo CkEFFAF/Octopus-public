@@ -297,6 +297,21 @@ async def prepare_dashboard_turn(
     )
     inbound_content = content_parts_from_dashboard_turn(turn)
     inbound_attachments = inbound_attachments_from_parts(inbound_content)
+    if inbound_attachments:
+        from octop.infra.documents.resources import ResourceService
+
+        resources = ResourceService(server.app_runtime.agent_registry)
+        for attachment in inbound_attachments:
+            resource = await resources.register(
+                int(user.id),
+                agent_id,
+                attachment["workspace_path"],
+                thread=thread_id,
+                name=attachment.get("filename", ""),
+                media_type=attachment.get("media_type", ""),
+            )
+            attachment["resource_id"] = resource["resource_id"]
+            attachment["version"] = resource["version"]
     execution_context = None
     agent_config = json.loads(row.config_json or "{}")
     binding = agent_config.get("device_binding") if isinstance(agent_config, dict) else None

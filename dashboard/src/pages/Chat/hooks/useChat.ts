@@ -200,6 +200,14 @@ export function extractAttachments(content: unknown): ChatAttachment[] {
   return (content as ContentBlock[])
     .map((c) => {
       const anyBlock = c as Record<string, unknown>;
+      const resourceIdentity = {
+        ...(typeof anyBlock.resource_id === "string"
+          ? { resourceId: anyBlock.resource_id }
+          : {}),
+        ...(typeof anyBlock.version === "string"
+          ? { version: anyBlock.version }
+          : {}),
+      };
       const type = String(c.type || "");
       const filename =
         (anyBlock.filename as string | undefined) ||
@@ -231,6 +239,7 @@ export function extractAttachments(content: unknown): ChatAttachment[] {
             : undefined);
         return {
           url: normalized.url,
+          ...resourceIdentity,
           filename: filename || "image",
           mediaType,
           workspacePath,
@@ -273,6 +282,7 @@ export function extractAttachments(content: unknown): ChatAttachment[] {
           };base64,${source.data}`,
           filename,
           mediaType: source.media_type,
+          ...resourceIdentity,
           workspacePath,
           kind: inferKindFromNameAndMime(
             mediaType,
@@ -301,6 +311,7 @@ export function extractAttachments(content: unknown): ChatAttachment[] {
 
       return {
         url: normalized.url,
+        ...resourceIdentity,
         filename,
         mediaType,
         workspacePath,
@@ -343,6 +354,10 @@ function attachmentsFromInboundMeta(
         url: "",
         filename,
         mediaType: mediaType || undefined,
+        ...(typeof row.resource_id === "string"
+          ? { resourceId: row.resource_id }
+          : {}),
+        ...(typeof row.version === "string" ? { version: row.version } : {}),
         workspacePath,
         kind,
       } satisfies ChatAttachment;

@@ -137,20 +137,8 @@ def install_shared_team_peers(manager: Any, team: Any) -> None:
                     or thread.agent_id != from_agent_id
                 ):
                     raise ValueError("shared collaboration requires your team conversation")
-            from octop.infra.agents.teams.target_visibility import pending_ask_target
-
-            policy = (pending_ask_target() or {}).get("octop_target_policy") or cfg.get(
-                "octop_target_policy"
-            )
-            if (
-                cfg.get("octop_execution_context")
-                or cfg.get("octop_device_target")
-                or policy in {"explicit", "member_default"}
-            ):
-                raise OctopError(
-                    ErrorCode.FORBIDDEN,
-                    "shared experts support text collaboration only; cross-account device execution is unsupported",
-                )
+            # Canonical prepare validates DispatchOptions and strips all device
+            # and resource authority for text-only shared collaboration.
             return team._registry.get(to_agent_id)
         return original_resolve(from_agent_id, to_agent_id, user_id)
 

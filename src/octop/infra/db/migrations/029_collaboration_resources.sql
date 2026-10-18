@@ -1,0 +1,47 @@
+CREATE TABLE IF NOT EXISTS collaboration_invocations (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ public_id TEXT NOT NULL UNIQUE,
+ owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ thread_id TEXT REFERENCES threads(thread_id) ON DELETE CASCADE,
+ source_thread_id TEXT,
+ root_run_id TEXT,
+ transport_status TEXT NOT NULL DEFAULT 'accepted',
+ created_at DOUBLE PRECISION,
+ updated_at DOUBLE PRECISION,
+ payload_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_collaboration_invocations_thread ON collaboration_invocations(owner_user_id,thread_id,id);
+CREATE INDEX IF NOT EXISTS idx_collaboration_invocations_run ON collaboration_invocations(owner_user_id,root_run_id,id);
+CREATE INDEX IF NOT EXISTS idx_collaboration_invocations_active ON collaboration_invocations(transport_status,updated_at,id);
+CREATE TABLE IF NOT EXISTS collaboration_resources (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ public_id TEXT NOT NULL UNIQUE,
+ owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ thread_id TEXT REFERENCES threads(thread_id) ON DELETE CASCADE,
+ payload_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_collaboration_resources_thread ON collaboration_resources(owner_user_id,thread_id,id);
+CREATE TABLE IF NOT EXISTS collaboration_grants (
+ owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ resource_id TEXT NOT NULL REFERENCES collaboration_resources(public_id) ON DELETE CASCADE,
+ version TEXT NOT NULL,
+ invocation_id TEXT NOT NULL REFERENCES collaboration_invocations(public_id) ON DELETE CASCADE,
+ callee_agent_id TEXT NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE,
+ expires_at REAL NOT NULL,
+ revoked INTEGER NOT NULL DEFAULT 0,
+ PRIMARY KEY(resource_id,invocation_id)
+);
+CREATE TABLE IF NOT EXISTS collaboration_events (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ event_id TEXT NOT NULL UNIQUE,
+ owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ thread_id TEXT REFERENCES threads(thread_id) ON DELETE CASCADE,
+ invocation_id TEXT,
+ resource_id TEXT,
+ event_type TEXT NOT NULL,
+ payload_json TEXT NOT NULL,
+ created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_collaboration_events_thread ON collaboration_events(owner_user_id,thread_id,id);
+
+UPDATE _schema_version SET version = 29;

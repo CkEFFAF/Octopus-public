@@ -426,4 +426,3 @@ async def test_dashboard_explicit_still_applies_device_deny() -> None:
         device_defaults=None,
         deny_mcp_servers=["blocked"],
     )
-

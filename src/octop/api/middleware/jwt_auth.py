@@ -25,6 +25,7 @@ from octop.api.deps import (
 )
 from octop.api.middleware.key_sessions import AccessKeyWebSocketMiddleware
 from octop.infra.errors import OctopError
+from octop.infra.utils.log_redaction import redact_secrets
 
 _INSTALL_ATTR = "_octop_jwt_auth_installed"
 logger = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ def install(app: Any, server: Any) -> None:
                 logger.error(
                     "OctopError %s in %s: %s",
                     exc.code.value,
-                    request.url.path,
+                    redact_secrets(request.url.path),
                     exc.message,
                     exc_info=exc,
                 )

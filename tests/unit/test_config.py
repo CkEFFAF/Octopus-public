@@ -25,7 +25,7 @@ def test_defaults_when_missing(tmp_path: Path):
     assert cfg.database_in_file is False
     assert cfg.backup.auto_enabled is False
     assert cfg.backup.schedule == "cron:0 4 * * *"
-    assert cfg.backup.retention_count == 7
+    assert cfg.backup.retention_count == 14  # 0026 DEC-B04
     assert cfg.backup.include_config is True
     assert cfg.backup.include_workspaces is True
     assert cfg.backup.include_skill_packages is True

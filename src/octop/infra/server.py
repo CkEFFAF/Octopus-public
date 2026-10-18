@@ -549,11 +549,14 @@ class OctopServer:
         )
         registry.set_proactive_scheduler(proactive_scheduler)
 
+        from octop.infra.history.sharing import ThreadSharingService
+
         registry.set_native_management_context(
             catalog=self.subagent_catalog,
             history_archive=history_archive,
             turn_active=gateway.ws_hub.is_turn_active,
             execution=execution,
+            sharing=ThreadSharingService(self.services.repos, config, registry, history_archive),
         )
         await registry.boot()
         cron_mgr.schedule_system_job("task-board-tick", trigger="interval:15", func=task_board.tick)

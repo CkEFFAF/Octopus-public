@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 from octop.infra.agents.providers import KIND_TO_PROTOCOL
+from octop.infra.agents.providers.catalog import effective_provider_models
 from octop.infra.agents.providers.opencode_session import ensure_opencode_session_header
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ def build_probe_chat_model(row: Any, *, model_id: str | None = None) -> Any:
     protocol = KIND_TO_PROTOCOL.get(row.kind, row.kind)
     base_url = row.base_url or "https://api.openai.com/v1"
     headers = ensure_opencode_session_header(row.name, provider_headers(row), base_url=base_url)
-    models = row.get_models() if hasattr(row, "get_models") else []
+    models = effective_provider_models(row)
     mid = model_id or (models[0]["id"] if models else "gpt-4o-mini")
     entry = next((m for m in models if m.get("id") == mid), None)
     display_name = (entry or {}).get("name") or mid
@@ -108,7 +109,7 @@ def make_probe_provider_row(
 
 
 def _probe_model_id(row: Any, model_id: str | None) -> str:
-    models = row.get_models() if hasattr(row, "get_models") else []
+    models = effective_provider_models(row)
     if model_id:
         return model_id
     if models:
@@ -124,7 +125,7 @@ def _onnx_probe_model_id(row: Any, model_id: str | None) -> str:
     """
     if model_id:
         return model_id
-    models = row.get_models() if hasattr(row, "get_models") else []
+    models = effective_provider_models(row)
     entries = [m for m in models if isinstance(m, dict) and str(m.get("id") or "").strip()]
     chosen = next((m for m in entries if m.get("enabled")), None) or (
         entries[0] if entries else None
@@ -133,7 +134,7 @@ def _onnx_probe_model_id(row: Any, model_id: str | None) -> str:
 
 
 def _probe_model_entry(row: Any, model_id: str) -> dict[str, Any]:
-    models = row.get_models() if hasattr(row, "get_models") else []
+    models = effective_provider_models(row)
     entry = next((m for m in models if isinstance(m, dict) and m.get("id") == model_id), None)
     return entry if isinstance(entry, dict) else {}
 
@@ -280,6 +281,14 @@ async def fetch_openai_compatible_models(
 ) -> dict[str, Any]:
     """List models via OpenAI-compatible ``GET {base}/models``."""
     url = _models_list_url(base_url)
+    go_catalog = effective_provider_models(
+        SimpleNamespace(name=provider_name, kind="openai", base_url=base_url)
+    )
+    go_model_ids = {model["id"] for model in go_catalog}
+    if go_model_ids:
+        # Go exposes discovery at the shared endpoint, independently of its
+        # protocol-specific chat URLs. Only exact built-in identities qualify.
+        url = "https://opencode.ai/inference/go/v1/models"
     headers: dict[str, str] = {"Authorization": f"Bearer {api_key}"}
     extra_headers = ensure_opencode_session_header(provider_name, extra_headers, base_url=base_url)
     if extra_headers:
@@ -329,6 +338,8 @@ async def fetch_openai_compatible_models(
         if not isinstance(mid, str) or not mid.strip():
             continue
         mid = mid.strip()
+        if go_model_ids and mid not in go_model_ids:
+            continue
         if mid in seen:
             continue
         seen.add(mid)

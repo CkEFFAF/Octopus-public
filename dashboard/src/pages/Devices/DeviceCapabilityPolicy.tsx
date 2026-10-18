@@ -13,7 +13,10 @@ type Props = {
   onSaved?: (device: Device) => void;
 };
 
-export default function DeviceCapabilityPolicyPanel({ device, onSaved }: Props) {
+export default function DeviceCapabilityPolicyPanel({
+  device,
+  onSaved,
+}: Props) {
   const { t } = useTranslation();
   const [mcpServers, setMcpServers] = useState<string[]>(
     device.capability_policy?.mcp_servers ?? [],
@@ -49,7 +52,11 @@ export default function DeviceCapabilityPolicyPanel({ device, onSaved }: Props) 
     setMcpServers(device.capability_policy?.mcp_servers ?? []);
     setMissing(device.missing_or_unauthorized ?? []);
     setDirty(false);
-  }, [device.device_id, device.capability_policy, device.missing_or_unauthorized]);
+  }, [
+    device.device_id,
+    device.capability_policy,
+    device.missing_or_unauthorized,
+  ]);
 
   useEffect(() => {
     void loadOptions();
@@ -129,7 +136,12 @@ export default function DeviceCapabilityPolicyPanel({ device, onSaved }: Props) 
         tokenSeparators={[","]}
       />
       <Space style={{ marginTop: 12 }}>
-        <Button type="primary" loading={saving} disabled={!dirty} onClick={() => void save()}>
+        <Button
+          type="primary"
+          loading={saving}
+          disabled={!dirty}
+          onClick={() => void save()}
+        >
           {t("devices.capabilityPolicy.save")}
         </Button>
       </Space>

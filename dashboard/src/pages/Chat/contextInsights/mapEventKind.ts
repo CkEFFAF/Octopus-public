@@ -67,7 +67,8 @@ export function mapTrajectoryKind(
   ) {
     const tKind = String((transformation as { kind?: string }).kind || "");
     if (tKind === "prune") return "prune";
-    if (tKind === "summarization" || tKind === "message_rewrite") return "compact";
+    if (tKind === "summarization" || tKind === "message_rewrite")
+      return "compact";
   }
   if (asTruthyFlag(data.prune) || asTruthyFlag(data.pruned)) return "prune";
   const producer = String(data.producer ?? data.source ?? "").toLowerCase();

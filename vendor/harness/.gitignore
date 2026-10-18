@@ -1,0 +1,5 @@
+*
+!.gitignore
+!README.md
+!source-manifest.json
+!octop_harness-1.0.2.post3-py3-none-any.whl

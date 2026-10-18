@@ -73,6 +73,10 @@ NATIVE_TOOL_NAMES: tuple[str, ...] = (
     "octop_thread_read",
     "octop_thread_status",
     "octop_thread_rename",
+    "octop_thread_share_preview",
+    "octop_thread_share_create",
+    "octop_thread_share_list",
+    "octop_thread_share_revoke",
     "octop_device_select",
     "context_inspect",
     "context_events",
@@ -147,7 +151,9 @@ BUILTIN_TOOL_CATALOG: tuple[BuiltinToolEntry, ...] = (
     BuiltinToolEntry("mobile_handoff_to_user", "mobile"),
     BuiltinToolEntry("agent_list", "teams"),
     BuiltinToolEntry("ask_agent", "teams"),
-    BuiltinToolEntry("read_group_attachment", "teams"),
+    BuiltinToolEntry("read_attachment", "teams"),
+    BuiltinToolEntry("publish_artifact", "teams"),
+    BuiltinToolEntry("deliver_resource", "teams"),
 )
 
 

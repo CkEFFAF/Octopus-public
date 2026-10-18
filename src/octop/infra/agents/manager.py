@@ -519,21 +519,51 @@ class AgentManager:
             log_dir=str(self.paths.logs_dir),
         )
         if self._harness_manager is not None:
-            from octop.infra.agents.teams.target_visibility import (
-                install_harness_target_patches,
-            )
+            import inspect
 
-            install_harness_target_patches()
+            from octop_harness.teams.team_manager import TeamManager as HarnessTeamManager
+            from octop_harness.teams.util import DispatchOptions
+
+            from octop.infra.agents.teams.collaboration import CollaborationService
+
+            if (
+                "resource_ids" not in DispatchOptions.__dataclass_fields__
+                or not callable(getattr(HarnessTeamManager, "acancel_peer", None))
+                or "lifecycle"
+                not in inspect.signature(HarnessTeamManager.bind_peer_session).parameters
+            ):
+                raise RuntimeError("Harness collaboration contract is unavailable")
+            CollaborationService(self).reconcile_startup()
+            from octop.infra.documents.resources import ResourceService
+
+            await ResourceService(self).reconcile_startup()
             self._harness_manager.team.bind_peer_enrich(self._refresh_peer_entry)
             from octop.infra.agents.teams.shared_peers import install_shared_team_peers
 
             install_shared_team_peers(self, self._harness_manager.team)
             proc = self._team_processor
+            if proc is None:
+                from octop.infra.agents.teams.team_manager import TeamManager
+                from octop.infra.gateway.threads import ThreadRegistry
+
+                proc = TeamManager(
+                    agent_manager=self,
+                    thread_registry=ThreadRegistry(
+                        session_repo=self._repos.session_repo, thread_repo=self._repos.thread_repo
+                    ),
+                    user_repo=self._repos.user_repo,
+                    thread_message_repo=self._repos.thread_message_repo,
+                )
+                self._collaboration_room = proc
             if proc is not None:
                 prepare = getattr(proc, "prepare_peer_session", None)
                 after = getattr(proc, "record_peer_turn", None)
                 if prepare is not None or after is not None:
-                    self._harness_manager.team.bind_peer_session(prepare=prepare, after=after)
+                    self._harness_manager.team.bind_peer_session(
+                        prepare=prepare,
+                        after=after,
+                        lifecycle=CollaborationService(self).lifecycle,
+                    )
             self._install_team_host_dispatch()
             self._harness_manager.set_security_policy(self._security.harness_policy())
 
@@ -3624,18 +3654,9 @@ class AgentManager:
                     RequestExecutionBackend(ExecutionService(self._device_service), row.agent_id)
                 )
             )
-        if team_host:
-            from octop.infra.agents.teams.attachments import build_room_attachment_tool
-            from octop.infra.utils.locale import resolve_user_locale
+        from octop.infra.documents.tools import build_resource_tools
 
-            merged_tools.append(
-                build_room_attachment_tool(
-                    ws,
-                    locale=resolve_user_locale(
-                        user_repo=self._repos.user_repo, user_id=row.user_id or 0
-                    ),
-                )
-            )
+        merged_tools.extend(build_resource_tools(self, row.agent_id))
         if cron_tools:
             merged_tools.extend(cron_tools)
         merged_tools.extend(knowledge_tools)

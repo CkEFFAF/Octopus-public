@@ -11,7 +11,6 @@ reached with ``ask_agent``. This class owns the room side of that call:
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
 from collections.abc import Callable
@@ -19,18 +18,15 @@ from dataclasses import fields
 from typing import TYPE_CHECKING, Any
 
 from langchain_core.messages import AIMessage, HumanMessage
-from octop_harness.messages import extract_call_response
 from octop_harness.teams.inbox import InboxMessage
 from octop_harness.teams.processor import ReplyEvent
 from octop_harness.teams.util import (
     PeerCall,
     PeerSession,
-    build_one_shot_request,
     derive_peer_thread_id,
 )
 
 from octop.i18n import tr
-from octop.infra.agents.teams.device_context import PeerTaskTracker, restore_peer_context
 from octop.infra.agents.teams.service import is_team_agent
 from octop.infra.agents.threads.artifact import artifact_path_allowed, extract_artifact_paths
 from octop.infra.gateway.media.tool_media import tool_name_base
@@ -117,7 +113,6 @@ class TeamManager:
         self._gateway = gateway
         self._peer_prompts: dict[tuple[str, str], tuple[str, str]] = {}
         self._live_host_replies: set[str] = set()
-        self._peer_tasks: PeerTaskTracker | None = None
 
     def replace_thread_message_repo(self, repo: Any) -> None:
         self._thread_message_repo = repo
@@ -128,6 +123,8 @@ class TeamManager:
         """Open the member thread and stash the host's rewritten assignment."""
         thread_id = (
             derive_peer_thread_id(call.source_thread_id, call.to_agent_id)
+            + ":"
+            + str(call.invocation_id)
             if call.source_thread_id
             else None
         )
@@ -154,7 +151,7 @@ class TeamManager:
                 session_key = self._thread_registry.peer_room_session_key(
                     call.source_session_key,
                     call.to_agent_id,
-                    room_thread_id=call.source_thread_id,
+                    room_thread_id=f"{call.source_thread_id}:{call.invocation_id}",
                     group=group,
                 )
             else:
@@ -168,7 +165,10 @@ class TeamManager:
                 call.to_agent_id,
                 uid,
             )
-        if thread_id and session_key and uid is not None:
+        if thread_id and uid is not None:
+            session_key = (
+                session_key or f"{call.to_agent_id}:dashboard:{uid}:peer:{call.invocation_id}"
+            )
             parts = session_key.split(":", 3)
             channel_type = parts[1] if len(parts) >= 2 else "dashboard"
             self._thread_registry.ensure_thread(
@@ -185,11 +185,35 @@ class TeamManager:
                     question or str(call.message or ""),
                     turn_id=getattr(call, "job_id", None),
                 )
+        from octop.infra.agents.teams.collaboration import CollaborationService
+
+        collaboration = CollaborationService(self._agent_manager)
+        bound = collaboration.prepare(call, str(thread_id or ""), extra or {})
+        from octop_harness.teams.util import DispatchReceipt
+
+        invocation = collaboration.accept(call)
+        receipt = DispatchReceipt(
+            invocation_id=invocation["invocation_id"],
+            target_policy=invocation["target_policy"],
+            requested_target=invocation["requested_target"],
+            resolved_target=invocation["resolved_target"],
+            source_thread_id=invocation["source_thread_id"],
+            child_thread_id=invocation["child_thread_id"],
+            root_run_id=invocation["root_run_id"],
+        )
+        assignment = question or dispatch_message or str(call.message or "")
+        if invocation["resource_ids"]:
+            assignment += "\n" + tr(
+                "resources.granted_hint",
+                self._locale_for(uid),
+                resource_ids=", ".join(invocation["resource_ids"]),
+            )
         return _make_peer_session(
             thread_id=thread_id,
             session_key=session_key,
-            configurable=extra,
-            message=question or dispatch_message,
+            configurable=bound,
+            message=assignment,
+            receipt=receipt,
         )
 
     async def record_peer_turn(
@@ -547,22 +571,16 @@ class TeamManager:
             stream_host=self.stream_host_followup_to_room,
             take_prompt=self.take_peer_prompt,
         )
-        tracker = getattr(harness_team, "_octop_peer_tasks", None)
-        if not isinstance(tracker, PeerTaskTracker):
-            tracker = PeerTaskTracker(
-                getattr(self._agent_manager, "_device_service", None),
-                prepare_request=getattr(self._agent_manager, "_prepare_stream_request", None),
-            )
-            tracker.install(harness_team)
-        self._peer_tasks = tracker
 
     async def wait_for_task_run(self, owner: int, run_id: str) -> None:
-        if self._peer_tasks is not None:
-            await self._peer_tasks.wait_for_task_run(owner, run_id)
+        from octop.infra.agents.teams.collaboration import CollaborationService
+
+        await CollaborationService(self._agent_manager).wait_for_run(owner, run_id)
 
     async def cancel_task_run(self, owner: int, run_id: str) -> None:
-        if self._peer_tasks is not None:
-            await self._peer_tasks.cancel_task_run(owner, run_id)
+        from octop.infra.agents.teams.collaboration import CollaborationService
+
+        await CollaborationService(self._agent_manager).cancel_run(owner, run_id)
 
     # -- jobs / runtime -------------------------------------------------------
 
@@ -1242,7 +1260,7 @@ def _chat_request_payload(request: Any, speaker_id: str) -> dict[str, Any]:
             payload["messages"] = ""
     if not payload.get("agent_id"):
         payload["agent_id"] = speaker_id
-    return restore_peer_context(payload)
+    return payload
 
 
 def _octop_user_id(user_id: str | int) -> int | None:
@@ -1510,88 +1528,6 @@ def _peer_turn_messages(messages: list[Any]) -> list[Any]:
     return out
 
 
-def _is_async_room_invoke(
-    *,
-    source: str | None,
-    job_id: str | None,
-    source_thread_id: str | None,
-) -> bool:
-    """Live-stream a peer when this is an inbox/async room dispatch."""
-    if not str(source_thread_id or "").strip():
-        return False
-    return str(source or "") == "inbox" or bool(job_id)
-
-
-def _supported_kwargs(fn: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
-    try:
-        params = inspect.signature(fn).parameters
-    except (TypeError, ValueError):
-        return dict(kwargs)
-    if any(item.kind is inspect.Parameter.VAR_KEYWORD for item in params.values()):
-        return dict(kwargs)
-    return {key: value for key, value in kwargs.items() if key in params}
-
-
-def _patch_inbox_wrapup(
-    inbox: Any,
-    *,
-    stream_followup: Callable[..., Any] | None,
-    is_team: Callable[[str], bool] | None = None,
-) -> None:
-    """Run async host wrap-up through the room stream, not a blocking ``call()``."""
-    if inbox is None or stream_followup is None:
-        return
-    original = getattr(inbox, "_synthesize_reply", None)
-    if original is None:
-        return
-
-    async def _fallback(msg: Any, result_text: str | None, error_text: str | None) -> str | None:
-        reply = await original(msg, result_text, error_text)
-        if reply is None or isinstance(reply, str):
-            return reply
-        return str(reply)
-
-    async def synthesize(
-        msg: Any,
-        result_text: str | None,
-        error_text: str | None,
-    ) -> str | None:
-        cancelled = getattr(inbox, "_is_cancelled", None)
-        if callable(cancelled) and cancelled(msg):
-            return None
-        room = str(getattr(msg, "source_thread_id", None) or "").strip()
-        host_id = str(getattr(msg, "source_agent_id", None) or "")
-        if not host_id or not room:
-            return await _fallback(msg, result_text, error_text)
-        if callable(is_team) and not is_team(host_id):
-            return await _fallback(msg, result_text, error_text)
-        processor = getattr(inbox, "_processor", None)
-        compose = getattr(processor, "compose_followup", None)
-        if compose is None:
-            return await _fallback(msg, result_text, error_text)
-        prompt = compose(msg, result_text=result_text, error_text=error_text)
-        req = build_one_shot_request(
-            user_id=msg.user_id,
-            agent_id=host_id,
-            text=prompt,
-            source="inbox",
-        )
-        try:
-            reply = await stream_followup(
-                req,
-                room_thread_id=room,
-                speaker_id=host_id,
-            )
-        except Exception:
-            logger.exception("team host wrap-up stream failed host=%s room=%s", host_id, room)
-            return await _fallback(msg, result_text, error_text)
-        if isinstance(reply, dict):
-            return extract_call_response(reply)
-        return ""
-
-    inbox._synthesize_reply = synthesize
-
-
 def wire_host_dispatch(
     harness_team: Any,
     *,
@@ -1600,163 +1536,27 @@ def wire_host_dispatch(
     stream_host: Callable[..., Any] | None = None,
     take_prompt: Callable[[str, str | None], tuple[str, str] | None] | None = None,
 ) -> None:
-    """Patch harness TeamManager so async ``ask_agent`` uses inbox + room stream."""
-    if harness_team is None:
+    """Adapt the execution transport; canonical Harness owns dispatch lifecycle."""
+    if harness_team is None or getattr(harness_team, "_octop_stream_transport", False):
         return
-    original_call = getattr(harness_team, "call_peer", None)
+    original = harness_team._call_agent
 
-    async def call_peer(
-        *,
-        from_agent_id: str,
-        to_agent_id: str,
-        message: str,
-        user_id: str | int,
-        source: str = "ask_agent",
-        source_thread_id: str | None = None,
-        session_key: str | None = None,
-        **kwargs: Any,
-    ) -> Any:
-        if getattr(harness_team, "enabled", False) and is_team(from_agent_id):
-            return harness_team.submit_peer(
-                from_agent_id=from_agent_id,
-                to_agent_id=to_agent_id,
-                message=message,
-                user_id=user_id,
-                source_thread_id=source_thread_id,
-                metadata={"session_key": session_key} if session_key else None,
+    async def call_agent(agent_id: str, request: Any) -> Any:
+        payload = _chat_request_payload(request, agent_id)
+        cfg = payload.get("configurable") or {}
+        room = cfg.get("octop_root_thread_id")
+        if cfg.get("octop_invocation_id") and room and stream_peer is not None:
+            return await stream_peer(request, room_thread_id=room, speaker_id=agent_id)
+        if payload.get("source") == "inbox" and is_team(agent_id) and stream_host is not None:
+            return await stream_host(
+                request, room_thread_id=payload.get("thread_id"), speaker_id=agent_id
             )
-        if original_call is None:
-            raise TypeError("harness team has no call_peer")
-        return await original_call(
-            from_agent_id=from_agent_id,
-            to_agent_id=to_agent_id,
-            message=message,
-            user_id=user_id,
-            source=source,
-            source_thread_id=source_thread_id,
-            session_key=session_key,
-            **kwargs,
-        )
+        return await original(agent_id, request)
 
-    harness_team.call_peer = call_peer
-
-    stream_followup = stream_host or stream_peer
-    original_call_agent = getattr(harness_team, "_call_agent", None)
-    if original_call_agent is not None and stream_followup is not None:
-
-        async def call_agent(agent_id: str, request: Any) -> Any:
-            source = getattr(request, "source", None)
-            if isinstance(request, dict):
-                source = request.get("source")
-            thread_id = getattr(request, "thread_id", None)
-            if isinstance(request, dict):
-                thread_id = request.get("thread_id")
-            room = str(thread_id or "").strip()
-            if source == "inbox" and room and is_team(agent_id):
-                return await stream_followup(
-                    request,
-                    room_thread_id=room,
-                    speaker_id=agent_id,
-                )
-            return await original_call_agent(agent_id, request)
-
-        harness_team._call_agent = call_agent
-        inbox = getattr(harness_team, "inbox", None)
-        if inbox is not None:
-            inbox._call_agent = call_agent
-
-    _patch_inbox_wrapup(
-        getattr(harness_team, "inbox", None),
-        stream_followup=stream_followup,
-        is_team=is_team,
-    )
-
-    original_invoke = getattr(harness_team, "_invoke_peer", None)
-    if original_invoke is not None and stream_peer is not None:
-
-        async def invoke_peer(
-            *,
-            from_agent_id: str,
-            to_agent_id: str,
-            message: str,
-            user_id: str | int,
-            source: str,
-            source_thread_id: str | None,
-            source_session_key: str | None,
-            job_id: str | None = None,
-        ) -> Any:
-            peer_kwargs = {
-                "from_agent_id": from_agent_id,
-                "to_agent_id": to_agent_id,
-                "message": message,
-                "user_id": user_id,
-                "source": source,
-                "source_thread_id": source_thread_id,
-                "source_session_key": source_session_key,
-                "job_id": job_id,
-            }
-            if not _is_async_room_invoke(
-                source=source,
-                job_id=job_id,
-                source_thread_id=source_thread_id,
-            ):
-                return await original_invoke(**_supported_kwargs(original_invoke, peer_kwargs))
-            request = await harness_team._build_peer_request(
-                **_supported_kwargs(harness_team._build_peer_request, peer_kwargs)
-            )
-            enrich = getattr(harness_team, "_enrich_request", None)
-            if enrich is not None:
-                request = await enrich(to_agent_id, request)
-            result = await stream_peer(
-                request,
-                room_thread_id=source_thread_id,
-                speaker_id=to_agent_id,
-            )
-            payload = result if isinstance(result, dict) else {}
-            after = getattr(harness_team, "_after_peer", None)
-            if after is not None:
-                call = PeerCall(**_supported_kwargs(PeerCall, peer_kwargs))
-                try:
-                    await after(call, str(getattr(request, "thread_id", None) or ""), payload)
-                except Exception:
-                    logger.warning(
-                        "peer after-call hook failed for %s -> %s",
-                        from_agent_id,
-                        to_agent_id,
-                        exc_info=True,
-                    )
-            return request, payload
-
-        harness_team._invoke_peer = invoke_peer
-
-    if take_prompt is None:
-        return
-    original_enrich = getattr(harness_team, "_enrich_request", None)
-
-    async def enrich(agent_id: str, req: Any) -> Any:
-        if original_enrich is not None:
-            req = await original_enrich(agent_id, req)
-        pair = take_prompt(agent_id, getattr(req, "thread_id", None))
-        if not pair:
-            return req
-        from langchain_core.messages import HumanMessage, SystemMessage
-
-        question, dispatch = pair
-        messages: list[Any] = []
-        if dispatch and dispatch != question:
-            messages.append(SystemMessage(content=dispatch))
-        if question:
-            messages.append(
-                HumanMessage(
-                    content=question,
-                    id=f"team-peer:{getattr(req, 'thread_id', None)}:{new_ulid()}:human",
-                )
-            )
-        if messages:
-            req.messages = messages
-        return req
-
-    harness_team._enrich_request = enrich
+    harness_team._call_agent = call_agent
+    if harness_team.inbox is not None:
+        harness_team.inbox._call_agent = call_agent
+    harness_team._octop_stream_transport = True
 
 
 __all__ = [

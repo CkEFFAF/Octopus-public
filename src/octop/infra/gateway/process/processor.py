@@ -20,6 +20,7 @@ from octop_harness.teams.inbox import InboxMessage
 from octop_harness.teams.processor import ReplyEvent
 from octop_harness.teams.util import PeerCall, PeerSession
 
+from octop.i18n import tr
 from octop.i18n.domains.stream import format_stream_error
 from octop.infra.agents.providers.reasoning import reasoning_request_parameters
 from octop.infra.agents.settings.profile import parse_config_json
@@ -780,7 +781,9 @@ class GlobalProcessor:
             thread_id=thread_id,
         )
         message_kwargs: dict[str, Any] = {}
-        attachments = inbound_attachments_from_parts(msg.content)
+        content, attachments = await self._resource_input(
+            msg, content, agent_id, user_id, thread_id, locale
+        )
         if attachments:
             message_kwargs[INBOUND_ATTACHMENTS_KEY] = attachments
         if mcp_servers:
@@ -1339,9 +1342,9 @@ class GlobalProcessor:
         composer = meta.get(COMPOSER_CTX_KEY)
         if isinstance(composer, dict) and composer:
             message_kwargs[COMPOSER_CTX_KEY] = composer
-        attachments = meta.get(INBOUND_ATTACHMENTS_KEY)
-        if not isinstance(attachments, list) or not attachments:
-            attachments = inbound_attachments_from_parts(msg.content)
+        content, attachments = await self._resource_input(
+            msg, content, agent_id, user_id, thread_id, locale
+        )
         if attachments:
             message_kwargs[INBOUND_ATTACHMENTS_KEY] = attachments
 
@@ -1430,6 +1433,44 @@ class GlobalProcessor:
             mcp_servers=mcp_servers,
             locale=locale,
         )
+
+    async def _resource_input(
+        self,
+        msg: InboundMessage,
+        content: Any,
+        agent_id: str,
+        user_id: int,
+        thread_id: str,
+        locale: str,
+    ) -> tuple[Any, list[dict[str, str]]]:
+        """Only server-resolved upload versions become model delegation hints."""
+        from octop.infra.documents.resources import ResourceService
+
+        attachments = inbound_attachments_from_parts(msg.content)
+        if not attachments:
+            return content, attachments
+        if len(attachments) > 32:
+            raise ValueError("RESOURCE_INPUT_LIMIT")
+        service = ResourceService(self._agent_manager)
+        references: list[str] = []
+        for attachment in attachments:
+            resource = await service.register(
+                user_id,
+                agent_id,
+                attachment["workspace_path"],
+                thread=thread_id,
+                name=attachment.get("filename", ""),
+                media_type=attachment.get("media_type", ""),
+            )
+            attachment["resource_id"] = resource["resource_id"]
+            attachment["version"] = resource["version"]
+            references.append(f"{resource['resource_id']}@{resource['version']}")
+        hint = tr("resources.input_hint", locale, references="\n".join(references))
+        if isinstance(content, list):
+            content = [*content, {"type": "text", "text": hint}]
+        else:
+            content = str(content) + "\n\n" + hint
+        return content, attachments
 
     def _apply_turn_hitl_policy(self, thread_id: str, meta: dict[str, Any] | None) -> None:
         raw = (meta or {}).get("hitl_policy")

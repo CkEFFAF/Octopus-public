@@ -409,6 +409,10 @@ async def test_weixin_pdf_history_is_downloadable_attachment() -> None:
     with (
         patch("octop.infra.gateway.process.processor.media_backend_for_agent", return_value=None),
         patch("octop.infra.gateway.process.processor.project_stream", new=fake_project_stream),
+        patch(
+            "octop.infra.documents.resources.ResourceService.register",
+            new=AsyncMock(return_value={"resource_id": "res-server", "version": "server-sha"}),
+        ),
     ):
         _ = [event async for event in processor(inbound)]
 
@@ -425,6 +429,8 @@ async def test_weixin_pdf_history_is_downloadable_attachment() -> None:
             "media_type": "application/pdf",
             "kind": "file",
             "workspace_path": "inbound/weixin/01M3KH/1790583376_笔试准考证.pdf",
+            "resource_id": "res-server",
+            "version": "server-sha",
         }
     ]
 

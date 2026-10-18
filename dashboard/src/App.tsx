@@ -4,7 +4,7 @@ import zhCN from "antd/locale/zh_CN";
 import enUS from "antd/locale/en_US";
 import dayjs from "dayjs";
 import "dayjs/locale/zh-cn";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import DesktopWindowControls from "./components/DesktopWindowControls";
 import {
   DesktopChromeProvider,
@@ -33,6 +33,8 @@ import "./styles/theme-vars.css";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 import "./styles/spin-override.css";
+
+const PublicSharePage = lazy(() => import("./pages/PublicShare"));
 
 const GlobalStyle = createGlobalStyle`
 * {
@@ -136,6 +138,16 @@ function ThemedApp() {
             <Route path="/login/oidc/complete" element={<OidcComplete />} />
             <Route path="/setup" element={<SetupPage />} />
             <Route path="/invite" element={<InvitePage />} />
+            <Route
+              path="/share/:token"
+              element={
+                <Suspense
+                  fallback={<div role="status">{t("common.loading")}</div>}
+                >
+                  <PublicSharePage />
+                </Suspense>
+              }
+            />
             <Route
               path="/*"
               element={

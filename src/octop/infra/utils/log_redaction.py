@@ -23,6 +23,8 @@ _NAMED_SECRET = re.compile(
     r"(?i)\b(jwt_secret|client_secret|api_secret|app_secret)\s*[=:]\s*([^\s\"']+)",
 )
 
+_SHARE_CAPABILITY = re.compile(r"((?:/api/public/thread-shares|/share)/)[^/?#\s\"']+")
+
 
 def redact_secrets(message: str) -> str:
     """Return *message* with query tokens, Bearer, and named secrets masked."""
@@ -30,6 +32,7 @@ def redact_secrets(message: str) -> str:
     out = _AUTHORIZATION.sub(r"\1\2[REDACTED]", out)
     out = _BEARER.sub(r"\1[REDACTED]", out)
     out = _NAMED_SECRET.sub(r"\1=[REDACTED]", out)
+    out = _SHARE_CAPABILITY.sub(r"\1[REDACTED]", out)
     return out
 
 

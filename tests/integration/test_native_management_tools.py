@@ -632,9 +632,6 @@ async def test_0019_native_room_selection_and_shared_target_privacy(native: Any)
     # Exercise the real Octop enrichment hook and the harness agent_list output boundary.
     from octop_harness.teams import tools as team_tools
 
-    from octop.infra.agents.teams.target_visibility import install_harness_target_patches
-
-    install_harness_target_patches()
     entry = SimpleNamespace(agent_id="shared-target-expert", metadata={})
     registry._refresh_peer_entry(entry)
     peer_team = SimpleNamespace(peer_display_name=lambda _entry: "Shared target expert")
@@ -813,13 +810,20 @@ async def test_shared_team_async_tool_dispatch_rechecks_current_roster(native: A
     team._call_agent = target_calls
     team.bind_peer_enrich(manager._refresh_peer_entry)
     install_shared_team_peers(manager, team)
-    from octop.infra.agents.teams.team_manager import wire_host_dispatch
+    from octop.infra.agents.teams.collaboration import CollaborationService
+    from octop.infra.agents.teams.team_manager import TeamManager as ApplicationTeam
 
-    async def room_stream(request: Any, *, room_thread_id: str, speaker_id: str) -> dict[str, Any]:
-        assert room_thread_id == tid
-        return await team._call_agent(speaker_id, request)
-
-    wire_host_dispatch(team, is_team=lambda value: value == host_id, stream_peer=room_stream)
+    room = ApplicationTeam(
+        agent_manager=manager,
+        thread_registry=srv.app_runtime.gateway.thread_registry,
+        user_repo=repos.user_repo,
+        thread_message_repo=repos.thread_message_repo,
+    )
+    team.bind_peer_session(
+        prepare=room.prepare_peer_session,
+        after=room.record_peer_turn,
+        lifecycle=CollaborationService(manager).lifecycle,
+    )
     ask = next(
         tool
         for tool in build_team_tools(team, peer_invoke_mode="async")
@@ -833,14 +837,12 @@ async def test_shared_team_async_tool_dispatch_rechecks_current_roster(native: A
             await ask.ainvoke({"expert": "invited-shared", "message": "Review this text"})
         )
         assert accepted["job_id"] == "queued-shared", accepted
-        msg = SimpleNamespace(
-            id="queued-shared",
-            source_agent_id=host_id,
-            target_agent_id="invited-shared",
-            message="Review this text",
-            user_id=uid,
-            source_thread_id=tid,
-            metadata={},
+        from octop_harness.teams.inbox import InboxMessage
+
+        queued = team._inbox.enqueue.call_args.kwargs
+        msg = InboxMessage(
+            id=accepted["job_id"],
+            **{key: value for key, value in queued.items() if key not in {"inbox_id", "job_id"}},
         )
         await team._invoke_inbox_target(msg)
         target_calls.assert_awaited_once()

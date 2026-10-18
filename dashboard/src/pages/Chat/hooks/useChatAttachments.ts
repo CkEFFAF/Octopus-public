@@ -61,6 +61,8 @@ export function useChatAttachments(agentId: string | null | undefined) {
               filename: res.filename,
               mediaType: res.media_type,
               workspacePath,
+              resourceId: res.resource_id,
+              version: res.version,
               kind: inferAttachmentKind(file, res.media_type),
             } satisfies ChatAttachment;
           }),

@@ -33,6 +33,8 @@ const AdminStoragePage = lazy(() => import("../pages/Admin/Storage"));
 const AdminPluginsPage = lazy(() => import("../pages/Admin/Plugins"));
 const AgentConfigPage = lazy(() => import("../pages/Agent/Config"));
 
+const ThreadSharesPage = lazy(() => import("../pages/ThreadShares"));
+
 // Misc
 const PwaDebugPage = lazy(() => import("../pages/PwaDebug"));
 const NotFoundPage = lazy(() => import("../components/NotFoundPage"));
@@ -98,6 +100,7 @@ export const pathToKey: Record<string, string> = {
   "/admin/plugins": "admin-plugins",
   "/admin/advanced": "admin-advanced",
   "/admin/security": "admin-security",
+  "/settings/thread-shares": "thread-shares",
 };
 
 /**
@@ -222,6 +225,7 @@ export const routeConfigs: RouteConfig[] = [
   { path: "/workspace", element: <Navigate to="/experts" replace /> },
 
   // Settings
+  { path: "/settings/thread-shares", element: <ThreadSharesPage /> },
   { path: "/admin/models", element: <ModelsPage /> },
 
   // Admin (RequirePermission wrapper applied in MainLayout)

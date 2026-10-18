@@ -6,7 +6,7 @@ import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from functools import wraps
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from langchain_core.tools import StructuredTool
 from langgraph.config import get_config
@@ -25,6 +25,9 @@ from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.threads import ThreadRegistry
 from octop.infra.utils.locale import normalize_locale, resolve_user_locale
 from octop.infra.utils.ulid import new_ulid
+
+if TYPE_CHECKING:
+    from octop.infra.history.sharing import ThreadSharingService
 
 
 def message_text(wire: Any, *, limit: int = 4000) -> tuple[str, bool]:
@@ -61,6 +64,7 @@ def build_native_management_tools(
     history_archive: Any = None,
     turn_active: Any = None,
     execution: Any = None,
+    sharing: ThreadSharingService | None = None,
 ) -> list[Any]:
     """Bind resources, obtaining the acting account afresh from trusted run config."""
     tools: list[Any] = []
@@ -310,7 +314,7 @@ def build_native_management_tools(
                     "cancel_self_check",
                 }
             ),
-            "rules": "Only owned resources can be changed. Ask/Plan are read-only. Device selection affects later turns. Team members are dispatched with ask_agent. Foreign shared members support text collaboration only; cross-account device execution is unsupported.",
+            "rules": "Only owned resources can be changed. Ask/Plan are read-only. Device selection affects later turns. Team members are dispatched with ask_agent. Foreign shared members support text collaboration only; cross-account device execution is unsupported. Publish a conversation snapshot only when the user explicitly requests external sharing; preview the exact public text first and use its digest. Never publish automatically.",
         }
 
     @operation()
@@ -725,6 +729,60 @@ def build_native_management_tools(
             "next_cursor": next_cursor,
             "next_offset": max(0, offset) + size if more and not next_cursor else None,
         }
+
+    def share_service() -> ThreadSharingService:
+        if sharing is not None:
+            return sharing
+        from octop.config import OctopConfig
+        from octop.infra.history.sharing import ThreadSharingService
+
+        return ThreadSharingService(repos, OctopConfig(), manager, history_archive)
+
+    def share_thread(thread_id: str) -> str:
+        selected = thread_id or str((get_config().get("configurable") or {}).get("thread_id") or "")
+        thread(selected)
+        return selected
+
+    @operation()
+    async def octop_thread_share_preview(thread_id: str = "") -> dict[str, Any]:
+        """Preview exact public text of an owned conversation; defaults to current thread.
+
+        Ask the owner to review this text before any external sharing. Preview never publishes.
+        """
+        return await share_service().preview(identity().id, share_thread(thread_id))
+
+    @operation(writes=True)
+    async def octop_thread_share_create(
+        preview_digest: str, expires_in_seconds: int | None = 2592000, thread_id: str = ""
+    ) -> dict[str, Any]:
+        """Publish ONLY when the user explicitly requests external sharing, after preview.
+
+        Freezes reviewed text for anyone with the link. Never publish automatically.
+        Use preview_digest from preview; changed history requires a new preview.
+        Expiry is seconds (60..31536000), default 30 days; null means no automatic expiry.
+        """
+        return await share_service().create(
+            identity().id, share_thread(thread_id), preview_digest, expires_in_seconds
+        )
+
+    @operation()
+    async def octop_thread_share_list(
+        thread_id: str = "", before: str = "", limit: int = 50
+    ) -> dict[str, Any]:
+        """List your share links with status and recopyable live URLs; omit thread to list all."""
+        return await asyncio.to_thread(
+            share_service().list,
+            identity().id,
+            thread_id=share_thread(thread_id) if thread_id else None,
+            before=before or None,
+            limit=limit,
+        )
+
+    @operation(writes=True)
+    async def octop_thread_share_revoke(share_id: str) -> dict[str, Any]:
+        """Close your public share link permanently; copies already saved cannot be retracted."""
+        await asyncio.to_thread(share_service().revoke, identity().id, share_id)
+        return {"share_id": share_id, "status": "revoked"}
 
     @operation()
     async def octop_thread_status(thread_id: str) -> dict[str, Any]:

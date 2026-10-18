@@ -331,4 +331,3 @@ async def test_deliver_agent_explicit_still_applies_device_deny() -> None:
         deny_mcp_servers=["blocked"],
     )
     gateway.push_session_text.assert_awaited()
-

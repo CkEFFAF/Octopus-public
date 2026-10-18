@@ -80,4 +80,18 @@ async def upload_attachment(
         data=data,
         max_bytes=max_bytes,
     )
-    return _attachment_payload(agent_id, stored)
+    from octop.infra.documents.resources import ResourceService
+
+    resource = await ResourceService(server.app_runtime.agent_registry).register(
+        int(user.id),
+        agent_id,
+        stored.data_path,
+        name=stored.filename,
+        media_type=stored.media_type,
+        data=data,
+    )
+    return {
+        **_attachment_payload(agent_id, stored),
+        "resource_id": resource["resource_id"],
+        "version": resource["version"],
+    }

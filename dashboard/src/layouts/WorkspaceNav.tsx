@@ -55,6 +55,7 @@ const groups = [
     keys: [
       "models",
       "bridge",
+      "thread-shares",
       "admin-users",
       "admin-storage",
       "admin-plugins",

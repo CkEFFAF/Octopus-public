@@ -49,6 +49,7 @@ import ChatDockContext from "./ChatDockContext";
 import ExecutionWorkbench from "./ExecutionWorkbench";
 
 const TerminalPage = lazy(() => import("../../Control/Terminal"));
+const ResourcePanelContent = lazy(() => import("./ResourcePanelContent"));
 
 export type ChatDockAddTabHandlers = {
   onOpenWorkspace?: () => void;
@@ -528,6 +529,11 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
                     t("devices.localExecution")}
                 </span>
               </>
+            ) : tab.kind === "resource" ? (
+              <>
+                <FilePen size={16} aria-hidden />
+                <span title={tab.resource.name}>{tab.resource.name}</span>
+              </>
             ) : tab.kind === "toolUi" ? (
               <>
                 <Puzzle size={16} strokeWidth={2} aria-hidden />
@@ -643,6 +649,20 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
       overlayMenuOpen={addTabMenuOpen}
     >
       <div className={styles.dockTabBodies}>
+        {activeTab?.kind === "resource" && (
+          <div className={styles.dockTabBody}>
+            <Suspense
+              fallback={<div role="status">{t("collaboration.loading")}</div>}
+            >
+              <ResourcePanelContent
+                key={activeTab.id}
+                agentId={activeTab.agentId}
+                threadId={activeTab.threadId}
+                resourceId={activeTab.resource.resource_id}
+              />
+            </Suspense>
+          </div>
+        )}
         {openTabs
           .filter(
             (tab): tab is Extract<DockTab, { kind: "execution" }> =>

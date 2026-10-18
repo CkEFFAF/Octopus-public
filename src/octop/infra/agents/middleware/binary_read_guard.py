@@ -12,6 +12,8 @@ from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
+from octop.i18n import tr
+
 logger = logging.getLogger(__name__)
 
 _READ_FILE_TOOL = "read_file"
@@ -79,20 +81,11 @@ def read_file_block_reason(path: str) -> str | None:
         return None
     ext = _extension(path)
     if ext == ".pdf":
-        return (
-            f"read_file blocked for binary PDF `{path}`. "
-            "Use execute_shell_command with the pdf skill (pdftotext, pdfplumber, etc.) instead."
-        )
+        return tr("resources.binary_hint", "en")
     if ext in _BLOCKED_EXTENSIONS:
-        return (
-            f"read_file blocked for binary file `{path}`. "
-            "Use execute_shell_command or the matching skill instead."
-        )
+        return tr("resources.binary_hint", "en")
     if _is_inbound_attachment(path) and ext and ext not in _TEXT_EXTENSIONS:
-        return (
-            f"read_file blocked for inbound attachment `{path}`. "
-            "Use execute_shell_command or the matching skill instead."
-        )
+        return tr("resources.binary_hint", "en")
     return None
 
 

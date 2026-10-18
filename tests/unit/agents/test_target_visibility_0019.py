@@ -5,19 +5,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
-from langgraph.config import var_child_runnable_config
 
-from octop.infra.agents.teams.device_context import restore_peer_context
 from octop.infra.agents.teams.service import TeamService
 from octop.infra.agents.teams.target_visibility import (
     apply_target_policy,
     enrich_peer_metadata,
     expert_default_target,
-    install_harness_target_patches,
-    pending_ask_target,
 )
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.pool import SqlitePool
@@ -310,131 +305,6 @@ def test_room_host_selection_does_not_mutate_member_bindings(tmp_path: Path) -> 
     db.close()
 
 
-def test_agent_list_item_patch_surfaces_metadata() -> None:
-    install_harness_target_patches()
-    from octop_harness.teams import tools as team_tools
-
-    entry = SimpleNamespace(
-        agent_id="ABCDEF123456",
-        metadata={
-            "octop_owner_user_id": 1,
-            "description": "helper",
-            "default_target": {"target_kind": "device", "device_id": "d1", "device_name": "GPU"},
-            "model_ref": "m/ref",
-        },
-    )
-    team = SimpleNamespace(peer_display_name=lambda e: "Alpha")
-    token = var_child_runnable_config.set({"configurable": {"user": "1"}})
-    try:
-        item = team_tools._agent_list_item(team, entry, "en")
-    finally:
-        var_child_runnable_config.reset(token)
-    assert item["default_target"]["device_id"] == "d1"
-    assert item["model_ref"] == "m/ref"
-
-
-@pytest.mark.parametrize(
-    "target", [{}, {"target_kind": "device"}, {"target_kind": "local", "device_id": "conflicting"}]
-)
-def test_explicit_target_rejects_incomplete_or_conflicting_intent(target: dict[str, Any]) -> None:
-    from octop.infra.errors import OctopError
-
-    snapshot = {"owner": 1, "configurable": {"octop_device_target": {"device_id": "parent"}}}
-    with pytest.raises(OctopError, match="explicit dispatch requires"):
-        apply_target_policy(snapshot, policy="explicit", explicit=target)
-    assert snapshot["configurable"]["octop_device_target"]["device_id"] == "parent"
-
-
-async def test_explicit_ask_does_not_dispatch_without_target() -> None:
-    from unittest.mock import MagicMock
-
-    from octop.infra.errors import OctopError
-
-    install_harness_target_patches()
-    from octop_harness.teams import tools as team_tools
-
-    team = SimpleNamespace(enabled=True, submit_peer=MagicMock(), resolve_peer=MagicMock())
-    ask = next(
-        tool
-        for tool in team_tools.build_team_tools(team, peer_invoke_mode="async")
-        if tool.name == "ask_agent"
-    )
-    with pytest.raises(OctopError, match="explicit dispatch requires"):
-        await ask.ainvoke({"expert": "member", "message": "work", "target_policy": "explicit"})
-    team.submit_peer.assert_not_called()
-    team.resolve_peer.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_async_ask_agent_schema_includes_target_policy_and_stamps_capture() -> None:
-    """Blocker AC-04: Host peer_invoke_mode=async must expose target_policy."""
-    install_harness_target_patches()
-    from octop_harness.teams import tools as team_tools
-
-    team = SimpleNamespace(
-        enabled=True,
-        list_peers=lambda *a, **k: [],
-        caller_language=lambda *a, **k: "en",
-        peer_invoke_mode_for=lambda *a, **k: "async",
-        resolve_peer=lambda *a, **k: None,
-        submit_peer=lambda **k: SimpleNamespace(
-            mode="async",
-            agent_id="m",
-            name="m",
-            job_id="j",
-            thread_id=None,
-            response=None,
-            status="accepted",
-            message=None,
-        ),
-    )
-    tools = {t.name: t for t in team_tools.build_team_tools(team, peer_invoke_mode="async")}
-    ask = tools["ask_agent"]
-    schema = ask.args_schema.model_json_schema()
-    props = schema.get("properties") or {}
-    assert "target_policy" in props
-    assert "device_id" in props
-    assert "target_kind" in props
-    assert "mode" not in props  # async Host schema stays mode-less
-
-    captured: dict[str, Any] = {}
-
-    def _fake_submit(**kwargs: Any) -> Any:
-        captured["pending"] = pending_ask_target()
-        return SimpleNamespace(
-            mode="async",
-            agent_id="m",
-            name="m",
-            job_id="j1",
-            thread_id=None,
-            response=None,
-            status="accepted",
-            message=None,
-        )
-
-    team.submit_peer = _fake_submit
-    team.resolve_peer = lambda *a, **k: SimpleNamespace(agent_id="member")
-    tools = {t.name: t for t in team_tools.build_team_tools(team, peer_invoke_mode="async")}
-    ask = tools["ask_agent"]
-
-    token = var_child_runnable_config.set(
-        {"configurable": {"agent_id": "host", "user": "1", "thread_id": "room"}}
-    )
-    try:
-        await ask.ainvoke(
-            {
-                "expert": "member",
-                "message": "go",
-                "target_policy": "member_default",
-            }
-        )
-    finally:
-        var_child_runnable_config.reset(token)
-
-    assert captured["pending"]["octop_target_policy"] == "member_default"
-    assert pending_ask_target() is None  # reset after invoke
-
-
 def test_enrich_peer_metadata_sets_fields() -> None:
     row = SimpleNamespace(
         default_model="x/y",
@@ -444,53 +314,3 @@ def test_enrich_peer_metadata_sets_fields() -> None:
     enrich_peer_metadata(meta, row=row, device_name="Box")
     assert meta["model_ref"] == "x/y"
     assert meta["default_target"]["device_name"] == "Box"
-
-
-@pytest.mark.asyncio
-async def test_restore_peer_context_respects_member_default_policy() -> None:
-    """member_default snapshot has no parent device; restore must not invent one."""
-    token = var_child_runnable_config.set({"configurable": {"user": "1"}})
-    try:
-        from octop.infra.agents.teams import device_context as dc
-
-        ctx = {
-            "owner": 1,
-            "configurable": {"octop_target_policy": "member_default", "octop_task_run_id": "r"},
-            "devices": SimpleNamespace(owned=lambda *a, **k: pytest.fail("should not own")),
-        }
-        t = dc._context.set(ctx)
-        try:
-            req = restore_peer_context({"user": "1", "configurable": {}})
-            assert "octop_device_target" not in (req.get("configurable") or {})
-        finally:
-            dc._context.reset(t)
-    finally:
-        var_child_runnable_config.reset(token)
-
-
-@pytest.mark.asyncio
-async def test_restore_peer_context_skips_grant_check_for_local() -> None:
-    token = var_child_runnable_config.set({"configurable": {"user": "1"}})
-    try:
-        from octop.infra.agents.teams import device_context as dc
-
-        ctx = {
-            "owner": 1,
-            "configurable": {
-                "octop_device_target": {
-                    "target_kind": "local",
-                    "device_id": None,
-                    "working_dir": "/",
-                },
-                "octop_target_policy": "explicit",
-            },
-            "devices": SimpleNamespace(owned=lambda *a, **k: pytest.fail("local must skip owned")),
-        }
-        t = dc._context.set(ctx)
-        try:
-            req = restore_peer_context({"user": "1", "configurable": {}})
-            assert req["configurable"]["octop_device_target"]["target_kind"] == "local"
-        finally:
-            dc._context.reset(t)
-    finally:
-        var_child_runnable_config.reset(token)

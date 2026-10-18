@@ -31,6 +31,7 @@ interface ChatTitleBarProps {
   onRename: (id: string, name: string) => void;
   onPin: (id: string, pinned: boolean) => void;
   onFork: (id: string) => void;
+  onShare?: () => void;
   onDelete: (id: string) => void;
   forkDisabled?: boolean;
   forkDisabledHint?: string;
@@ -45,6 +46,7 @@ export default function ChatTitleBar({
   onRename,
   onPin,
   onFork,
+  onShare,
   onDelete,
   forkDisabled,
   forkDisabledHint,
@@ -95,6 +97,9 @@ export default function ChatTitleBar({
         ),
         onClick: () => setCollapseThinking(!collapseThinking),
       },
+      ...(onShare
+        ? [{ key: "share", label: t("chatShare.title"), onClick: onShare }]
+        : []),
       { type: "divider" },
       {
         key: "pin",
@@ -137,6 +142,7 @@ export default function ChatTitleBar({
       session.pinned,
       onPin,
       onFork,
+      onShare,
       onDelete,
       forkDisabled,
       forkDisabledHint,

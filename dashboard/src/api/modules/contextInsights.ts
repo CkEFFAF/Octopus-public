@@ -78,7 +78,9 @@ export const contextInsightsApi = {
     if (params.trendLimit != null)
       search.set("trend_limit", String(params.trendLimit));
     const qs = search.toString();
-    return request<InsightsInspect>(`${base(agentId, threadId)}${qs ? `?${qs}` : ""}`);
+    return request<InsightsInspect>(
+      `${base(agentId, threadId)}${qs ? `?${qs}` : ""}`,
+    );
   },
 
   request: (

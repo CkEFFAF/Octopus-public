@@ -63,6 +63,8 @@ export function toImageContentBlock(
 ): Record<string, unknown> {
   return {
     type: "image",
+    ...(attachment.resourceId ? { resource_id: attachment.resourceId } : {}),
+    ...(attachment.version ? { version: attachment.version } : {}),
     source: {
       type: "url",
       url: attachment.url,
@@ -82,6 +84,8 @@ export function toFileContentBlock(
 ): Record<string, unknown> {
   return {
     type: "file",
+    ...(attachment.resourceId ? { resource_id: attachment.resourceId } : {}),
+    ...(attachment.version ? { version: attachment.version } : {}),
     filename: attachment.filename || "attachment",
     ...(attachment.mediaType ? { media_type: attachment.mediaType } : {}),
     ...(attachment.workspacePath

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import tarfile
 from pathlib import Path
 
@@ -82,14 +83,15 @@ def test_verify_ok_and_mismatch(tmp_path: Path) -> None:
 def test_offsite_hook_success_and_failure(tmp_path: Path) -> None:
     archive = _tiny_archive(tmp_path / "a.tar.gz")
     marker = tmp_path / "copied"
-    script = tmp_path / "copy.sh"
-    script.write_text('#!/bin/sh\ncp "$1" "$2"\n', encoding="utf-8")
-    script.chmod(0o755)
+    script = tmp_path / "offsite_hook.py"
+    script.write_text(
+        "import shutil, sys\nshutil.copyfile(sys.argv[1], sys.argv[2])\n", encoding="utf-8"
+    )
 
     settings = OffsiteSinkSettings(
         enabled=True,
         type="hook",
-        hook_argv=(str(script), "{archive}", str(marker)),
+        hook_argv=(sys.executable, str(script), "{archive}", str(marker)),
     )
     result = run_offsite(archive, settings, backup_id="bid")
     assert result.ok
@@ -99,7 +101,7 @@ def test_offsite_hook_success_and_failure(tmp_path: Path) -> None:
     fail = OffsiteSinkSettings(
         enabled=True,
         type="hook",
-        hook_argv=("/bin/false",),
+        hook_argv=(sys.executable, "-c", "raise SystemExit(1)"),
     )
     failed = run_offsite(archive, fail, backup_id="bid")
     assert not failed.ok

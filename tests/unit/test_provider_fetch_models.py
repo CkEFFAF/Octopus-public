@@ -11,6 +11,49 @@ import pytest
 from octop.infra.agents.providers.probe import fetch_openai_compatible_models
 
 
+@pytest.mark.asyncio
+async def test_go_discovery_uses_public_catalog_and_filters_protocols() -> None:
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.get.return_value = httpx.Response(
+        200,
+        json={
+            "data": [
+                {"id": "mimo-v2.6-pro"},
+                {"id": "grok-4.7"},
+                {"id": "step-5-preview"},
+                {"id": "claude-haiku-5-5"},
+                {"id": "gemini-4-argon-contributor"},
+            ]
+        },
+    )
+    with patch("octop.infra.agents.providers.probe.httpx.AsyncClient", return_value=client):
+        result = await fetch_openai_compatible_models(
+            base_url="https://opencode.ai/inference/go/openai/v1",
+            api_key="sk-test",
+            provider_name="OpenCode Go (Compatible)",
+        )
+    assert client.get.await_args.args[0] == "https://opencode.ai/inference/go/v1/models"
+    assert result["ok"] is True
+    assert {m["id"] for m in result["models"]} == {"mimo-v2.6-pro", "grok-4.7", "step-5-preview"}
+
+
+@pytest.mark.asyncio
+async def test_custom_go_named_proxy_discovery_is_not_rewritten_or_filtered() -> None:
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.get.return_value = httpx.Response(200, json={"data": [{"id": "custom-id"}]})
+    with patch("octop.infra.agents.providers.probe.httpx.AsyncClient", return_value=client):
+        result = await fetch_openai_compatible_models(
+            base_url="https://proxy.example/v1",
+            api_key="sk-test",
+            provider_name="OpenCode Go (Compatible)",
+        )
+    assert client.get.await_args.args[0] == "https://proxy.example/v1/models"
+    assert result["ok"] is True
+    assert result["models"] == [{"id": "custom-id", "name": "custom-id"}]
+
+
 def _mock_response(status: int, payload: Any) -> httpx.Response:
     request = httpx.Request("GET", "https://api.example.com/v1/models")
     return httpx.Response(status, json=payload, request=request)

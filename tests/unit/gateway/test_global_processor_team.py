@@ -22,6 +22,18 @@ from octop.infra.gateway.slash.dispatcher import SlashDispatcher
 from octop.infra.gateway.threads import ThreadRegistry
 
 
+def _peer_call(**kwargs):
+    from octop_harness.teams.util import PeerCall
+
+    return PeerCall(invocation_id=kwargs.get("job_id") or "dispatch", **kwargs)
+
+
+def _create_room_host(processor):
+    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    with processor._agent_manager._repos.db.transaction() as conn:
+        conn.execute("UPDATE threads SET agent_id='host' WHERE thread_id='thr_parent'")
+
+
 @pytest.fixture
 def processor_env(tmp_path: Path) -> dict[str, object]:
     db = SqlitePool(tmp_path / "octop.db")
@@ -40,6 +52,13 @@ def processor_env(tmp_path: Path) -> dict[str, object]:
     repos.connector_repo = MagicMock()
 
     agent_manager = MagicMock()
+    from octop.infra.db.services import RepoBundle
+    from octop.infra.utils.paths import PathLayout
+
+    agent_manager._repos = RepoBundle.from_pool(db)
+    agent_manager.paths = PathLayout(tmp_path)
+    agent_manager._device_service = None
+    agent_manager._prepare_stream_request.side_effect = lambda aid, request: request
     agent_manager.get_row.side_effect = lambda aid: AgentRepo(db).get(aid)
 
     from octop.infra.gateway.gateway import Gateway
@@ -96,7 +115,7 @@ def test_compose_followup_uses_peer_display_name(processor_env: dict) -> None:
 
 def test_compose_followup_team_host_asks_for_wrapup(processor_env: dict) -> None:
     processor = processor_env["processor"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     msg = InboxMessage(
         id="job-2",
         target_agent_id="child",
@@ -116,7 +135,7 @@ def test_compose_followup_truncates_long_member_result(processor_env: dict) -> N
     from octop.infra.agents.teams.team_manager import _FOLLOWUP_RESULT_MAX_CHARS
 
     processor = processor_env["processor"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     msg = InboxMessage(
         id="job-3",
         target_agent_id="child",
@@ -135,7 +154,7 @@ def test_compose_followup_truncates_long_member_result(processor_env: dict) -> N
 
 def test_compose_followup_empty_result_placeholder(processor_env: dict) -> None:
     processor = processor_env["processor"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     msg = InboxMessage(
         id="job-4",
         target_agent_id="child",
@@ -212,7 +231,7 @@ async def test_on_reply_team_host_pushes_wrapup_live(processor_env: dict) -> Non
     processor = processor_env["processor"]
     gateway = processor_env["gateway"]
     parent_sk = processor_env["parent_sk"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     frames: list[dict[str, object]] = []
 
     async def capture(frame: dict[str, object]) -> None:
@@ -245,7 +264,7 @@ async def test_on_reply_team_host_pushes_wrapup_live(processor_env: dict) -> Non
 async def test_on_reply_publishes_wrapup_without_session_key(processor_env: dict) -> None:
     processor = processor_env["processor"]
     gateway = processor_env["gateway"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     frames: list[dict[str, object]] = []
 
     async def capture(frame: dict[str, object]) -> None:
@@ -279,7 +298,7 @@ async def test_on_reply_skips_snapshot_after_live_host_wrapup(
     processor = processor_env["processor"]
     gateway = processor_env["gateway"]
     parent_sk = processor_env["parent_sk"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     processor.teams._live_host_replies.add("thr_parent")
     frames: list[dict[str, object]] = []
 
@@ -315,7 +334,7 @@ async def test_stream_host_followup_marks_live_and_persists(
 
     processor = processor_env["processor"]
     gateway = processor_env["gateway"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     frames: list[dict[str, object]] = []
 
     async def capture(frame: dict[str, object]) -> None:
@@ -368,7 +387,7 @@ async def test_stream_host_followup_waits_for_dispatch_turn(
 
     processor = processor_env["processor"]
     gateway = processor_env["gateway"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     processor._agent_manager.is_agent_active = MagicMock(return_value=False)
     started = asyncio.Event()
 
@@ -400,7 +419,7 @@ async def test_stream_host_followup_unwatched_does_not_skip_snapshot(
     from octop_harness.request import ChatRequest
 
     processor = processor_env["processor"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
 
     async def fake_stream(_agent_id: str, _request: dict[str, object]) -> object:
         yield {"type": "token", "content": "可以收工。"}
@@ -432,7 +451,7 @@ async def test_stream_host_followup_pushes_wrapup_when_no_tokens(
 
     processor = processor_env["processor"]
     gateway = processor_env["gateway"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     frames: list[dict[str, object]] = []
 
     async def capture(frame: dict[str, object]) -> None:
@@ -470,10 +489,9 @@ async def test_stream_host_followup_pushes_wrapup_when_no_tokens(
 @pytest.mark.asyncio
 async def test_record_peer_turn_persists_room_user_question(processor_env: dict) -> None:
     from langchain_core.messages import AIMessage, HumanMessage
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     repo = MagicMock()
     repo.append_if_ready = MagicMock(return_value=1)
     repo.projection_status = MagicMock(return_value="pending")
@@ -485,7 +503,7 @@ async def test_record_peer_turn_persists_room_user_question(processor_env: dict)
     )
 
     await processor.record_peer_turn(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -520,7 +538,6 @@ async def test_record_peer_turn_persists_room_user_question(processor_env: dict)
 @pytest.mark.asyncio
 async def test_record_peer_turn_keeps_sync_ask_agent_message(processor_env: dict) -> None:
     from langchain_core.messages import AIMessage, HumanMessage
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
     repo = MagicMock()
@@ -534,7 +551,7 @@ async def test_record_peer_turn_keeps_sync_ask_agent_message(processor_env: dict
     )
 
     await processor.record_peer_turn(
-        PeerCall(
+        _peer_call(
             from_agent_id="parent",
             to_agent_id="child",
             user_id=1,
@@ -574,12 +591,11 @@ async def test_ensure_projection_leaves_pending_threads_with_history(
 async def test_prepare_peer_session_creates_callee_thread_without_rebind(
     processor_env: dict,
 ) -> None:
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
     parent_sk = processor_env["parent_sk"]
     prepared = await processor.prepare_peer_session(
-        PeerCall(
+        _peer_call(
             from_agent_id="parent",
             to_agent_id="child",
             user_id=1,
@@ -589,10 +605,10 @@ async def test_prepare_peer_session_creates_callee_thread_without_rebind(
         )
     )
     assert prepared is not None
-    assert prepared.thread_id == "thr_parent~child"
-    assert prepared.session_key == "child:dashboard:1:peer:thr_parent"
+    assert prepared.thread_id == "thr_parent~child:dispatch"
+    assert prepared.session_key == "child:dashboard:1:peer:thr_parent:dispatch"
     registry = processor_env["gateway"].thread_registry
-    row = registry.get_thread("thr_parent~child")
+    row = registry.get_thread("thr_parent~child:dispatch")
     assert row is not None
     assert row.agent_id == "child"
     assert registry.get_bound_thread_id(str(parent_sk)) == "thr_parent"
@@ -601,11 +617,10 @@ async def test_prepare_peer_session_creates_callee_thread_without_rebind(
 @pytest.mark.asyncio
 async def test_prepare_team_peer_seeds_host_assignment(processor_env: dict) -> None:
     from langchain_core.messages import HumanMessage
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
     parent_sk = processor_env["parent_sk"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     processor._agent_manager.teams.member_ids.return_value = ["child"]
     repo = MagicMock()
     repo.append_if_ready = MagicMock(return_value=1)
@@ -618,7 +633,7 @@ async def test_prepare_team_peer_seeds_host_assignment(processor_env: dict) -> N
     )
 
     await processor.prepare_peer_session(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -628,7 +643,7 @@ async def test_prepare_team_peer_seeds_host_assignment(processor_env: dict) -> N
         )
     )
 
-    repo.mark_projection.assert_called_with("thr_parent~child", "ready")
+    repo.mark_projection.assert_called_with("thr_parent~child:dispatch", "ready")
     seeded = repo.append_if_ready.call_args.args[1]
     assert seeded[0].role in {"human", "user"}
     assert "请给出睡眠建议" in seeded[0].message_json
@@ -639,14 +654,13 @@ async def test_prepare_team_peer_seeds_host_assignment(processor_env: dict) -> N
 
 @pytest.mark.asyncio
 async def test_prepare_team_peer_uses_isolated_session_key(processor_env: dict) -> None:
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
     parent_sk = processor_env["parent_sk"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     processor._agent_manager.teams.member_ids.return_value = ["child"]
     prepared = await processor.prepare_peer_session(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -657,7 +671,7 @@ async def test_prepare_team_peer_uses_isolated_session_key(processor_env: dict) 
         )
     )
     assert prepared is not None
-    assert prepared.session_key == "child:dashboard:1:team:thr_parent"
+    assert prepared.session_key == "child:dashboard:1:team:thr_parent:job-1"
     registry = processor_env["gateway"].thread_registry
     child_dm = registry.dashboard_key(agent_id="child", user_id=1)
     assert registry.get_bound_thread_id(child_dm) is None
@@ -667,11 +681,10 @@ async def test_prepare_team_peer_uses_isolated_session_key(processor_env: dict) 
 @pytest.mark.asyncio
 async def test_prepare_followup_seeds_new_user_question(processor_env: dict) -> None:
     from langchain_core.messages import HumanMessage
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
     parent_sk = processor_env["parent_sk"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     processor._agent_manager.teams.member_ids.return_value = ["child"]
     repo = MagicMock()
     repo.append_if_ready = MagicMock(return_value=1)
@@ -688,7 +701,7 @@ async def test_prepare_followup_seeds_new_user_question(processor_env: dict) -> 
     )
 
     first = await processor.prepare_peer_session(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -699,7 +712,7 @@ async def test_prepare_followup_seeds_new_user_question(processor_env: dict) -> 
         )
     )
     second = await processor.prepare_peer_session(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -712,8 +725,8 @@ async def test_prepare_followup_seeds_new_user_question(processor_env: dict) -> 
     assert first is not None and second is not None
     seeded = [call.args[1][0] for call in repo.append_if_ready.call_args_list]
     assert [item.message_id for item in seeded] == [
-        "team-peer:thr_parent~child:job-1:human",
-        "team-peer:thr_parent~child:job-2:human",
+        "team-peer:thr_parent~child:job-1:job-1:human",
+        "team-peer:thr_parent~child:job-2:job-2:human",
     ]
     assert all("继续睡眠建议" in item.message_json for item in seeded)
     assert all("请改成早睡建议" not in item.message_json for item in seeded)
@@ -724,18 +737,17 @@ async def test_prepare_followup_seeds_new_user_question(processor_env: dict) -> 
 async def test_prepare_team_dispatch_tracks_job_and_forces_sync(
     processor_env: dict,
 ) -> None:
-    from octop_harness.teams.util import PeerCall
 
     from octop.infra.agents.teams import TeamJobTracker
 
     processor = processor_env["processor"]
     parent_sk = processor_env["parent_sk"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     jobs = TeamJobTracker()
     processor._agent_manager._team_jobs = jobs
     processor._agent_manager.teams.member_ids.return_value = ["child", "other"]
     prepared = await processor.prepare_peer_session(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -748,7 +760,7 @@ async def test_prepare_team_dispatch_tracks_job_and_forces_sync(
     assert prepared is not None
     extra = getattr(prepared, "configurable", None)
     if extra is not None:
-        assert extra == {
+        assert {key: extra[key] for key in ("peer_invoke_mode", "team_peers")} == {
             "peer_invoke_mode": "sync",
             "team_peers": ["other"],
         }
@@ -759,11 +771,10 @@ async def test_prepare_team_dispatch_includes_room_history(
     processor_env: dict,
 ) -> None:
     from langchain_core.messages import AIMessage, HumanMessage
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
     parent_sk = processor_env["parent_sk"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     processor._agent_manager.teams.member_ids.return_value = ["child", "other"]
     harness = MagicMock()
     harness.aget_history = AsyncMock(
@@ -774,7 +785,7 @@ async def test_prepare_team_dispatch_includes_room_history(
     )
     processor._agent_manager.get_agent.return_value = harness
     prepared = await processor.prepare_peer_session(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -785,14 +796,14 @@ async def test_prepare_team_dispatch_includes_room_history(
     )
     assert prepared is not None
     assert getattr(prepared, "message", None) == "survey market"
-    pair = processor.teams.peek_peer_prompt("child", "thr_parent~child")
+    pair = processor.teams.peek_peer_prompt("child", "thr_parent~child:dispatch")
     assert pair is not None
     question, dispatch = pair
     assert question == "survey market"
     assert "what is the market?" in dispatch
     assert "I will ask Researcher" in dispatch
     assert "Team assignment" in dispatch or "团队派工" in dispatch
-    taken = processor.teams.take_peer_prompt("child", "thr_parent~child")
+    taken = processor.teams.take_peer_prompt("child", "thr_parent~child:dispatch")
     assert taken == pair
     assert harness.aget_history.await_count >= 1
 
@@ -804,10 +815,9 @@ async def test_prepare_team_dispatch_uses_projected_member_speech(
     import json
 
     from langchain_core.messages import AIMessage, HumanMessage
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     processor._agent_repo.create(agent_id="other", user_id=1, name="Analyst")
     processor._agent_manager.teams.member_ids.return_value = ["child", "other"]
     harness = MagicMock()
@@ -841,7 +851,7 @@ async def test_prepare_team_dispatch_uses_projected_member_speech(
     processor.replace_thread_message_repo(repo)
 
     prepared = await processor.prepare_peer_session(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="other",
             user_id=1,
@@ -851,7 +861,7 @@ async def test_prepare_team_dispatch_uses_projected_member_speech(
         )
     )
     assert prepared is not None
-    pair = processor.teams.peek_peer_prompt("other", "thr_parent~other")
+    pair = processor.teams.peek_peer_prompt("other", "thr_parent~other:dispatch")
     assert pair is not None
     question, dispatch = pair
     assert question == "size the TAM"
@@ -863,7 +873,7 @@ async def test_prepare_team_dispatch_uses_projected_member_speech(
 
 def test_stamp_team_host_runtime_forces_async(processor_env: dict) -> None:
     processor = processor_env["processor"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     processor._agent_manager.strip_team_host_runtime_tools = MagicMock()
     request: dict[str, object] = {
         "configurable": {"session_key": "sk", "mcp_use_default": True},
@@ -1053,16 +1063,15 @@ async def test_fan_in_persists_member_turn_without_dispatch_prompt(
     processor_env: dict,
 ) -> None:
     from langchain_core.messages import AIMessage, HumanMessage
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     repo = MagicMock()
     repo.append_if_ready = MagicMock(return_value=1)
     processor.replace_thread_message_repo(repo)
 
     await processor.teams.fan_in_peer_turn(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -1094,16 +1103,15 @@ async def test_fan_in_stamps_edited_files_on_room_history(
     processor_env: dict,
 ) -> None:
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     repo = MagicMock()
     repo.append_if_ready = MagicMock(return_value=1)
     processor.replace_thread_message_repo(repo)
 
     await processor.teams.fan_in_peer_turn(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -1165,10 +1173,9 @@ async def test_record_peer_turn_keeps_tool_trail_on_member_page(
     processor_env: dict,
 ) -> None:
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     repo = MagicMock()
     repo.append_if_ready = MagicMock(return_value=1)
     repo.projection_status = MagicMock(return_value="pending")
@@ -1180,7 +1187,7 @@ async def test_record_peer_turn_keeps_tool_trail_on_member_page(
     )
 
     await processor.record_peer_turn(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -1235,19 +1242,18 @@ async def test_fan_in_truncates_large_tool_results(
     processor_env: dict,
 ) -> None:
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-    from octop_harness.teams.util import PeerCall
 
     from octop.infra.agents.teams.team_manager import _HISTORY_TOOL_RESULT_MAX_CHARS
 
     processor = processor_env["processor"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     repo = MagicMock()
     repo.append_if_ready = MagicMock(return_value=1)
     processor.replace_thread_message_repo(repo)
     huge = "x" * (_HISTORY_TOOL_RESULT_MAX_CHARS + 500)
 
     await processor.teams.fan_in_peer_turn(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -1281,16 +1287,15 @@ async def test_fan_in_stamps_edited_files_when_final_text_missing(
     processor_env: dict,
 ) -> None:
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     repo = MagicMock()
     repo.append_if_ready = MagicMock(return_value=1)
     processor.replace_thread_message_repo(repo)
 
     await processor.teams.fan_in_peer_turn(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -1326,11 +1331,10 @@ async def test_fan_in_stamps_edited_files_when_final_text_missing(
 @pytest.mark.asyncio
 async def test_fan_in_skips_snapshot_after_live_stream(processor_env: dict) -> None:
     from langchain_core.messages import AIMessage
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
     gateway = processor_env["gateway"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     frames: list[dict[str, object]] = []
 
     async def capture(frame: dict[str, object]) -> None:
@@ -1340,7 +1344,7 @@ async def test_fan_in_skips_snapshot_after_live_stream(processor_env: dict) -> N
     gateway.ws_hub.subscribe("thr_parent", "conn-room")
 
     await processor.teams.fan_in_peer_turn(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -1358,11 +1362,10 @@ async def test_fan_in_skips_snapshot_after_live_stream(processor_env: dict) -> N
 @pytest.mark.asyncio
 async def test_fan_in_pushes_snapshot_when_not_live(processor_env: dict) -> None:
     from langchain_core.messages import AIMessage
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
     gateway = processor_env["gateway"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     frames: list[dict[str, object]] = []
 
     async def capture(frame: dict[str, object]) -> None:
@@ -1372,7 +1375,7 @@ async def test_fan_in_pushes_snapshot_when_not_live(processor_env: dict) -> None
     gateway.ws_hub.subscribe("thr_parent", "conn-gap")
 
     await processor.teams.fan_in_peer_turn(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -1420,11 +1423,10 @@ def _bind_im_session(processor_env: dict, *, thread_id: str = "thr_parent") -> s
 async def test_prepare_team_peer_pushes_dispatch_notice_to_im(
     processor_env: dict,
 ) -> None:
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
     gateway = processor_env["gateway"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     processor._agent_manager.teams.member_ids.return_value = ["child"]
     _bind_im_session(processor_env)
     pushed: list[str] = []
@@ -1435,7 +1437,7 @@ async def test_prepare_team_peer_pushes_dispatch_notice_to_im(
     gateway.push_text = capture_push  # type: ignore[method-assign]
 
     await processor.prepare_peer_session(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -1453,11 +1455,10 @@ async def test_prepare_team_peer_pushes_dispatch_notice_to_im(
 @pytest.mark.asyncio
 async def test_fan_in_pushes_member_speech_to_im_channel(processor_env: dict) -> None:
     from langchain_core.messages import AIMessage
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
     gateway = processor_env["gateway"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     _bind_im_session(processor_env)
     pushed: list[tuple[str, str, str]] = []
 
@@ -1467,7 +1468,7 @@ async def test_fan_in_pushes_member_speech_to_im_channel(processor_env: dict) ->
     gateway.push_text = capture_push  # type: ignore[method-assign]
 
     await processor.teams.fan_in_peer_turn(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -1484,11 +1485,10 @@ async def test_fan_in_pushes_member_speech_to_im_channel(processor_env: dict) ->
 @pytest.mark.asyncio
 async def test_fan_in_skips_dashboard_when_pushing_channels(processor_env: dict) -> None:
     from langchain_core.messages import AIMessage
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
     gateway = processor_env["gateway"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     pushed: list[str] = []
 
     async def capture_push(channel_type: str, channel_id: str, subject: object, text: str) -> None:
@@ -1497,7 +1497,7 @@ async def test_fan_in_skips_dashboard_when_pushing_channels(processor_env: dict)
     gateway.push_text = capture_push  # type: ignore[method-assign]
 
     await processor.teams.fan_in_peer_turn(
-        PeerCall(
+        _peer_call(
             from_agent_id="host",
             to_agent_id="child",
             user_id=1,
@@ -1515,7 +1515,7 @@ async def test_fan_in_skips_dashboard_when_pushing_channels(processor_env: dict)
 async def test_on_reply_live_wrapup_still_pushes_im(processor_env: dict) -> None:
     processor = processor_env["processor"]
     gateway = processor_env["gateway"]
-    processor._agent_repo.create(agent_id="host", user_id=1, name="Host", kind="team")
+    _create_room_host(processor)
     processor.teams._live_host_replies.add("thr_parent")
     _bind_im_session(processor_env)
     pushed: list[str] = []
@@ -1544,7 +1544,6 @@ async def test_on_reply_live_wrapup_still_pushes_im(processor_env: dict) -> None
 @pytest.mark.asyncio
 async def test_fan_in_async_non_team_writes_caller_room(processor_env: dict) -> None:
     from langchain_core.messages import AIMessage
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
     repo = MagicMock()
@@ -1552,7 +1551,7 @@ async def test_fan_in_async_non_team_writes_caller_room(processor_env: dict) -> 
     processor.replace_thread_message_repo(repo)
 
     await processor.teams.fan_in_peer_turn(
-        PeerCall(
+        _peer_call(
             from_agent_id="parent",
             to_agent_id="child",
             user_id=1,
@@ -1573,7 +1572,6 @@ async def test_fan_in_async_non_team_writes_caller_room(processor_env: dict) -> 
 @pytest.mark.asyncio
 async def test_fan_in_sync_non_team_skips_caller_room(processor_env: dict) -> None:
     from langchain_core.messages import AIMessage
-    from octop_harness.teams.util import PeerCall
 
     processor = processor_env["processor"]
     repo = MagicMock()
@@ -1581,7 +1579,7 @@ async def test_fan_in_sync_non_team_skips_caller_room(processor_env: dict) -> No
     processor.replace_thread_message_repo(repo)
 
     await processor.teams.fan_in_peer_turn(
-        PeerCall(
+        _peer_call(
             from_agent_id="parent",
             to_agent_id="child",
             user_id=1,

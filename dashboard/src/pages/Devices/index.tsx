@@ -1017,7 +1017,9 @@ export default function DevicesPage() {
             device={detailsDevice}
             onDeviceUpdated={(next) => {
               setDevices((prev) =>
-                prev.map((d) => (d.device_id === next.device_id ? { ...d, ...next } : d)),
+                prev.map((d) =>
+                  d.device_id === next.device_id ? { ...d, ...next } : d,
+                ),
               );
             }}
           />
