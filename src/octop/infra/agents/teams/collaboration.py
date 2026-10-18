@@ -34,12 +34,15 @@ class CollaborationService:
         self.repo = self.repos.collaboration_repo
         self.resources = ResourceService(manager)
 
-    def public(self, invocation: dict[str, Any]) -> dict[str, Any]:
-        return {
+    def public(self, invocation: dict[str, Any], owner: int | None = None) -> dict[str, Any]:
+        result = {
             key: value
             for key, value in invocation.items()
             if key
             not in {
+                "pending_task_result",
+                "ready_task_result",
+                "task_result",
                 "scope_thread_id",
                 "bound_configurable",
                 "parent_configurable",
@@ -52,6 +55,22 @@ class CollaborationService:
                 "source_session_key",
             }
         }
+
+        report = invocation.get("task_result")
+        if report:
+            result["task_result"] = {
+                key: report[key] for key in ("summary", "provenance", "resources", "reply")
+            }
+        if owner is not None and invocation["transport_status"] == "completed":
+            from octop.infra.agents.teams.task_results import final_reply
+
+            result["reply_received"] = (
+                final_reply(self.manager, owner, invocation, invocation.get("history_end", 0))
+                is not None
+            )
+        else:
+            result["reply_received"] = False
+        return result
 
     def accept(self, call: Any) -> dict[str, Any]:
         owner = int(call.user_id)
@@ -280,7 +299,21 @@ class CollaborationService:
         # Missing target metadata from a later receipt cannot erase resolved identity.
         if payload.get("resolved_target") is None:
             payload.pop("resolved_target", None)
+        # Transport completion never proves the task's business outcome.
+        payload["task_outcome"] = "unknown"
+        ready = invocation.get("ready_task_result")
+        if status == "completed" and ready and not invocation.get("cancel_requested"):
+            from octop.infra.agents.teams.task_results import final_reply
+
+            reply = final_reply(self.manager, int(call.user_id), invocation, ready["history_end"])
+            if reply == ready["reply"]:
+                payload["task_outcome"] = ready["outcome"]
+                payload["task_result"] = ready
         updated = {**invocation, **payload, "updated_at": time.time()}
+        if (
+            status in {"failed", "cancelled", "unknown"} or invocation.get("cancel_requested")
+        ) and invocation.get("pending_task_result"):
+            updated["task_result_reason"] = "TASK_RESULT_UNCONFIRMED"
         if status == "completed" and invocation.get("cancel_requested"):
             updated["cancel_too_late"] = True
         if status in {"completed", "failed", "cancelled", "unknown"} and invocation.get(
@@ -312,8 +345,8 @@ class CollaborationService:
                 return None
             if (
                 current is not None
-                and current.get("cancel_requested")
-                and not invocation.get("cancel_requested")
+                and current["transport_status"] == invocation["transport_status"]
+                and current != invocation
             ):
                 return await self.lifecycle(call, receipt)
             if current is None or current["transport_status"] != status:
@@ -488,7 +521,7 @@ class CollaborationService:
         )
         # Child-published versions keep their source identity but share the root scope.
         return {
-            "invocations": [self.public(item) for item in invocations],
+            "invocations": [self.public(item, owner) for item in invocations],
             "events": page,
             "artifacts": [self.resources.public(item, agent, thread) for item in artifacts],
             "next_cursor": page[-1]["seq"] if page else after,
@@ -538,7 +571,7 @@ class CollaborationService:
         else:
             more = False
         return {
-            "invocation": self.public(item),
+            "invocation": self.public(item, owner),
             "messages": list(reversed(messages)),
             "has_more": more,
             "next_before": rows[limit - 1].seq if child and more else None,

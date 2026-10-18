@@ -10,6 +10,7 @@ import {
   Pin,
   PinOff,
   GitFork,
+  Share2,
   ChevronRight,
   MessageSquarePlus,
 } from "lucide-react";
@@ -147,6 +148,7 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
       ? [
           {
             key: "share",
+            icon: <Share2 size={14} />,
             label: t("chatShare.title"),
             onClick: ({
               domEvent,

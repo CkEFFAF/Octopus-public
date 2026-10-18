@@ -235,6 +235,16 @@ async def test_native_publish_then_delivery_requires_checksum_and_ack(
     events = rig.collaboration.listing(rig.owner, "parent", "root", 0, 100)["events"]
     assert [event["event_type"] for event in events].count("resource.delivered") == 1
     assert events[-1]["event_type"] == "resource.delivery_failed"
+    mismatch = False
+    retried = await rig.resources.deliver(
+        rig.owner, "parent", "root", resource["resource_id"], "ctx", "/retried.md"
+    )
+    assert retried["status"] == "completed"
+    page = rig.collaboration.listing(rig.owner, "parent", "root", 0, 100)
+    assert page["artifacts"][0]["delivery_status"] == "completed"
+    assert "error_code" not in page["artifacts"][0]
+    assert page["events"][-1]["event_type"] == "resource.delivered"
+    assert "error_code" not in page["events"][-1]["payload"]
 
 
 def test_schema_upgrade_current_and_already_applied_is_monotonic(rig: Any) -> None:
@@ -264,6 +274,8 @@ async def test_manager_assembled_read_attachment_available_without_device(
     config = manager._build_harness_config(row)
     tools = {tool.name: tool for tool in config.tools}
     assert "read_attachment" in tools
+    assert "report_task_result" in tools
+    assert set(tools["report_task_result"].args) == {"outcome", "summary", "resource_ids"}
     assert "read_group_attachment" not in tools
     token = var_child_runnable_config.set(
         {"configurable": {"user": rig.owner, "thread_id": "root"}}
@@ -670,3 +682,82 @@ async def test_registration_honors_configured_resource_cap(rig: Any) -> None:
         )
     assert captured.value.code == ErrorCode.ATTACHMENT_TOO_LARGE
     assert rig.collaboration.listing(rig.owner, "parent", "root", 0, 100)["artifacts"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("conflict", ["running", "start", "terminal"])
+async def test_delivery_conflicts_do_not_report_completed_or_repeat_target_writes(
+    rig: Any, monkeypatch: Any, conflict: str
+) -> None:
+    resource = await rig.resources.register(rig.owner, "parent", "inbound/paper.txt", thread="root")
+    context = SimpleNamespace(
+        agent_id="parent", thread_id="root", device_id="gpu", target_kind="device"
+    )
+    actions: list[str] = []
+    payload = await rig.resources.bytes(rig.owner, resource)
+
+    async def execute(
+        owner: int, context_id: str, action: str, params: dict[str, Any], **_: Any
+    ) -> dict[str, Any]:
+        actions.append(action)
+        result: dict[str, Any] = {}
+        if action == "fs.upload.begin":
+            result = {"transfer_id": "upload"}
+        elif action == "fs.upload.chunk":
+            result = {"bytes_done": len(payload)}
+        elif action == "fs.upload.commit":
+            result = {"status": "completed", "size": len(payload), "sha256": resource["version"]}
+        return {"result": result}
+
+    monkeypatch.setattr(
+        "octop.infra.execution.service.ExecutionService",
+        lambda _: SimpleNamespace(get=lambda *a: context, call=execute),
+    )
+    original_save = rig.resources.repo.save
+    if conflict == "running":
+        assert original_save(
+            "collaboration_resources",
+            rig.owner,
+            resource["resource_id"],
+            "root",
+            {**resource, "delivery_status": "running", "delivery_attempt_id": "other"},
+            "resource.delivery_started",
+            event_id="other-start",
+            resource_id=resource["resource_id"],
+            previous=resource,
+        )
+    else:
+
+        def save(*args: Any, **kwargs: Any) -> bool:
+            if args[5] == (
+                "resource.delivery_started" if conflict == "start" else "resource.delivered"
+            ):
+                return False
+            return original_save(*args, **kwargs)
+
+        monkeypatch.setattr(rig.resources.repo, "save", save)
+
+    code = (
+        "RESOURCE_DELIVERY_RECEIPT_CONFLICT"
+        if conflict == "terminal"
+        else "RESOURCE_DELIVERY_CONFLICT"
+    )
+    with pytest.raises(ValueError, match=code):
+        await rig.resources.deliver(
+            rig.owner, "parent", "root", resource["resource_id"], "ctx", "/report.txt"
+        )
+    if conflict == "terminal":
+        assert actions.count("fs.upload.commit") == 1
+        assert (
+            rig.resources.repo.get("collaboration_resources", rig.owner, resource["resource_id"])[
+                "delivery_status"
+            ]
+            == "running"
+        )
+    else:
+        assert actions == []
+    events = rig.collaboration.listing(rig.owner, "parent", "root", 0, 100)["events"]
+    assert not any(
+        event["event_type"] in {"resource.delivered", "resource.delivery_failed"}
+        for event in events
+    )

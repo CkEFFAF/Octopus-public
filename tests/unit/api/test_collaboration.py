@@ -273,3 +273,41 @@ async def test_large_binary_upload_resource_downloads_but_parser_has_separate_li
             and read["code"] == "DOCUMENT_LIMIT"
             and read["retryable"] is False
         )
+
+
+@pytest.mark.asyncio
+async def test_parent_listing_survives_deleted_historical_child_without_claiming_reply(rig):
+    from octop_harness.teams import DispatchReceipt
+
+    peer = call(rig)
+    rig.collaboration.accept(peer)
+    rig.collaboration.bind(peer, "child-thread", {})
+    rig.repos.thread_message_repo.append_if_ready(
+        "child-thread", message_inputs([AIMessage(content="Public reply", id="historical-final")])
+    )
+    await rig.collaboration.lifecycle(
+        peer, DispatchReceipt(invocation_id="inv-1", transport_status="running")
+    )
+    await rig.collaboration.lifecycle(
+        peer, DispatchReceipt(invocation_id="inv-1", transport_status="completed")
+    )
+    with rig.repos.db.transaction() as conn:
+        conn.execute("DELETE FROM threads WHERE thread_id=?", ("child-thread",))
+    app = FastAPI()
+    _install_exception_handlers(app)
+    app.include_router(router, prefix="/api")
+    app.dependency_overrides[get_server] = lambda: SimpleNamespace(
+        app_runtime=SimpleNamespace(agent_registry=rig.manager)
+    )
+    app.dependency_overrides[current_user] = lambda: SimpleNamespace(id=rig.owner)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/agents/parent/threads/root/collaboration")
+        assert response.status_code == 200, response.text
+        invocation = response.json()["invocations"][0]
+        assert invocation["reply_received"] is False
+        assert invocation["transport_status"] == "completed"
+        assert invocation["task_outcome"] == "unknown"
+        app.dependency_overrides[current_user] = lambda: SimpleNamespace(id=rig.outsider)
+        assert (
+            await client.get("/api/agents/parent/threads/root/collaboration")
+        ).status_code == 403

@@ -53,12 +53,16 @@ def build_resource_tools(manager: Any, agent_id: str) -> list[StructuredTool]:
         )
         if isinstance(exc, OctopError) and exc.code == ErrorCode.ATTACHMENT_TOO_LARGE:
             code = exc.code.value
+        message_key = {
+            "RESOURCE_DELIVERY_CONFLICT": "resources.deliveryConflict",
+            "RESOURCE_DELIVERY_RECEIPT_CONFLICT": "resources.deliveryReceiptConflict",
+        }.get(code, "resources.unavailable")
         return json.dumps(
             {
                 "status": "error",
                 "code": code,
                 "retryable": False,
-                "error": tr("resources.unavailable", str(cfg.get("language") or "en")),
+                "error": tr(message_key, str(cfg.get("language") or "en")),
             },
             ensure_ascii=False,
         )

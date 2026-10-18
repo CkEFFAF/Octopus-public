@@ -20,6 +20,7 @@ import {
   MessageSquarePlus,
   Search,
   GitFork,
+  Share2,
   Eye,
   EyeOff,
 } from "lucide-react";
@@ -109,6 +110,7 @@ const SessionItem = memo(function SessionItem({
       ? [
           {
             key: "share",
+            icon: <Share2 size={14} />,
             label: t("chatShare.title"),
             onClick: ({
               domEvent,

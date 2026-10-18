@@ -1,9 +1,9 @@
 {
   "purpose": "User-authorized private cloud rollout artifact; no public package release",
-  "contract": "0031@2026-10-18.4 + 0032@2026-10-18.1",
-  "source_baseline": "2ac4d602f931c985dae3cf4bc36a72b9c7104fbd",
-  "wheel": "octop_harness-1.0.2.post3-py3-none-any.whl",
-  "wheel_sha256": "461d67c7562650f4859ca26893c83d1376c2895e26867f7d209c0249683a7861",
+  "contract": "0031@2026-10-18.4 + task-results@2026-10-18.2 + 0032@2026-10-18.1",
+  "source_baseline": "6636ce2c4fed85c92f37da66459a218ddf158aef",
+  "wheel": "octop_harness-1.0.2.post3+taskresults.1-py3-none-any.whl",
+  "wheel_sha256": "5f96288e6617abb5e7d8ffeea61b39674e61186a81a30a82830737accbb9c227",
   "source_match_count": 369,
   "files": {
     "octop_harness/__init__.py": "956d9c8a7c0deb28ce5f8d21b839da0200147fa36803ef3859b785758ae1ad21",
@@ -372,9 +372,17 @@
     "octop_harness/teams/inbox.py": "d6812d8ea5176c3d99501c57942882f77418b60ac74199d703d8b462f105f8e1",
     "octop_harness/teams/processor.py": "6a130df85941cf318ac9b54b66ab830513f5083c57749f4347ae2448900439bc",
     "octop_harness/teams/profile.py": "ce478de9bef6dbe8cac2e8d5081fbf315c95a367dc94f235c6b712f42d31722f",
-    "octop_harness/teams/team_manager.py": "bee2ef2f1e716e3ccba300780d88dcd155b7e0f3ccc43607cd6467c827c38fae",
+    "octop_harness/teams/team_manager.py": "9fc9d3bfd320282678770f5eb1f8c7cf583780a922f5a1ca51afabf3f6b3ddc0",
     "octop_harness/teams/tools.py": "7f6ce656c78424fa00a583bc76cda4b414bf496831ab49a8de9b3dfc1515319a",
     "octop_harness/teams/util.py": "46d6d2d03ec77aa00db9bb78a493a6ede65fd2af7f25b7d218106c6bb79de88f"
   },
-  "source_commit": "6636ce2"
+  "source_commit": "6636ce2c4fed85c92f37da66459a218ddf158aef",
+  "previous_wheel": {
+    "wheel": "octop_harness-1.0.2.post3-py3-none-any.whl",
+    "wheel_sha256": "461d67c7562650f4859ca26893c83d1376c2895e26867f7d209c0249683a7861",
+    "source_commit": "6636ce2",
+    "source_baseline": "2ac4d602f931c985dae3cf4bc36a72b9c7104fbd"
+  },
+  "source_patch": "task-results.patch",
+  "source_patch_sha256": "ea08a50a3473feef7e0de5417a566f878a72645b27f8f120b515f1ab4ac61d54"
 }

@@ -202,6 +202,7 @@ class TeamManager:
             root_run_id=invocation["root_run_id"],
         )
         assignment = question or dispatch_message or str(call.message or "")
+        assignment += "\n" + tr("taskResults.guidance", self._locale_for(uid))
         if invocation["resource_ids"]:
             assignment += "\n" + tr(
                 "resources.granted_hint",
@@ -223,6 +224,8 @@ class TeamManager:
         result: dict[str, Any],
     ) -> None:
         """Write the callee page, then copy the final answer onto the room if async."""
+        # Untrusted child metadata cannot survive an early hook failure.
+        result.pop("dispatch_receipt", None)
         try:
             if not thread_id:
                 return
@@ -261,6 +264,9 @@ class TeamManager:
                     thread_id,
                     exc_info=True,
                 )
+            from octop.infra.agents.teams.task_results import TaskResultService
+
+            TaskResultService(self._agent_manager).prepare_result(call, thread_id, result)
             await self.fan_in_peer_turn(
                 call,
                 messages if isinstance(messages, list) else [],

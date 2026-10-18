@@ -50,3 +50,290 @@
 .link {
   width: 100%;
 }
+
+.managementPage {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px;
+  color: var(--fn-text-primary);
+
+  h1 {
+    margin: 0 0 8px;
+    font-size: 24px;
+    line-height: 1.3;
+  }
+
+  > .hint {
+    margin: 0 0 20px;
+    line-height: 1.6;
+  }
+}
+
+.dialog {
+  top: 24px;
+  padding-bottom: 24px;
+
+  :global(.ant-modal-content) {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100dvh - 48px);
+  }
+
+  :global(.ant-modal-header) {
+    flex-shrink: 0;
+    margin-bottom: 16px;
+  }
+
+  :global(.ant-modal-body) {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 4px;
+  }
+
+  :global(.ant-modal-footer) {
+    flex-shrink: 0;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--fn-border-primary, #e5e7eb);
+  }
+}
+
+.notice {
+  padding: 12px 14px;
+  margin-bottom: 20px;
+  border: 1px solid var(--fn-border-primary, #e5e7eb);
+  border-radius: 10px;
+  background: var(--fn-bg-secondary, #f8fafc);
+  font-size: 13px;
+  line-height: 1.65;
+
+  p {
+    margin: 0;
+  }
+
+  .reviewWarning {
+    margin-top: 6px;
+    font-weight: 500;
+  }
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+
+  h3 {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    font-weight: 600;
+  }
+}
+
+.summary {
+  padding: 0 2px;
+  overflow-wrap: anywhere;
+
+  > strong {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 15px;
+  }
+}
+
+.metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  color: var(--fn-text-secondary, #666);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.dialog .preview {
+  max-height: 32vh;
+  min-width: 0;
+  margin: 12px 0 20px;
+  padding: 0 16px;
+  border-color: var(--fn-border-primary, #e5e7eb);
+  background: var(--fn-bg-primary, #fff);
+  overscroll-behavior: contain;
+
+  .message {
+    margin: 0;
+    padding: 16px 0;
+    border: 0;
+    border-bottom: 1px solid var(--fn-border-primary, #e5e7eb);
+    border-radius: 0;
+    font-size: 13px;
+    line-height: 1.65;
+
+    &:last-child {
+      border-bottom: 0;
+    }
+
+    > strong {
+      margin-bottom: 8px;
+      font-size: 12px;
+      color: var(--fn-text-secondary, #666);
+    }
+
+    p {
+      margin: 0 0 10px;
+    }
+
+    pre,
+    table {
+      display: block;
+      max-width: 100%;
+      overflow-x: auto;
+    }
+
+    pre {
+      padding: 12px;
+      border-radius: 6px;
+      background: var(--fn-bg-secondary, #f8fafc);
+    }
+  }
+}
+
+.linksSection {
+  min-width: 0;
+
+  > p {
+    font-size: 13px;
+    line-height: 1.6;
+  }
+}
+
+.refreshOnly {
+  margin-left: auto;
+}
+
+.linksSection .share {
+  margin-bottom: 10px;
+  padding: 14px;
+  border: 1px solid var(--fn-border-primary, #e5e7eb);
+  border-radius: 10px;
+  background: var(--fn-bg-primary, #fff);
+}
+
+.shareHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+
+  strong {
+    min-width: 0;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  :global(.ant-tag) {
+    flex-shrink: 0;
+    margin-inline-end: 0;
+  }
+}
+
+.shareControls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+
+  .link {
+    flex: 1 1 240px;
+    width: 0;
+    min-width: 0;
+  }
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.createBar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  text-align: left;
+}
+
+.expiryField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+
+  :global(.ant-select) {
+    min-width: 150px;
+  }
+}
+
+.managementFooter {
+  margin-top: 16px;
+  font-size: 13px;
+  line-height: 1.6;
+
+  .hint {
+    margin: 0 0 8px;
+  }
+}
+
+@media (max-width: 767px) {
+  .managementPage {
+    padding: 16px 12px;
+
+    h1 {
+      font-size: 19px;
+    }
+  }
+}
+
+@media (max-width: 480px) {
+  .dialog {
+    top: 12px;
+    padding-bottom: 12px;
+
+    :global(.ant-modal-content) {
+      max-height: calc(100dvh - 24px);
+      padding: 20px 16px;
+    }
+  }
+
+  .dialog .preview {
+    padding: 0 12px;
+  }
+
+  .createBar {
+    align-items: stretch;
+
+    > .expiryField,
+    > .actions {
+      width: 100%;
+    }
+
+    > .actions {
+      justify-content: flex-end;
+    }
+  }
+
+  .shareControls .link {
+    flex-basis: 100%;
+    width: 100%;
+  }
+}

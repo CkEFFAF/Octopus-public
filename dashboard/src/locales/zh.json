@@ -2490,7 +2490,8 @@
     "task_board_schedule": "设置任务排期",
     "read_attachment": "读取附件",
     "publish_artifact": "发布成果",
-    "deliver_resource": "交付资源"
+    "deliver_resource": "交付资源",
+    "report_task_result": "报告任务结果"
   },
   "toolSettings": {
     "title": "工具设置",
@@ -7427,7 +7428,10 @@
       "snapshotUnavailable": "已发布的快照不可用或未能通过校验。",
       "deliveryFailed": "资源未能在目标端完成交付校验。",
       "unknown": "协作记录报告了一个问题，暂无更多可公开的详情。"
-    }
+    },
+    "expertReported": "专家报告的任务结果",
+    "replyReceived": "已收到公开回复",
+    "unconfirmedOutcome": "专家已回复，但任务结果尚无结构化报告确认。"
   },
   "chatShare": {
     "title": "分享会话",

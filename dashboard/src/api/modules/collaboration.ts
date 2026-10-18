@@ -28,6 +28,14 @@ export interface CollaborationInvocation {
     | "cancelled"
     | "unknown";
   task_outcome: "unknown" | "succeeded" | "blocked" | "failed" | "needs_input";
+  task_result?: {
+    summary: string;
+    provenance: "expert_reported";
+    resources: { resource_id: string; version: string }[];
+    reply: { thread_id: string; seq: number; message_id: string | null };
+  } | null;
+  reply_received?: boolean;
+  task_result_reason?: string | null;
   target_policy: string;
   requested_target: CollaborationTarget;
   resolved_target: CollaborationTarget | null;
@@ -51,6 +59,7 @@ export interface CollaborationResource {
   parse_state: string;
   publication_state: string;
   delivery_status?: "running" | "completed" | "failed" | null;
+  error_code?: string | null;
   content_url: string;
   download_url: string;
   created_at: number;

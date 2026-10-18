@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { RefreshCw, Users, Monitor, Download, Eye } from "lucide-react";
+import { Modal, Tooltip } from "antd";
+import { fileTreeIcon } from "../../../utils/fileTreeIcon";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -181,11 +184,13 @@ export default function CollaborationPanel({
   threadId,
   agentNameById,
   onOpenResource,
+  triggerClassName,
 }: {
   agentId: string;
   threadId: string;
   agentNameById?: Record<string, string>;
   onOpenResource: (resource: CollaborationResource) => void;
+  triggerClassName?: string;
 }) {
   const { t } = useTranslation();
   const { page, loading, error, refresh } = useCollaboration(agentId, threadId);
@@ -211,9 +216,6 @@ export default function CollaborationPanel({
   const detail = page.invocations.find(
     (item) => item.invocation_id === selected,
   );
-  const latest = [...page.invocations].sort(
-    (a, b) => b.created_at - a.created_at,
-  )[0];
   async function download(resource: CollaborationResource) {
     setDownloading(resource.resource_id);
     setDownloadError(false);
@@ -226,206 +228,290 @@ export default function CollaborationPanel({
     }
   }
   return (
-    <section className={styles.panel} aria-label={t("collaboration.title")}>
-      <div className={styles.row}>
-        <button
-          type="button"
-          aria-expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {t("collaboration.title")} · {page.invocations.length} ·{" "}
-          {resources.length} {t("collaboration.artifacts")}
-        </button>
-        <button type="button" disabled={loading} onClick={() => void refresh()}>
-          {t("common.refresh")}
-        </button>
-      </div>
-      {!expanded && latest && (
-        <p>
-          {name(latest.callee_agent_id)} · {t("collaboration.device")}:{" "}
-          {targetLabel(latest.resolved_target)} · {t("collaboration.transport")}
-          : {t(`collaboration.status.${latest.transport_status}`)} ·{" "}
-          {t("collaboration.outcome")}:{" "}
-          {t(`collaboration.outcomeStatus.${latest.task_outcome}`)}
-        </p>
-      )}
-      {loading && <small role="status">{t("collaboration.loading")}</small>}
-      {error && <p role="alert">{t("collaboration.loadError")}</p>}
-      {expanded && (
-        <div className={styles.content}>
-          {!loading &&
-            !error &&
-            !page.invocations.length &&
-            !resources.length && <p>{t("collaboration.empty")}</p>}
-          {page.invocations.map((item) => (
-            <div key={item.invocation_id} className={styles.card}>
-              <button
-                type="button"
-                className={styles.assignment}
-                aria-expanded={selected === item.invocation_id}
-                onClick={() =>
-                  setSelected((prev) =>
-                    prev === item.invocation_id ? null : item.invocation_id,
-                  )
-                }
-              >
-                <strong>{name(item.callee_agent_id)}</strong>
-                <span>
-                  {t("collaboration.device")}:{" "}
-                  {targetLabel(item.resolved_target)}
-                </span>
-                <span>
-                  {t("collaboration.transport")}:{" "}
-                  {t(`collaboration.status.${item.transport_status}`)}
-                </span>
-                <span>
-                  {t("collaboration.outcome")}:{" "}
-                  {t(`collaboration.outcomeStatus.${item.task_outcome}`)}
-                </span>
-              </button>
-              {item.error_code && (
-                <p
-                  role={
-                    item.transport_status === "failed" ||
-                    item.task_outcome === "failed"
-                      ? "alert"
-                      : "status"
-                  }
-                >
-                  {t(reasonKey(item.error_code))}{" "}
-                  {item.retryable && t("collaboration.retryable")}
-                </p>
-              )}
-              {selected === item.invocation_id && (
-                <>
-                  <p>
-                    {t("collaboration.requested")}:{" "}
-                    {t(`collaboration.policy.${item.target_policy}`, {
-                      defaultValue: t("collaboration.status.unknown"),
-                    })}{" "}
-                    {item.target_policy === "explicit"
-                      ? ` · ${targetLabel(item.requested_target)}`
-                      : ""}
-                  </p>
-                  {item.retry_of && (
-                    <p>
-                      {t("collaboration.retryOf")}: {item.retry_of}
-                    </p>
-                  )}
-                  <InvocationDetail
-                    key={item.invocation_id}
-                    agentId={agentId}
-                    threadId={threadId}
-                    invocation={detail ?? item}
-                  />
-                  <strong>{t("collaboration.evidence")}</strong>
-                  {page.events
-                    .filter(
-                      (event) => event.invocation_id === item.invocation_id,
-                    )
-                    .slice(-20)
-                    .map((event) => (
-                      <p key={event.event_id}>
-                        {t(
-                          `collaboration.events.${event.event_type.replace(
-                            /\./g,
-                            "_",
-                          )}`,
-                          { defaultValue: t("collaboration.eventUpdate") },
-                        )}{" "}
-                        · {formatMessageTime(event.created_at * 1000, timezone)}
-                      </p>
-                    ))}
-                </>
-              )}
-            </div>
-          ))}
-          {resources.map((resource) => {
-            const event = [...page.events]
-              .reverse()
-              .find(
-                (item) =>
-                  item.resource_id === resource.resource_id &&
-                  [
-                    "resource.delivered",
-                    "resource.delivery_failed",
-                    "resource.delivery_started",
-                  ].includes(item.event_type),
-              );
-            const delivery =
-              resource.delivery_status ??
-              (event?.event_type === "resource.delivered"
-                ? "completed"
-                : event?.event_type === "resource.delivery_failed"
-                ? "failed"
-                : event?.event_type === "resource.delivery_started"
-                ? "running"
-                : null);
-            const available = resource.publication_state === "published";
-            const resourceError =
-              "error_code" in resource ? resource.error_code : null;
-            return (
-              <div className={styles.card} key={resource.resource_id}>
-                <strong>{resource.name}</strong>
-                <p>
-                  {name(resource.source_agent_id)} · {t("collaboration.device")}
-                  :{" "}
-                  {resource.source_device_id ||
-                    (resource.source_kind === "device"
-                      ? t("collaboration.unresolved")
-                      : resource.source_kind === "local"
-                      ? t("devices.localExecution")
-                      : t("collaboration.expertStorage"))}
-                </p>
-                <p>
-                  {t("collaboration.version")}:{" "}
-                  <code className={styles.version}>{resource.version}</code> ·{" "}
-                  {resource.size.toLocaleString()} B
-                </p>
-                {!available && (
-                  <p role="status">{t("collaboration.resourceUnavailable")}</p>
-                )}
-                {(resourceError || !available) && (
-                  <p role="status">{t(reasonKey(resourceError))}</p>
-                )}
-                {delivery && (
-                  <p role={delivery === "failed" ? "alert" : "status"}>
-                    {t(`collaboration.delivery.${delivery}`)}
-                  </p>
-                )}
-                <div className={styles.row}>
-                  <button
-                    type="button"
-                    disabled={!available}
-                    onClick={() => onOpenResource(resource)}
-                  >
-                    {t("common.preview")}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!available || downloading !== null}
-                    onClick={() => void download(resource)}
-                  >
-                    {t("common.download")}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-          {downloadError && (
-            <p role="alert">{t("collaboration.resourceError")}</p>
+    <>
+      <Tooltip
+        title={t("collaboration.title")}
+        placement="left"
+        mouseEnterDelay={0.35}
+      >
+        <span className={styles.triggerWrap}>
+          <button
+            type="button"
+            className={triggerClassName ?? styles.trigger}
+            aria-label={t("collaboration.title")}
+            aria-haspopup="dialog"
+            aria-expanded={expanded}
+            onClick={() => setExpanded(true)}
+          >
+            <Users size={20} strokeWidth={2.1} aria-hidden />
+          </button>
+          {page.invocations.length + resources.length > 0 && (
+            <span className={styles.triggerCount}>
+              {page.invocations.length + resources.length}
+            </span>
           )}
-          {page.has_more && (
+        </span>
+      </Tooltip>
+      <Modal
+        open={expanded}
+        onCancel={() => setExpanded(false)}
+        footer={null}
+        width={780}
+        title={t("collaboration.title")}
+        destroyOnHidden
+      >
+        <section className={styles.panel} aria-label={t("collaboration.title")}>
+          <div className={styles.header}>
+            <span className={styles.summary}>
+              {page.invocations.length} {t("collaboration.title")} ·{" "}
+              {resources.length} {t("collaboration.artifacts")}
+            </span>
             <button
               type="button"
+              className={styles.refresh}
+              aria-label={t("common.refresh")}
+              title={t("common.refresh")}
               disabled={loading}
               onClick={() => void refresh()}
             >
-              {t("collaboration.more")}
+              <RefreshCw size={14} aria-hidden />
+              {t("common.refresh")}
             </button>
+          </div>
+          {loading && <small role="status">{t("collaboration.loading")}</small>}
+          {error && <p role="alert">{t("collaboration.loadError")}</p>}
+          {expanded && (
+            <div className={styles.content}>
+              {!loading &&
+                !error &&
+                !page.invocations.length &&
+                !resources.length && <p>{t("collaboration.empty")}</p>}
+              {page.invocations.map((item) => (
+                <div key={item.invocation_id} className={styles.card}>
+                  <button
+                    type="button"
+                    className={styles.assignment}
+                    aria-expanded={selected === item.invocation_id}
+                    onClick={() =>
+                      setSelected((prev) =>
+                        prev === item.invocation_id ? null : item.invocation_id,
+                      )
+                    }
+                  >
+                    <strong className={styles.memberName}>
+                      <Users size={16} aria-hidden />
+                      {name(item.callee_agent_id)}
+                    </strong>
+                    <span className={styles.device}>
+                      <Monitor size={13} aria-hidden />
+                      {t("collaboration.device")}:{" "}
+                      {targetLabel(item.resolved_target)}
+                    </span>
+                    <span
+                      className={styles.status}
+                      data-state={item.transport_status}
+                    >
+                      {t("collaboration.transport")}:{" "}
+                      {t(`collaboration.status.${item.transport_status}`)}
+                    </span>
+                    <span
+                      className={styles.status}
+                      data-state={item.task_outcome}
+                    >
+                      {t("collaboration.outcome")}:{" "}
+                      {t(`collaboration.outcomeStatus.${item.task_outcome}`)}
+                    </span>
+                  </button>
+                  {item.task_result && (
+                    <p>
+                      <strong>{t("collaboration.expertReported")}: </strong>
+                      {item.task_result.summary}
+                    </p>
+                  )}
+                  {item.reply_received && (
+                    <p>{t("collaboration.replyReceived")}</p>
+                  )}
+                  {item.reply_received && item.task_outcome === "unknown" && (
+                    <p>{t("collaboration.unconfirmedOutcome")}</p>
+                  )}
+                  {item.error_code && (
+                    <p
+                      role={
+                        item.transport_status === "failed" ||
+                        item.task_outcome === "failed"
+                          ? "alert"
+                          : "status"
+                      }
+                    >
+                      {t(reasonKey(item.error_code))}{" "}
+                      {item.retryable && t("collaboration.retryable")}
+                    </p>
+                  )}
+                  {selected === item.invocation_id && (
+                    <>
+                      <p>
+                        {t("collaboration.requested")}:{" "}
+                        {t(`collaboration.policy.${item.target_policy}`, {
+                          defaultValue: t("collaboration.status.unknown"),
+                        })}{" "}
+                        {item.target_policy === "explicit"
+                          ? ` · ${targetLabel(item.requested_target)}`
+                          : ""}
+                      </p>
+                      {item.retry_of && (
+                        <p>
+                          {t("collaboration.retryOf")}: {item.retry_of}
+                        </p>
+                      )}
+                      <InvocationDetail
+                        key={item.invocation_id}
+                        agentId={agentId}
+                        threadId={threadId}
+                        invocation={detail ?? item}
+                      />
+                      <strong>{t("collaboration.evidence")}</strong>
+                      {page.events
+                        .filter(
+                          (event) => event.invocation_id === item.invocation_id,
+                        )
+                        .slice(-20)
+                        .map((event) => (
+                          <p key={event.event_id}>
+                            {t(
+                              `collaboration.events.${event.event_type.replace(
+                                /\./g,
+                                "_",
+                              )}`,
+                              { defaultValue: t("collaboration.eventUpdate") },
+                            )}{" "}
+                            ·{" "}
+                            {formatMessageTime(
+                              event.created_at * 1000,
+                              timezone,
+                            )}
+                          </p>
+                        ))}
+                    </>
+                  )}
+                </div>
+              ))}
+              <div className={styles.resourceGrid}>
+                {resources.map((resource) => {
+                  const event = [...page.events]
+                    .reverse()
+                    .find(
+                      (item) =>
+                        item.resource_id === resource.resource_id &&
+                        [
+                          "resource.delivered",
+                          "resource.delivery_failed",
+                          "resource.delivery_started",
+                        ].includes(item.event_type),
+                    );
+                  const delivery =
+                    resource.delivery_status ??
+                    (event?.event_type === "resource.delivered"
+                      ? "completed"
+                      : event?.event_type === "resource.delivery_failed"
+                      ? "failed"
+                      : event?.event_type === "resource.delivery_started"
+                      ? "running"
+                      : null);
+                  const available = resource.publication_state === "published";
+                  const resourceError =
+                    resource.error_code === "RESOURCE_DELIVERY_FAILED" &&
+                    (delivery === "completed" || delivery === "running")
+                      ? null
+                      : resource.error_code;
+                  return (
+                    <article
+                      className={styles.resourceCard}
+                      key={resource.resource_id}
+                    >
+                      <div className={styles.resourceHeading}>
+                        <span className={styles.fileIcon}>
+                          {fileTreeIcon(resource.name, 22)}
+                        </span>
+                        <strong title={resource.name}>{resource.name}</strong>
+                      </div>
+                      <p>
+                        {name(resource.source_agent_id)} ·{" "}
+                        {t("collaboration.device")}:{" "}
+                        {resource.source_device_id ||
+                          (resource.source_kind === "device"
+                            ? t("collaboration.unresolved")
+                            : resource.source_kind === "local"
+                            ? t("devices.localExecution")
+                            : t("collaboration.expertStorage"))}
+                      </p>
+                      <p>
+                        {t("collaboration.version")}:{" "}
+                        <code
+                          className={styles.version}
+                          title={resource.version}
+                        >
+                          {resource.version.slice(0, 12)}…
+                        </code>{" "}
+                        · {resource.size.toLocaleString()} B
+                      </p>
+                      {!available && (
+                        <p role="status">
+                          {t("collaboration.resourceUnavailable")}
+                        </p>
+                      )}
+                      {(resourceError || !available) && (
+                        <p role="status">{t(reasonKey(resourceError))}</p>
+                      )}
+                      {delivery && (
+                        <p
+                          className={styles.delivery}
+                          data-state={delivery}
+                          role={delivery === "failed" ? "alert" : "status"}
+                        >
+                          {t(`collaboration.delivery.${delivery}`)}
+                        </p>
+                      )}
+                      <div className={styles.resourceActions}>
+                        <button
+                          type="button"
+                          disabled={!available}
+                          onClick={() => {
+                            onOpenResource(resource);
+                            setExpanded(false);
+                          }}
+                        >
+                          <Eye size={13} aria-hidden />
+                          {t("common.preview")}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!available || downloading !== null}
+                          onClick={() => void download(resource)}
+                        >
+                          <Download size={13} aria-hidden />
+                          {t("common.download")}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+              {downloadError && (
+                <p role="alert">{t("collaboration.resourceError")}</p>
+              )}
+              {page.has_more && (
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void refresh()}
+                >
+                  {t("collaboration.more")}
+                </button>
+              )}
+            </div>
           )}
-        </div>
-      )}
-    </section>
+        </section>
+      </Modal>
+    </>
   );
 }

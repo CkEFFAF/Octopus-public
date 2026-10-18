@@ -2490,7 +2490,8 @@
     "task_board_schedule": "Schedule board task",
     "read_attachment": "Read attachment",
     "publish_artifact": "Publish artifact",
-    "deliver_resource": "Deliver resource"
+    "deliver_resource": "Deliver resource",
+    "report_task_result": "Report task result"
   },
   "toolSettings": {
     "title": "Tool settings",
@@ -7427,7 +7428,10 @@
       "snapshotUnavailable": "The published snapshot is unavailable or could not be verified.",
       "deliveryFailed": "Resource delivery could not be verified at the destination.",
       "unknown": "A collaboration issue was reported; no further public details are available."
-    }
+    },
+    "expertReported": "Expert-reported result",
+    "replyReceived": "Public reply received",
+    "unconfirmedOutcome": "The expert replied, but the task outcome has not been confirmed by a structured report."
   },
   "chatShare": {
     "title": "Share conversation",

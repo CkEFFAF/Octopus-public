@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Input } from "antd";
+import { Button, Input, Tag } from "antd";
 import { useTranslation } from "react-i18next";
 import {
   threadSharesApi,
@@ -23,10 +23,12 @@ export default function ShareList({
   agentId,
   threadId,
   revision = 0,
+  showHeading = true,
 }: {
   agentId?: string;
   threadId?: string;
   revision?: number;
+  showHeading?: boolean;
 }) {
   const { t } = useTranslation();
   const timezone = useServerTimezone();
@@ -119,10 +121,14 @@ export default function ShareList({
     setFeedback((await copyText(url)) ? "copied" : "copyError");
   }
   return (
-    <section aria-label={t("chatShare.links")}>
-      <div className={styles.row}>
-        <h3>{t(scope ? "chatShare.threadLinks" : "chatShare.allLinks")}</h3>
+    <section className={styles.linksSection} aria-label={t("chatShare.links")}>
+      <div className={styles.sectionHeader}>
+        {showHeading && (
+          <h3>{t(scope ? "chatShare.threadLinks" : "chatShare.allLinks")}</h3>
+        )}
         <Button
+          className={!showHeading ? styles.refreshOnly : undefined}
+          size="small"
           disabled={loading}
           onClick={() => setRefreshKey((value) => value + 1)}
         >
@@ -149,40 +155,57 @@ export default function ShareList({
               : share.status;
           return (
             <li key={share.share_id} className={styles.share}>
-              <strong>{share.title}</strong>
-              <p>
-                {t(`chatShare.status.${status}`)} · {t("chatShare.created")}:{" "}
-                {shareDate(share.created_at, timezone)}
-              </p>
-              <p>
-                {t("chatShare.expires")}:{" "}
-                {share.expires_at == null
-                  ? t("chatShare.never")
-                  : shareDate(share.expires_at, timezone)}
-              </p>
-              {status === "active" && share.public_url && (
-                <Input
-                  className={styles.link}
-                  value={share.public_url}
-                  readOnly
-                  aria-label={t("chatShare.url")}
-                />
-              )}
-              <div className={styles.row}>
+              <div className={styles.shareHeader}>
+                <strong>{share.title}</strong>
+                <Tag
+                  color={
+                    status === "active"
+                      ? "success"
+                      : status === "expired"
+                      ? "warning"
+                      : "default"
+                  }
+                >
+                  {t(`chatShare.status.${status}`)}
+                </Tag>
+              </div>
+              <div className={styles.metadata}>
+                <span>
+                  {t("chatShare.created")}:{" "}
+                  {shareDate(share.created_at, timezone)}
+                </span>
+                <span>
+                  {t("chatShare.expires")}:{" "}
+                  {share.expires_at == null
+                    ? t("chatShare.never")
+                    : shareDate(share.expires_at, timezone)}
+                </span>
+              </div>
+              <div className={styles.shareControls}>
                 {status === "active" && share.public_url && (
-                  <Button onClick={() => void copy(share.public_url!)}>
-                    {t("chatShare.copy")}
-                  </Button>
+                  <Input
+                    className={styles.link}
+                    value={share.public_url}
+                    readOnly
+                    aria-label={t("chatShare.url")}
+                  />
                 )}
-                {status !== "revoked" && (
-                  <Button
-                    loading={acting === share.share_id}
-                    disabled={acting !== null}
-                    onClick={() => void revoke(share)}
-                  >
-                    {t("chatShare.close")}
-                  </Button>
-                )}
+                <div className={styles.actions}>
+                  {status === "active" && share.public_url && (
+                    <Button onClick={() => void copy(share.public_url!)}>
+                      {t("chatShare.copy")}
+                    </Button>
+                  )}
+                  {status !== "revoked" && (
+                    <Button
+                      loading={acting === share.share_id}
+                      disabled={acting !== null}
+                      onClick={() => void revoke(share)}
+                    >
+                      {t("chatShare.close")}
+                    </Button>
+                  )}
+                </div>
               </div>
             </li>
           );

@@ -3657,6 +3657,9 @@ class AgentManager:
         from octop.infra.documents.tools import build_resource_tools
 
         merged_tools.extend(build_resource_tools(self, row.agent_id))
+        from octop.infra.agents.teams.task_results import build_task_result_tools
+
+        merged_tools.extend(build_task_result_tools(self, row.agent_id))
         if cron_tools:
             merged_tools.extend(cron_tools)
         merged_tools.extend(knowledge_tools)

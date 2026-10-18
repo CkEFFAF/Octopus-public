@@ -547,9 +547,13 @@ class ResourceService:
             raise denied()
         if work_mode in {"ask", "plan"}:
             raise ValueError("RESOURCE_DELIVERY_POLICY_DENIED")
+        if resource.get("delivery_status") == "running":
+            raise ValueError("RESOURCE_DELIVERY_CONFLICT")
         attempt = new_ulid()
-        current = {**resource, "delivery_status": "running"}
-        self.repo.save(
+        current = {**resource, "delivery_status": "running", "delivery_attempt_id": attempt}
+        if current.get("error_code") == "RESOURCE_DELIVERY_FAILED":
+            current.pop("error_code")
+        if not self.repo.save(
             "collaboration_resources",
             owner,
             resource_id,
@@ -559,7 +563,8 @@ class ResourceService:
             event_id=f"delivery:{attempt}:started",
             resource_id=resource_id,
             previous=resource,
-        )
+        ):
+            raise ValueError("RESOURCE_DELIVERY_CONFLICT")
         transfer_id = None
 
         async def call(action: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -617,16 +622,16 @@ class ResourceService:
             if transfer_id:
                 with contextlib.suppress(Exception):
                     await call("fs.upload.abort", {"transfer_id": transfer_id})
-            if "final" in locals():
-                self.repo.save(
-                    "collaboration_resources",
-                    owner,
-                    resource_id,
-                    resource.get("scope_thread_id"),
-                    final,
-                    event,
-                    event_id=f"delivery:{attempt}:terminal",
-                    resource_id=resource_id,
-                    previous=current,
-                )
+            if "final" in locals() and not self.repo.save(
+                "collaboration_resources",
+                owner,
+                resource_id,
+                resource.get("scope_thread_id"),
+                final,
+                event,
+                event_id=f"delivery:{attempt}:terminal",
+                resource_id=resource_id,
+                previous=current,
+            ):
+                raise ValueError("RESOURCE_DELIVERY_RECEIPT_CONFLICT")
         return result
