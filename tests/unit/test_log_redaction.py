@@ -37,6 +37,31 @@ def test_ordinary_log_formatting_is_retained() -> None:
 
 
 @pytest.mark.parametrize(
+    "path",
+    [
+        "/api/notifications?token=private.jwt",
+        "/api/public/thread-shares/private-capability",
+        "/share/private-capability",
+    ],
+)
+def test_uvicorn_access_formatter_retains_structured_redacted_arguments(path: str) -> None:
+    from uvicorn.logging import AccessFormatter
+
+    args = ("127.0.0.1:1234", "GET", path, "1.1", 200)
+    record = logging.LogRecord(
+        "uvicorn.access", logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d', args, None
+    )
+    assert QuerySecretFilter().filter(record)
+    output = AccessFormatter(
+        '%(client_addr)s - "%(request_line)s" %(status_code)s', use_colors=False
+    ).format(record)
+    assert "private" not in output
+    assert "[REDACTED]" in output
+    assert "GET /" in output and "HTTP/1.1" in output and "200 OK" in output
+    assert isinstance(record.args, tuple) and len(record.args) == 5
+
+
+@pytest.mark.parametrize(
     "message",
     [
         "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.private.sig",
