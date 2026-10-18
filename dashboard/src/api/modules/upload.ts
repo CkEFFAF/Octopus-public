@@ -7,6 +7,8 @@ export interface UploadResponse {
   media_type: string;
   url: string;
   access_url: string;
+  resource_id?: string;
+  version?: string;
 }
 
 /**

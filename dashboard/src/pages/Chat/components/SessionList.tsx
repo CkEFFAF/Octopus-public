@@ -56,6 +56,7 @@ interface SessionItemProps {
   onRename: (id: string, name: string) => void;
   onPin: (id: string, pinned: boolean) => void;
   onFork: (id: string) => void;
+  onShare?: (id: string, agentId?: string | null) => void;
   forkDisabled?: boolean;
   forkDisabledHint?: string;
 }
@@ -68,6 +69,7 @@ const SessionItem = memo(function SessionItem({
   onRename,
   onPin,
   onFork,
+  onShare,
   forkDisabled,
   forkDisabledHint,
 }: SessionItemProps) {
@@ -103,6 +105,22 @@ const SessionItem = memo(function SessionItem({
     : forkDisabledHint;
 
   const menuItems: MenuProps["items"] = [
+    ...(onShare
+      ? [
+          {
+            key: "share",
+            label: t("chatShare.title"),
+            onClick: ({
+              domEvent,
+            }: {
+              domEvent: Event | React.MouseEvent | React.KeyboardEvent;
+            }) => {
+              domEvent.stopPropagation();
+              onShare(session.id);
+            },
+          },
+        ]
+      : []),
     {
       key: "pin",
       label: session.pinned
@@ -235,6 +253,7 @@ interface AgentCardProps {
   onRename: (id: string, name: string) => void;
   onPin: (id: string, pinned: boolean) => void;
   onFork: (id: string) => void;
+  onShare?: (id: string, agentId?: string | null) => void;
   activeForkDisabled?: boolean;
   activeForkDisabledHint?: string;
   onHide?: () => void;
@@ -255,6 +274,7 @@ function ActiveAgentCard({
   onRename,
   onPin,
   onFork,
+  onShare,
   activeForkDisabled,
   activeForkDisabledHint,
   onHide,
@@ -367,6 +387,9 @@ function ActiveAgentCard({
                 onRename={onRename}
                 onPin={onPin}
                 onFork={onFork}
+                onShare={
+                  onShare ? (id) => onShare(id, agent.agent_id) : undefined
+                }
                 forkDisabled={
                   activeId === s.id ? activeForkDisabled : undefined
                 }
@@ -505,6 +528,7 @@ interface SessionListProps {
   onRename: (id: string, name: string) => void;
   onPin: (id: string, pinned: boolean) => void;
   onFork: (id: string) => void;
+  onShare?: (id: string, agentId?: string | null) => void;
   activeForkDisabled?: boolean;
   activeForkDisabledHint?: string;
 }
@@ -525,6 +549,7 @@ export default function SessionList({
   onRename,
   onPin,
   onFork,
+  onShare,
   activeForkDisabled,
   activeForkDisabledHint,
 }: SessionListProps) {
@@ -655,6 +680,7 @@ export default function SessionList({
                     onRename={onRename}
                     onPin={onPin}
                     onFork={onFork}
+                    onShare={onShare}
                     activeForkDisabled={activeForkDisabled}
                     activeForkDisabledHint={activeForkDisabledHint}
                     onHide={

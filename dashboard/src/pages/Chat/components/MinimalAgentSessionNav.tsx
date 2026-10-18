@@ -68,6 +68,7 @@ interface MinimalAgentSessionNavProps {
   onRenameActive: (id: string, name: string) => void;
   onPinActive: (id: string, pinned: boolean) => void;
   onFork: (id: string, agentId?: string | null) => void;
+  onShare?: (id: string, agentId?: string | null) => void;
   activeForkDisabled?: boolean;
   activeForkDisabledHint?: string;
 }
@@ -94,6 +95,7 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
   onRename,
   onPin,
   onFork,
+  onShare,
   forkDisabled,
   forkDisabledHint,
 }: {
@@ -105,6 +107,7 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
   onRename: (id: string, name: string) => void;
   onPin: (id: string, pinned: boolean) => void;
   onFork: (id: string) => void;
+  onShare?: (id: string) => void;
   forkDisabled?: boolean;
   forkDisabledHint?: string;
 }) {
@@ -140,6 +143,22 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
     : forkDisabledHint;
 
   const menuItems: MenuProps["items"] = [
+    ...(onShare
+      ? [
+          {
+            key: "share",
+            label: t("chatShare.title"),
+            onClick: ({
+              domEvent,
+            }: {
+              domEvent: Event | React.MouseEvent | React.KeyboardEvent;
+            }) => {
+              domEvent.stopPropagation();
+              onShare(session.id);
+            },
+          },
+        ]
+      : []),
     {
       key: "pin",
       label: session.pinned
@@ -271,6 +290,7 @@ export default function MinimalAgentSessionNav({
   onRenameActive,
   onPinActive,
   onFork,
+  onShare,
   activeForkDisabled,
   activeForkDisabledHint,
 }: MinimalAgentSessionNavProps) {
@@ -616,6 +636,11 @@ export default function MinimalAgentSessionNav({
                         handlePin(agent.agent_id, id, pinned)
                       }
                       onFork={(id) => onFork(id, agent.agent_id)}
+                      onShare={
+                        onShare
+                          ? (id) => onShare(id, agent.agent_id)
+                          : undefined
+                      }
                       forkDisabled={
                         session.id === activeId ? activeForkDisabled : undefined
                       }

@@ -2,9 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Empty, Input, Segmented, Spin, Tag } from "antd";
 import { ArrowDownAZ, ArrowUpAZ, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import {
-  type ContextUsageBreakdown,
-} from "../../../api/modules/octopThreads";
+import { type ContextUsageBreakdown } from "../../../api/modules/octopThreads";
 import {
   contextInsightsApi,
   type CoverageBlock,
@@ -381,10 +379,7 @@ export default function ChatDockContext({
                 <strong>
                   {number(usage?.used_tokens)}{" "}
                   <small>
-                    /{" "}
-                    {capacityResolved
-                      ? number(usage?.capacity_tokens)
-                      : "—"}
+                    / {capacityResolved ? number(usage?.capacity_tokens) : "—"}
                   </small>
                 </strong>
                 <b>

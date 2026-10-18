@@ -1,0 +1,75 @@
+.panel {
+  margin: 4px 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--ant-color-border, #d9d9d9);
+  border-radius: 10px;
+  font-size: 12px;
+  flex-shrink: 0;
+  button {
+    color: inherit;
+    background: transparent;
+    border: 1px solid var(--ant-color-border, #d9d9d9);
+    border-radius: 6px;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+  button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  p {
+    margin: 6px 0;
+  }
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.content {
+  max-height: 40vh;
+  overflow: auto;
+  padding-top: 8px;
+}
+.card {
+  border-top: 1px solid var(--ant-color-border, #d9d9d9);
+  padding: 8px 0;
+}
+.assignment {
+  display: flex;
+  gap: 6px 14px;
+  flex-wrap: wrap;
+  text-align: left;
+  width: 100%;
+}
+.detail {
+  padding: 10px;
+}
+.workingMessage {
+  padding: 6px 0;
+  border-top: 1px solid var(--ant-color-border, #d9d9d9);
+}
+.text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.version {
+  overflow-wrap: anywhere;
+}
+.preview {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px;
+  gap: 10px;
+  overflow: auto;
+}
+.preview img,
+.preview video {
+  max-width: 100%;
+  object-fit: contain;
+}

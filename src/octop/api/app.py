@@ -19,6 +19,7 @@ from octop.api.openapi_meta import API_DESCRIPTION, OPENAPI_TAGS, configure_open
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.server import OctopServer
 from octop.infra.utils.locale import resolve_request_locale
+from octop.infra.utils.log_redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,12 @@ def _dashboard_fallback(index_file: Path, full_path: str) -> FileResponse:
     """
     if is_dashboard_asset_path(full_path):
         raise HTTPException(status_code=404, detail="Not Found")
-    return _dashboard_response(index_file, "")
+    response = _dashboard_response(index_file, "")
+    if full_path.startswith("share/"):
+        from octop.api.routers.chat.shares import SHARE_HEADERS
+
+        response.headers.update(SHARE_HEADERS)
+    return response
 
 
 def _mount_routers(app: FastAPI, mounts: Sequence[_RouterMount]) -> None:
@@ -83,16 +89,21 @@ def _install_exception_handlers(app: FastAPI) -> None:
             logger.error(
                 "OctopError %s in %s: %s",
                 exc.code.value,
-                request.url.path,
+                redact_secrets(request.url.path),
                 exc.message,
                 exc_info=exc,
             )
         locale = resolve_request_locale(request)
-        return JSONResponse(status_code=exc.status, content=exc.to_envelope(locale=locale))
+        response = JSONResponse(status_code=exc.status, content=exc.to_envelope(locale=locale))
+        if request.url.path.startswith("/api/public/thread-shares/"):
+            from octop.api.routers.chat.shares import SHARE_HEADERS
+
+            response.headers.update(SHARE_HEADERS)
+        return response
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
-        logger.exception("unhandled exception in %s", request.url.path)
+        logger.exception("unhandled exception in %s", redact_secrets(request.url.path))
         locale = resolve_request_locale(request)
         err = OctopError.localized(ErrorCode.INTERNAL_ERROR, locale)
         return JSONResponse(status_code=err.status, content=err.to_envelope())

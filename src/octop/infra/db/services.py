@@ -13,6 +13,7 @@ from octop.infra.db.repos.backends import BackendRepo
 from octop.infra.db.repos.bridge_connections import BridgeConnectionRepo
 from octop.infra.db.repos.care_push import CarePushRepo
 from octop.infra.db.repos.channels import ChannelRepo
+from octop.infra.db.repos.collaboration import CollaborationRepo
 from octop.infra.db.repos.connectors import ConnectorRepo
 from octop.infra.db.repos.cron import CronJobRepo
 from octop.infra.db.repos.devices import DeviceRepo
@@ -28,6 +29,7 @@ from octop.infra.db.repos.skill_packages import SkillPackageRepo
 from octop.infra.db.repos.sso import SsoRepo
 from octop.infra.db.repos.task_boards import TaskBoardRepo
 from octop.infra.db.repos.thread_messages import ThreadMessageRepo
+from octop.infra.db.repos.thread_shares import ThreadShareRepo
 from octop.infra.db.repos.threads import ThreadRepo
 from octop.infra.db.repos.trajectory_events import TrajectoryEventRepo
 from octop.infra.db.repos.usage import UsageRepo
@@ -47,10 +49,12 @@ class RepoBundle:
     agent_repo: AgentRepo
     provider_repo: ProviderRepo
     channel_repo: ChannelRepo
+    collaboration_repo: CollaborationRepo
     cron_repo: CronJobRepo
     session_repo: SessionRepo
     thread_repo: ThreadRepo
     thread_message_repo: ThreadMessageRepo
+    thread_share_repo: ThreadShareRepo
     trajectory_event_repo: TrajectoryEventRepo
     secret_repo: SecretRepo
     audit_repo: AuditRepo
@@ -80,10 +84,12 @@ class RepoBundle:
             agent_repo=AgentRepo(db),
             provider_repo=ProviderRepo(db),
             channel_repo=ChannelRepo(db),
+            collaboration_repo=CollaborationRepo(db),
             cron_repo=CronJobRepo(db),
             session_repo=SessionRepo(db),
             thread_repo=ThreadRepo(db),
             thread_message_repo=ThreadMessageRepo(db),
+            thread_share_repo=ThreadShareRepo(db),
             trajectory_event_repo=TrajectoryEventRepo(db),
             secret_repo=SecretRepo(db),
             audit_repo=AuditRepo(db),
@@ -154,6 +160,10 @@ class SharedServices:
     @property
     def thread_message_repo(self) -> ThreadMessageRepo:
         return self.repos.thread_message_repo
+
+    @property
+    def thread_share_repo(self) -> ThreadShareRepo:
+        return self.repos.thread_share_repo
 
     @property
     def trajectory_event_repo(self) -> TrajectoryEventRepo:

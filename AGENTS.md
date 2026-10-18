@@ -224,6 +224,8 @@ New agents additionally keep system-scoped files under `{workspace}/.octop/` (e.
 
 **Chat attachments:** Dashboard uploads go to `{workspace}/inbound/` via `api/common/attachments.py` + `api/routers/uploads.py`, not a separate `~/.octop/uploads/` store.
 
+**Collaboration beta (0031):** The current contract is [0031](docs/specs/0031-collaboration-resources/index.md), with [local verification](docs/specs/0031-collaboration-resources/verification.md). Use canonical Harness dispatch/lifecycle hooks, per-invocation child sessions, `read_attachment`/`publish_artifact`/`deliver_resource`, immutable resource versions and explicit grants; new delegations default to `member_default`. The additive SQLite/PostgreSQL 029 pair introduces the collaboration schema; later features may advance the watermark further (the older example below is historical). Resource bytes follow the configured upload cap; text extraction has a separate 8 MiB bound. `vendor/harness` plus the relative uv source/lock pin the reviewed development wheel; do not remove that override while the app requires the new Harness API.
+
 **Database:** SQLite and PostgreSQL share one schema. Add or change tables via a numbered pair
 `infra/db/migrations/00N_description.sql` **and** `00N_description.pg.sql`, then bump the
 version assertion in `tests/unit/db/test_db_pool.py` (currently `v == 26`). Rebuilds that SQLite

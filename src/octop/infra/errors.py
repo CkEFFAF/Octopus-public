@@ -11,6 +11,10 @@ from octop.infra.utils.locale import Locale, normalize_locale
 
 
 class ErrorCode(StrEnum):
+    SHARE_INVALID = "SHARE_INVALID"
+    SHARE_LIMIT = "SHARE_LIMIT"
+    SHARE_STALE = "SHARE_STALE"
+    SHARE_ORIGIN_REQUIRED = "SHARE_ORIGIN_REQUIRED"
     WORKFLOW_CONFLICT = "WORKFLOW_CONFLICT"
     DEVICE_INVALID = "DEVICE_INVALID"
     DEVICE_OFFLINE = "DEVICE_OFFLINE"
@@ -147,6 +151,10 @@ class ErrorCode(StrEnum):
 
 
 _DEFAULT_STATUS: dict[ErrorCode, int] = {
+    ErrorCode.SHARE_INVALID: 400,
+    ErrorCode.SHARE_LIMIT: 413,
+    ErrorCode.SHARE_STALE: 409,
+    ErrorCode.SHARE_ORIGIN_REQUIRED: 503,
     ErrorCode.WORKFLOW_CONFLICT: 409,
     ErrorCode.DEVICE_INVALID: 400,
     ErrorCode.DEVICE_OFFLINE: 503,

@@ -195,7 +195,9 @@ def test_deny_applies_on_cron_explicit() -> None:
     assert merged == ["picked"]
 
 
-def test_active_mcp_names_passes_config_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_active_mcp_names_passes_config_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """load_config must receive PathLayout.config — bare load_config() is mypy-red and hides alerts."""
     from octop.config import OctopConfig
     from octop.infra.devices.service import DeviceService
@@ -230,4 +232,3 @@ def test_active_mcp_names_passes_config_path(monkeypatch: pytest.MonkeyPatch, tm
     assert names == {"ok", "jdcloud-mon"}
     assert captured["path"] == PathLayout.from_env().config
     assert isinstance(captured["path"], type(tmp_path))
-

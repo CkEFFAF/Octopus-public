@@ -173,7 +173,7 @@ def test_apply_team_host_config_forces_async_ask_agent(manager: AgentManager) ->
         lambda: "[]", name="task_board_list", description="List tasks"
     )
     attachment_tool = StructuredTool.from_function(
-        lambda: "text", name="read_group_attachment", description="Read attachment"
+        lambda: "text", name="read_attachment", description="Read attachment"
     )
     unrelated_tool = StructuredTool.from_function(
         lambda: "unsafe", name="unrelated_plugin", description="Plugin"
@@ -191,7 +191,7 @@ def test_apply_team_host_config_forces_async_ask_agent(manager: AgentManager) ->
     assert "ask_agent" not in disabled
     assert "agent_list" not in disabled
     assert out.bootstrap_enabled is False
-    assert {tool.name for tool in out.tools or []} == {"task_board_list", "read_group_attachment"}
+    assert {tool.name for tool in out.tools or []} == {"task_board_list", "read_attachment"}
     assert "Host dispatch" in (out.system_prompt or "") or "主持人调度" in (out.system_prompt or "")
 
 
@@ -205,349 +205,42 @@ def test_apply_expert_config_forces_sync_ask_agent(manager: AgentManager) -> Non
 
 
 @pytest.mark.asyncio
-async def test_install_team_host_dispatch_uses_inbox(manager: AgentManager) -> None:
-    from dataclasses import replace as dc_replace
-
-    team = MagicMock()
-    team.enabled = True
-    team.call_peer = AsyncMock(return_value="sync")
-    team.submit_peer = MagicMock(return_value="queued")
-    team._enrich_request = None
-    manager._harness_manager = SimpleNamespace(team=team)
-    manager._team_processor = SimpleNamespace(take_team_peer_prompt=MagicMock(return_value=None))
-    manager.get_row = MagicMock(  # type: ignore[method-assign]
-        return_value=dc_replace(_row(agent_id="host"), kind="team")
-    )
-    manager._install_team_host_dispatch()
-    result = await team.call_peer(
-        from_agent_id="host",
-        to_agent_id="child",
-        message="go",
-        user_id=1,
-        source_thread_id="t",
-        session_key="sk",
-    )
-    assert result == "queued"
-    team.submit_peer.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_install_expert_dispatch_keeps_sync_call_peer(manager: AgentManager) -> None:
-    team = MagicMock()
-    team.enabled = True
-    team.call_peer = AsyncMock(return_value="sync")
-    team.submit_peer = MagicMock(return_value="queued")
-    team._enrich_request = None
-    manager._harness_manager = SimpleNamespace(team=team)
-    manager._team_processor = SimpleNamespace(take_team_peer_prompt=MagicMock(return_value=None))
-    manager.get_row = MagicMock(return_value=_row(agent_id="expert"))  # type: ignore[method-assign]
-    manager._install_team_host_dispatch()
-    result = await team.call_peer(
-        from_agent_id="expert",
-        to_agent_id="child",
-        message="go",
-        user_id=1,
-        source_thread_id="t",
-        session_key="sk",
-    )
-    assert result == "sync"
-    team.submit_peer.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_install_expert_inbox_call_agent_stays_sync(manager: AgentManager) -> None:
-    original_call = AsyncMock(return_value={"ok": True})
-    stream_host = AsyncMock(side_effect=AssertionError("expert inbox must not room-stream"))
-    inbox = SimpleNamespace(_call_agent=original_call)
-    team = MagicMock()
-    team.enabled = True
-    team.call_peer = AsyncMock(return_value="sync")
-    team.submit_peer = MagicMock()
-    team._call_agent = original_call
-    team.inbox = inbox
-    team._invoke_peer = None
-    team._enrich_request = None
-    manager._harness_manager = SimpleNamespace(team=team)
-    manager._team_processor = SimpleNamespace(
-        take_team_peer_prompt=MagicMock(return_value=None),
-        stream_team_peer_to_room=AsyncMock(),
-        stream_host_followup_to_room=stream_host,
-    )
-    manager.get_row = MagicMock(return_value=_row(agent_id="expert"))  # type: ignore[method-assign]
-    manager._install_team_host_dispatch()
-    req = SimpleNamespace(source="inbox", thread_id="thr_dm", agent_id="expert")
-    result = await inbox._call_agent("expert", req)
-    assert result == {"ok": True}
-    original_call.assert_awaited_once()
-    stream_host.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_install_team_host_dispatch_stream_skips_unknown_job_id(
+async def test_stream_adapter_keeps_canonical_dispatch_and_uses_bound_invocation(
     manager: AgentManager,
 ) -> None:
-    from dataclasses import replace as dc_replace
+    from octop.infra.agents.teams.team_manager import wire_host_dispatch
 
-    seen: dict[str, object] = {}
-
-    async def build_peer_request(
-        *,
-        from_agent_id: str,
-        to_agent_id: str,
-        message: str,
-        user_id: str | int,
-        source: str,
-        source_thread_id: str | None,
-        source_session_key: str | None,
-    ) -> SimpleNamespace:
-        seen["build"] = source_thread_id
-        return SimpleNamespace(thread_id="t~child")
-
-    async def original_invoke(**kwargs: object) -> object:
-        raise AssertionError(f"should stream, got {kwargs!r}")
-
-    async def stream_peer(
-        request: object,
-        *,
-        room_thread_id: str,
-        speaker_id: str,
-    ) -> dict[str, object]:
-        seen["stream"] = (room_thread_id, speaker_id, request)
-        return {"messages": [], "team_live_streamed": True}
-
-    team = MagicMock()
-    team.enabled = True
-    team.call_peer = AsyncMock(return_value="sync")
-    team.submit_peer = MagicMock()
-    team._invoke_peer = original_invoke
-    team._build_peer_request = build_peer_request
-    team._enrich_request = None
-    team._after_peer = None
-    manager._harness_manager = SimpleNamespace(team=team)
-    manager._team_processor = SimpleNamespace(
-        take_team_peer_prompt=MagicMock(return_value=None),
-        stream_team_peer_to_room=stream_peer,
+    original = AsyncMock(return_value={"messages": []})
+    canonical = AsyncMock(return_value="canonical receipt")
+    team = SimpleNamespace(
+        _call_agent=original, call_peer=canonical, inbox=SimpleNamespace(_call_agent=original)
     )
-    manager.get_row = MagicMock(  # type: ignore[method-assign]
-        return_value=dc_replace(_row(agent_id="host"), kind="team")
-    )
-    manager._install_team_host_dispatch()
-    request, payload = await team._invoke_peer(
-        from_agent_id="host",
-        to_agent_id="child",
-        message="go",
-        user_id=1,
-        source="inbox",
-        source_thread_id="t",
-        source_session_key="sk",
-        job_id="job-1",
-    )
-    assert seen["build"] == "t"
-    assert seen["stream"][0] == "t"
-    assert seen["stream"][1] == "child"
-    assert request.thread_id == "t~child"
-    assert payload["team_live_streamed"] is True
+    stream = AsyncMock(return_value={"messages": ["child result"]})
+    wire_host_dispatch(team, is_team=lambda aid: aid == "host", stream_peer=stream)
+    assert await team.call_peer(invocation_key="same-tool-call") == "canonical receipt"
+    canonical.assert_awaited_once_with(invocation_key="same-tool-call")
+    request = {
+        "agent_id": "child",
+        "thread_id": "child-thread",
+        "configurable": {"octop_invocation_id": "invocation", "octop_root_thread_id": "root"},
+    }
+    result = await team._call_agent("child", request)
+    assert result == {"messages": ["child result"]}
+    stream.assert_awaited_once_with(request, room_thread_id="root", speaker_id="child")
+    original.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_install_async_dispatch_streams_non_team_inbox(manager: AgentManager) -> None:
-    seen: dict[str, object] = {}
+async def test_stream_adapter_keeps_ordinary_nonpeer_execution(manager: AgentManager) -> None:
+    from octop.infra.agents.teams.team_manager import wire_host_dispatch
 
-    async def build_peer_request(
-        *,
-        from_agent_id: str,
-        to_agent_id: str,
-        message: str,
-        user_id: str | int,
-        source: str,
-        source_thread_id: str | None,
-        source_session_key: str | None,
-    ) -> SimpleNamespace:
-        seen["build"] = source_thread_id
-        return SimpleNamespace(thread_id="t~child")
-
-    async def original_invoke(**kwargs: object) -> object:
-        raise AssertionError(f"should stream, got {kwargs!r}")
-
-    async def stream_peer(
-        request: object,
-        *,
-        room_thread_id: str,
-        speaker_id: str,
-    ) -> dict[str, object]:
-        seen["stream"] = (room_thread_id, speaker_id)
-        return {"messages": [], "team_live_streamed": True}
-
-    team = MagicMock()
-    team.enabled = True
-    team.call_peer = AsyncMock(return_value="sync")
-    team.submit_peer = MagicMock()
-    team._invoke_peer = original_invoke
-    team._build_peer_request = build_peer_request
-    team._enrich_request = None
-    team._after_peer = None
-    manager._harness_manager = SimpleNamespace(team=team)
-    manager._team_processor = SimpleNamespace(
-        take_team_peer_prompt=MagicMock(return_value=None),
-        stream_team_peer_to_room=stream_peer,
-    )
-    manager.get_row = MagicMock(return_value=_row(agent_id="expert"))  # type: ignore[method-assign]
-    manager._install_team_host_dispatch()
-    request, payload = await team._invoke_peer(
-        from_agent_id="expert",
-        to_agent_id="child",
-        message="go",
-        user_id=1,
-        source="inbox",
-        source_thread_id="t",
-        source_session_key="sk",
-        job_id="job-1",
-    )
-    assert seen["build"] == "t"
-    assert seen["stream"] == ("t", "child")
-    assert request.thread_id == "t~child"
-    assert payload["team_live_streamed"] is True
-
-
-@pytest.mark.asyncio
-async def test_install_team_host_enrich_uses_host_assignment(manager: AgentManager) -> None:
-    from langchain_core.messages import HumanMessage, SystemMessage
-
-    team = MagicMock()
-    team.enabled = True
-    team.call_peer = AsyncMock(return_value="sync")
-    team.submit_peer = MagicMock()
-    team._invoke_peer = None
-    team._enrich_request = None
-    manager._harness_manager = SimpleNamespace(team=team)
-    manager._team_processor = SimpleNamespace(
-        take_team_peer_prompt=MagicMock(
-            return_value=(
-                "请给出可执行的睡眠建议，聚焦作息而不是诊断",
-                "[团队派工，不是用户在直接问你]\n用户: 我最近总失眠",
-            )
-        ),
-    )
-    manager._install_team_host_dispatch()
-    req = SimpleNamespace(thread_id="t~child", messages="我最近总失眠")
-    out = await team._enrich_request("child", req)
-    assert isinstance(out.messages[0], SystemMessage)
-    assert isinstance(out.messages[1], HumanMessage)
-    assert out.messages[1].content == "请给出可执行的睡眠建议，聚焦作息而不是诊断"
-    assert "团队派工" in out.messages[0].content
-
-
-@pytest.mark.asyncio
-async def test_install_team_host_dispatch_streams_inbox_wrapup(
-    manager: AgentManager,
-) -> None:
-    from dataclasses import replace as dc_replace
-
-    from langchain_core.messages import AIMessage
-
-    seen: dict[str, object] = {}
-
-    async def stream_host(
-        request: object,
-        *,
-        room_thread_id: str,
-        speaker_id: str,
-    ) -> dict[str, object]:
-        seen["wrap"] = (room_thread_id, speaker_id, getattr(request, "source", None))
-        return {
-            "messages": [AIMessage(content="可以收工。")],
-            "team_live_streamed": True,
-        }
-
-    original_call = AsyncMock(side_effect=AssertionError("wrap-up must stream"))
-    inbox = SimpleNamespace(_call_agent=original_call)
-    team = MagicMock()
-    team.enabled = True
-    team.call_peer = AsyncMock(return_value="sync")
-    team.submit_peer = MagicMock()
-    team._call_agent = original_call
-    team.inbox = inbox
-    team._invoke_peer = None
-    team._enrich_request = None
-    manager._harness_manager = SimpleNamespace(team=team)
-    manager._team_processor = SimpleNamespace(
-        take_team_peer_prompt=MagicMock(return_value=None),
-        stream_team_peer_to_room=AsyncMock(),
-        stream_host_followup_to_room=stream_host,
-    )
-    manager.get_row = MagicMock(  # type: ignore[method-assign]
-        return_value=dc_replace(_row(agent_id="host"), kind="team")
-    )
-    manager._install_team_host_dispatch()
-    req = SimpleNamespace(source="inbox", thread_id="thr_parent", agent_id="host")
-    result = await inbox._call_agent("host", req)
-    assert seen["wrap"] == ("thr_parent", "host", "inbox")
-    assert result["team_live_streamed"] is True
-    original_call.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_install_team_host_dispatch_patches_inbox_synthesize(
-    manager: AgentManager,
-) -> None:
-    from dataclasses import replace as dc_replace
-
-    from langchain_core.messages import AIMessage
-
-    seen: dict[str, object] = {}
-
-    async def stream_host(
-        request: object,
-        *,
-        room_thread_id: str,
-        speaker_id: str,
-    ) -> dict[str, object]:
-        seen["wrap"] = (room_thread_id, speaker_id, getattr(request, "source", None))
-        return {
-            "messages": [AIMessage(content="可以收工。")],
-            "team_live_streamed": True,
-        }
-
-    async def original_synth(*_args: object, **_kwargs: object) -> str:
-        raise AssertionError("wrap-up must stream, not call()")
-
-    inbox = SimpleNamespace(
-        _synthesize_reply=original_synth,
-        _processor=SimpleNamespace(compose_followup=lambda *_a, **_k: "请收口"),
-        _is_cancelled=lambda _msg: False,
-        _call_agent=AsyncMock(side_effect=AssertionError("wrap-up must stream")),
-    )
-    team = MagicMock()
-    team.enabled = True
-    team.call_peer = AsyncMock(return_value="sync")
-    team.submit_peer = MagicMock()
-    team._call_agent = inbox._call_agent
-    team.inbox = inbox
-    team._invoke_peer = None
-    team._enrich_request = None
-    manager._harness_manager = SimpleNamespace(team=team)
-    manager._team_processor = SimpleNamespace(
-        take_team_peer_prompt=MagicMock(return_value=None),
-        stream_team_peer_to_room=AsyncMock(),
-        stream_host_followup_to_room=stream_host,
-    )
-    manager.get_row = MagicMock(  # type: ignore[method-assign]
-        return_value=dc_replace(_row(agent_id="host"), kind="team")
-    )
-    manager._install_team_host_dispatch()
-    text = await inbox._synthesize_reply(
-        SimpleNamespace(
-            source_agent_id="host",
-            source_thread_id="thr_parent",
-            user_id=1,
-            target_agent_id="child",
-            message="task",
-        ),
-        "member done",
-        None,
-    )
-    assert seen["wrap"] == ("thr_parent", "host", "inbox")
-    assert text == "可以收工。"
+    original = AsyncMock(return_value={"messages": ["ordinary"]})
+    team = SimpleNamespace(_call_agent=original, inbox=SimpleNamespace(_call_agent=original))
+    stream = AsyncMock()
+    wire_host_dispatch(team, is_team=lambda aid: False, stream_peer=stream)
+    request = {"agent_id": "expert", "thread_id": "ordinary-thread"}
+    assert await team._call_agent("expert", request) == {"messages": ["ordinary"]}
+    stream.assert_not_awaited()
 
 
 def test_format_agent_start_error_no_providers_message() -> None:
@@ -686,6 +379,9 @@ def test_build_harness_config_includes_cronjob_tools_when_cron_manager_set(
     assert cfg.tools is not None
     names = {t.name for t in cfg.tools}
     assert names == {
+        "read_attachment",
+        "publish_artifact",
+        "deliver_resource",
         *(set(NATIVE_TOOL_NAMES) - {"octop_device_select"}),
         "cronjob_list",
         "cronjob_get",
@@ -708,6 +404,9 @@ def test_build_harness_config_includes_search_knowledge_without_cron(
     cfg = manager._build_harness_config(_row(agent_id="AGT001"))
     assert cfg.tools is not None
     assert {t.name for t in cfg.tools} == {
+        "read_attachment",
+        "publish_artifact",
+        "deliver_resource",
         *(set(NATIVE_TOOL_NAMES) - {"octop_device_select"}),
         "search_knowledge",
         "work_step",

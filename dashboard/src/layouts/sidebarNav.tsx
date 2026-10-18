@@ -59,6 +59,7 @@ export const SIDEBAR_NAV_KEYS = [
   "skill-packages",
   "knowledge-bases",
   "bridge",
+  "thread-shares",
   "workbench",
   "remote-desktop",
   "devices",
@@ -114,6 +115,7 @@ export const SIDEBAR_GROUPED_NAV_KEYS = [
   "skill-packages",
   "knowledge-bases",
   "bridge",
+  "thread-shares",
   "workbench",
   "remote-desktop",
   "devices",
@@ -215,6 +217,12 @@ export function buildNavSections(
     icon: <Cloudy size={iconSize} strokeWidth={iconStroke} />,
     labelKey: "nav.bridge",
     badge: "Beta",
+  });
+  settingsItems.push({
+    key: "thread-shares",
+    path: "/settings/thread-shares",
+    icon: <Share2 size={iconSize} strokeWidth={iconStroke} />,
+    labelKey: "chatShare.allLinks",
   });
   if (settingsItems.length > 0) {
     sections.push({

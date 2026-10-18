@@ -122,8 +122,10 @@ async def _maybe_refresh_codex_row(server: Any, row: Any) -> Any:
 
 
 def _row_to_dict(r: Any) -> dict[str, Any]:
+    from octop.infra.agents.providers.catalog import effective_provider_models
+
     models: list[dict[str, Any]] = []
-    for stored in r.get_models():
+    for stored in effective_provider_models(r):
         model = dict(stored)
         capability = reasoning_capability(model, base_url=r.base_url)
         if capability is not None:

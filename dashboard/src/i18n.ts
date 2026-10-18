@@ -69,6 +69,11 @@ async function hydrateSkillLabels(lng: string) {
 }
 
 async function hydrateServerLabels(lng: string) {
+  if (
+    typeof window !== "undefined" &&
+    window.location.pathname.startsWith("/share/")
+  )
+    return;
   if (await isSetupRequired()) return;
   await Promise.all([hydrateToolLabels(lng), hydrateSkillLabels(lng)]);
 }

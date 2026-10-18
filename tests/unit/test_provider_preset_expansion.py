@@ -105,10 +105,21 @@ def test_load_provider_presets_integration() -> None:
     assert zen_ant.get("protocol") == "anthropic"
 
     go_oai = next(p for p in presets if p["id"] == "opencode-go-openai")
-    assert go_oai["base_url"] == "https://opencode.ai/inference/go/v1"
+    assert go_oai["base_url"] == "https://opencode.ai/inference/go/openai/v1"
     go_v41 = next(m for m in go_oai["models"] if m["id"] == "deepseek-v4.1-flash")
     assert go_v41["reasoning_config"]["adapter"] == "thinking"
-    assert {"grok-4.7", "glm-5.3", "gpt-6-luna"} <= {m["id"] for m in go_oai["models"]}
+    assert {
+        "grok-4.7",
+        "glm-5.3",
+        "gpt-6-luna",
+        "mimo-v2.6-pro",
+        "mimo-v2.6-flash",
+        "hy4-preview",
+        "space-bunny",
+        "longcat-2.5-preview-free",
+        "step-5-preview",
+        "beam-free",
+    } <= {m["id"] for m in go_oai["models"]}
 
     go_ant = next(p for p in presets if p["id"] == "opencode-go-anthropic")
-    assert go_ant["base_url"] == "https://opencode.ai/inference/go"
+    assert go_ant["base_url"] == "https://opencode.ai/inference/go/anthropic"

@@ -14,7 +14,13 @@ from octop_harness.middleware.conversation_mode import (
     parse_conversation_mode,
 )
 
-HOST_READ_TOOLS: tuple[str, ...] = ("search_knowledge",)
+HOST_READ_TOOLS: tuple[str, ...] = (
+    "search_knowledge",
+    "read_attachment",
+    "publish_artifact",
+    "octop_thread_share_preview",
+    "octop_thread_share_list",
+)
 
 _EXECUTE_EXACT = frozenset(
     {

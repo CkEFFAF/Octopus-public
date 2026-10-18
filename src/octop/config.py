@@ -138,6 +138,7 @@ class CapabilitiesConfig:
 @dataclass(frozen=True)
 class OctopConfig:
     bind_host: str = "127.0.0.1"
+    public_origin: str = ""
     port: int = 8088
     log_level: str = "info"
     access_token_ttl_seconds: int = 86400
@@ -161,6 +162,44 @@ class OctopConfig:
     @property
     def max_upload_bytes(self) -> int:
         return upload_mb_to_bytes(self.max_upload_mb)
+
+
+def validate_public_origin(value: str) -> str:
+    """Only an explicitly configured external HTTPS origin can mint public links."""
+    import ipaddress
+    from urllib.parse import urlsplit
+
+    raw = value.strip()
+    if not raw:
+        return ""
+    parsed = urlsplit(raw)
+    host = (parsed.hostname or "").lower()
+    invalid = (
+        parsed.scheme != "https"
+        or not host
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+        or host == "localhost"
+        or host.endswith(".localhost")
+    )
+    try:
+        address = ipaddress.ip_address(host)
+        invalid = invalid or address.is_loopback or address.is_unspecified
+    except ValueError:
+        pass
+    try:
+        port = parsed.port
+    except ValueError:
+        invalid = True
+        port = None
+    if invalid or port == 0:
+        raise ValueError(
+            "public_origin must be an external HTTPS origin without credentials or a path"
+        )
+    return raw.rstrip("/")
 
 
 def _defaults_for_file() -> dict[str, Any]:
@@ -516,6 +555,8 @@ def load_config(path: Path) -> OctopConfig:
         merged["port"] = env_port
     if v := os.environ.get("OCTOP_LOG_LEVEL"):
         merged["log_level"] = v
+    if "OCTOP_PUBLIC_ORIGIN" in os.environ:
+        merged["public_origin"] = os.environ["OCTOP_PUBLIC_ORIGIN"]
     if v := os.environ.get("OCTOP_ACCESS_TOKEN_TTL"):
         merged["access_token_ttl_seconds"] = _coerce_int(
             "OCTOP_ACCESS_TOKEN_TTL", v, merged["access_token_ttl_seconds"]
@@ -695,6 +736,7 @@ def load_config(path: Path) -> OctopConfig:
 
     return OctopConfig(
         bind_host=merged["bind_host"],
+        public_origin=validate_public_origin(str(merged.get("public_origin") or "")),
         port=int(merged["port"]),
         log_level=merged["log_level"],
         access_token_ttl_seconds=int(merged["access_token_ttl_seconds"]),

@@ -627,7 +627,11 @@
     "WORKFLOW_CONFLICT": "The working state changed. Refresh and retry.",
     "TASK_BOARD_INVALID": "Task operation rejected. Check execution state, dependencies and input.",
     "TASK_BOARD_CONFLICT": "The task board changed. Refresh and retry.",
-    "TASK_BOARD_PIN_REQUIRED": "Confirm the current executor configuration before running."
+    "TASK_BOARD_PIN_REQUIRED": "Confirm the current executor configuration before running.",
+    "SHARE_INVALID": "This conversation has no shareable text, or share parameters are invalid.",
+    "SHARE_LIMIT": "The snapshot exceeds 4000 source messages, 2000 public messages or 4 MiB. Share a shorter conversation.",
+    "SHARE_STALE": "The conversation changed. Review a fresh preview before publishing.",
+    "SHARE_ORIGIN_REQUIRED": "Sharing requires the administrator to configure the external HTTPS public_origin (OCTOP_PUBLIC_ORIGIN)."
   },
   "nav": {
     "devices": "Devices",
@@ -2463,6 +2467,10 @@
     "octop_thread_list": "List conversations",
     "octop_thread_search": "Search conversations",
     "octop_thread_create": "Create conversation",
+    "octop_thread_share_preview": "Preview public snapshot",
+    "octop_thread_share_create": "Create public share",
+    "octop_thread_share_list": "List share links",
+    "octop_thread_share_revoke": "Close share link",
     "octop_thread_read": "Read conversation",
     "octop_thread_status": "Read conversation status",
     "octop_thread_rename": "Rename conversation",
@@ -2480,7 +2488,9 @@
     "task_board_run": "Run board task",
     "task_board_set_parent": "Set task parent",
     "task_board_schedule": "Schedule board task",
-    "read_group_attachment": "Read room attachment"
+    "read_attachment": "Read attachment",
+    "publish_artifact": "Publish artifact",
+    "deliver_resource": "Deliver resource"
   },
   "toolSettings": {
     "title": "Tool settings",
@@ -7325,5 +7335,148 @@
       "offline": "Offline",
       "resting": "Resting"
     }
+  },
+  "collaboration": {
+    "title": "Collaboration",
+    "artifacts": "artifacts",
+    "device": "Actual device",
+    "unresolved": "Not resolved",
+    "transport": "Dispatch",
+    "outcome": "Task result",
+    "prompt": "Assignment",
+    "openChild": "Open expert chat",
+    "messages": "Public working messages",
+    "loading": "Loading collaboration…",
+    "detailError": "Working messages could not be loaded. Refresh to try again.",
+    "older": "Load earlier messages",
+    "noMessages": "No public working messages yet.",
+    "empty": "No collaboration activity yet.",
+    "loadError": "Collaboration could not be loaded. Refresh to try again.",
+    "requested": "Requested target",
+    "retryOf": "Retry of",
+    "retryable": "A new attempt may be requested.",
+    "version": "Snapshot SHA256",
+    "verified": "Bytes verified · SHA256",
+    "resourceUnavailable": "This resource is pending, revoked or unavailable.",
+    "resourceError": "Resource unavailable or verification failed. Refresh to try again.",
+    "noPreview": "Preview unavailable for this file. Download to open it.",
+    "more": "Load more updates",
+    "role": {
+      "user": "Assignment",
+      "assistant": "Expert"
+    },
+    "status": {
+      "accepted": "Accepted",
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "unknown": "Unknown"
+    },
+    "outcomeStatus": {
+      "unknown": "Unknown",
+      "succeeded": "Succeeded",
+      "blocked": "Blocked",
+      "failed": "Failed",
+      "needs_input": "Needs input"
+    },
+    "policy": {
+      "member_default": "Expert default",
+      "inherit": "Inherit parent",
+      "explicit": "Explicit target"
+    },
+    "delivery": {
+      "running": "Delivery in progress",
+      "completed": "Delivered · target acknowledged and checksum verified",
+      "failed": "Delivery failed · no verified completion"
+    },
+    "evidence": "Recent operation evidence",
+    "eventUpdate": "Collaboration updated",
+    "events": {
+      "delegation_accepted": "Delegation accepted",
+      "delegation_target_resolved": "Device resolved",
+      "delegation_started": "Expert started",
+      "delegation_completed": "Dispatch completed",
+      "delegation_failed": "Dispatch failed",
+      "delegation_cancel_requested": "Cancellation requested",
+      "delegation_cancelled": "Dispatch cancelled",
+      "delegation_result_unknown": "Result unknown",
+      "resource_registered": "Resource registered",
+      "resource_ready": "Resource ready",
+      "resource_parse_failed": "Resource parsing failed",
+      "resource_granted": "Resource access granted",
+      "resource_published": "Artifact published",
+      "resource_delivery_started": "Delivery started",
+      "resource_delivered": "Delivery verified",
+      "resource_delivery_failed": "Delivery failed",
+      "delegation_cancel_too_late": "Cancellation arrived after the attempt finished",
+      "resource_unavailable": "Resource unavailable"
+    },
+    "expertStorage": "Expert storage",
+    "reasons": {
+      "acceptanceFailed": "The delegation could not be durably accepted.",
+      "acceptanceInterrupted": "Acceptance was interrupted; whether work started is unconfirmed.",
+      "preparationFailed": "The expert session could not be prepared.",
+      "startPersistenceFailed": "The start receipt could not be saved; execution is unconfirmed.",
+      "callFailed": "The expert call could not complete.",
+      "modelFailed": "The expert model request failed.",
+      "receiptPersistenceFailed": "The final receipt could not be saved; the recorded result is unconfirmed.",
+      "cancelRequested": "Cancellation was requested; stopping has not yet been confirmed.",
+      "restartUnconfirmed": "After restart, the previous execution could not be confirmed. It has not been automatically repeated.",
+      "invocationConflict": "This attempt conflicts with an existing delegation record.",
+      "snapshotUnavailable": "The published snapshot is unavailable or could not be verified.",
+      "deliveryFailed": "Resource delivery could not be verified at the destination.",
+      "unknown": "A collaboration issue was reported; no further public details are available."
+    }
+  },
+  "chatShare": {
+    "title": "Share conversation",
+    "allLinks": "Shared conversations",
+    "links": "Share links",
+    "threadLinks": "Links for this conversation",
+    "explanation": "Publish a read-only snapshot. Anyone with the link can view it without signing in. Later messages stay private. Attachments, tool activity and internal reasoning are excluded.",
+    "reviewWarning": "Review the exact text below before publishing. Ordinary message text may contain information you want to keep private.",
+    "closeExplanation": "Closing a link prevents future access. Copies already saved by viewers cannot be recalled.",
+    "preview": "Public snapshot preview",
+    "refreshPreview": "Refresh preview",
+    "messageCount": "{{count}} messages",
+    "expiry": "Link expiry",
+    "days": "{{count}} days",
+    "never": "No automatic expiry",
+    "create": "Create reviewed snapshot",
+    "createdLink": "Snapshot link created. Copy it from the list below.",
+    "copy": "Copy link",
+    "copied": "Link copied.",
+    "copyError": "Could not copy. Select and copy the link manually.",
+    "url": "Public share URL",
+    "close": "Close link",
+    "closed": "Link closed. Future requests can no longer open it.",
+    "closeError": "Could not close this link. Try again.",
+    "created": "Created",
+    "expires": "Expires",
+    "noLinks": "No share links yet.",
+    "more": "Load more links",
+    "listError": "Share links could not be loaded. Refresh to try again.",
+    "publicNotice": "Shared read-only snapshot. Later conversation messages are not included.",
+    "unavailable": "This shared conversation is unavailable",
+    "unavailableHint": "The link may be invalid, expired or closed. Check the link or retry.",
+    "roles": {
+      "user": "You",
+      "assistant": "Assistant"
+    },
+    "status": {
+      "active": "Active",
+      "expired": "Expired",
+      "revoked": "Closed"
+    },
+    "errors": {
+      "invalid": "There is no shareable text in this conversation, or the request is invalid.",
+      "limit": "This conversation is too large to share as one snapshot.",
+      "stale": "The conversation changed after your preview. Refresh and review the new preview before creating a link.",
+      "originRequired": "Sharing requires the server administrator to configure its public HTTPS origin.",
+      "previewError": "The public preview could not be loaded. Try refreshing.",
+      "createError": "The share link could not be created. Try again."
+    },
+    "timezone": "Snapshot timezone"
   }
 }

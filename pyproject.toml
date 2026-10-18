@@ -25,7 +25,7 @@ dependencies = [
     "apscheduler>=3.10,<4",
     "argon2-cffi>=23.1",
     "pyjwt>=2.8",
-    "octop-harness[all] @ https://github.com/CkEFFAF/octop-harness/archive/2ac4d602f931c985dae3cf4bc36a72b9c7104fbd.tar.gz",
+    "octop-harness[all]==1.0.2.post3",
     "octop-memory>=1.0.0",
     "lark-oapi>=1.7.3",
     "octop-gateway>=1.0.0",
@@ -224,3 +224,7 @@ markers = [
 filterwarnings = [
     "ignore::starlette.exceptions.StarletteDeprecationWarning",
 ]
+
+# Portable internal-beta review artifact; source/hash provenance lives next to the wheel.
+[tool.uv.sources]
+octop-harness = { path = "vendor/harness/octop_harness-1.0.2.post3-py3-none-any.whl" }

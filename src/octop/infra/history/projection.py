@@ -161,6 +161,7 @@ class TurnHistoryTracker:
     _reasoning_text: str = field(default="", init=False)
     _error_message: str = field(default="", init=False)
     _error_code: str | None = field(default=None, init=False)
+    _finished: bool = field(default=False, init=False)
 
     @classmethod
     def from_request(cls, request: dict[str, Any]) -> TurnHistoryTracker:
@@ -169,6 +170,9 @@ class TurnHistoryTracker:
 
     def observe(self, chunk: dict[str, Any]) -> None:
         kind = chunk.get("type")
+        if kind == "done":
+            self._finished = True
+            return
         if kind in ("state_snapshot", "state_update"):
             messages = _chunk_messages(chunk)
             if not messages:
@@ -196,13 +200,14 @@ class TurnHistoryTracker:
             if code:
                 self._error_code = str(code)
 
-    def _stream_message(self) -> ThreadMessageInput | None:
-        if not self._stream_text and not self._reasoning_text:
+    def _stream_message(self, text: str | None = None) -> ThreadMessageInput | None:
+        content = self._stream_text if text is None else text
+        if not content and not self._reasoning_text:
             return None
-        extra: dict[str, Any] = {}
+        extra: dict[str, Any] = {"octop_partial": not self._finished}
         if self._reasoning_text:
             extra["reasoning_content"] = self._reasoning_text
-        return live_message_input(AIMessage(content=self._stream_text, additional_kwargs=extra))
+        return live_message_input(AIMessage(content=content, additional_kwargs=extra))
 
     def _error_input(self) -> ThreadMessageInput | None:
         if not self._error_message:
@@ -212,13 +217,18 @@ class TurnHistoryTracker:
             extra[STREAM_ERROR_CODE_KEY] = self._error_code
         return live_message_input(AIMessage(content=self._error_message, additional_kwargs=extra))
 
-    def _inputs_cover_stream(self, items: list[ThreadMessageInput]) -> bool:
-        if not self._stream_text:
-            return False
-        return any(
-            item.role in _ASSISTANT_ROLES and self._stream_text in _wire_text(item)
-            for item in items
-        )
+    def _unpersisted_stream_text(self, items: list[ThreadMessageInput]) -> str:
+        if self._finished and self._state_messages:
+            return ""
+        # Legacy protocols lack message IDs on tokens. State already holds the
+        # authoritative assistant messages (including progress before tools).
+        # Reconcile their ordered text, not the entire stream against one final.
+        persisted = "".join(_wire_text(item) for item in items if item.role in _ASSISTANT_ROLES)
+        if persisted and self._stream_text.startswith(persisted):
+            return self._stream_text[len(persisted) :]
+        if persisted.startswith(self._stream_text):
+            return ""
+        return self._stream_text
 
     @property
     def inputs(self) -> list[ThreadMessageInput]:
@@ -228,10 +238,13 @@ class TurnHistoryTracker:
         )
         items = live_message_inputs(
             source,
-            dedupe_missing_ids=True,
+            dedupe_missing_ids=False,
         )
-        if not self._inputs_cover_stream(items):
-            streamed = self._stream_message()
+        remaining = self._unpersisted_stream_text(items)
+        if remaining or (
+            not self._stream_text and self._reasoning_text and not self._state_messages
+        ):
+            streamed = self._stream_message(remaining)
             if streamed is not None:
                 items.append(streamed)
         error = self._error_input()

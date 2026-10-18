@@ -22,6 +22,7 @@ import type { KnowledgeCitation } from "../../../utils/parseKnowledgeCitations";
 import { dockKnowledgeTabId } from "../utils/dockKnowledgeTabId";
 import { dockToolUiTabId } from "../utils/dockToolUiTabId";
 import { usePanelResize, type PanelSizes } from "./usePanelResize";
+import type { CollaborationResource } from "../../../api/modules/collaboration";
 
 const PANEL_MODE_KEY = "octop:chat-dock:mode";
 const PANEL_SIZE_KEY = "octop:chat-dock:size";
@@ -52,6 +53,13 @@ export type DockTab =
       initialFilePath?: string;
     }
   | { id: string; kind: "file"; path: string; agentId?: string }
+  | {
+      id: string;
+      kind: "resource";
+      resource: CollaborationResource;
+      agentId: string;
+      threadId: string;
+    }
   | {
       id: string;
       kind: "knowledge";
@@ -306,6 +314,21 @@ export function useChatDockPanel(
     [agentId, openDock, openFileList, scope, defaultDeviceId, openExecutionTab],
   );
 
+  const openResource = useCallback(
+    (resource: CollaborationResource) => {
+      if (!agentId || !threadId) return;
+      const id = `resource:${agentId}:${threadId}:${resource.resource_id}:${resource.version}`;
+      setOpenTabs((prev) =>
+        prev.some((tab) => tab.id === id)
+          ? prev
+          : [...prev, { id, kind: "resource", resource, agentId, threadId }],
+      );
+      setActiveTabId(id);
+      openDock();
+    },
+    [agentId, threadId, openDock],
+  );
+
   const openWorkspaceTab = useCallback(() => {
     void openExecutionTab("workspace");
   }, [openExecutionTab]);
@@ -460,6 +483,7 @@ export function useChatDockPanel(
     handleClose,
     handleModeChange,
     openFileAt,
+    openResource,
     openFileList,
     openKnowledgeCitation,
     openWorkspaceTab,

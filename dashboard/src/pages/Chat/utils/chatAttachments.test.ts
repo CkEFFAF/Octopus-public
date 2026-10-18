@@ -21,6 +21,28 @@ describe("inferAttachmentKind", () => {
 });
 
 describe("buildUserMessageContent", () => {
+  it("preserves registered resource identity and immutable version in file and vision blocks", () => {
+    const content = buildUserMessageContent("", [
+      {
+        kind: "file",
+        url: "",
+        filename: "paper.pdf",
+        resourceId: "paper-id",
+        version: "paper-version",
+      },
+      {
+        kind: "image",
+        url: "/api/image",
+        filename: "figure.png",
+        resourceId: "figure-id",
+        version: "figure-version",
+      },
+    ]);
+    expect(content).toMatchObject([
+      { type: "file", resource_id: "paper-id", version: "paper-version" },
+      { type: "image", resource_id: "figure-id", version: "figure-version" },
+    ]);
+  });
   it("sends video and audio as file path-hint blocks, not vision", () => {
     const content = buildUserMessageContent("see this", [
       {

@@ -6,13 +6,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from octop.infra.agents.teams.attachments import build_room_attachment_tool
+from octop.infra.documents.attachments import build_attachment_tool
 
 
 @pytest.mark.asyncio
 async def test_room_attachment_read_and_pagination() -> None:
     workspace = SimpleNamespace(adownload_bytes=AsyncMock(return_value="群聊附件验收".encode()))
-    tool = build_room_attachment_tool(workspace, locale="zh")
+    tool = build_attachment_tool(workspace)
     first = json.loads(await tool.ainvoke({"path": "/inbound/qa.txt", "limit": 3}))
     assert first["text"] == "群聊附"
     assert first["next_offset"] == 3
@@ -36,7 +36,7 @@ async def test_room_attachment_read_and_pagination() -> None:
 )
 async def test_room_attachment_cannot_read_other_files(path: str) -> None:
     workspace = SimpleNamespace(adownload_bytes=AsyncMock())
-    result = json.loads(await build_room_attachment_tool(workspace).ainvoke({"path": path}))
+    result = json.loads(await build_attachment_tool(workspace).ainvoke({"path": path}))
     assert result["error"]
     workspace.adownload_bytes.assert_not_awaited()
 
@@ -46,6 +46,6 @@ async def test_room_attachment_missing_binary_and_oversized_are_explicit_errors(
     for content in (None, b"\x00binary", b"a" * (8 * 1024 * 1024 + 1)):
         workspace = SimpleNamespace(adownload_bytes=AsyncMock(return_value=content))
         result = json.loads(
-            await build_room_attachment_tool(workspace).ainvoke({"path": "inbound/qa.txt"})
+            await build_attachment_tool(workspace).ainvoke({"path": "inbound/qa.txt"})
         )
         assert result["error"]

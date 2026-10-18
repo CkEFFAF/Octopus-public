@@ -1,7 +1,4 @@
-import {
-  ICP_FILING_URL,
-  resolveIcpFilingNumber,
-} from "../../config/icpFiling";
+import { ICP_FILING_URL, resolveIcpFilingNumber } from "../../config/icpFiling";
 
 type Props = {
   /** Override env/default (tests). */

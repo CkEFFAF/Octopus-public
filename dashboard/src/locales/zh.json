@@ -627,7 +627,11 @@
     "WORKFLOW_CONFLICT": "工作状态已变化，请刷新后重试。",
     "TASK_BOARD_INVALID": "任务操作未满足要求，请检查执行状态、父子关系及输入内容。",
     "TASK_BOARD_CONFLICT": "任务看板已更新，请刷新后重试。",
-    "TASK_BOARD_PIN_REQUIRED": "执行人或配置已变更，请先确认当前执行配置。"
+    "TASK_BOARD_PIN_REQUIRED": "执行人或配置已变更，请先确认当前执行配置。",
+    "SHARE_INVALID": "会话没有可分享的文字，或分享参数无效。",
+    "SHARE_LIMIT": "快照超过4000条源消息、2000条公开消息或4 MiB，请分享更短的会话。",
+    "SHARE_STALE": "会话已变化，请重新预览并确认公开内容。",
+    "SHARE_ORIGIN_REQUIRED": "请管理员配置外部HTTPS public_origin（OCTOP_PUBLIC_ORIGIN）后再创建分享。"
   },
   "nav": {
     "devices": "设备",
@@ -2428,7 +2432,7 @@
     "agent_list": "列出专家",
     "ask_agent": "咨询专家",
     "call_agent": "调用专家",
-    "acp_runner": "ACP 外部专家",
+    "acp_runner": "ACP 外部 Agent",
     "browser_use": "使用浏览器",
     "browser_control": "浏览器控制",
     "send_file_to_user": "发送文件",
@@ -2463,6 +2467,10 @@
     "octop_thread_list": "列出会话",
     "octop_thread_search": "搜索会话",
     "octop_thread_create": "创建会话",
+    "octop_thread_share_preview": "预览公开快照",
+    "octop_thread_share_create": "创建公开分享",
+    "octop_thread_share_list": "查看分享链接",
+    "octop_thread_share_revoke": "关闭分享链接",
     "octop_thread_read": "读取会话",
     "octop_thread_status": "读取会话状态",
     "octop_thread_rename": "重命名会话",
@@ -2480,7 +2488,9 @@
     "task_board_run": "执行看板任务",
     "task_board_set_parent": "调整父子任务",
     "task_board_schedule": "设置任务排期",
-    "read_group_attachment": "读取群聊附件"
+    "read_attachment": "读取附件",
+    "publish_artifact": "发布成果",
+    "deliver_resource": "交付资源"
   },
   "toolSettings": {
     "title": "工具设置",
@@ -7325,5 +7335,148 @@
       "offline": "设备离线",
       "resting": "休息"
     }
+  },
+  "collaboration": {
+    "title": "专家协作",
+    "artifacts": "份产物",
+    "device": "实际设备",
+    "unresolved": "尚未解析",
+    "transport": "委托状态",
+    "outcome": "任务结果",
+    "prompt": "任务安排",
+    "openChild": "打开专家聊天",
+    "messages": "公开工作消息",
+    "loading": "正在加载协作记录…",
+    "detailError": "工作消息加载失败，请刷新重试。",
+    "older": "加载更早的消息",
+    "noMessages": "暂无公开工作消息。",
+    "empty": "暂无协作活动。",
+    "loadError": "协作记录加载失败，请刷新重试。",
+    "requested": "请求的目标",
+    "retryOf": "重试来源",
+    "retryable": "可以请求新一轮尝试。",
+    "version": "快照 SHA256",
+    "verified": "字节已校验 · SHA256",
+    "resourceUnavailable": "资源尚未就绪、已撤销或不可用。",
+    "resourceError": "资源不可用或校验失败，请刷新重试。",
+    "noPreview": "此文件暂不支持预览，可下载后打开。",
+    "more": "加载更多动态",
+    "role": {
+      "user": "任务安排",
+      "assistant": "专家"
+    },
+    "status": {
+      "accepted": "已接受",
+      "running": "进行中",
+      "completed": "已完成",
+      "failed": "失败",
+      "cancelled": "已取消",
+      "unknown": "未知"
+    },
+    "outcomeStatus": {
+      "unknown": "未知",
+      "succeeded": "成功",
+      "blocked": "受阻",
+      "failed": "失败",
+      "needs_input": "等待输入"
+    },
+    "policy": {
+      "member_default": "专家默认设备",
+      "inherit": "继承父任务",
+      "explicit": "明确指定"
+    },
+    "delivery": {
+      "running": "正在交付",
+      "completed": "已交付 · 目标已确认并通过校验",
+      "failed": "交付失败 · 尚未确认成功"
+    },
+    "evidence": "近期操作记录",
+    "eventUpdate": "协作记录已更新",
+    "events": {
+      "delegation_accepted": "已接受委托",
+      "delegation_target_resolved": "已解析设备",
+      "delegation_started": "专家已开始",
+      "delegation_completed": "委托已完成",
+      "delegation_failed": "委托失败",
+      "delegation_cancel_requested": "已请求取消",
+      "delegation_cancelled": "委托已取消",
+      "delegation_result_unknown": "结果未知",
+      "resource_registered": "资源已登记",
+      "resource_ready": "资源已就绪",
+      "resource_parse_failed": "资源解析失败",
+      "resource_granted": "已授予资源访问权限",
+      "resource_published": "产物已发布",
+      "resource_delivery_started": "已开始交付",
+      "resource_delivered": "交付已校验",
+      "resource_delivery_failed": "交付失败",
+      "delegation_cancel_too_late": "取消请求到达时任务已结束",
+      "resource_unavailable": "资源不可用"
+    },
+    "expertStorage": "专家存储",
+    "reasons": {
+      "acceptanceFailed": "委托未能完成持久化接收。",
+      "acceptanceInterrupted": "接收委托时被中断，尚未确认工作是否已开始。",
+      "preparationFailed": "未能准备专家会话。",
+      "startPersistenceFailed": "启动记录未能保存，执行情况尚未确认。",
+      "callFailed": "专家调用未能完成。",
+      "modelFailed": "专家的模型请求失败。",
+      "receiptPersistenceFailed": "最终回执未能保存，记录中的结果尚未确认。",
+      "cancelRequested": "已请求取消，尚未确认工作已停止。",
+      "restartUnconfirmed": "重启后未能确认此前的执行情况，系统未自动重复执行。",
+      "invocationConflict": "本次尝试与已有的委托记录冲突。",
+      "snapshotUnavailable": "已发布的快照不可用或未能通过校验。",
+      "deliveryFailed": "资源未能在目标端完成交付校验。",
+      "unknown": "协作记录报告了一个问题，暂无更多可公开的详情。"
+    }
+  },
+  "chatShare": {
+    "title": "分享会话",
+    "allLinks": "会话分享管理",
+    "links": "分享链接",
+    "threadLinks": "此会话的分享链接",
+    "explanation": "发布一份只读快照，拥有链接的人无需登录即可查看。后续消息仍保持私密。附件、工具活动和内部思考不会包含在快照中。",
+    "reviewWarning": "发布前请检查下方将公开的完整文字。普通消息中可能包含你希望保密的信息。",
+    "closeExplanation": "关闭链接将阻止后续访问，但无法收回查看者已经保存的副本。",
+    "preview": "公开快照预览",
+    "refreshPreview": "刷新预览",
+    "messageCount": "{{count}} 条消息",
+    "expiry": "链接有效期",
+    "days": "{{count}} 天",
+    "never": "不自动过期",
+    "create": "创建已审阅的快照",
+    "createdLink": "快照链接已创建，可在下方列表中复制。",
+    "copy": "复制链接",
+    "copied": "链接已复制。",
+    "copyError": "复制失败，请选中链接手动复制。",
+    "url": "公开分享链接",
+    "close": "关闭链接",
+    "closed": "链接已关闭，后续请求将无法打开。",
+    "closeError": "关闭链接失败，请重试。",
+    "created": "创建时间",
+    "expires": "到期时间",
+    "noLinks": "暂无分享链接。",
+    "more": "加载更多链接",
+    "listError": "分享链接加载失败，请刷新重试。",
+    "publicNotice": "这是一份只读会话快照，不包含后续聊天消息。",
+    "unavailable": "此分享会话不可用",
+    "unavailableHint": "链接可能无效、已过期或已关闭，请检查链接或重试。",
+    "roles": {
+      "user": "用户",
+      "assistant": "助手"
+    },
+    "status": {
+      "active": "有效",
+      "expired": "已过期",
+      "revoked": "已关闭"
+    },
+    "errors": {
+      "invalid": "此会话没有可分享的文字，或请求无效。",
+      "limit": "此会话内容过大，无法作为一份快照分享。",
+      "stale": "会话内容已在预览后发生变化，请刷新并重新审阅预览后再创建链接。",
+      "originRequired": "请先由服务器管理员配置公开 HTTPS 地址，才能创建分享链接。",
+      "previewError": "公开预览加载失败，请刷新重试。",
+      "createError": "创建分享链接失败，请重试。"
+    },
+    "timezone": "快照时区"
   }
 }

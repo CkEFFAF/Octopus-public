@@ -33,6 +33,7 @@ interface ChatSidebarPanelProps {
   onRenameSession: (id: string, name: string) => void;
   onPinSession: (id: string, pinned: boolean) => void;
   onForkSession: (id: string, agentId?: string | null) => void;
+  onShareSession?: (id: string, agentId?: string | null) => void;
   forkDisabled?: boolean;
   forkDisabledHint?: string;
   onSidebarOpenChange: (open: boolean) => void;
@@ -68,6 +69,7 @@ export default function ChatSidebarPanel({
   onRenameSession,
   onPinSession,
   onForkSession,
+  onShareSession,
   forkDisabled,
   forkDisabledHint,
   onSidebarOpenChange,
@@ -101,6 +103,7 @@ export default function ChatSidebarPanel({
       onRenameActive={onRenameSession}
       onPinActive={onPinSession}
       onFork={onForkSession}
+      onShare={onShareSession}
       activeForkDisabled={forkDisabled}
       activeForkDisabledHint={forkDisabledHint}
     />
@@ -121,6 +124,7 @@ export default function ChatSidebarPanel({
       onRename={onRenameSession}
       onPin={onPinSession}
       onFork={onForkSession}
+      onShare={onShareSession}
       activeForkDisabled={forkDisabled}
       activeForkDisabledHint={forkDisabledHint}
     />

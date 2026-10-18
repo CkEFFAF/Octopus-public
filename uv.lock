@@ -2617,7 +2617,7 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "octop-browser", specifier = ">=1.0.0" },
     { name = "octop-gateway", specifier = ">=1.0.0" },
-    { name = "octop-harness", extras = ["all"], url = "https://github.com/CkEFFAF/octop-harness/archive/2ac4d602f931c985dae3cf4bc36a72b9c7104fbd.tar.gz" },
+    { name = "octop-harness", extras = ["all"], path = "vendor/harness/octop_harness-1.0.2.post3-py3-none-any.whl" },
     { name = "octop-memory", specifier = ">=1.0.0" },
     { name = "onnxruntime", marker = "extra == 'knowledge-ocr'", specifier = ">=1.17" },
     { name = "openpyxl", specifier = ">=3.1" },
@@ -2711,8 +2711,8 @@ wheels = [
 
 [[package]]
 name = "octop-harness"
-version = "1.0.2.post2"
-source = { url = "https://github.com/CkEFFAF/octop-harness/archive/2ac4d602f931c985dae3cf4bc36a72b9c7104fbd.tar.gz" }
+version = "1.0.2.post3"
+source = { path = "vendor/harness/octop_harness-1.0.2.post3-py3-none-any.whl" }
 dependencies = [
     { name = "deepagents" },
     { name = "httpx" },
@@ -2729,7 +2729,9 @@ dependencies = [
     { name = "octop-memory" },
     { name = "pyyaml" },
 ]
-sdist = { hash = "sha256:e32820c2249660f377091edb0d3f787815af1fff0bb4e66ed78bc6063c8f4bfe" }
+wheels = [
+    { filename = "octop_harness-1.0.2.post3-py3-none-any.whl", hash = "sha256:461d67c7562650f4859ca26893c83d1376c2895e26867f7d209c0249683a7861" },
+]
 
 [package.optional-dependencies]
 all = [
@@ -2805,7 +2807,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", marker = "extra == 'cli'", specifier = ">=13.0" },
 ]
-provides-extras = ["cli", "bedrock", "remote-backends", "docker", "opensandbox", "observability", "acp", "desktop", "web-search-all", "object-storage", "all"]
+provides-extras = ["acp", "all", "bedrock", "cli", "desktop", "docker", "object-storage", "observability", "opensandbox", "remote-backends", "web-search-all"]
 
 [[package]]
 name = "octop-memory"

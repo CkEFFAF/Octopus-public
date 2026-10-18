@@ -510,8 +510,12 @@ export default function ContextRequestBrowser({
                 showIcon
                 message={t("chat.contextInspect.effectiveBinding")}
                 description={
-                  (insightsDetail.effective_binding as { execution_context?: unknown; reason_codes?: string[] })
-                    .execution_context
+                  (
+                    insightsDetail.effective_binding as {
+                      execution_context?: unknown;
+                      reason_codes?: string[];
+                    }
+                  ).execution_context
                     ? JSON.stringify(
                         (
                           insightsDetail.effective_binding as {
@@ -549,7 +553,9 @@ export default function ContextRequestBrowser({
                 ))}
               </div>
             ) : null}
-            <p className={styles.hint}>{t("chat.contextInspect.retainedNote")}</p>
+            <p className={styles.hint}>
+              {t("chat.contextInspect.retainedNote")}
+            </p>
             <details className={styles.slimDetail}>
               <summary>{t("chat.contextInspect.techFields")}</summary>
               <dl className={styles.receiptFields}>

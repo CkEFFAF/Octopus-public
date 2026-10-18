@@ -63,6 +63,11 @@ def is_jwt_exempt_path(path: str) -> bool:
 
 
 def is_jwt_exempt_request(request: Request) -> bool:
+    if request.method == "GET":
+        import re
+
+        if re.fullmatch(r"/api/public/thread-shares/[^/]+", request.url.path):
+            return True
     return is_jwt_exempt_path(request.url.path)
 
 

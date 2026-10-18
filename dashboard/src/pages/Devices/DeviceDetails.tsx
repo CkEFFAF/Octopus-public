@@ -156,10 +156,7 @@ export default function DeviceDetails({
           : t("devices.none")}
       </div>
       <DeviceCapabilities device={device} />
-      <DeviceCapabilityPolicyPanel
-        device={device}
-        onSaved={onDeviceUpdated}
-      />
+      <DeviceCapabilityPolicyPanel device={device} onSaved={onDeviceUpdated} />
       <h3>
         {t(
           device.trust_mode === "owner"

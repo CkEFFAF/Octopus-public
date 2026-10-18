@@ -90,6 +90,8 @@ import {
 } from "./ChatToolDockContext";
 import ChatSidebarPanel from "./components/ChatSidebarPanel";
 import ChatTitleBar from "./components/ChatTitleBar";
+import ShareManagementDialog from "../../components/Sharing/ShareManagementDialog";
+import CollaborationPanel from "./components/CollaborationPanel";
 import TeamChatBadge from "./components/TeamChatBadge";
 import ChatUsageFooter from "./components/ChatUsageFooter";
 import ProjectRoomBar from "./components/ProjectRoomBar";
@@ -196,6 +198,10 @@ function ChatPageInner() {
   }, [location.state, location.pathname, navigate]);
 
   const activeThreadId = threadId || null;
+  const [shareScope, setShareScope] = useState<{
+    agentId: string;
+    threadId: string;
+  } | null>(null);
 
   const {
     activeAgentId,
@@ -443,6 +449,7 @@ function ChatPageInner() {
     handleModeChange: handleDockModeChange,
     openFileList,
     openFileAt,
+    openResource,
     openKnowledgeCitation,
     openWorkspaceTab,
     openBrowserTab,
@@ -1285,6 +1292,10 @@ function ChatPageInner() {
       onRenameSession={renameSession}
       onPinSession={pinSession}
       onForkSession={handleForkSession}
+      onShareSession={(id, agent) => {
+        const ownerAgent = agent || resolvedAgentId;
+        if (ownerAgent) setShareScope({ agentId: ownerAgent, threadId: id });
+      }}
       forkDisabled={sessionForkDisabled}
       forkDisabledHint={sessionForkDisabledHint}
       onSidebarOpenChange={setSidebarOpen}
@@ -1441,6 +1452,15 @@ function ChatPageInner() {
                 onRename={renameSession}
                 onPin={pinSession}
                 onFork={handleForkSession}
+                onShare={
+                  !sharedExpertViewer && resolvedAgentId && activeThreadId
+                    ? () =>
+                        setShareScope({
+                          agentId: resolvedAgentId,
+                          threadId: activeThreadId,
+                        })
+                    : undefined
+                }
                 onDelete={handleDeleteSession}
                 forkDisabled={sessionForkDisabled}
                 forkDisabledHint={sessionForkDisabledHint}
@@ -1483,6 +1503,15 @@ function ChatPageInner() {
                     {t("chat.historyRetry")}
                   </Button>
                 }
+              />
+            )}
+            {resolvedAgentId && activeThreadId && !sharedExpertViewer && (
+              <CollaborationPanel
+                key={`${resolvedAgentId}/${activeThreadId}`}
+                agentId={resolvedAgentId}
+                threadId={activeThreadId}
+                agentNameById={dockAgentNameById}
+                onOpenResource={openResource}
               />
             )}
             <div className={styles.chatContent}>
@@ -1923,6 +1952,14 @@ function ChatPageInner() {
           )}
         </div>
       </ChatToolDockProvider>
+      {shareScope && (
+        <ShareManagementDialog
+          key={`${shareScope.agentId}/${shareScope.threadId}`}
+          agentId={shareScope.agentId}
+          threadId={shareScope.threadId}
+          onClose={() => setShareScope(null)}
+        />
+      )}
     </ChatFilePreviewProvider>
   );
 }

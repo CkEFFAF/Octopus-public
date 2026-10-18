@@ -514,13 +514,17 @@ async def test_command_timeout_cancel_stops_parent_and_child(tmp_path, cancel):
             "process",
         )
     )
+    parent = child = None
     for _ in range(100):
-        if (root / "parent.pid").exists():
+        try:
+            parent = int((root / "parent.pid").read_text())
+            child = int((root / "child.pid").read_text())
             break
-        await asyncio.sleep(0.02)
-    assert (root / "parent.pid").exists()
-    parent = int((root / "parent.pid").read_text())
-    child = int((root / "child.pid").read_text())
+        except (FileNotFoundError, PermissionError, ValueError):
+            # Windows may briefly hold a renamed PID file open. Readable,
+            # complete PIDs are the readiness signal, rather than existence.
+            await asyncio.sleep(0.02)
+    assert parent is not None and child is not None
     if cancel:
         await executor.cancel("process")
         with pytest.raises(asyncio.CancelledError):
