@@ -128,7 +128,10 @@ it("reaches verified report bytes from the parent panel using the real shared do
   expect(await screen.findByText("hello")).toBeInTheDocument();
   expect(screen.getByRole("tab")).toHaveTextContent("Report.txt");
   expect(screen.getByRole("tab")).toHaveAttribute("aria-selected", "true");
-  fireEvent.click(screen.getByRole("button", { name: "common.preview" }));
+  fireEvent.click(screen.getByRole("button", { name: "collaboration.title" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "common.preview" }),
+  );
   await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(1));
   expect(executionApi.createContext).not.toHaveBeenCalled();
   expect(requestBlob).toHaveBeenCalledWith(

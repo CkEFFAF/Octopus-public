@@ -278,6 +278,12 @@ it("lists centrally from a normal settings entry, pages by exclusive cursor and 
     settings?.items.find((item) => item.key === "thread-shares")?.path,
   ).toBe("/settings/thread-shares");
   render(<ThreadSharesPage />);
+  expect(
+    screen.getAllByRole("heading", { name: "chatShare.allLinks" }),
+  ).toHaveLength(1);
+  expect(
+    screen.getByRole("region", { name: "chatShare.links" }),
+  ).toBeInTheDocument();
   await screen.findByDisplayValue(share.public_url!);
   fireEvent.click(screen.getByRole("button", { name: "chatShare.more" }));
   expect(await screen.findByText("Expired snapshot")).toBeInTheDocument();

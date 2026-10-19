@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Response
@@ -14,6 +14,24 @@ from octop.infra.agents.teams.collaboration import CollaborationService
 from octop.infra.documents.resources import ResourceService
 
 router = APIRouter()
+
+
+class TaskResultResourceOut(BaseModel):
+    resource_id: str
+    version: str
+
+
+class ReplyRefOut(BaseModel):
+    thread_id: str
+    seq: int
+    message_id: str | None
+
+
+class TaskResultOut(BaseModel):
+    summary: str
+    provenance: Literal["expert_reported"]
+    resources: list[TaskResultResourceOut]
+    reply: ReplyRefOut
 
 
 class InvocationOut(BaseModel):
@@ -27,6 +45,9 @@ class InvocationOut(BaseModel):
     retry_of: str | None
     transport_status: str
     task_outcome: str
+    task_result: TaskResultOut | None = None
+    reply_received: bool = False
+    task_result_reason: str | None = None
     target_policy: str
     requested_target: dict[str, Any]
     resolved_target: dict[str, Any] | None

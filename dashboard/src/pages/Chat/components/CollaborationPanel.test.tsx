@@ -191,6 +191,13 @@ it("opens the parent collaboration entry, pages public work, refreshes without c
   expect(screen.getAllByText("Report ready.")).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "common.preview" }));
   expect(preview).toHaveBeenCalledWith(resource);
+  vi.mocked(collaborationApi.detail).mockResolvedValue({
+    invocation,
+    messages: [],
+    has_more: false,
+    next_before: null,
+  });
+  fireEvent.click(screen.getByRole("button", { name: "collaboration.title" }));
   fireEvent.click(screen.getByRole("button", { name: "common.download" }));
   await waitFor(() =>
     expect(downloadCollaborationResource).toHaveBeenCalledWith(
@@ -309,6 +316,7 @@ it("exposes loading, failed GET, retry and empty states without dispatching work
       />
     </MemoryRouter>,
   );
+  fireEvent.click(screen.getByRole("button", { name: "collaboration.title" }));
   expect(screen.getByRole("status")).toHaveTextContent("collaboration.loading");
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "collaboration.loadError",
@@ -501,4 +509,116 @@ it("keeps collaboration reasons and events bilingual with the canonical tool lab
   expect(zh.collaboration.reasons.restartUnconfirmed).not.toContain("失败");
   expect(en.tools.read_attachment).toBe("Read attachment");
   expect(zh.tools.read_attachment).toBe("读取附件");
+});
+
+it("opens and closes an accessible dialog and keeps verified retry success free of stale delivery errors", async () => {
+  vi.mocked(collaborationApi.list).mockResolvedValue(
+    snapshot({
+      artifacts: [{ ...resource, error_code: "RESOURCE_DELIVERY_FAILED" }],
+    }),
+  );
+  render(
+    <MemoryRouter>
+      <CollaborationPanel
+        agentId="parent"
+        threadId="parent-chat"
+        onOpenResource={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  const trigger = screen.getByRole("button", { name: "collaboration.title" });
+  expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.queryByText("Report.pdf")).not.toBeInTheDocument();
+  fireEvent.click(trigger);
+  expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  expect(
+    await screen.findByText("collaboration.delivery.completed"),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByText("collaboration.reasons.deliveryFailed"),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByText("Report.pdf").closest("article")?.querySelector("svg"),
+  ).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+  );
+  expect(trigger).toHaveAttribute("aria-expanded", "false");
+});
+
+it("never labels a published resource as delivered without a delivery receipt", async () => {
+  vi.mocked(collaborationApi.list).mockResolvedValue(
+    snapshot({ artifacts: [{ ...resource, delivery_status: null }] }),
+  );
+  render(
+    <MemoryRouter>
+      <CollaborationPanel
+        agentId="parent"
+        threadId="parent-chat"
+        onOpenResource={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "collaboration.title" }));
+  await screen.findByText("Report.pdf");
+  expect(
+    screen.queryByText("collaboration.delivery.completed"),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "common.download" })).toBeEnabled();
+});
+
+it("keeps call completion, historical reply and unconfirmed task outcome separate", async () => {
+  vi.mocked(collaborationApi.list).mockResolvedValue(
+    snapshot({
+      invocations: [{ ...invocation, reply_received: true }],
+      artifacts: [],
+    }),
+  );
+  render(
+    <MemoryRouter>
+      <CollaborationPanel agentId="parent" threadId="parent-chat" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "collaboration.title" }));
+  expect(await screen.findByText("collaboration.replyReceived")).toBeTruthy();
+  expect(screen.getByText("collaboration.unconfirmedOutcome")).toBeTruthy();
+  expect(screen.getByText(/collaboration.status.completed/)).toBeTruthy();
+  expect(screen.getByText(/collaboration.outcomeStatus.unknown/)).toBeTruthy();
+  expect(screen.queryByText("collaboration.expertReported")).toBeNull();
+});
+
+it("shows only the committed expert-reported summary with the independent outcome", async () => {
+  vi.mocked(collaborationApi.list).mockResolvedValue(
+    snapshot({
+      invocations: [
+        {
+          ...invocation,
+          task_outcome: "failed",
+          reply_received: true,
+          task_result: {
+            summary: "Traffic service is unavailable",
+            provenance: "expert_reported",
+            resources: [],
+            reply: { thread_id: "child-chat-1", seq: 3, message_id: "final" },
+          },
+        },
+      ],
+      artifacts: [],
+    }),
+  );
+  render(
+    <MemoryRouter>
+      <CollaborationPanel agentId="parent" threadId="parent-chat" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "collaboration.title" }));
+  expect(
+    await screen.findByText("Traffic service is unavailable"),
+  ).toBeTruthy();
+  expect(screen.getByText(/collaboration.expertReported/)).toBeTruthy();
+  expect(screen.getByText(/collaboration.status.completed/)).toBeTruthy();
+  expect(screen.getByText(/collaboration.outcomeStatus.failed/)).toBeTruthy();
+  expect(screen.queryByText("collaboration.unconfirmedOutcome")).toBeNull();
 });

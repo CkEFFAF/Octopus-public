@@ -1,0 +1,59 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 20d19ec..19efe69 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
+ [project]
+ name = "octop-harness"
+ # Single source of truth for the package version (runtime reads via importlib.metadata).
+-version = "1.0.2.post3"
++version = "1.0.2.post3+taskresults.1"
+ description = "Production-grade Harness Agent built on top of LangChain Deep Agents."
+ readme = "README.md"
+ license = { text = "MIT" }
+diff --git a/src/octop_harness/teams/team_manager.py b/src/octop_harness/teams/team_manager.py
+index 20188d3..076c84f 100644
+--- a/src/octop_harness/teams/team_manager.py
++++ b/src/octop_harness/teams/team_manager.py
+@@ -509,7 +509,12 @@ class TeamManager:
+             if not terminal:
+                 raise
+             logger.warning("peer terminal receipt persistence failed id=%s", call.invocation_id, exc_info=True)
+-            receipt = replace(receipt, transport_status="unknown", error_code="PEER_RECEIPT_PERSISTENCE_FAILED")
++            receipt = replace(
++                receipt,
++                transport_status="unknown",
++                task_outcome="unknown",
++                error_code="PEER_RECEIPT_PERSISTENCE_FAILED",
++            )
+         self._dispatch_receipts[call.invocation_id] = receipt
+         return receipt
+ 
+--- /dev/null
++++ b/tests/test_task_result_terminal.py
+@@ -0,0 +1,25 @@
++"""A failed terminal persistence cannot acknowledge a business result."""
++
++from __future__ import annotations
++
++from types import SimpleNamespace
++from unittest.mock import AsyncMock, MagicMock
++
++import pytest
++
++from octop_harness.teams.team_manager import TeamManager
++from octop_harness.teams.util import DispatchReceipt
++
++
++@pytest.mark.asyncio
++async def test_failed_terminal_save_clears_business_outcome() -> None:
++    team = TeamManager(MagicMock())
++    team.bind_peer_session(lifecycle=AsyncMock(side_effect=RuntimeError("save failed")))
++    receipt = await team._observe_peer(
++        SimpleNamespace(invocation_id="result-test"),
++        DispatchReceipt(invocation_id="result-test", transport_status="completed", task_outcome="succeeded"),
++        terminal=True,
++    )
++    assert receipt.transport_status == "unknown"
++    assert receipt.task_outcome == "unknown"
++    assert receipt.error_code == "PEER_RECEIPT_PERSISTENCE_FAILED"

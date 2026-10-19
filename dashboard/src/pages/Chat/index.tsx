@@ -1382,6 +1382,17 @@ function ChatPageInner() {
                 )}
                 {resolvedAgentId && !sharedExpertViewer && (
                   <div className={styles.mobileToolbarRight}>
+                    {activeThreadId && (
+                      <CollaborationPanel
+                        triggerClassName={styles.menuBtn}
+                        key={`${resolvedAgentId}/${activeThreadId}`}
+                        agentId={resolvedAgentId}
+                        threadId={activeThreadId}
+                        agentNameById={dockAgentNameById}
+                        onOpenResource={openResource}
+                      />
+                    )}
+
                     <button
                       className={`${styles.menuBtn} ${
                         expertActivity ? styles.mobileExpertButton : ""
@@ -1505,15 +1516,6 @@ function ChatPageInner() {
                 }
               />
             )}
-            {resolvedAgentId && activeThreadId && !sharedExpertViewer && (
-              <CollaborationPanel
-                key={`${resolvedAgentId}/${activeThreadId}`}
-                agentId={resolvedAgentId}
-                threadId={activeThreadId}
-                agentNameById={dockAgentNameById}
-                onOpenResource={openResource}
-              />
-            )}
             <div className={styles.chatContent}>
               {!agentChatReady || noAgents ? (
                 <AgentNotReadyScreen
@@ -1584,6 +1586,17 @@ function ChatPageInner() {
                 <div className={styles.chatFloatActions}>
                   {/* PWA install first when available — same column as browser / experts. */}
                   <PwaInstallPrompt appearance="chatFloat" />
+                  {resolvedAgentId && activeThreadId && !sharedExpertViewer && (
+                    <CollaborationPanel
+                      triggerClassName={styles.chatFloatBtn}
+                      key={`${resolvedAgentId}/${activeThreadId}`}
+                      agentId={resolvedAgentId}
+                      threadId={activeThreadId}
+                      agentNameById={dockAgentNameById}
+                      onOpenResource={openResource}
+                    />
+                  )}
+
                   {resolvedAgentId && !sharedExpertViewer && (
                     <>
                       <Tooltip

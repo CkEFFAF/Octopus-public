@@ -98,69 +98,100 @@ export default function ShareManagementDialog({
   return (
     <Modal
       open
+      className={styles.dialog}
       title={t("chatShare.title")}
       onCancel={onClose}
-      footer={<Button onClick={onClose}>{t("common.close")}</Button>}
-      width={760}
-    >
-      <p>{t("chatShare.explanation")}</p>
-      <p className={styles.hint}>{t("chatShare.reviewWarning")}</p>
-      {loading && <p role="status">{t("common.loading")}</p>}
-      {error && <p role="alert">{t(`chatShare.errors.${error}`)}</p>}
-      <Button
-        disabled={loading || creating}
-        onClick={() => setRevision((value) => value + 1)}
-      >
-        {t("chatShare.refreshPreview")}
-      </Button>
-      {preview && (
-        <>
-          <h3>{preview.title}</h3>
-          <p>
-            {t("chatShare.timezone")}: {preview.timezone}
-          </p>
-          <p>{t("chatShare.messageCount", { count: preview.message_count })}</p>
-          <div className={styles.preview} aria-label={t("chatShare.preview")}>
-            <ShareMessages messages={preview.messages} />
+      width={800}
+      footer={
+        <div className={styles.createBar}>
+          <div className={styles.expiryField}>
+            <label htmlFor="share-expiry">{t("chatShare.expiry")}</label>
+            <Select<number | string>
+              id="share-expiry"
+              value={expiry == null ? "never" : expiry}
+              onChange={(value) =>
+                setExpiry(value === "never" ? null : Number(value))
+              }
+              options={[
+                ...[1, 7, 30].map((days) => ({
+                  value: days * 86400,
+                  label: t("chatShare.days", { count: days }),
+                })),
+                { value: "never", label: t("chatShare.never") },
+              ]}
+            />
           </div>
-        </>
-      )}
-      <div className={styles.row}>
-        <label htmlFor="share-expiry">{t("chatShare.expiry")}</label>
-        <Select<number | string>
-          id="share-expiry"
-          value={expiry == null ? "never" : expiry}
-          onChange={(value) =>
-            setExpiry(value === "never" ? null : Number(value))
-          }
-          options={[
-            ...[1, 7, 30].map((days) => ({
-              value: days * 86400,
-              label: t("chatShare.days", { count: days }),
-            })),
-            { value: "never", label: t("chatShare.never") },
-          ]}
-          style={{ minWidth: 140 }}
-        />
-        <Button
-          type="primary"
-          loading={creating}
-          disabled={!preview || loading}
-          onClick={() => void create()}
-        >
-          {t("chatShare.create")}
-        </Button>
+          <div className={styles.actions}>
+            <Button onClick={onClose}>{t("common.close")}</Button>
+            <Button
+              type="primary"
+              loading={creating}
+              disabled={!preview || loading}
+              onClick={() => void create()}
+            >
+              {t("chatShare.create")}
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      <div className={styles.notice}>
+        <p>{t("chatShare.explanation")}</p>
+        <p className={styles.reviewWarning}>{t("chatShare.reviewWarning")}</p>
       </div>
+      {error && <p role="alert">{t(`chatShare.errors.${error}`)}</p>}
+      <section
+        className={styles.snapshotSection}
+        aria-label={t("chatShare.preview")}
+      >
+        <div className={styles.sectionHeader}>
+          <h3>{t("chatShare.preview")}</h3>
+          <Button
+            size="small"
+            disabled={loading || creating}
+            onClick={() => setRevision((value) => value + 1)}
+          >
+            {t("chatShare.refreshPreview")}
+          </Button>
+        </div>
+        {loading && <p role="status">{t("common.loading")}</p>}
+        {preview && (
+          <>
+            <div className={styles.summary}>
+              <strong>{preview.title}</strong>
+              <div className={styles.metadata}>
+                <span>
+                  {t("chatShare.messageCount", {
+                    count: preview.message_count,
+                  })}
+                </span>
+                <span>
+                  {t("chatShare.timezone")}: {preview.timezone}
+                </span>
+              </div>
+            </div>
+            <div
+              className={styles.preview}
+              tabIndex={0}
+              aria-label={t("chatShare.preview")}
+            >
+              <ShareMessages messages={preview.messages} />
+            </div>
+          </>
+        )}
+      </section>
       {created && <p role="status">{t("chatShare.createdLink")}</p>}
       <ShareList
         agentId={agentId}
         threadId={threadId}
         revision={listRevision}
       />
-      <p className={styles.hint}>{t("chatShare.closeExplanation")}</p>
-      <Link to="/settings/thread-shares" onClick={onClose}>
-        {t("chatShare.allLinks")}
-      </Link>
+      <div className={styles.managementFooter}>
+        <p className={styles.hint}>{t("chatShare.closeExplanation")}</p>
+        <Link to="/settings/thread-shares" onClick={onClose}>
+          {t("chatShare.allLinks")}
+        </Link>
+      </div>
     </Modal>
   );
 }

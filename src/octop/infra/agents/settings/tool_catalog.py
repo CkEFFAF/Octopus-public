@@ -154,6 +154,7 @@ BUILTIN_TOOL_CATALOG: tuple[BuiltinToolEntry, ...] = (
     BuiltinToolEntry("read_attachment", "teams"),
     BuiltinToolEntry("publish_artifact", "teams"),
     BuiltinToolEntry("deliver_resource", "teams"),
+    BuiltinToolEntry("report_task_result", "teams"),
 )
 
 

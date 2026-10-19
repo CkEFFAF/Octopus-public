@@ -772,6 +772,9 @@ async def test_prepare_team_dispatch_includes_room_history(
 ) -> None:
     from langchain_core.messages import AIMessage, HumanMessage
 
+    from octop.i18n import tr
+    from octop.infra.utils.locale import resolve_user_locale
+
     processor = processor_env["processor"]
     parent_sk = processor_env["parent_sk"]
     _create_room_host(processor)
@@ -795,7 +798,11 @@ async def test_prepare_team_dispatch_includes_room_history(
         )
     )
     assert prepared is not None
-    assert getattr(prepared, "message", None) == "survey market"
+    locale = resolve_user_locale(user_repo=processor._user_repo, user_id=1)
+    guidance = tr("taskResults.guidance", locale)
+    assert getattr(prepared, "message", None) == "survey market\n" + guidance
+    assert "report_task_result" in guidance
+    assert all(outcome in guidance for outcome in ("succeeded", "blocked", "failed", "needs_input"))
     pair = processor.teams.peek_peer_prompt("child", "thr_parent~child:dispatch")
     assert pair is not None
     question, dispatch = pair

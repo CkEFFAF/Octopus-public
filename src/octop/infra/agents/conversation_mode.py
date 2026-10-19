@@ -18,6 +18,7 @@ HOST_READ_TOOLS: tuple[str, ...] = (
     "search_knowledge",
     "read_attachment",
     "publish_artifact",
+    "report_task_result",
     "octop_thread_share_preview",
     "octop_thread_share_list",
 )
