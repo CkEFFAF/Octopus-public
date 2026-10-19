@@ -269,6 +269,10 @@ class QueuedInputBody(BaseModel):
     snapshot: dict[str, Any]
 
 
+class PromoteQueuedInputBody(BaseModel):
+    run_id: str = Field(min_length=1, max_length=128)
+
+
 class ActiveChatRunBody(BaseModel):
     run_id: str = Field(description="Identity of the currently steerable invocation.")
     phase: str = Field(description="Observed model or tool execution boundary.")

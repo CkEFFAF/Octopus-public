@@ -39,6 +39,11 @@ export const chatInputsApi = {
       `${path(agent, thread)}/${encodeURIComponent(id)}`,
       { method: "DELETE" },
     ),
+  promote: (agent: string, thread: string, id: string, runId: string) =>
+    request<ChatInputReceipt>(
+      `${path(agent, thread)}/${encodeURIComponent(id)}/steer`,
+      { method: "POST", body: JSON.stringify({ run_id: runId }) },
+    ),
   steer: (
     agent: string,
     thread: string,

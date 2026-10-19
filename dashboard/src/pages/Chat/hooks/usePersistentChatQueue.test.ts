@@ -13,6 +13,7 @@ vi.mock("../../../api/modules/chatInputs", () => ({
     queue: vi.fn(),
     withdraw: vi.fn(),
     steer: vi.fn(),
+    promote: vi.fn(),
   },
 }));
 vi.mock("./chatStore", () => ({
@@ -39,6 +40,72 @@ describe("durable chat input acknowledgement", () => {
     renderHook(() =>
       usePersistentChatQueue({ agentId: "agent", threadId: "thread" }),
     );
+  it("promotes the existing queue identity without withdrawing or resubmitting its text", async () => {
+    const { result, unmount } = mount();
+    await waitFor(() => expect(result.current.runtime?.run_id).toBe("run"));
+    vi.mocked(chatInputsApi.promote).mockResolvedValue({
+      status: "accepted",
+    } as never);
+    await act(async () => {
+      expect(await result.current.promote("queued-id")).toBe(true);
+    });
+    expect(chatInputsApi.promote).toHaveBeenCalledExactlyOnceWith(
+      "agent",
+      "thread",
+      "queued-id",
+      "run",
+    );
+    expect(chatInputsApi.withdraw).not.toHaveBeenCalled();
+    expect(chatInputsApi.steer).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("refreshes queue receipts after a failed promotion without deleting the item", async () => {
+    const { result, unmount } = mount();
+    await waitFor(() => expect(result.current.runtime?.run_id).toBe("run"));
+    vi.mocked(chatInputsApi.promote).mockRejectedValue(new Error("busy"));
+    vi.mocked(chatInputsApi.list).mockResolvedValue({
+      ...empty,
+      inputs: [
+        {
+          kind: "chat_input",
+          status: "queued",
+          payload: { command_id: "queued-id", snapshot: { text: "keep me" } },
+        },
+      ],
+    } as never);
+    await act(async () => {
+      expect(await result.current.promote("queued-id")).toBe(false);
+    });
+    expect(result.current.items[0]).toMatchObject({
+      id: "queued-id",
+      text: "keep me",
+      status: "queued",
+    });
+    expect(chatInputsApi.withdraw).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("recognizes a previously accepted promotion after a lost response even in a later run", async () => {
+    const { result, unmount } = mount();
+    await waitFor(() => expect(result.current.runtime?.run_id).toBe("run"));
+    vi.mocked(chatInputsApi.list).mockResolvedValue({
+      ...empty,
+      runtime: { run_id: "next-run", phase: "llm_running" },
+      inputs: [
+        {
+          kind: "chat_steer",
+          status: "applied",
+          payload: { command_id: "queued-id" },
+        },
+      ],
+    } as never);
+    await act(async () => {
+      expect(await result.current.promote("queued-id")).toBe(true);
+    });
+    expect(chatInputsApi.promote).not.toHaveBeenCalled();
+    unmount();
+  });
   it("keeps a stable command and timestamp when an uncertain request is retried", async () => {
     const { result, unmount } = mount();
     await waitFor(() => expect(result.current.runtime?.run_id).toBe("run"));

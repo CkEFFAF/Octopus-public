@@ -13,6 +13,7 @@ from octop.api.deps import current_user, get_server
 from octop.api.routers.chat.models import (
     ChatInputReceiptBody,
     ChatInputsBody,
+    PromoteQueuedInputBody,
     QueuedInputBody,
     SteerInputBody,
 )
@@ -110,6 +111,28 @@ async def withdraw_input(
     try:
         return server.app_runtime.gateway.inputs.withdraw(
             int(user.id), agent_id, thread_id, command_id
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post(
+    "/agents/{agent_id}/threads/{thread_id}/inputs/{command_id}/steer",
+    summary="Promote a queued plain-text message into the identified active run",
+    response_model=ChatInputReceiptBody,
+)
+async def promote_queued_input(
+    agent_id: str,
+    thread_id: str,
+    command_id: str,
+    body: PromoteQueuedInputBody,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> Any:
+    assert_agent_access(server, agent_id, user)
+    try:
+        return server.app_runtime.gateway.inputs.promote_to_steer(
+            int(user.id), agent_id, thread_id, command_id, body.run_id
         )
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc

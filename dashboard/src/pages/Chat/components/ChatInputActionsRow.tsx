@@ -27,7 +27,7 @@ import {
   Route,
   Info,
   AtSign,
-  CornerDownRight,
+  ListPlus,
 } from "lucide-react";
 import { Tooltip, Popover } from "antd";
 import { message } from "@/utils/antdMessage";
@@ -159,7 +159,6 @@ interface ChatInputActionsRowProps {
   onToggleVoice: () => void;
   onCancel: () => void;
   onSubmit: () => void;
-  onSteer?: () => void;
 }
 
 export default function ChatInputActionsRow({
@@ -219,7 +218,6 @@ export default function ChatInputActionsRow({
   onToggleVoice,
   onCancel,
   onSubmit,
-  onSteer,
 }: ChatInputActionsRowProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -1289,62 +1287,33 @@ export default function ChatInputActionsRow({
             </button>
           </Tooltip>
         )}
-        {isStreaming && canSend && onSteer && (
-          <Tooltip title={t("chat.steer.action")} mouseEnterDelay={0.4}>
-            <button
-              className={`${styles.secondaryBtn} ${styles.secondaryBtnActive}`}
-              onClick={onSteer}
-              title={t("chat.steer.action")}
-              type="button"
-              aria-label={t("chat.steer.action")}
-            >
-              <CornerDownRight size={17} />
-            </button>
-          </Tooltip>
-        )}
         {isStreaming ? (
-          canSend ? (
-            <Tooltip title={t("chat.queue.action")} mouseEnterDelay={0.4}>
-              <button
-                className={styles.sendBtn}
-                onClick={onSubmit}
-                title={t("chat.queue.action")}
-                type="button"
-                aria-label={t("chat.queue.action")}
-              >
-                <Send size={18} />
-              </button>
-            </Tooltip>
-          ) : (
-            <Tooltip
-              title={
-                isTeam
-                  ? t("chat.stopTeamHint", {
-                      defaultValue:
-                        "停止本轮生成；已开始的成员回复可能仍会继续推送",
-                    })
-                  : t("chat.stop", "Stop")
-              }
-              mouseEnterDelay={0.4}
-            >
+          <>
+            <Tooltip title={isTeam ? t("chat.stopTeamHint") : t("chat.stop")}>
               <button
                 className={`${styles.sendBtn} ${styles.cancelBtn}`}
                 onClick={onCancel}
-                title={
-                  isTeam
-                    ? t("chat.stopTeamHint", {
-                        defaultValue:
-                          "停止本轮生成；已开始的成员回复可能仍会继续推送",
-                      })
-                    : t("chat.stop", "Stop")
-                }
                 type="button"
                 aria-label={t("chat.stop", "Stop")}
               >
-                <Square size={18} />
+                <Square size={18} aria-hidden />
               </button>
             </Tooltip>
-          )
+            {canSend && (
+              <Tooltip title={isTeam ? t("chat.send") : t("chat.queue.action")}>
+                <button
+                  className={styles.sendBtn}
+                  onClick={onSubmit}
+                  disabled={disabled}
+                  title={isTeam ? t("chat.send") : t("chat.queue.action")}
+                  type="button"
+                  aria-label={isTeam ? t("chat.send") : t("chat.queue.action")}
+                >
+                  {isTeam ? <Send size={18} /> : <ListPlus size={18} />}
+                </button>
+              </Tooltip>
+            )}
+          </>
         ) : (
           <button
             className={styles.sendBtn}
