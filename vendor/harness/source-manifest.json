@@ -1,10 +1,10 @@
 {
-  "purpose": "Local development and verification artifact; not deployed or publicly released",
-  "contract": "0033 revision 2 + task-results@2026-10-18.2; preserves 0031 and 0032",
+  "purpose": "Private release candidate; not publicly released",
+  "contract": "share-tool-content revision 1; preserves 0031, 0032 and 0033",
   "source_baseline": "6636ce2c4fed85c92f37da66459a218ddf158aef",
-  "source_state": "Steering source plus task-results P2 patch; packaged file hashes identify the exact source",
-  "wheel": "octop_harness-1.0.2.post4.dev1+taskresults.1-py3-none-any.whl",
-  "wheel_sha256": "beb8636d683391cb8dc6e22d5384e70c5f771f0be1ddf52c3ffbfb6ce6482e14",
+  "source_state": "Production 370-file wheel baseline plus the reviewed text-only tool-content normalization",
+  "wheel": "octop_harness-1.0.2.post4.dev1+tooltext.1-py3-none-any.whl",
+  "wheel_sha256": "9a6c267fdb298bc797c7bcb33f76714b640ecade35680ac14c408045ac3cc345",
   "source_match_count": 370,
   "files": {
     "octop_harness/__init__.py": "956d9c8a7c0deb28ce5f8d21b839da0200147fa36803ef3859b785758ae1ad21",
@@ -253,7 +253,7 @@
     "octop_harness/init.py": "803ecf56a84b998c48dac5642a7131c48e8e7cc6a68ee48dae8cabc56151cd4f",
     "octop_harness/llm/__init__.py": "836af4ee3679c2756034adb04cf60f936f50b72cff87880680853558a53a1785",
     "octop_harness/llm/access.py": "14aff0c513fc2c99b49aa69c789643e59c125aa89ca20bfc25c6f5a123ee7336",
-    "octop_harness/llm/factory.py": "b391bf0466ba429144d9b0c2e5cbb879beb90439fe4cd89f88a54acb4eea6314",
+    "octop_harness/llm/factory.py": "893708a240aa43a0db84966b57f6552d153c3c0fe955dd0619c2f920cd020bea",
     "octop_harness/llm/invoke_helpers.py": "bc9a316c54a0963113ef06fb31442556e4e6cc480d7dd305bc98ecfbb66625d8",
     "octop_harness/llm/session_header.py": "67f15bd2c98711b0855695eec6e7c6d84afcef83ec4643b0bd3b9a48992a3cbf",
     "octop_harness/manager.py": "bf54fff56035b435ac7a188cbb75857e06b349f9d7478dab12d421b651dd345c",
@@ -385,6 +385,6 @@
     "source_commit": "6636ce2",
     "source_baseline": "2ac4d602f931c985dae3cf4bc36a72b9c7104fbd"
   },
-  "source_patch": "task-results.patch",
-  "source_patch_sha256": "ea08a50a3473feef7e0de5417a566f878a72645b27f8f120b515f1ab4ac61d54"
+  "source_patch": "share-tool-content-factory.patch",
+  "source_patch_sha256": "2b337d26acc4b1a4309ee0171176ff882285b3087442fd9626fd9c0566bc8550"
 }

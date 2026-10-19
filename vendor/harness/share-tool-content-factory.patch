@@ -1,0 +1,27 @@
+diff --git a/ops/share-agent-bug-release-20261019/harness-baseline/octop_harness/llm/factory.py b/ops/share-agent-bug-release-20261019/review-input/factory.py
+index c395dc0..4cbf17e 100644
+--- a/ops/share-agent-bug-release-20261019/harness-baseline/octop_harness/llm/factory.py
++++ b/ops/share-agent-bug-release-20261019/review-input/factory.py
+@@ -440,0 +441 @@ def _get_reasoning_aware_chat_openai(base_cls: type[Any]):
++            _normalize_tool_text_content(messages_out)
+@@ -449,0 +451,20 @@ def _get_reasoning_aware_chat_openai(base_cls: type[Any]):
++def _normalize_tool_text_content(messages: list[Any]) -> None:
++    """Join textual Chat Completions tool blocks with newlines in the outgoing payload."""
++    for message in messages:
++        if not isinstance(message, dict) or message.get("role") != "tool":
++            continue
++        content = message.get("content")
++        if not isinstance(content, list):
++            continue
++        text_parts: list[str] = []
++        for block in content:
++            if isinstance(block, str):
++                text_parts.append(block)
++            elif isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str):
++                text_parts.append(block["text"])
++            else:
++                break
++        else:
++            message["content"] = "\n".join(text_parts)
++
++
