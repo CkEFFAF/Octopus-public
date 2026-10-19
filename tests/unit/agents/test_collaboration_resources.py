@@ -274,8 +274,14 @@ async def test_manager_assembled_read_attachment_available_without_device(
     config = manager._build_harness_config(row)
     tools = {tool.name: tool for tool in config.tools}
     assert "read_attachment" in tools
-    assert "report_task_result" in tools
-    assert set(tools["report_task_result"].args) == {"outcome", "summary", "resource_ids"}
+    from octop.infra.agents.middleware.task_results import TaskResultAvailabilityMiddleware
+
+    assert "report_task_result" not in tools
+    reporting = next(
+        item for item in config.middleware if isinstance(item, TaskResultAvailabilityMiddleware)
+    )
+    assert [tool.name for tool in reporting.tools] == ["report_task_result"]
+    assert set(reporting.tools[0].args) == {"outcome", "summary", "resource_ids"}
     assert "read_group_attachment" not in tools
     token = var_child_runnable_config.set(
         {"configurable": {"user": rig.owner, "thread_id": "root"}}

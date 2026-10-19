@@ -43,6 +43,8 @@ from octop.infra.history.projection import message_inputs
         ("terminal_conflict", "unknown"),
         ("cancel_requested", "unknown"),
         ("abnormal", "unknown"),
+        ("nested", "succeeded"),
+        ("availability_failure", "unknown"),
     ],
 )
 async def test_installed_harness_report_result(
@@ -55,30 +57,77 @@ async def test_installed_harness_report_result(
     rig.manager.get_row = lambda aid: rig.repos.agent_repo.get(aid)
     rig.manager._team_jobs = None
     observed = []
+    if scenario == "nested":
+        rig.repos.agent_repo.create(agent_id="grandchild", user_id=rig.owner, name="grandchild")
+        rig.workspaces["grandchild"] = rig.workspaces["child"]
 
     async def child(request: Any) -> dict[str, Any]:
+        from langchain.agents.middleware import ModelRequest
+        from langchain_core.language_models.fake_chat_models import FakeListChatModel
+
+        from octop.infra.agents.middleware.task_results import TaskResultAvailabilityMiddleware
+
+        current_agent = request.agent_id
+        current_tool = build_task_result_tools(rig.manager, current_agent)[0]
         cfg = {
             **request.configurable,
             "user": rig.owner,
-            "agent_id": "child",
+            "agent_id": current_agent,
             "thread_id": request.thread_id,
         }
         scope = var_child_runnable_config.set({"configurable": cfg})
         try:
-            if scenario != "none":
+            model_request = ModelRequest(
+                model=FakeListChatModel(responses=["unused"]), messages=[], tools=[current_tool]
+            )
+
+            async def inspect_tools(prepared: Any) -> Any:
+                return prepared.tools
+
+            availability = TaskResultAvailabilityMiddleware(rig.manager, current_agent)
+            if scenario == "availability_failure":
+
+                def unavailable(*args: Any) -> Any:
+                    raise RuntimeError("private-storage-failure")
+
+                availability.service.bound_invocation = unavailable
+            assert await availability.awrap_model_call(model_request, inspect_tools) == (
+                [] if scenario == "availability_failure" else [current_tool]
+            )
+            if scenario == "nested" and current_agent == "child":
+                nested_ask = next(
+                    t
+                    for t in PeerAgentMiddleware(harness, peer_invoke_mode="sync").tools
+                    if t.name == "ask_agent"
+                )
+                nested = json.loads(
+                    await nested_ask.ainvoke({"expert": "grandchild", "message": "Nested task"})
+                )
+                assert nested["dispatch_receipt"]["task_outcome"] == "succeeded"
+                assert (
+                    var_child_runnable_config.get()["configurable"]["octop_invocation_id"]
+                    == cfg["octop_invocation_id"]
+                )
+            if scenario not in {"none", "availability_failure"}:
                 report = {
                     "outcome": scenario
                     if scenario in {"failed", "blocked", "needs_input"}
                     else "succeeded",
                     "summary": "Public task summary",
                 }
-                first = json.loads(await tool.ainvoke(report))
+                first = json.loads(await current_tool.ainvoke(report))
                 assert first["status"] == "pending", first
-                assert json.loads(await tool.ainvoke(report)) == first
-                conflict = json.loads(await tool.ainvoke({**report, "summary": "Other claim"}))
+                assert json.loads(await current_tool.ainvoke(report)) == first
+                conflict = json.loads(
+                    await current_tool.ainvoke({**report, "summary": "Other claim"})
+                )
                 assert conflict["code"] == "TASK_RESULT_CONFLICT"
             if scenario == "cancel_requested":
                 rig.collaboration.request_cancel(rig.owner, cfg["octop_invocation_id"])
+                assert await availability.awrap_model_call(model_request, inspect_tools) == [
+                    current_tool
+                ]
+                assert json.loads(await current_tool.ainvoke(report))["status"] == "pending"
             if scenario == "abnormal":
                 raise RuntimeError("provider-private-error")
             messages = [
@@ -103,11 +152,13 @@ async def test_installed_harness_report_result(
             metadata={"user_id": rig.owner, "name": aid},
             agent=SimpleNamespace(
                 call=child
-                if aid == "child"
+                if aid in {"child", "grandchild"}
                 else AsyncMock(return_value={"messages": [AIMessage(content="Followup")]})
             ),
         )
-        for aid in ("parent", "child")
+        for aid in (
+            ("parent", "child", "grandchild") if scenario == "nested" else ("parent", "child")
+        )
     }
     registry = MagicMock()
     registry.get.side_effect = entries.__getitem__
@@ -170,8 +221,8 @@ async def test_installed_harness_report_result(
             await asyncio.wait_for(harness.inbox._queue.join(), 3)
             await asyncio.gather(*list(harness.inbox._tasks.values()), return_exceptions=True)
         items = rig.collaboration.listing(rig.owner, "parent", "root", 0, 100)
-        assert len(items["invocations"]) == 1
-        item = items["invocations"][0]
+        assert len(items["invocations"]) == (2 if scenario == "nested" else 1)
+        item = next(item for item in items["invocations"] if item["source_agent_id"] == "parent")
         assert item["task_outcome"] == expected, item
         expected_transport = (
             "failed"
@@ -198,7 +249,7 @@ async def test_installed_harness_report_result(
         else:
             assert "task_result" not in item
         assert sum(e["event_type"] == "delegation.result_reported" for e in items["events"]) == (
-            scenario != "none"
+            2 if scenario == "nested" else scenario not in {"none", "availability_failure"}
         )
     finally:
         var_child_runnable_config.reset(scope)
