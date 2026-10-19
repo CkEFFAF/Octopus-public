@@ -1,6 +1,6 @@
-# Internal development Harness artifact
+# Internal Harness release candidate
 
-The pinned `1.0.2.post4.dev1+taskresults.1` wheel adds runtime message steering from spec0033 revision2 and the task-results terminal receipt fix, while preserving the collaboration/provider contracts from0031/0032. It is a local development artifact. This feature has not been merged, deployed, or publicly released.
+The pinned `1.0.2.post4.dev1+tooltext.1` wheel is based on the production `370`-source artifact and applies the reviewed share-tool-content revision 1 boundary fix. It normalizes textual tool-result blocks to a provider-compatible string without changing internal message structures, call IDs, or non-text payloads. It is a private release candidate and has not been merged, pushed, deployed, or publicly released.
 
 `source-manifest.json` records the source baseline, source commit, every packaged file hash and the wheel SHA256. The application uses a repository relative uv source and a hash locked wheel, so `uv sync --frozen` installs this contract instead of restoring the older production archive. The override is portable with this repository directory and contains no absolute checkout path.
 
@@ -10,4 +10,4 @@ Future release preparation should publish the reviewed immutable Harness source/
 
 The original source archive reference was `https://github.com/CkEFFAF/octop-harness/archive/2ac4d602f931c985dae3cf4bc36a72b9c7104fbd.tar.gz`.
 
-The integrated build `1.0.2.post4.dev1+taskresults.1` applies `task-results.patch` to the steering source at Harness commit `6636ce2c4fed85c92f37da66459a218ddf158aef`. It clears the task outcome when terminal receipt persistence fails, plus its regression and local version metadata. The manifest retains the previous wheel provenance and records every source file, patch and current wheel digest.
+The artifact preserves the production source baseline at Harness commit `6636ce2c4fed85c92f37da66459a218ddf158aef`; only `octop_harness/llm/factory.py` differs from that baseline. `source-manifest.json` records every source file, the reviewed patch digest, and the current wheel digest. `share-tool-content-factory.patch` is included beside the wheel for review provenance.
