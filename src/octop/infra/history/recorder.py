@@ -154,6 +154,15 @@ class RecordingTracker(TurnHistoryTracker):
             return
         if kind in ("state_snapshot", "state_update"):
             self._merge_state()
+        if kind == "steering_applied":
+            if self._assistant is not None and chunk.get("partial_output_retained"):
+                self._assistant["data"].setdefault("additional_kwargs", {})["octop_interrupted"] = (
+                    True
+                )
+                self._mark_changed(self._assistant)
+            self._assistant = None
+        elif kind == "user":
+            self._assistant = None
         if kind in ("token", "reasoning"):
             data = self._ai(chunk)
             text = str(chunk.get("content") or "")
@@ -274,7 +283,11 @@ class RecordingTracker(TurnHistoryTracker):
                 (p for p in self._parts if data.get("id") and p["data"].get("id") == data["id"]),
                 None,
             )
-            if target is None and role == "human":
+            if (
+                target is None
+                and role == "human"
+                and not str(data.get("id") or "").startswith("steer:")
+            ):
                 target = next((p for p in self._parts if p["type"] == "human"), None)
             if target is None and role == "tool":
                 target = next(

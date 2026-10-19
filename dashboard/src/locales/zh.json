@@ -1952,7 +1952,40 @@
       "attachmentsOnly": "{{count}} 个附件",
       "attachmentCount": "{{count}} 个附件",
       "emptyItem": "排队消息",
-      "flushFailed": "排队消息发送失败，已放回队列。"
+      "flushFailed": "排队消息发送失败，已放回队列。",
+      "status": {
+        "queued": "排队中",
+        "dispatching": "正在提交",
+        "requested": "请求中",
+        "accepted": "等待安全节点",
+        "unknown": "结果待确认",
+        "failed": "执行失败",
+        "rejected": "请求未接受"
+      },
+      "withdrawFailed": "消息已开始提交或暂时无法撤回，请刷新状态后重试。"
+    },
+    "steer": {
+      "action": "直接插入（沿用当前运行设置）",
+      "attachmentsQueue": "直接插入暂不支持附件，请使用排队发送。",
+      "waiting": "插入请求已送达，等待当前安全节点。",
+      "applied": "消息已插入，Agent 正在按新消息继续。",
+      "failed": "插入失败，请重试或排队发送。",
+      "unavailable": "当前运行无法接收插入消息，请排队发送。",
+      "commandsQueue": "指令命令请使用排队发送。",
+      "status": {
+        "stale_run": "当前运行已变化，请重试。",
+        "busy": "已有消息等待插入，请稍后再试。",
+        "inactive": "当前运行已结束，请正常发送。"
+      },
+      "interrupted": "已按新指令停止生成，以上内容已保留",
+      "phase": {
+        "llm_before": "正在准备模型调用",
+        "llm_running": "正在生成；直接插入会停止本次生成",
+        "llm_after": "模型生成结束，正在处理新指令",
+        "tool_before": "正在准备工具调用",
+        "tool_running": "工具执行中；直接插入会等待工具完成",
+        "tool_after": "工具执行完毕，即将处理新指令"
+      }
     },
     "agentNoDescription": "暂无描述",
     "noSessionsYet": "直接发消息即可开始对话",

@@ -143,6 +143,10 @@ class ChatTurnBody(BaseModel):
 class UserTurnWsFrame(BaseModel):
     """Inbound WebSocket frame from the dashboard."""
 
+    device_id: str | None = Field(default=None, max_length=120)
+    target_kind: Literal["device", "local"] | None = None
+    working_dir: str | None = Field(default=None, max_length=4096)
+    work_mode: str | None = None
     type: Literal["user_turn", "ping"] = "user_turn"
     text: str | None = None
     session_key: str | None = None
@@ -243,3 +247,49 @@ class HitlResumeBody(BaseModel):
                     msg = f"decision 'message' exceeds {_MAX_DECISION_MESSAGE_CHARS} characters"
                     raise ValueError(msg)
         return value
+
+
+class SteerInputBody(BaseModel):
+    command_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    thread_id: str = Field(min_length=1, max_length=200)
+    run_id: str = Field(min_length=1, max_length=128)
+    text: str = Field(min_length=1, max_length=20000)
+
+    @field_validator("text")
+    @classmethod
+    def nonempty_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("text must not be empty")
+        return value.strip()
+
+
+class QueuedInputBody(BaseModel):
+    command_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    turn: UserTurnWsFrame
+    snapshot: dict[str, Any]
+
+
+class ActiveChatRunBody(BaseModel):
+    run_id: str = Field(description="Identity of the currently steerable invocation.")
+    phase: str = Field(description="Observed model or tool execution boundary.")
+
+
+class ChatInputReceiptBody(BaseModel):
+    seq: int
+    event_id: str
+    agent_id: str | None
+    thread_id: str | None
+    run_id: str
+    context_id: str | None
+    kind: str
+    status: str = Field(description="Durable admission, dispatch or application status.")
+    created_at: float
+    updated_at: float
+    payload: dict[str, Any] = Field(description="Immutable input and composer snapshot.")
+    phase: str | None = None
+
+
+class ChatInputsBody(BaseModel):
+    inputs: list[ChatInputReceiptBody]
+    runtime: ActiveChatRunBody | None
+    capabilities: dict[str, bool]

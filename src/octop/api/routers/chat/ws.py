@@ -115,6 +115,10 @@ async def dashboard_chat_ws(
                         "type": "turn_status",
                         "thread_id": thread_id,
                         "active": hub.is_turn_active(thread_id),
+                        "runtime": server.app_runtime.agent_registry.steering_status(
+                            agent_id, thread_id
+                        ),
+                        "input_controls": True,
                     },
                 )
                 continue
@@ -131,6 +135,38 @@ async def dashboard_chat_ws(
                     )
                     continue
                 server.app_runtime.agent_registry.cancel_stream(agent_id, thread_id)
+                continue
+
+            if msg_type == "steer":
+                from octop.api.routers.chat.models import SteerInputBody
+
+                try:
+                    command = SteerInputBody.model_validate(payload)
+                    outcome = gateway.inputs.steer(
+                        int(user.id),
+                        agent_id,
+                        command.thread_id,
+                        command.command_id,
+                        command.run_id,
+                        command.text,
+                    )
+                    await send_frame(
+                        {
+                            "type": "steering_ack",
+                            "command_id": command.command_id,
+                            "status": outcome["status"],
+                            "phase": outcome.get("phase"),
+                        }
+                    )
+                except (ValidationError, ValueError, OctopError) as exc:
+                    await send_frame(
+                        {
+                            "type": "steering_ack",
+                            "command_id": payload.get("command_id"),
+                            "status": "rejected",
+                            "message": str(exc),
+                        }
+                    )
                 continue
 
             if msg_type != "user_turn":

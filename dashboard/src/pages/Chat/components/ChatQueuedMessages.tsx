@@ -30,6 +30,7 @@ export default function ChatQueuedMessages({
     >
       {items.map((item, index) => {
         const text = previewText(item);
+        const withdrawable = !item.status || item.status === "queued";
         const attachmentCount = item.attachments?.length ?? 0;
         const label =
           text ||
@@ -49,10 +50,18 @@ export default function ChatQueuedMessages({
             <button
               type="button"
               className={styles.queuedMessageBody}
+              disabled={!withdrawable}
               onClick={() => onReclaim(item.id)}
               title={t("chat.queue.reclaim")}
             >
               <span className={styles.queuedMessageText}>{label}</span>
+              {item.status && (
+                <span role="status">
+                  {t(`chat.queue.status.${item.status}`, {
+                    defaultValue: item.status,
+                  })}
+                </span>
+              )}
               {attachmentCount > 0 && text && (
                 <span
                   className={styles.queuedMessageAttach}
@@ -68,6 +77,7 @@ export default function ChatQueuedMessages({
             <button
               type="button"
               className={styles.queuedMessageRemove}
+              disabled={!withdrawable}
               onClick={() => onRemove(item.id)}
               aria-label={t("chat.queue.remove")}
               title={t("chat.queue.remove")}

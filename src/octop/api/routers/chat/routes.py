@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
+from functools import partial
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -117,6 +119,7 @@ async def iter_dashboard_hitl_resume_sse(
     channel_type: str,
     locale: str,
     is_disconnected: Callable[[], Awaitable[bool]],
+    on_chunk: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> AsyncIterator[str]:
     """Stream dashboard HITL resume chunks and persist any nested ``hitl_required``.
 
@@ -132,6 +135,14 @@ async def iter_dashboard_hitl_resume_sse(
         channel_type=channel_type,
     )
     disconnected = False
+    stream_id = uuid.uuid4().hex
+    sequence = 0
+
+    def stamp(chunk: dict[str, Any]) -> dict[str, Any]:
+        nonlocal sequence
+        sequence += 1
+        return {**chunk, "event_id": f"resume:{stream_id}:{sequence}"}
+
     # Clear the in-memory pause before the (possibly long) resume stream so
     # history reload cannot reinject the same card while the turn continues.
     if pending is not None:
@@ -155,19 +166,26 @@ async def iter_dashboard_hitl_resume_sse(
                     record = hitl_coordinator.register_from_request(request_payload, ctx=hitl_ctx)
                     request_payload["pending_id"] = record.pending_id
                     chunk["request"] = request_payload
+            chunk = stamp(chunk)
+            if on_chunk is not None:
+                await on_chunk(chunk)
             if not disconnected:
                 yield format_sse("chunk", chunk)
+        done = stamp({"type": "done"})
+        if on_chunk is not None:
+            await on_chunk(done)
         if not disconnected:
-            yield format_sse("chunk", {"type": "done"})
+            yield format_sse("chunk", done)
     except Exception as exc:
         # Resume failed after we cleared the pause for reinject safety — do not
         # leave the record looking like a successful approve/reject.
         if pending is not None:
             hitl_coordinator.store.mark_resolved(pending.pending_id, "expired")
-        yield format_sse(
-            "chunk",
-            {"type": "error", "message": format_stream_error(exc, locale)},
-        )
+        error = stamp({"type": "error", "message": format_stream_error(exc, locale)})
+        if on_chunk is not None:
+            await on_chunk(error)
+            await on_chunk(stamp({"type": "done"}))
+        yield format_sse("chunk", error)
 
 
 def _dashboard_hitl_stream_context(
@@ -196,7 +214,9 @@ async def resume_hitl(
 ) -> StreamingResponse:
     """Resume a paused human-in-the-loop tool approval and stream subsequent chunks."""
     assert_agent_access(server, agent_id, user)
-    processor = server.app_runtime.gateway.processor
+    gateway = server.app_runtime.gateway
+    gateway.inputs.assert_scope(int(user.id), agent_id, body.thread_id)
+    processor = gateway.processor
     hitl_coordinator = processor.hitl_coordinator
     pending = hitl_coordinator.store.resolve_pending_for_thread(
         body.thread_id,
@@ -231,10 +251,15 @@ async def resume_hitl(
             channel_type=channel_type,
             locale=resolve_request_locale(request),
             is_disconnected=request.is_disconnected,
+            on_chunk=partial(
+                gateway.observe_dashboard_resume, int(user.id), agent_id, body.thread_id
+            ),
         ):
             yield frame
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        gateway.iter_dashboard_operation(body.thread_id, gen), media_type="text/event-stream"
+    )
 
 
 @router.post("/agents/{agent_id}/chat/polish", summary="Polish prompt")

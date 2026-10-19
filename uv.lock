@@ -2617,7 +2617,7 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "octop-browser", specifier = ">=1.0.0" },
     { name = "octop-gateway", specifier = ">=1.0.0" },
-    { name = "octop-harness", extras = ["all"], path = "vendor/harness/octop_harness-1.0.2.post3+taskresults.1-py3-none-any.whl" },
+    { name = "octop-harness", extras = ["all"], path = "vendor/harness/octop_harness-1.0.2.post4.dev1+taskresults.1-py3-none-any.whl" },
     { name = "octop-memory", specifier = ">=1.0.0" },
     { name = "onnxruntime", marker = "extra == 'knowledge-ocr'", specifier = ">=1.17" },
     { name = "openpyxl", specifier = ">=3.1" },
@@ -2711,8 +2711,8 @@ wheels = [
 
 [[package]]
 name = "octop-harness"
-version = "1.0.2.post3+taskresults.1"
-source = { path = "vendor/harness/octop_harness-1.0.2.post3+taskresults.1-py3-none-any.whl" }
+version = "1.0.2.post4.dev1+taskresults.1"
+source = { path = "vendor/harness/octop_harness-1.0.2.post4.dev1+taskresults.1-py3-none-any.whl" }
 dependencies = [
     { name = "deepagents" },
     { name = "httpx" },
@@ -2730,7 +2730,7 @@ dependencies = [
     { name = "pyyaml" },
 ]
 wheels = [
-    { filename = "octop_harness-1.0.2.post3+taskresults.1-py3-none-any.whl", hash = "sha256:5f96288e6617abb5e7d8ffeea61b39674e61186a81a30a82830737accbb9c227" },
+    { filename = "octop_harness-1.0.2.post4.dev1+taskresults.1-py3-none-any.whl", hash = "sha256:beb8636d683391cb8dc6e22d5384e70c5f771f0be1ddf52c3ffbfb6ce6482e14" },
 ]
 
 [package.optional-dependencies]

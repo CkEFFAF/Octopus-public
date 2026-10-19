@@ -83,10 +83,16 @@ interface ChatInputProps {
   footer?: ReactNode;
   onSend: (text: string, attachments?: ChatAttachment[]) => void;
   /** Queue a message while the current turn is still streaming. */
-  onQueue?: (item: EnqueueChatItemInput) => "ok" | "empty" | "full";
+  onQueue?: (
+    item: EnqueueChatItemInput,
+  ) => "ok" | "empty" | "full" | Promise<"ok" | "empty" | "full">;
+  /** Insert plain text at a model/tool-safe point in the active turn. */
+  onSteer?: (item: EnqueueChatItemInput) => boolean | Promise<boolean>;
   queuedItems?: QueuedChatItem[];
   onRemoveQueued?: (id: string) => void;
-  onReclaimQueued?: (id: string) => QueuedChatItem | null;
+  onReclaimQueued?: (
+    id: string,
+  ) => QueuedChatItem | null | Promise<QueuedChatItem | null>;
   onCancel: () => void;
   onNewChat: () => void;
   onUserInput?: () => void;
@@ -144,6 +150,7 @@ interface ChatInputProps {
   contextMaxTokens?: number;
   onInspectContext?: () => void;
   deviceControl?: React.ReactNode;
+  runtimePhase?: string;
 }
 
 const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
@@ -152,6 +159,8 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       footer,
       onSend,
       onQueue,
+      onSteer,
+      runtimePhase,
       queuedItems = [],
       onRemoveQueued,
       onReclaimQueued,
@@ -400,6 +409,9 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       }, 250);
       return () => window.clearTimeout(timer);
     }, [text, agentId, threadId]);
+    const submissionPending = useRef(false);
+    const latestComposer = useRef({ text, attachments, agentId, threadId });
+    latestComposer.current = { text, attachments, agentId, threadId };
     const submitRef = useRef<() => void>(() => {});
 
     const {
@@ -525,7 +537,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       [agentId, threadId, clearAttachments, initialText, onComposerCleared],
     );
 
-    const submitMessage = useCallback(() => {
+    const submitMessage = useCallback(async () => {
       const trimmed = text.trim();
       if ((!trimmed && attachments.length === 0) || disabled) return;
       const rawText = materializeSkillSlashes(trimmed, skillTokenRefs).trim();
@@ -544,25 +556,41 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 
       if (isStreaming && !isTeam) {
         if (!onQueue) return;
-        const result = onQueue({
-          text: wireText,
-          attachments: attachments.length > 0 ? attachments : undefined,
-          composerContext: buildComposerContext({
-            skills: selectedSkillSlugs,
-            connectors: selectedConnectors,
-            knowledgeBaseIds: selectedKnowledgeBaseIds,
-            selectedModel,
-            reasoningMode,
-            reasoningEffort,
-          }),
-          modelRef: resolveTurnModelRef(selectedModel, defaultModel),
-        });
+        if (submissionPending.current) return;
+        submissionPending.current = true;
+        let result: "ok" | "empty" | "full";
+        try {
+          result = await onQueue({
+            text: wireText,
+            conversationMode,
+            hitlPolicy,
+            attachments: attachments.length > 0 ? attachments : undefined,
+            composerContext: buildComposerContext({
+              skills: selectedSkillSlugs,
+              connectors: selectedConnectors,
+              knowledgeBaseIds: selectedKnowledgeBaseIds,
+              selectedModel,
+              reasoningMode,
+              reasoningEffort,
+            }),
+            modelRef: resolveTurnModelRef(selectedModel, defaultModel),
+          });
+        } finally {
+          submissionPending.current = false;
+        }
         if (result === "full") {
           antMessage.warning(t("chat.queue.full"));
           return;
         }
         if (result === "empty") return;
-        resetComposerAfterSubmit(prevHeight, trimmed);
+        if (
+          latestComposer.current.text === text &&
+          latestComposer.current.attachments === attachments &&
+          latestComposer.current.agentId === agentId &&
+          latestComposer.current.threadId === threadId
+        ) {
+          resetComposerAfterSubmit(prevHeight, trimmed);
+        }
         return;
       }
 
@@ -588,8 +616,78 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       reasoningEffort,
       defaultModel,
       workMode,
+      conversationMode,
+      hitlPolicy,
+      antMessage,
+      agentId,
+      threadId,
       i18n.language,
       t,
+    ]);
+
+    const submitSteerMessage = useCallback(async () => {
+      const trimmed = text.trim();
+      if (!trimmed || disabled || !isStreaming || !onSteer) return;
+      if (matchSlashCommand(trimmed)) {
+        antMessage.info(t("chat.steer.commandsQueue"));
+        return;
+      }
+      if (attachments.length > 0) {
+        antMessage.info(t("chat.steer.attachmentsQueue"));
+        return;
+      }
+      if (submissionPending.current) return;
+      submissionPending.current = true;
+      let accepted: boolean;
+      try {
+        accepted = await onSteer({
+          text: materializeSkillSlashes(trimmed, skillTokenRefs).trim(),
+          composerContext: buildComposerContext({
+            skills: selectedSkillSlugs,
+            connectors: selectedConnectors,
+            knowledgeBaseIds: selectedKnowledgeBaseIds,
+            selectedModel,
+            reasoningMode,
+            reasoningEffort,
+          }),
+          modelRef: resolveTurnModelRef(selectedModel, defaultModel),
+        });
+      } finally {
+        submissionPending.current = false;
+      }
+      if (
+        !accepted ||
+        latestComposer.current.text !== text ||
+        latestComposer.current.attachments !== attachments ||
+        latestComposer.current.agentId !== agentId ||
+        latestComposer.current.threadId !== threadId
+      )
+        return;
+      const ta = textareaRef.current;
+      resetComposerAfterSubmit(
+        ta ? ta.getBoundingClientRect().height : 0,
+        trimmed,
+      );
+    }, [
+      text,
+      disabled,
+      isStreaming,
+      onSteer,
+      attachments,
+      agentId,
+      threadId,
+      matchSlashCommand,
+      antMessage,
+      t,
+      skillTokenRefs,
+      selectedSkillSlugs,
+      selectedConnectors,
+      selectedKnowledgeBaseIds,
+      selectedModel,
+      reasoningMode,
+      reasoningEffort,
+      defaultModel,
+      resetComposerAfterSubmit,
     ]);
 
     submitRef.current = submitMessage;
@@ -597,8 +695,8 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     const handleReclaimQueued = useCallback(
       (id: string) => {
         if (!onReclaimQueued) return;
-        const apply = () => {
-          const item = onReclaimQueued(id);
+        const apply = async () => {
+          const item = await onReclaimQueued(id);
           if (!item) return;
           userHasEditedRef.current = true;
           const ctx = item.composerContext;
@@ -716,6 +814,13 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
+        {isStreaming && runtimePhase ? (
+          <div role="status">
+            {t(`chat.steer.phase.${runtimePhase}`, {
+              defaultValue: runtimePhase,
+            })}
+          </div>
+        ) : null}
         {onRemoveQueued && onReclaimQueued && (
           <ChatQueuedMessages
             items={queuedItems}
@@ -910,6 +1015,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             onToggleVoice={() => toggleVoice()}
             onCancel={onCancel}
             onSubmit={submitMessage}
+            onSteer={onSteer && !isTeam ? submitSteerMessage : undefined}
           />
 
           <input

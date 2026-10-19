@@ -70,3 +70,53 @@ def test_interrupted_stream_is_marked_partial():
     tracker.observe({"type": "token", "content": "partial"})
     partial = tracker.inputs[-1]
     assert json.loads(partial.message_json)["data"]["additional_kwargs"]["octop_partial"] is True
+
+
+def test_steered_turn_keeps_original_input_and_interrupted_partial():
+    old_user = HumanMessage(content="old question", id="old-user")
+    old_answer = AIMessage(content="old answer", id="old-answer")
+    current_user = HumanMessage(content="current question", id="current-user")
+    partial = AIMessage(
+        content="partial answer",
+        additional_kwargs={"interrupted": True},
+        id="partial",
+    )
+    inserted = HumanMessage(content="focus on the method", id="steer:command-1")
+    answer = AIMessage(content="updated answer", id="answer")
+    tracker = TurnHistoryTracker(seed_messages=[current_user])
+    tracker.observe({"type": "steering_applied", "command_id": "command-1"})
+    tracker.observe(
+        {
+            "type": "state_update",
+            "data": {
+                "messages": [old_user, old_answer, current_user, partial, inserted, answer],
+            },
+        }
+    )
+
+    assert [(item.message_id, _wire_text(item)) for item in tracker.inputs] == [
+        ("current-user", "current question"),
+        ("partial", "partial answer"),
+        ("steer:command-1", "focus on the method"),
+        ("answer", "updated answer"),
+    ]
+
+
+def test_incremental_insert_before_snapshot_keeps_turn_start():
+    original = HumanMessage(content="original", id="original")
+    partial = AIMessage(content="partial", id="partial")
+    inserted = HumanMessage(content="direction", id="steer:insert")
+    final = AIMessage(content="updated", id="final")
+    tracker = TurnHistoryTracker(seed_messages=[original])
+    tracker.observe({"type": "state_snapshot", "data": {"messages": [original, partial]}})
+    tracker.observe({"type": "steering_applied", "command_id": "insert"})
+    tracker.observe({"type": "state_update", "data": {"messages": [inserted]}})
+    tracker.observe(
+        {"type": "state_snapshot", "data": {"messages": [original, partial, inserted, final]}}
+    )
+    assert [item.message_id for item in tracker.inputs] == [
+        "original",
+        "partial",
+        "steer:insert",
+        "final",
+    ]

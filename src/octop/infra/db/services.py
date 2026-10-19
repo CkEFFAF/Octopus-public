@@ -13,6 +13,7 @@ from octop.infra.db.repos.backends import BackendRepo
 from octop.infra.db.repos.bridge_connections import BridgeConnectionRepo
 from octop.infra.db.repos.care_push import CarePushRepo
 from octop.infra.db.repos.channels import ChannelRepo
+from octop.infra.db.repos.chat_inputs import ChatInputRepo
 from octop.infra.db.repos.collaboration import CollaborationRepo
 from octop.infra.db.repos.connectors import ConnectorRepo
 from octop.infra.db.repos.cron import CronJobRepo
@@ -73,6 +74,10 @@ class RepoBundle:
     care_push_repo: CarePushRepo
     proactive_care_config_repo: ProactiveCareConfigRepo
     sso_repo: SsoRepo
+
+    @property
+    def chat_input_repo(self) -> ChatInputRepo:
+        return ChatInputRepo(self.db)
 
     @classmethod
     def from_pool(cls, db: DatabasePool) -> RepoBundle:

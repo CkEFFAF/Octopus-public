@@ -6,14 +6,14 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from octop_gateway.channel import ChannelCredentialsError
 from octop_gateway.channels import ChannelKind
 from octop_gateway.manager import ChannelManager
-from octop_gateway.models import ChannelSubject
+from octop_gateway.models import ChannelSubject, InboundMessage
 
 from octop.i18n import channel_probe_incomplete, channel_runtime_reason, tr
 from octop.infra.db.repos.channels import ChannelRow
@@ -21,6 +21,7 @@ from octop.infra.db.repos.sessions import SessionRow
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.cli import CLI_CHANNEL_ID, CliChannel, CliHub
 from octop.infra.gateway.history_backfill import HistoryBackfillQueue
+from octop.infra.gateway.input_queue import ChatInputQueue
 from octop.infra.gateway.process import media_backend_for_agent
 from octop.infra.gateway.process.processor import GlobalProcessor
 from octop.infra.gateway.process.response_mode import (
@@ -124,10 +125,14 @@ class Gateway:
         self._cli_channel: CliChannel | None = None
         self._runtime_status: dict[str, ChannelRuntimeStatus] = {}
         self._history_backfill = HistoryBackfillQueue()
+        self._inputs: ChatInputQueue | None = None
+        self._dashboard_operations: set[asyncio.Task[None]] = set()
 
     def replace_repos(self, repos: RepoBundle) -> None:
         """Point channel/thread persistence at a rebound control-plane pool."""
         self._repos = repos
+        if self._inputs is not None:
+            self._inputs.repos = repos
         self._thread_registry.replace_repos(
             session_repo=repos.session_repo,
             thread_repo=repos.thread_repo,
@@ -135,6 +140,78 @@ class Gateway:
         if self._processor is not None:
             self._processor.replace_thread_message_repo(repos.thread_message_repo)
             self._processor.hitl_coordinator.session_policies.replace_repo(repos.thread_repo)
+
+    @property
+    def inputs(self) -> ChatInputQueue:
+        if self._inputs is None:
+            raise RuntimeError("gateway input queue not booted")
+        return self._inputs
+
+    async def observe_dashboard_resume(
+        self, owner: int, agent_id: str, thread_id: str, chunk: dict[str, Any]
+    ) -> None:
+        """Use the same durable receipts and broadcast stream for SSE resumes."""
+        inbound = InboundMessage(
+            channel_id=WS_CHANNEL_ID,
+            channel_type="dashboard",
+            tenant_id=agent_id,
+            channel_subject=ChannelSubject(subject_id=str(owner)),
+            content=[],
+            metadata={"thread_id": thread_id},
+        )
+        try:
+            self.inputs.observe(inbound, chunk)
+        except Exception:
+            logger.exception("Could not persist resumed chat input status thread=%s", thread_id)
+        try:
+            await self._ws_hub.push_to_thread(thread_id, chunk)
+        except Exception:
+            logger.exception("Could not broadcast resumed chat chunk thread=%s", thread_id)
+
+    async def iter_dashboard_operation(
+        self, thread_id: str, source: Callable[[], AsyncIterator[str]]
+    ) -> AsyncIterator[str]:
+        """Hold the ordinary turn lock through a streamed operation and disconnects."""
+        manager = self._require_channel_manager()
+        frames: asyncio.Queue[str | Exception | None] = asyncio.Queue()
+        listening = True
+
+        async def operation() -> None:
+            self._ws_hub.mark_turn_active(thread_id)
+            try:
+                async for frame in source():
+                    if listening:
+                        frames.put_nowait(frame)
+            finally:
+                self._ws_hub.mark_turn_idle(thread_id)
+
+        async def run() -> None:
+            try:
+                await manager.run_in_session(WS_CHANNEL_ID, f"thread:{thread_id}", operation)
+            except Exception as exc:
+                if listening:
+                    frames.put_nowait(exc)
+            finally:
+                frames.put_nowait(None)
+
+        task = asyncio.create_task(run(), name=f"dashboard-resume:{thread_id}")
+        self._dashboard_operations.add(task)
+        task.add_done_callback(self._dashboard_operations.discard)
+        try:
+            while True:
+                frame = await frames.get()
+                if frame is None:
+                    break
+                if isinstance(frame, Exception):
+                    raise frame
+                yield frame
+        finally:
+            listening = False
+
+    async def dispatch_dashboard_input(self, inbound: InboundMessage) -> None:
+        if self._ws_channel is None:
+            raise RuntimeError("dashboard channel unavailable")
+        await self._ws_channel.handle_inbound(inbound)
 
     @property
     def ws_hub(self) -> WebSocketHub:
@@ -245,10 +322,12 @@ class Gateway:
         self._channel_manager.set_pre_lock_handler(self._preempt_cancel_on_stop)
         await self._channel_manager.start()
 
+        self._inputs = ChatInputQueue(self._repos, self._agent_manager, self)
         self._ws_channel = WebSocketChannel(
             self._processor,
             hub=self._ws_hub,
             channel_id=WS_CHANNEL_ID,
+            on_chunk=self._inputs.observe,
         )
         await self._channel_manager.add_channel(self._ws_channel)
 
@@ -263,6 +342,7 @@ class Gateway:
         if rows:
             await asyncio.gather(*(self._safe_register_channel(row) for row in rows))
 
+        self._inputs.start()
         logger.info("Gateway booted")
 
     async def refresh_media_backends(self) -> None:
@@ -309,6 +389,13 @@ class Gateway:
         logger.info("Gateway channels reloaded from DB (%d enabled)", len(rows))
 
     async def shutdown(self) -> None:
+        for task in self._dashboard_operations:
+            task.cancel()
+        await asyncio.gather(*self._dashboard_operations, return_exceptions=True)
+        self._dashboard_operations.clear()
+        if self._inputs is not None:
+            await self._inputs.close()
+            self._inputs = None
         await self._history_backfill.close()
         if self._channel_manager:
             await self._channel_manager.stop()
