@@ -84,6 +84,26 @@ describe("ChatInputActionsRow responsive toolbar", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
+  it("defaults to queue on send while keeping stop available during generation", () => {
+    render(
+      <MemoryRouter>
+        <ChatInputActionsRow
+          {...baseProps}
+          isStreaming
+          canSend
+          text="new question"
+        />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "chat.queue.action" }));
+    expect(baseProps.onSubmit).toHaveBeenCalledOnce();
+    expect(baseProps.onCancel).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "chat.steer.action" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+  });
+
   it("keeps available model and mode controls directly accessible on a wide toolbar", () => {
     render(
       <MemoryRouter>

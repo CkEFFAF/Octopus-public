@@ -1,6 +1,18 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  act,
+  waitFor,
+} from "@testing-library/react";
 import { createRef } from "react";
+import { App } from "antd";
+import {
+  saveWithdrawnDraft,
+  readWithdrawnDraft,
+} from "../utils/withdrawnDraft";
+const attachmentSpies = vi.hoisted(() => ({ restore: vi.fn() }));
 
 vi.mock("../../../hooks/useIsMobile", () => ({
   useIsMobile: () => false,
@@ -40,7 +52,7 @@ vi.mock("../hooks/useChatAttachments", () => ({
     handleFileChange: vi.fn(),
     removeAttachment: vi.fn(),
     clearAttachments: vi.fn(),
-    restoreAttachments: vi.fn(),
+    restoreAttachments: attachmentSpies.restore,
     handlePaste: vi.fn(),
     handleDragEnter: vi.fn(),
     handleDragLeave: vi.fn(),
@@ -75,7 +87,21 @@ vi.mock("./ChatInputActionsRow", () => ({
 }));
 
 vi.mock("./ChatQueuedMessages", () => ({
-  default: () => null,
+  default: ({
+    onReclaim,
+    disabled,
+  }: {
+    onReclaim: (id: string) => void;
+    disabled: boolean;
+  }) => (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onReclaim("queued-id")}
+    >
+      withdraw
+    </button>
+  ),
 }));
 
 vi.mock("./SlashCommandMenu", () => ({
@@ -132,6 +158,227 @@ beforeEach(() => {
 });
 
 describe("ChatInput prefill clear-on-send", () => {
+  it("asks before recovering a withdrawn message over an existing draft on mount", async () => {
+    saveWithdrawnDraft("recovery-agent", "mount", {
+      id: "recovered",
+      text: "withdrawn message",
+      createdAt: 1,
+    });
+    render(
+      <App>
+        <ChatInput
+          onSend={vi.fn()}
+          onCancel={vi.fn()}
+          onNewChat={vi.fn()}
+          isStreaming
+          agentId="recovery-agent"
+          threadId="mount"
+          initialText="keep my draft"
+        />
+      </App>,
+    );
+    expect(screen.getByRole("textbox")).toHaveValue("keep my draft");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("dialog", {
+          name: "chat.queue.reclaimOverwriteTitle",
+        }),
+      ).toBeVisible(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /确.*认/ }));
+    expect(screen.getByRole("textbox")).toHaveValue("withdrawn message");
+    expect(readWithdrawnDraft("recovery-agent", "mount")).toBeNull();
+  });
+
+  it("keeps recovery and both drafts intact if the confirmation is accepted after changing threads", async () => {
+    saveWithdrawnDraft("recovery-agent", "stale-modal", {
+      id: "recovered",
+      text: "withdrawn message",
+      createdAt: 1,
+    });
+    const props = {
+      onSend: vi.fn(),
+      onCancel: vi.fn(),
+      onNewChat: vi.fn(),
+      isStreaming: true,
+      agentId: "recovery-agent",
+    };
+    const view = render(
+      <App>
+        <ChatInput
+          {...props}
+          threadId="stale-modal"
+          initialText="keep my draft"
+        />
+      </App>,
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("dialog", {
+          name: "chat.queue.reclaimOverwriteTitle",
+        }),
+      ).toBeVisible(),
+    );
+    view.rerender(
+      <App>
+        <ChatInput {...props} threadId="another" />
+      </App>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /确.*认/ }));
+    expect(screen.getByRole("textbox")).toHaveValue("");
+    expect(readWithdrawnDraft("recovery-agent", "stale-modal")?.text).toBe(
+      "withdrawn message",
+    );
+  });
+  it("restores a withdrawal that finishes after the same conversation is reopened", async () => {
+    let resolve!: (value: {
+      id: string;
+      text: string;
+      createdAt: number;
+      attachments: never[];
+    }) => void;
+    const onReclaimQueued = vi.fn(
+      () =>
+        new Promise<{
+          id: string;
+          text: string;
+          createdAt: number;
+          attachments: never[];
+        }>((done) => {
+          resolve = done;
+        }),
+    );
+    const props = {
+      onSend: vi.fn(),
+      onCancel: vi.fn(),
+      onNewChat: vi.fn(),
+      isStreaming: true,
+      onReclaimQueued,
+      agentId: "agent-1",
+      threadId: "reopened",
+    };
+    const first = render(<ChatInput {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "withdraw" }));
+    first.unmount();
+    render(<ChatInput {...props} />);
+    const attachments = [
+      { filename: "paper.pdf", url: "/synthetic/paper.pdf" },
+    ] as never[];
+    await act(async () =>
+      resolve({
+        id: "queued-id",
+        text: "late withdrawal",
+        createdAt: 1,
+        attachments,
+      }),
+    );
+    expect(screen.getByRole("textbox")).toHaveValue("late withdrawal");
+    expect(attachmentSpies.restore).toHaveBeenCalledWith(attachments);
+  });
+  it("restores withdrawn attachments only to their original conversation after navigating away", async () => {
+    let resolve!: (value: {
+      id: string;
+      text: string;
+      createdAt: number;
+      attachments: never[];
+    }) => void;
+    const onReclaimQueued = vi.fn(
+      () =>
+        new Promise<{
+          id: string;
+          text: string;
+          createdAt: number;
+          attachments: never[];
+        }>((done) => {
+          resolve = done;
+        }),
+    );
+    const props = {
+      onSend: vi.fn(),
+      onCancel: vi.fn(),
+      onNewChat: vi.fn(),
+      isStreaming: true,
+      onReclaimQueued,
+      agentId: "agent-1",
+    };
+    const { rerender } = render(<ChatInput {...props} threadId="original" />);
+    fireEvent.click(screen.getByRole("button", { name: "withdraw" }));
+    rerender(<ChatInput {...props} threadId="other" />);
+    const attachments = [
+      { filename: "paper.pdf", url: "/synthetic/paper.pdf" },
+    ] as never[];
+    await act(async () =>
+      resolve({
+        id: "queued-id",
+        text: "original message",
+        createdAt: 1,
+        attachments,
+      }),
+    );
+    expect(screen.getByRole("textbox")).toHaveValue("");
+    expect(attachmentSpies.restore).not.toHaveBeenCalledWith(attachments);
+    rerender(<ChatInput {...props} threadId="original" />);
+    expect(screen.getByRole("textbox")).toHaveValue("original message");
+    expect(attachmentSpies.restore).toHaveBeenCalledWith(attachments);
+  });
+  it("locks the draft during withdrawal so a delayed response cannot overwrite new edits", async () => {
+    let resolve!: (value: {
+      id: string;
+      text: string;
+      createdAt: number;
+    }) => void;
+    const onReclaimQueued = vi.fn(
+      () =>
+        new Promise<{ id: string; text: string; createdAt: number }>((done) => {
+          resolve = done;
+        }),
+    );
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onCancel={vi.fn()}
+        onNewChat={vi.fn()}
+        isStreaming
+        onReclaimQueued={onReclaimQueued}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "withdraw" }));
+    expect(screen.getByRole("textbox")).toBeDisabled();
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "must not overwrite" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "withdraw" }));
+    expect(onReclaimQueued).toHaveBeenCalledOnce();
+    await act(async () =>
+      resolve({ id: "queued-id", text: "restored text", createdAt: 1 }),
+    );
+    expect(screen.getByRole("textbox")).toBeEnabled();
+    expect(screen.getByRole("textbox")).toHaveValue("restored text");
+  });
+  it("queues a submitted draft by default while the agent runs", async () => {
+    const onSend = vi.fn();
+    const onQueue = vi.fn().mockResolvedValue("ok");
+    const onSteerQueued = vi.fn();
+    render(
+      <ChatInput
+        onSend={onSend}
+        onQueue={onQueue}
+        onSteerQueued={onSteerQueued}
+        onCancel={vi.fn()}
+        onNewChat={vi.fn()}
+        isStreaming
+        initialText="queue this"
+      />,
+    );
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "send" })),
+    );
+    expect(onQueue).toHaveBeenCalledOnce();
+    expect(onQueue.mock.calls[0][0].text).toBe("queue this");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onSteerQueued).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox")).toHaveValue("");
+  });
   it("appends a member mention without losing the unsent draft", () => {
     const inputRef = createRef<ChatInputHandle>();
     render(

@@ -1,10 +1,10 @@
 # 0033. Runtime message steering for agent turns
 
 **Date**: 2026-10-18 (Asia/Shanghai)
-**Revision**: 2
+**Revision**: 3
 **Status**: Implemented
-**Contract**: User clarified three actions: queue, run now, withdraw. “Run now” must account for LLM and tool boundaries.
-**Implementation**: `feat/agent-live-message-steering`; app baseline `323f585`, Harness baseline `6636ce2`. Private development artifact `1.0.2.post4.dev1`; feature verification completed on 2026-10-19; no merge or deployment performed.
+**Contract**: During a running agent turn, submitting a message defaults to queue. Each queued message offers explicit interrupt-and-insert and withdraw actions. “Run now” must account for LLM and tool boundaries.
+**Implementation**: Initial feature and UI PR31 merged through PR32 (`5eb213320f291f410efb6bf754e1e1583ed71c49`) and deployed on 2026-10-19 with combined Harness `1.0.2.post4.dev1+taskresults.1`. Revision3 follows the user's clarified queue-first UI flow; its validation and release are tracked in the existing progress document.
 
 ## Summary
 
@@ -27,6 +27,8 @@ This feature crosses the Dashboard, authenticated chat WebSocket, gateway proces
 - **AC-7**: UI status identifies the observed phase (`llm_before`, `llm_running`, `llm_after`, `tool_before`, `tool_running`, `tool_after`, terminal or paused status) and uses server acknowledgements as its source. It does not claim an insertion was applied before the server confirms it.
 - **AC-8**: Normal queued turns, HITL pauses, attachment metadata, model and execution-selection snapshots preserve existing behavior. A queue flush must not bypass an open HITL pause.
 - **AC-9**: Phase-aware control and inserted-message processing are covered by Harness, gateway/API, and Dashboard tests using synthetic threads; production conversations are not interrupted for verification.
+- **AC-10**: Sending while the local agent is running queues by default and never implicitly interrupts. Each queue row displays its acknowledged state and explicit insert/withdraw icon buttons. Insert acts on that exact queued message without changing an unsent draft. Withdraw retrieves that exact message for editing, confirming before replacing an existing draft. The independent stop control remains available while typing.
+- **AC-11**: Promoting a queued item to insertion is one server operation using its existing command ID and stored text. Promotion races atomically with dispatch and withdrawal; exactly one wins. Explicit runtime rejection preserves the original queued item and FIFO position. Uncertain outcomes are visible and never automatically replayed. Attachments and slash commands remain queued.
 
 ## Decision
 

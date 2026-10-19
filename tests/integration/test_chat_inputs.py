@@ -45,6 +45,18 @@ async def test_durable_inputs_auth_retry_withdraw_and_schema(tmp_octop_home):
         assert retry.json()["event_id"] == queued.json()["event_id"]
         body["turn"]["text"] = "changed"
         assert (await client.post(base, headers=users["alice"], json=body)).status_code == 409
+        promotion = await client.post(
+            base + "/queue-one/steer",
+            headers=users["alice"],
+            json={"run_id": "stale"},
+        )
+        assert promotion.status_code == 409
+        after_rejection = await client.get(base, headers=users["alice"])
+        promoted_receipt = after_rejection.json()["inputs"][0]
+        assert promoted_receipt["event_id"] == queued.json()["event_id"]
+        assert promoted_receipt["kind"] == "chat_input"
+        assert promoted_receipt["status"] == "queued"
+        assert promoted_receipt["payload"]["snapshot"]["text"] == "hello"
         listed = await client.get(base, headers=users["alice"])
         assert len(listed.json()["inputs"]) == 1
         withdrawn = await client.delete(base + "/queue-one", headers=users["alice"])
@@ -74,6 +86,10 @@ async def test_durable_inputs_auth_retry_withdraw_and_schema(tmp_octop_home):
             route = spec["paths"]["/api/agents/{agent_id}/threads/{thread_id}/inputs"][method]
             assert route["summary"]
             assert "$ref" in route["responses"]["200"]["content"]["application/json"]["schema"]
+        promote_route = spec["paths"][
+            "/api/agents/{agent_id}/threads/{thread_id}/inputs/{command_id}/steer"
+        ]["post"]
+        assert promote_route["summary"]
 
 
 @pytest.mark.asyncio

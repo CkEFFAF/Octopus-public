@@ -141,6 +141,73 @@ class ChatInputQueue:
             "phase": outcome["phase"],
         }
 
+    def promote_to_steer(
+        self, owner: int, agent_id: str, thread_id: str, command_id: str, run_id: str
+    ) -> dict[str, Any]:
+        self.assert_scope(owner, agent_id, thread_id)
+        if not self._supports_persistent_inputs(agent_id):
+            raise ValueError("steering_unsupported")
+        item = self.repos.chat_input_repo.get(owner, command_id)
+        if item is None or item["agent_id"] != agent_id or item["thread_id"] != thread_id:
+            raise OctopError(ErrorCode.NOT_FOUND, "chat input not found")
+        payload = item["payload"]
+        if item["kind"] == "chat_steer" and payload.get("_promoted_from_queue"):
+            if item["run_id"] != run_id:
+                raise ValueError("command_conflict")
+            return item
+        if item["kind"] != "chat_input" or item["status"] != "queued":
+            raise ValueError("input_not_queued")
+
+        snapshot = payload.get("snapshot")
+        inbound = payload.get("inbound")
+        text = snapshot.get("text") if isinstance(snapshot, dict) else None
+        content = inbound.get("content") if isinstance(inbound, dict) else None
+        plain_text = (
+            isinstance(text, str)
+            and bool(text.strip())
+            and len(text.strip()) <= 20_000
+            and not text.lstrip().startswith("/")
+            and not snapshot.get("attachments")
+            and isinstance(content, list)
+            and bool(content)
+            and all(isinstance(part, dict) and part.get("type") == "text" for part in content)
+            and "".join(str(part.get("text") or "") for part in content).strip() == text.strip()
+        )
+        if not plain_text:
+            raise ValueError("steering_requires_plain_text")
+        assert isinstance(text, str)
+
+        promoted, claimed = self.repos.chat_input_repo.promote_queued_to_steer(
+            owner, agent_id, thread_id, command_id, run_id, text.strip()
+        )
+        if promoted is None:
+            raise OctopError(ErrorCode.NOT_FOUND, "chat input not found")
+        if not claimed:
+            return promoted
+        try:
+            outcome = self.agents.steer_stream(
+                agent_id, thread_id, command_id, text.strip(), run_id=run_id
+            )
+        except Exception:
+            logger.exception("Promoted chat input outcome is unknown command=%s", command_id)
+            self.repos.chat_input_repo.transition(owner, command_id, "requested", "unknown")
+            return self.repos.chat_input_repo.get(owner, command_id) or promoted
+
+        status = outcome.get("status")
+        if status == "accepted":
+            self.repos.chat_input_repo.transition(owner, command_id, "requested", "accepted")
+        elif status in {"inactive", "stale_run", "busy", "conflict", "rejected"}:
+            restored = self.repos.chat_input_repo.restore_promoted_queue(owner, command_id, run_id)
+            if restored is not None:
+                raise ValueError(f"steering_{status}")
+            return self.repos.chat_input_repo.get(owner, command_id) or promoted
+        else:
+            self.repos.chat_input_repo.transition(owner, command_id, "requested", "unknown")
+        return {
+            **(self.repos.chat_input_repo.get(owner, command_id) or promoted),
+            "phase": outcome.get("phase"),
+        }
+
     def observe(self, message: InboundMessage, chunk: dict[str, Any]) -> None:
         subject = message.channel_subject
         if subject is None:

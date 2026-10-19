@@ -179,6 +179,42 @@ export function usePersistentChatQueue({
     const item = items.find((row) => row.id === id);
     return item && (await remove(id)) ? item : null;
   };
+  const promote = async (id: string): Promise<boolean> => {
+    if (!agentId || !threadId) return false;
+    try {
+      const current = await refresh();
+      const prior = current?.inputs.find(
+        (row) => row.payload.command_id === id,
+      );
+      if (
+        prior?.kind === "chat_steer" &&
+        ["accepted", "applied"].includes(prior.status)
+      ) {
+        return true;
+      }
+      if (!current?.runtime || !current.capabilities.steer) {
+        message.info(t("chat.steer.unavailable"));
+        return false;
+      }
+      const receipt = await chatInputsApi.promote(
+        agentId,
+        threadId,
+        id,
+        current.runtime.run_id,
+      );
+      await refresh().catch(() => null);
+      if (!["accepted", "applied"].includes(receipt.status)) {
+        message.error(t("chat.steer.failed"));
+        return false;
+      }
+      message.info(t("chat.steer.waiting"));
+      return true;
+    } catch {
+      await refresh().catch(() => null);
+      message.error(t("chat.steer.promoteFailed"));
+      return false;
+    }
+  };
   const steer = async (input: EnqueueChatItemInput): Promise<boolean> => {
     if (!agentId || !threadId) return false;
     const fingerprint = JSON.stringify([key, "steer", input.text]);
@@ -253,6 +289,7 @@ export function usePersistentChatQueue({
     enqueue,
     remove,
     reclaim,
+    promote,
     clear,
     steer,
     runtime: data?.runtime,

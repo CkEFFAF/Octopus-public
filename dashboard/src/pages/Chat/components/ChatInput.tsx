@@ -69,6 +69,12 @@ import type {
 import type { HitlSessionPolicy } from "../utils/hitlSessionPolicy";
 import { useComposerResize } from "../hooks/useComposerResize";
 import styles from "../index.module.less";
+import {
+  saveWithdrawnDraft,
+  readWithdrawnDraft,
+  takeWithdrawnDraft,
+  subscribeWithdrawnDraft,
+} from "../utils/withdrawnDraft";
 
 /** Imperative handle exposed via ref for programmatic text injection. */
 export interface ChatInputHandle {
@@ -86,10 +92,9 @@ interface ChatInputProps {
   onQueue?: (
     item: EnqueueChatItemInput,
   ) => "ok" | "empty" | "full" | Promise<"ok" | "empty" | "full">;
-  /** Insert plain text at a model/tool-safe point in the active turn. */
-  onSteer?: (item: EnqueueChatItemInput) => boolean | Promise<boolean>;
+  /** Promote an already queued message into the active turn. */
+  onSteerQueued?: (id: string) => boolean | Promise<boolean>;
   queuedItems?: QueuedChatItem[];
-  onRemoveQueued?: (id: string) => void;
   onReclaimQueued?: (
     id: string,
   ) => QueuedChatItem | null | Promise<QueuedChatItem | null>;
@@ -159,10 +164,9 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       footer,
       onSend,
       onQueue,
-      onSteer,
+      onSteerQueued,
       runtimePhase,
       queuedItems = [],
-      onRemoveQueued,
       onReclaimQueued,
       onCancel,
       onNewChat,
@@ -237,6 +241,16 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       () => initialText || readInputDraft(agentId, threadId),
     );
     const [polishing, setPolishing] = useState(false);
+    const [reclaiming, setReclaiming] = useState(false);
+    const reclaimPending = useRef(false);
+    const composerMounted = useRef(true);
+    useEffect(() => {
+      composerMounted.current = true;
+      return () => {
+        composerMounted.current = false;
+      };
+    }, []);
+    const composerDisabled = disabled || reclaiming;
     // Track whether the user has manually edited the text after a prefill.
     // Once they start editing, we must not overwrite their input with a new
     // initialText value (e.g. from a parent re-render or a stale effect).
@@ -246,12 +260,14 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     const ignoreInitialTextRef = useRef<string | null>(null);
 
     const setComposerText = useCallback((value: string) => {
+      if (reclaimPending.current) return;
       userHasEditedRef.current = true;
       setText(value);
     }, []);
 
     const handleVoiceText = useCallback(
       (spoken: string) => {
+        if (reclaimPending.current) return;
         setText((prev) => (prev.trim() ? `${prev.trim()} ${spoken}` : spoken));
         userHasEditedRef.current = true;
         onUserInput?.();
@@ -288,9 +304,11 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       ref,
       () => ({
         attachFiles: (files: File[]) => {
+          if (reclaimPending.current) return;
           void processFiles(files);
         },
         mentionExpert: (name: string) => {
+          if (reclaimPending.current) return;
           userHasEditedRef.current = true;
           setText(
             (previous) =>
@@ -301,6 +319,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
           textareaRef.current?.focus();
         },
         setPrefillText: (newText: string) => {
+          if (reclaimPending.current) return;
           userHasEditedRef.current = false;
           ignoreInitialTextRef.current = null;
           prevInitialTextRef.current = newText;
@@ -317,6 +336,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
           newText: string,
           nextAttachments?: ChatAttachment[],
         ) => {
+          if (reclaimPending.current) return;
           userHasEditedRef.current = false;
           ignoreInitialTextRef.current = null;
           prevInitialTextRef.current = newText;
@@ -384,22 +404,96 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       }
     }, [initialText]);
 
-    // Restore per-thread draft when switching conversations or remounting.
+    const restoreQueuedDraft = useCallback(
+      (item: QueuedChatItem) => {
+        userHasEditedRef.current = true;
+        const ctx = item.composerContext;
+        setText(
+          ctx?.targetAgents?.length
+            ? ensureExpertMentions(item.text, ctx.targetAgents, availableAgents)
+            : item.text,
+        );
+        restoreAttachments(item.attachments ?? []);
+        if (ctx) {
+          onConnectorsChange?.(ctx.connectors ?? []);
+          onKnowledgeBaseIdsChange?.(ctx.knowledgeBaseIds ?? []);
+          if (ctx.model !== undefined) onModelChange?.(ctx.model);
+          else if (item.modelRef !== undefined) onModelChange?.(item.modelRef);
+          if (ctx.reasoningMode !== undefined)
+            onReasoningChange?.(ctx.reasoningMode, ctx.reasoningEffort || null);
+        } else if (item.modelRef !== undefined) onModelChange?.(item.modelRef);
+      },
+      [
+        availableAgents,
+        restoreAttachments,
+        onConnectorsChange,
+        onKnowledgeBaseIdsChange,
+        onModelChange,
+        onReasoningChange,
+      ],
+    );
+
+    const recoveryPrompt = useRef<string | null>(null);
+    const offerWithdrawnDraft = useCallback(
+      (draftText: string, hasAttachments: boolean) => {
+        const recovered = readWithdrawnDraft(agentId, threadId);
+        if (!recovered) return;
+        const identity = JSON.stringify([agentId, threadId, recovered.id]);
+        if (recoveryPrompt.current === identity) return;
+        const apply = () => {
+          if (
+            !composerMounted.current ||
+            latestComposer.current.agentId !== agentId ||
+            latestComposer.current.threadId !== threadId
+          )
+            return;
+          const item = takeWithdrawnDraft(agentId, threadId);
+          if (item) restoreQueuedDraft(item);
+        };
+        if (draftText.trim() || hasAttachments) {
+          recoveryPrompt.current = identity;
+          modal.confirm({
+            title: t("chat.queue.reclaimOverwriteTitle"),
+            content: t("chat.queue.reclaimOverwrite"),
+            okText: t("common.confirm", "确认"),
+            cancelText: t("common.cancel", "取消"),
+            onOk: apply,
+          });
+        } else apply();
+      },
+      [agentId, threadId, restoreQueuedDraft, modal, t],
+    );
+
+    // Restore per-thread drafts and offer recovered withdrawals without replacing edits.
     useEffect(() => {
       const composerKey = `${agentId ?? ""}:${threadId ?? ""}`;
-      if (composerKey === prevComposerKeyRef.current) return;
-      prevComposerKeyRef.current = composerKey;
-      userHasEditedRef.current = false;
-      ignoreInitialTextRef.current = null;
-      prevInitialTextRef.current = "";
-      setText(readInputDraft(agentId, threadId));
-      const pendingAttachments = consumePendingPrefillAttachments();
-      if (pendingAttachments.length > 0) {
-        restoreAttachments(pendingAttachments);
-      } else {
-        clearAttachments();
-      }
-    }, [agentId, threadId, initialText, clearAttachments, restoreAttachments]);
+      const changed = composerKey !== prevComposerKeyRef.current;
+      const targetText = changed
+        ? readInputDraft(agentId, threadId)
+        : latestComposer.current.text;
+      if (changed) {
+        prevComposerKeyRef.current = composerKey;
+        recoveryPrompt.current = null;
+        userHasEditedRef.current = false;
+        ignoreInitialTextRef.current = null;
+        prevInitialTextRef.current = "";
+        setText(targetText);
+        const pendingAttachments = consumePendingPrefillAttachments();
+        if (pendingAttachments.length) restoreAttachments(pendingAttachments);
+        else clearAttachments();
+        offerWithdrawnDraft(targetText, pendingAttachments.length > 0);
+      } else
+        offerWithdrawnDraft(
+          targetText,
+          latestComposer.current.attachments.length > 0,
+        );
+    }, [
+      agentId,
+      threadId,
+      clearAttachments,
+      restoreAttachments,
+      offerWithdrawnDraft,
+    ]);
 
     // Persist draft while typing so leaving /chat and returning keeps content.
     useEffect(() => {
@@ -412,6 +506,14 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     const submissionPending = useRef(false);
     const latestComposer = useRef({ text, attachments, agentId, threadId });
     latestComposer.current = { text, attachments, agentId, threadId };
+    useEffect(
+      () =>
+        subscribeWithdrawnDraft(agentId, threadId, () => {
+          const draft = latestComposer.current;
+          offerWithdrawnDraft(draft.text, draft.attachments.length > 0);
+        }),
+      [agentId, threadId, offerWithdrawnDraft],
+    );
     const submitRef = useRef<() => void>(() => {});
 
     const {
@@ -539,7 +641,12 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 
     const submitMessage = useCallback(async () => {
       const trimmed = text.trim();
-      if ((!trimmed && attachments.length === 0) || disabled) return;
+      if (
+        (!trimmed && attachments.length === 0) ||
+        disabled ||
+        reclaimPending.current
+      )
+        return;
       const rawText = materializeSkillSlashes(trimmed, skillTokenRefs).trim();
       const slashItem = matchSlashCommand(rawText);
       if (slashItem && slashItem.spec.client_action !== "none") {
@@ -625,115 +732,51 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       t,
     ]);
 
-    const submitSteerMessage = useCallback(async () => {
-      const trimmed = text.trim();
-      if (!trimmed || disabled || !isStreaming || !onSteer) return;
-      if (matchSlashCommand(trimmed)) {
-        antMessage.info(t("chat.steer.commandsQueue"));
-        return;
-      }
-      if (attachments.length > 0) {
-        antMessage.info(t("chat.steer.attachmentsQueue"));
-        return;
-      }
-      if (submissionPending.current) return;
-      submissionPending.current = true;
-      let accepted: boolean;
-      try {
-        accepted = await onSteer({
-          text: materializeSkillSlashes(trimmed, skillTokenRefs).trim(),
-          composerContext: buildComposerContext({
-            skills: selectedSkillSlugs,
-            connectors: selectedConnectors,
-            knowledgeBaseIds: selectedKnowledgeBaseIds,
-            selectedModel,
-            reasoningMode,
-            reasoningEffort,
-          }),
-          modelRef: resolveTurnModelRef(selectedModel, defaultModel),
-        });
-      } finally {
-        submissionPending.current = false;
-      }
-      if (
-        !accepted ||
-        latestComposer.current.text !== text ||
-        latestComposer.current.attachments !== attachments ||
-        latestComposer.current.agentId !== agentId ||
-        latestComposer.current.threadId !== threadId
-      )
-        return;
-      const ta = textareaRef.current;
-      resetComposerAfterSubmit(
-        ta ? ta.getBoundingClientRect().height : 0,
-        trimmed,
-      );
-    }, [
-      text,
-      disabled,
-      isStreaming,
-      onSteer,
-      attachments,
-      agentId,
-      threadId,
-      matchSlashCommand,
-      antMessage,
-      t,
-      skillTokenRefs,
-      selectedSkillSlugs,
-      selectedConnectors,
-      selectedKnowledgeBaseIds,
-      selectedModel,
-      reasoningMode,
-      reasoningEffort,
-      defaultModel,
-      resetComposerAfterSubmit,
-    ]);
-
     submitRef.current = submitMessage;
 
     const handleReclaimQueued = useCallback(
       (id: string) => {
-        if (!onReclaimQueued) return;
+        if (
+          !onReclaimQueued ||
+          disabled ||
+          uploading ||
+          recording ||
+          transcribing ||
+          reclaimPending.current
+        )
+          return;
         const apply = async () => {
-          const item = await onReclaimQueued(id);
-          if (!item) return;
-          userHasEditedRef.current = true;
-          const ctx = item.composerContext;
-          const restoredText =
-            ctx?.targetAgents && ctx.targetAgents.length > 0
-              ? ensureExpertMentions(
-                  item.text,
-                  ctx.targetAgents,
-                  availableAgents,
-                )
-              : item.text;
-          setText(restoredText);
-          restoreAttachments(item.attachments ?? []);
-          if (ctx) {
-            onConnectorsChange?.(ctx.connectors ?? []);
-            onKnowledgeBaseIdsChange?.(ctx.knowledgeBaseIds ?? []);
-            if (ctx.model !== undefined) {
-              onModelChange?.(ctx.model);
-            } else if (item.modelRef !== undefined) {
-              onModelChange?.(item.modelRef);
+          if (reclaimPending.current) return;
+          // The server may already have withdrawn this item when its response arrives.
+          // Keep this draft stable until it can be restored without overwriting edits.
+          reclaimPending.current = true;
+          setReclaiming(true);
+          try {
+            const item = await onReclaimQueued(id);
+            if (!item) return;
+            if (
+              !composerMounted.current ||
+              latestComposer.current.agentId !== agentId ||
+              latestComposer.current.threadId !== threadId
+            ) {
+              saveWithdrawnDraft(agentId, threadId, item);
+              return;
             }
-            if (ctx.reasoningMode !== undefined) {
-              onReasoningChange?.(
-                ctx.reasoningMode,
-                ctx.reasoningEffort || null,
-              );
-            }
-          } else if (item.modelRef !== undefined) {
-            onModelChange?.(item.modelRef);
+            writeInputDraft(agentId, threadId, item.text);
+            restoreQueuedDraft(item);
+            setTimeout(() => {
+              const el = textareaRef.current;
+              if (el) {
+                el.focus();
+                el.setSelectionRange(el.value.length, el.value.length);
+              }
+            }, 50);
+          } catch {
+            antMessage.error(t("chat.queue.withdrawFailed"));
+          } finally {
+            reclaimPending.current = false;
+            setReclaiming(false);
           }
-          setTimeout(() => {
-            const el = textareaRef.current;
-            if (el) {
-              el.focus();
-              el.setSelectionRange(el.value.length, el.value.length);
-            }
-          }, 50);
         };
 
         if (text.trim() || attachments.length > 0) {
@@ -750,15 +793,18 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       },
       [
         onReclaimQueued,
-        restoreAttachments,
+        agentId,
+        threadId,
+        disabled,
+        uploading,
+        recording,
+        transcribing,
+        modal,
+        antMessage,
         text,
         attachments.length,
         t,
-        onConnectorsChange,
-        onKnowledgeBaseIdsChange,
-        onModelChange,
-        onReasoningChange,
-        availableAgents,
+        restoreQueuedDraft,
       ],
     );
 
@@ -812,20 +858,30 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
-        onDrop={handleDrop}
+        onDrop={(event) => {
+          if (reclaimPending.current) {
+            event.preventDefault();
+            return;
+          }
+          handleDrop(event);
+        }}
       >
         {isStreaming && runtimePhase ? (
-          <div role="status">
+          <div className={styles.runtimePhase} role="status">
             {t(`chat.steer.phase.${runtimePhase}`, {
               defaultValue: runtimePhase,
             })}
           </div>
         ) : null}
-        {onRemoveQueued && onReclaimQueued && (
+        {onReclaimQueued && (
           <ChatQueuedMessages
             items={queuedItems}
-            onRemove={onRemoveQueued}
             onReclaim={handleReclaimQueued}
+            onSteer={isTeam ? undefined : onSteerQueued}
+            canSteer={isStreaming && !composerDisabled}
+            disabled={
+              composerDisabled || uploading || recording || transcribing
+            }
           />
         )}
         <div
@@ -854,10 +910,16 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             selectedConnectors={selectedConnectors}
             availableConnectors={availableConnectors}
             availableKnowledgeBases={availableKnowledgeBases}
-            onRemoveAttachment={removeAttachment}
-            onConnectorsChange={onConnectorsChange}
+            onRemoveAttachment={(id) => {
+              if (!reclaimPending.current) removeAttachment(id);
+            }}
+            onConnectorsChange={
+              composerDisabled ? undefined : onConnectorsChange
+            }
             selectedKnowledgeBaseIds={selectedKnowledgeBaseIds}
-            onKnowledgeBaseIdsChange={onKnowledgeBaseIdsChange}
+            onKnowledgeBaseIdsChange={
+              composerDisabled ? undefined : onKnowledgeBaseIdsChange
+            }
           />
 
           <div className={styles.inputRow} style={{ position: "relative" }}>
@@ -866,6 +928,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
               className={styles.textarea}
               value={text}
               onChange={(e) => {
+                if (reclaimPending.current) return;
                 userHasEditedRef.current = true;
                 handleTextChange(e.target.value);
               }}
@@ -876,7 +939,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
                 "Message Octop...",
               )}
               rows={1}
-              disabled={disabled}
+              disabled={composerDisabled}
               enterKeyHint={isMobile ? "enter" : undefined}
             />
             {/*
@@ -960,7 +1023,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             isMobile={isMobile}
             isStreaming={isStreaming}
             isTeam={isTeam}
-            disabled={disabled}
+            disabled={composerDisabled}
             canSend={canSend}
             text={text}
             polishing={polishing}
@@ -1015,12 +1078,12 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             onToggleVoice={() => toggleVoice()}
             onCancel={onCancel}
             onSubmit={submitMessage}
-            onSteer={onSteer && !isTeam ? submitSteerMessage : undefined}
           />
 
           <input
             ref={fileInputRef}
             type="file"
+            disabled={composerDisabled}
             multiple
             style={{ display: "none" }}
             onChange={handleFileChange}

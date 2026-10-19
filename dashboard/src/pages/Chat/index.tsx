@@ -878,7 +878,6 @@ function ChatPageInner() {
   const {
     items: queuedItems,
     enqueue: enqueueQueued,
-    remove: removeQueued,
     reclaim: reclaimQueued,
     clear: clearQueued,
   } = persistentQueue.enabled ? persistentQueue : legacyQueue;
@@ -1855,12 +1854,11 @@ function ChatPageInner() {
               }
               onSend={wrappedHandleSend}
               onQueue={enqueueQueued}
-              onSteer={
-                persistentQueue.enabled ? persistentQueue.steer : undefined
+              onSteerQueued={
+                persistentQueue.enabled ? persistentQueue.promote : undefined
               }
               runtimePhase={persistentQueue.runtime?.phase}
               queuedItems={queuedItems}
-              onRemoveQueued={removeQueued}
               onReclaimQueued={reclaimQueued}
               onCancel={() => {
                 expertAnimation.pause();

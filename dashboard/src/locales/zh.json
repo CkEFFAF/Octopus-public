@@ -1944,6 +1944,7 @@
     "queue": {
       "label": "排队中的消息",
       "action": "排队",
+      "withdraw": "撤回并取回编辑",
       "remove": "从队列移除",
       "reclaim": "取回编辑",
       "reclaimOverwriteTitle": "替换当前草稿？",
@@ -1965,7 +1966,8 @@
       "withdrawFailed": "消息已开始提交或暂时无法撤回，请刷新状态后重试。"
     },
     "steer": {
-      "action": "直接插入（沿用当前运行设置）",
+      "action": "打断并直接插入（工具执行中会等待完成）",
+      "promoteFailed": "暂时无法插入，请查看此消息的最新状态；仍在排队的消息会继续保留。",
       "attachmentsQueue": "直接插入暂不支持附件，请使用排队发送。",
       "waiting": "插入请求已送达，等待当前安全节点。",
       "applied": "消息已插入，Agent 正在按新消息继续。",

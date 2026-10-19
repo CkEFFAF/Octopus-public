@@ -105,6 +105,94 @@ class ChatInputRepo:
             )
         return bool(result.rowcount)
 
+    def promote_queued_to_steer(
+        self,
+        owner: int,
+        agent_id: str,
+        thread_id: str,
+        command_id: str,
+        run_id: str,
+        text: str,
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """Atomically reserve a queued receipt for one direct-insertion attempt."""
+        identity = self.event_id(owner, command_id)
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                "SELECT * FROM run_events WHERE owner_user_id = ? AND event_id = ?",
+                (owner, identity),
+            ).fetchone()
+            if row is None:
+                return None, False
+            if row["agent_id"] != agent_id or row["thread_id"] != thread_id:
+                raise ValueError("command_conflict")
+            payload = json.loads(row["payload_json"])
+            if row["kind"] == "chat_steer" and payload.get("_promoted_from_queue"):
+                if row["run_id"] != run_id:
+                    raise ValueError("command_conflict")
+                return RunEventRepo._public(row), False
+            if row["kind"] != "chat_input" or row["status"] != "queued":
+                raise ValueError("input_not_queued")
+
+            payload["_promoted_from_queue"] = True
+            payload["text"] = text
+            result = conn.execute(
+                "UPDATE run_events SET kind = 'chat_steer', run_id = ?, status = 'requested', "
+                "payload_json = ?, updated_at = ? WHERE owner_user_id = ? AND agent_id = ? "
+                "AND thread_id = ? AND event_id = ? AND kind = 'chat_input' AND status = 'queued'",
+                (
+                    run_id,
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                    time.time(),
+                    owner,
+                    agent_id,
+                    thread_id,
+                    identity,
+                ),
+            )
+            if not result.rowcount:
+                raise ValueError("input_not_queued")
+            promoted = conn.execute(
+                "SELECT * FROM run_events WHERE event_id = ?", (identity,)
+            ).fetchone()
+        return RunEventRepo._public(promoted), True
+
+    def restore_promoted_queue(
+        self, owner: int, command_id: str, run_id: str
+    ) -> dict[str, Any] | None:
+        """Restore a promoted item only after a definite, side-effect-free rejection."""
+        identity = self.event_id(owner, command_id)
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                "SELECT * FROM run_events WHERE owner_user_id = ? AND event_id = ? "
+                "AND kind = 'chat_steer' AND run_id = ? AND status = 'requested'",
+                (owner, identity, run_id),
+            ).fetchone()
+            if row is None:
+                return None
+            payload = json.loads(row["payload_json"])
+            if not payload.pop("_promoted_from_queue", False):
+                return None
+            payload.pop("text", None)
+            result = conn.execute(
+                "UPDATE run_events SET kind = 'chat_input', run_id = ?, status = 'queued', "
+                "payload_json = ?, updated_at = ? WHERE owner_user_id = ? AND event_id = ? "
+                "AND kind = 'chat_steer' AND run_id = ? AND status = 'requested'",
+                (
+                    command_id,
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                    time.time(),
+                    owner,
+                    identity,
+                    run_id,
+                ),
+            )
+            if not result.rowcount:
+                return None
+            restored = conn.execute(
+                "SELECT * FROM run_events WHERE event_id = ?", (identity,)
+            ).fetchone()
+        return RunEventRepo._public(restored)
+
     def ready(self, *, after_seq: int = 0) -> builtins.list[dict[str, Any]]:
         with self.db.connect() as conn:
             rows = conn.execute(

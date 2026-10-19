@@ -1944,6 +1944,7 @@
     "queue": {
       "label": "Queued messages",
       "action": "Queue",
+      "withdraw": "Withdraw and edit",
       "remove": "Remove from queue",
       "reclaim": "Edit queued message",
       "reclaimOverwriteTitle": "Replace current draft?",
@@ -1965,7 +1966,8 @@
       "withdrawFailed": "The message is already dispatching or cannot be withdrawn. Refresh its status and retry."
     },
     "steer": {
-      "action": "Insert now using the active run settings",
+      "action": "Interrupt and insert (waits for running tools)",
+      "promoteFailed": "Could not insert. Check the latest message status; messages still queued are retained.",
       "attachmentsQueue": "Direct insertion does not support attachments yet. Queue this message instead.",
       "waiting": "Insertion received; waiting for a safe point in the current run.",
       "applied": "Message inserted. The agent is continuing with the new input.",

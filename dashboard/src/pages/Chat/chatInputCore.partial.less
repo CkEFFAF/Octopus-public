@@ -532,6 +532,15 @@
   }
 }
 
+.runtimePhase {
+  max-width: var(--chat-column-max, 960px);
+  margin: 0 auto 6px;
+  padding-inline: var(--chat-column-pad-x, 32px);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fn-text-secondary);
+}
+
 /* ---------- Queued messages (while streaming) ---------- */
 .queuedMessages {
   max-width: var(--chat-column-max, 960px);
@@ -621,22 +630,32 @@
   color: var(--fn-text-tertiary);
 }
 
-.queuedMessageRemove {
+.queuedMessageAction {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border: none;
   border-radius: var(--fn-radius-full);
   background: transparent;
-  color: var(--fn-text-quaternary);
+  color: var(--fn-color-brand);
   cursor: pointer;
 
-  &:hover {
+  &:hover:not(:disabled) {
     color: var(--fn-text-secondary);
     background: var(--fn-bg-tertiary, rgba(0, 0, 0, 0.04));
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--fn-color-brand);
+    outline-offset: 2px;
   }
 }
 

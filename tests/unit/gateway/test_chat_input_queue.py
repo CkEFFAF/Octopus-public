@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from octop_gateway.models import ChannelSubject, InboundMessage, TextContent
@@ -45,7 +45,7 @@ def setup_queue(tmp_path):
         get_agent=lambda _: agent,
         get_row=lambda agent_id: repos.agent_repo.get(agent_id),
         steering_status=lambda *_: None,
-        steer_stream=lambda *a, **k: {"status": "accepted", "phase": "tool_running"},
+        steer_stream=Mock(return_value={"status": "accepted", "phase": "tool_running"}),
     )
     gateway = SimpleNamespace(
         channel_manager=SimpleNamespace(run_in_session=run_in_session),
@@ -193,6 +193,116 @@ def test_input_controls_reject_non_dashboard_and_bridge_threads(setup_queue):
             "run",
             "direction",
         )
+    with pytest.raises(OctopError):
+        queue.promote_to_steer(owner, "agent", "im-thread", "missing", "run")
+    with pytest.raises(OctopError):
+        queue.promote_to_steer(owner, "bridge:connection:remote", "bridge-thread", "missing", "run")
+
+
+def test_promote_queued_message_inserts_once_and_preserves_its_snapshot(setup_queue):
+    queue, repos, owner, *_ = setup_queue
+    queued = enqueue(setup_queue, "to-promote")
+    original_payload = queued["payload"]
+
+    first = queue.promote_to_steer(owner, "agent", "thread", "to-promote", "run-1")
+    retry = queue.promote_to_steer(owner, "agent", "thread", "to-promote", "run-1")
+
+    assert first["kind"] == "chat_steer"
+    assert first["status"] == "accepted"
+    assert first["run_id"] == "run-1"
+    assert first["payload"]["text"] == "to-promote"
+    assert first["payload"]["snapshot"] == original_payload["snapshot"]
+    assert first["payload"]["inbound"] == original_payload["inbound"]
+    assert retry["event_id"] == first["event_id"]
+    assert queue.agents.steer_stream.call_count == 1
+    assert [item["event_id"] for item in repos.chat_input_repo.ready()] == []
+
+
+def test_explicit_steering_rejection_restores_the_original_queue_item(setup_queue):
+    queue, repos, owner, *_ = setup_queue
+    queued = enqueue(setup_queue, "keep-queued")
+    queue.agents.steer_stream.return_value = {"status": "stale_run", "phase": "idle"}
+
+    with pytest.raises(ValueError, match="steering_stale_run"):
+        queue.promote_to_steer(owner, "agent", "thread", "keep-queued", "old-run")
+
+    restored = repos.chat_input_repo.get(owner, "keep-queued")
+    assert restored["kind"] == "chat_input"
+    assert restored["status"] == "queued"
+    assert restored["run_id"] == "keep-queued"
+    assert restored["payload"] == queued["payload"]
+    assert [item["event_id"] for item in repos.chat_input_repo.ready()] == [queued["event_id"]]
+
+
+def test_uncertain_promotion_stays_unknown_and_is_not_replayed(setup_queue):
+    queue, repos, owner, *_ = setup_queue
+    enqueue(setup_queue, "uncertain")
+    queue.agents.steer_stream.side_effect = RuntimeError("transport outcome lost")
+
+    first = queue.promote_to_steer(owner, "agent", "thread", "uncertain", "run-1")
+    retry = queue.promote_to_steer(owner, "agent", "thread", "uncertain", "run-1")
+
+    assert first["status"] == "unknown"
+    assert retry["status"] == "unknown"
+    assert queue.agents.steer_stream.call_count == 1
+    assert repos.chat_input_repo.ready() == []
+
+
+@pytest.mark.parametrize(
+    ("text", "attachments"),
+    [("/help", []), ("plain text", [{"name": "image.png"}])],
+)
+def test_promote_rejects_commands_and_attachments_without_dequeueing(
+    setup_queue, text, attachments
+):
+    queue, repos, owner, *_ = setup_queue
+    inbound = InboundMessage(
+        channel_id="dashboard",
+        channel_type="dashboard",
+        tenant_id="agent",
+        channel_subject=ChannelSubject(subject_id=str(owner)),
+        content=[TextContent(text=text)],
+        metadata={"thread_id": "thread", "session_key": "session"},
+    )
+    queued = queue.enqueue(
+        owner,
+        "agent",
+        "thread",
+        "not-plain",
+        {"text": text, "attachments": attachments},
+        inbound,
+        request_key="not-plain",
+    )
+
+    with pytest.raises(ValueError, match="steering_requires_plain_text"):
+        queue.promote_to_steer(owner, "agent", "thread", "not-plain", "run")
+
+    current = repos.chat_input_repo.get(owner, "not-plain")
+    assert current["status"] == "queued"
+    assert current["payload"] == queued["payload"]
+    assert queue.agents.steer_stream.call_count == 0
+
+
+@pytest.mark.parametrize("claim_status", ["withdrawn", "dispatching"])
+def test_promote_competes_atomically_with_withdraw_or_dispatch(setup_queue, claim_status):
+    _, repos, owner, *_ = setup_queue
+    enqueue(setup_queue, "race")
+
+    def promote():
+        try:
+            return repos.chat_input_repo.promote_queued_to_steer(
+                owner, "agent", "thread", "race", "run", "race"
+            )[1]
+        except ValueError:
+            return False
+
+    def claim():
+        return repos.chat_input_repo.transition(owner, "race", "queued", claim_status)
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        results = list(workers.map(lambda fn: fn(), [promote, claim]))
+
+    assert sum(bool(result) for result in results) == 1
 
 
 @pytest.mark.asyncio

@@ -1,12 +1,16 @@
-import { Paperclip, X } from "lucide-react";
+import { useRef, useState } from "react";
+import { CornerDownRight, Loader2, Paperclip, Undo2 } from "lucide-react";
+import { Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 import type { QueuedChatItem } from "../hooks/useChatMessageQueue";
 import styles from "../index.module.less";
 
 interface ChatQueuedMessagesProps {
   items: QueuedChatItem[];
-  onRemove: (id: string) => void;
   onReclaim: (id: string) => void;
+  onSteer?: (id: string) => boolean | Promise<boolean>;
+  canSteer?: boolean;
+  disabled?: boolean;
 }
 
 function previewText(item: QueuedChatItem): string {
@@ -15,10 +19,25 @@ function previewText(item: QueuedChatItem): string {
 
 export default function ChatQueuedMessages({
   items,
-  onRemove,
   onReclaim,
+  onSteer,
+  canSteer = false,
+  disabled = false,
 }: ChatQueuedMessagesProps) {
   const { t } = useTranslation();
+  const [promotingId, setPromotingId] = useState<string | null>(null);
+  const promotionPending = useRef(false);
+  const promote = async (id: string) => {
+    if (!onSteer || promotionPending.current) return;
+    promotionPending.current = true;
+    setPromotingId(id);
+    try {
+      await onSteer(id);
+    } finally {
+      promotionPending.current = false;
+      setPromotingId(null);
+    }
+  };
 
   if (items.length === 0) return null;
 
@@ -30,7 +49,10 @@ export default function ChatQueuedMessages({
     >
       {items.map((item, index) => {
         const text = previewText(item);
-        const withdrawable = !item.status || item.status === "queued";
+        const withdrawable =
+          (!item.status || item.status === "queued") &&
+          !promotingId &&
+          !disabled;
         const attachmentCount = item.attachments?.length ?? 0;
         const label =
           text ||
@@ -74,16 +96,49 @@ export default function ChatQueuedMessages({
                 </span>
               )}
             </button>
-            <button
-              type="button"
-              className={styles.queuedMessageRemove}
-              disabled={!withdrawable}
-              onClick={() => onRemove(item.id)}
-              aria-label={t("chat.queue.remove")}
-              title={t("chat.queue.remove")}
-            >
-              <X size={14} />
-            </button>
+            {onSteer && (
+              <Tooltip
+                title={
+                  attachmentCount > 0
+                    ? t("chat.steer.attachmentsQueue")
+                    : item.text.trim().startsWith("/")
+                    ? t("chat.steer.commandsQueue")
+                    : t("chat.steer.action")
+                }
+              >
+                <button
+                  type="button"
+                  className={styles.queuedMessageAction}
+                  disabled={
+                    !withdrawable ||
+                    !canSteer ||
+                    attachmentCount > 0 ||
+                    !item.text.trim() ||
+                    item.text.trim().startsWith("/")
+                  }
+                  onClick={() => void promote(item.id)}
+                  aria-label={t("chat.steer.action")}
+                >
+                  {promotingId === item.id ? (
+                    <Loader2 size={16} className={styles.spinIcon} />
+                  ) : (
+                    <CornerDownRight size={16} />
+                  )}
+                </button>
+              </Tooltip>
+            )}
+            <Tooltip title={t("chat.queue.withdraw")}>
+              <button
+                type="button"
+                className={styles.queuedMessageAction}
+                disabled={!withdrawable}
+                onClick={() => onReclaim(item.id)}
+                aria-label={t("chat.queue.withdraw")}
+                title={t("chat.queue.withdraw")}
+              >
+                <Undo2 size={16} />
+              </button>
+            </Tooltip>
           </div>
         );
       })}
