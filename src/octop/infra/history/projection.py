@@ -162,6 +162,8 @@ class TurnHistoryTracker:
     _error_message: str = field(default="", init=False)
     _error_code: str | None = field(default=None, init=False)
     _finished: bool = field(default=False, init=False)
+    _steering_command_ids: set[str] = field(default_factory=set, init=False)
+    _steering_turn_start_id: str | None = field(default=None, init=False)
 
     @classmethod
     def from_request(cls, request: dict[str, Any]) -> TurnHistoryTracker:
@@ -173,10 +175,58 @@ class TurnHistoryTracker:
         if kind == "done":
             self._finished = True
             return
+        if kind == "steering_applied":
+            command_id = chunk.get("command_id")
+            if isinstance(command_id, str) and command_id:
+                self._steering_command_ids.add(f"steer:{command_id}")
+            return
         if kind in ("state_snapshot", "state_update"):
             messages = _chunk_messages(chunk)
             if not messages:
                 return
+            if self._steering_command_ids:
+                for index, message in enumerate(messages):
+                    message_id = (
+                        message.get("id")
+                        if isinstance(message, dict)
+                        else getattr(message, "id", None)
+                    )
+                    if message_id not in self._steering_command_ids:
+                        continue
+                    previous_user = next(
+                        (
+                            prior
+                            for prior in reversed(messages[:index])
+                            if _role(prior) in _USER_ROLES
+                        ),
+                        None,
+                    )
+                    if previous_user is not None:
+                        self._steering_command_ids.discard(str(message_id))
+                    if previous_user is not None and self._steering_turn_start_id is None:
+                        self._steering_turn_start_id = (
+                            previous_user.get("id")
+                            if isinstance(previous_user, dict)
+                            else getattr(previous_user, "id", None)
+                        )
+                    break
+            if self._steering_turn_start_id:
+                start_index = next(
+                    (
+                        index
+                        for index, message in enumerate(messages)
+                        if (
+                            message.get("id")
+                            if isinstance(message, dict)
+                            else getattr(message, "id", None)
+                        )
+                        == self._steering_turn_start_id
+                    ),
+                    None,
+                )
+                if start_index is not None:
+                    self._state_messages = messages[start_index:]
+                    return
             last_user = max(
                 (index for index, msg in enumerate(messages) if _role(msg) in _USER_ROLES),
                 default=-1,

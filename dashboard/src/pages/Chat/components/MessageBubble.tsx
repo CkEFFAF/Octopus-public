@@ -748,6 +748,10 @@ function MessageBubble({
         />
       ) : null}
       <div className={styles.bubbleContent}>
+        {!isUser &&
+        message.metadata?.additional_kwargs?.octop_interrupted === true ? (
+          <div role="status">{t("chat.steer.interrupted")}</div>
+        ) : null}
         {isUser ? (
           <div className={styles.userMsgRow}>
             <div className={styles.userMsgColumn}>

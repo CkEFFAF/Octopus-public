@@ -25,6 +25,7 @@ import {
   type HarnessChunk,
   type ToolCallChunk,
   type UsageChunk,
+  type UserChunk,
 } from "../../../utils/parseHarnessChunk";
 import { isChatStreamError } from "../../../utils/chatStreamError";
 import { parseToolExecutionFeedback } from "../../../utils/toolMediaBlocks";
@@ -563,6 +564,7 @@ type LiveSocket = {
   userCancelled: boolean;
   /** Subscribe-only socket — replacing it must not send `cancel` to the host. */
   listenOnly?: boolean;
+  inputControls?: boolean;
   pingTimer?: ReturnType<typeof setInterval>;
 };
 
@@ -585,7 +587,6 @@ function stopSocketPing(live: LiveSocket): void {
 }
 
 const liveSockets = new Map<string, LiveSocket>();
-
 /** Last stream-related activity (chunk / open / status) for sticky seals. */
 const streamActivityAt = new Map<string, number>();
 const streamWatchdogs = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1209,7 +1210,71 @@ function findLastToolMessageIndex(
   return -1;
 }
 
+const seenStreamEvents = new WeakMap<SessionStreamState, Set<string>>();
+const resumeEventRanges = new WeakMap<
+  SessionStreamState,
+  Map<string, Array<[number, number]>>
+>();
+const activeRunIds = new WeakMap<SessionStreamState, string>();
+
+function rememberResumeEvent(
+  state: SessionStreamState,
+  eventId: string,
+): boolean | undefined {
+  const match = /^resume:([^:]+):([1-9]\d*)$/.exec(eventId);
+  if (!match) return undefined;
+  const sequence = Number(match[2]);
+  if (!Number.isSafeInteger(sequence)) return undefined;
+  let streams = resumeEventRanges.get(state);
+  if (!streams) {
+    streams = new Map();
+    resumeEventRanges.set(state, streams);
+  }
+  let ranges = streams.get(match[1]);
+  if (!ranges) {
+    ranges = [];
+    streams.set(match[1], ranges);
+  }
+  let index = 0;
+  while (index < ranges.length && ranges[index][1] < sequence - 1) index++;
+  const range = ranges[index];
+  if (range && range[0] <= sequence && sequence <= range[1]) return false;
+  if (range && range[0] <= sequence + 1) {
+    range[0] = Math.min(range[0], sequence);
+    range[1] = Math.max(range[1], sequence);
+    const next = ranges[index + 1];
+    if (next && next[0] <= range[1] + 1) {
+      range[1] = next[1];
+      ranges.splice(index + 1, 1);
+    }
+  } else ranges.splice(index, 0, [sequence, sequence]);
+  return true;
+}
+
 function handleHarnessChunk(
+  state: SessionStreamState,
+  chunk: HarnessChunk,
+  sessionId?: string,
+): boolean {
+  if (chunk.event_id) {
+    const resumed = rememberResumeEvent(state, chunk.event_id);
+    if (resumed === false) return false;
+    if (resumed === undefined) {
+      let seen = seenStreamEvents.get(state);
+      if (!seen) {
+        seen = new Set();
+        seenStreamEvents.set(state, seen);
+      }
+      if (seen.has(chunk.event_id)) return false;
+      seen.add(chunk.event_id);
+      if (seen.size > 2048) seen.delete(seen.values().next().value!);
+    }
+  }
+  handleHarnessChunkBody(state, chunk, sessionId);
+  return true;
+}
+
+function handleHarnessChunkBody(
   state: SessionStreamState,
   chunk: HarnessChunk,
   sessionId?: string,
@@ -1280,6 +1345,72 @@ function handleHarnessChunk(
     case "error":
       appendErrorBubble(state, chunk.message, chunk.error_code);
       break;
+    case "run_phase":
+      if (activeRunIds.get(state) !== chunk.run_id) {
+        activeRunIds.set(state, chunk.run_id);
+        state.streamId = "";
+        state.streamMsg = "";
+        state.streamBlockType = "";
+        state.toolCallIdIndex = {};
+      }
+      if (
+        sessionId &&
+        !["completed", "failed", "cancelled", "paused"].includes(chunk.phase) &&
+        !state.isStreaming
+      ) {
+        state.runUsage = null;
+        usageSamplesByState.delete(state);
+        beginStream(state, sessionId);
+        emitStreamEvent({ kind: "streamStart", sessionId });
+      }
+      break;
+    case "steering_ack":
+      break;
+    case "steering_applied":
+      if (chunk.partial_output_retained) {
+        state.messages = state.messages.map((item) =>
+          item.role === "assistant" && item.status === "streaming"
+            ? {
+                ...item,
+                metadata: {
+                  ...item.metadata,
+                  additional_kwargs: {
+                    ...item.metadata?.additional_kwargs,
+                    octop_interrupted: true,
+                  },
+                },
+              }
+            : item,
+        );
+      }
+      break;
+    case "user": {
+      const user = chunk as UserChunk;
+      if (!user.content.trim() && !user.snapshot?.attachments?.length) break;
+      const id = user.command_id || generateId();
+      if (state.messages.some((item) => item.id === id)) break;
+      finalizeStreamingMessages(
+        state,
+        speaker,
+        sessionHostAgentId(state, sessionId),
+      );
+      state.streamId = "";
+      state.streamMsg = "";
+      state.streamBlockType = "";
+      state.messages = [
+        ...state.messages,
+        {
+          id,
+          role: "user",
+          content: user.content,
+          attachments: user.snapshot?.attachments,
+          composerContext: user.snapshot?.composerContext,
+          status: "done",
+          timestamp: Date.now(),
+        },
+      ];
+      break;
+    }
     case "hitl_required":
       handleHitlRequired(state, chunk.request);
       break;
@@ -2344,9 +2475,12 @@ export async function attachThread(
   state.abortController = controller;
 
   let finished = false;
+  let finishedRunId: string | undefined;
   const finish = (mode: "all" | "host" = "all") => {
-    if (finished) return;
+    const runId = activeRunIds.get(state);
+    if (finished && finishedRunId === runId) return;
     finished = true;
+    finishedRunId = runId;
     clearStreamingFlags(state);
     clearStreamActivity(sessionId);
     pendingResumeBySession.delete(sessionId);
@@ -2404,7 +2538,9 @@ export async function attachThread(
         if (!data || typeof data !== "object") return;
         if (!frameBelongsToThread(data, live.threadId)) return;
 
+        if (data.type === "run_phase") live.inputControls = true;
         if (data.type === "turn_status") {
+          live.inputControls = data.input_controls === true;
           if (turnStatusAction(Boolean(data.active)) === "expect_stream") {
             if (!state.isStreaming) {
               state.runUsage = null;
@@ -2442,14 +2578,18 @@ export async function attachThread(
 
         if (data.type === "pong") return;
 
-        handleHarnessChunk(state, data as unknown as HarnessChunk, sessionId);
+        if (
+          !handleHarnessChunk(state, data as unknown as HarnessChunk, sessionId)
+        )
+          return;
         if (isHostTurnTerminal(data, sessionHostAgentId(state, sessionId))) {
           if (state.isTeamRoom) {
             live.listenOnly = true;
             finish("host");
           } else {
             finish("all");
-            closeLiveSocket(sessionId, { intentional: true });
+            if (live.inputControls) live.listenOnly = true;
+            else closeLiveSocket(sessionId, { intentional: true });
           }
         }
       } catch {
@@ -2657,8 +2797,9 @@ async function sendTurnWebSocket(
         const data = JSON.parse(String(event.data)) as HarnessChunk;
         if (!data || typeof data !== "object") return;
         if (!frameBelongsToThread(data, live.threadId)) return;
+        if (data.type === "run_phase") live.inputControls = true;
         if ((data as { type?: string }).type === "turn_status") return;
-        handleHarnessChunk(state, data, sessionId);
+        if (!handleHarnessChunk(state, data, sessionId)) return;
         if (isHostTurnTerminal(data, sessionHostAgentId(state, sessionId))) {
           controller.signal.removeEventListener("abort", onAbort);
           if (state.isTeamRoom) {
@@ -2666,7 +2807,8 @@ async function sendTurnWebSocket(
             finish("host");
           } else {
             finish("all");
-            closeLiveSocket(sessionId, { intentional: true });
+            if (live.inputControls) live.listenOnly = true;
+            else closeLiveSocket(sessionId, { intentional: true });
           }
           settle(true);
         }
@@ -2836,9 +2978,12 @@ export async function sendTurn(
   const messageContent = buildUserMessageContent(text, attachments);
 
   let finished = false;
+  let finishedRunId: string | undefined;
   const finish = (mode: "all" | "host" = "all") => {
-    if (finished) return;
+    const runId = activeRunIds.get(state);
+    if (finished && finishedRunId === runId) return;
     finished = true;
+    finishedRunId = runId;
     clearStreamingFlags(state);
     clearStreamActivity(sessionId);
     pendingResumeBySession.delete(sessionId);
@@ -2900,6 +3045,8 @@ async function consumeSseResponse(
   res: Response,
   controller: AbortController,
   finish: () => void,
+  onRunId?: (runId: string) => void,
+  predecessorRunId?: string,
 ): Promise<void> {
   const reader = res.body?.getReader();
   if (!reader) {
@@ -2909,6 +3056,28 @@ async function consumeSseResponse(
 
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
+  let streamRunId: string | undefined;
+  let obsolete = false;
+
+  const observe = (chunk: HarnessChunk) => {
+    const firstPhase = chunk.type === "run_phase" && !streamRunId;
+    if (chunk.type === "run_phase" && firstPhase) {
+      streamRunId = chunk.run_id;
+      onRunId?.(streamRunId);
+      const current = activeRunIds.get(state);
+      obsolete = current !== streamRunId && current !== predecessorRunId;
+    }
+    const currentRunId = activeRunIds.get(state);
+    if (
+      obsolete ||
+      (streamRunId &&
+        currentRunId &&
+        streamRunId !== currentRunId &&
+        !firstPhase)
+    )
+      return;
+    handleHarnessChunk(state, chunk, sessionId);
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -2921,7 +3090,7 @@ async function consumeSseResponse(
       if (!line) continue;
       const chunk = parseHarnessChunk(line);
       if (!chunk) continue;
-      handleHarnessChunk(state, chunk, sessionId);
+      observe(chunk);
       if (chunk.type === "done" || chunk.type === "error") {
         controller.abort();
         finish();
@@ -2932,7 +3101,7 @@ async function consumeSseResponse(
 
   if (buffer.length > 0) {
     const chunk = parseHarnessChunk(buffer);
-    if (chunk) handleHarnessChunk(state, chunk, sessionId);
+    if (chunk) observe(chunk);
   }
 
   finish();
@@ -2971,9 +3140,12 @@ export async function resumeHitl(
   }
 
   let finished = false;
+  let ownedRunId = activeRunIds.get(state);
+  const predecessorRunId = ownedRunId;
   const finish = () => {
     if (finished) return;
     finished = true;
+    if (activeRunIds.get(state) !== ownedRunId) return;
     clearStreamingFlags(state);
     clearStreamActivity(sessionId);
     pendingResumeBySession.delete(sessionId);
@@ -2999,13 +3171,25 @@ export async function resumeHitl(
       signal: controller.signal,
     });
     if (!res.ok) {
+      if (activeRunIds.get(state) !== ownedRunId) return;
       appendErrorBubble(state, `HITL resume failed (${res.status})`);
       finish();
       return;
     }
-    await consumeSseResponse(state, sessionId, res, controller, finish);
+    await consumeSseResponse(
+      state,
+      sessionId,
+      res,
+      controller,
+      finish,
+      (runId) => {
+        ownedRunId = runId;
+      },
+      predecessorRunId,
+    );
   } catch (err: unknown) {
     if ((err as Error).name === "AbortError") return;
+    if (activeRunIds.get(state) !== ownedRunId) return;
     appendErrorBubble(state, (err as Error).message || "HITL resume error");
     finish();
   }

@@ -36,6 +36,7 @@ import {
   type ChatQueueFlushContext,
   type QueuedChatItem,
 } from "./hooks/useChatMessageQueue";
+import { usePersistentChatQueue } from "./hooks/usePersistentChatQueue";
 import { useChatNavigation } from "./hooks/useChatNavigation";
 import { useChatSessionActions } from "./hooks/useChatSessionActions";
 
@@ -862,19 +863,25 @@ function ChatPageInner() {
     return hasPendingHitl(chatStore.getSnapshot(threadId).messages);
   }, []);
 
-  const {
-    items: queuedItems,
-    enqueue: enqueueQueued,
-    remove: removeQueued,
-    reclaim: reclaimQueued,
-    clear: clearQueued,
-  } = useChatMessageQueue({
+  const legacyQueue = useChatMessageQueue({
     agentId: resolvedAgentId,
     threadId: activeThreadId,
     isStreaming,
     onFlush: flushQueuedItem,
     shouldDeferFlush: shouldDeferQueueFlush,
   });
+  const persistentQueue = usePersistentChatQueue({
+    agentId: resolvedAgentId,
+    threadId: activeThreadId,
+    enabled: !isTeamChat,
+  });
+  const {
+    items: queuedItems,
+    enqueue: enqueueQueued,
+    remove: removeQueued,
+    reclaim: reclaimQueued,
+    clear: clearQueued,
+  } = persistentQueue.enabled ? persistentQueue : legacyQueue;
 
   const {
     handleNewChat: startNewChat,
@@ -1848,6 +1855,10 @@ function ChatPageInner() {
               }
               onSend={wrappedHandleSend}
               onQueue={enqueueQueued}
+              onSteer={
+                persistentQueue.enabled ? persistentQueue.steer : undefined
+              }
+              runtimePhase={persistentQueue.runtime?.phase}
               queuedItems={queuedItems}
               onRemoveQueued={removeQueued}
               onReclaimQueued={reclaimQueued}

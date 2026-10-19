@@ -27,6 +27,7 @@ import {
   Route,
   Info,
   AtSign,
+  CornerDownRight,
 } from "lucide-react";
 import { Tooltip, Popover } from "antd";
 import { message } from "@/utils/antdMessage";
@@ -158,6 +159,7 @@ interface ChatInputActionsRowProps {
   onToggleVoice: () => void;
   onCancel: () => void;
   onSubmit: () => void;
+  onSteer?: () => void;
 }
 
 export default function ChatInputActionsRow({
@@ -217,6 +219,7 @@ export default function ChatInputActionsRow({
   onToggleVoice,
   onCancel,
   onSubmit,
+  onSteer,
 }: ChatInputActionsRowProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -1283,6 +1286,19 @@ export default function ChatInputActionsRow({
               ) : (
                 <Play size={16} />
               )}
+            </button>
+          </Tooltip>
+        )}
+        {isStreaming && canSend && onSteer && (
+          <Tooltip title={t("chat.steer.action")} mouseEnterDelay={0.4}>
+            <button
+              className={`${styles.secondaryBtn} ${styles.secondaryBtnActive}`}
+              onClick={onSteer}
+              title={t("chat.steer.action")}
+              type="button"
+              aria-label={t("chat.steer.action")}
+            >
+              <CornerDownRight size={17} />
             </button>
           </Tooltip>
         )}

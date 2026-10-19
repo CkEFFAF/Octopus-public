@@ -102,7 +102,13 @@ async def test_ws_rebind_after_disconnect_receives_later_chunks(env: Any) -> Non
     frames = await _turn_then_rebind(c, aid, alice_auth, tid, gate)
 
     cancel_spy.assert_not_called()
-    assert frames[0] == {"type": "turn_status", "thread_id": tid, "active": True}
+    assert frames[0] == {
+        "type": "turn_status",
+        "thread_id": tid,
+        "active": True,
+        "runtime": None,
+        "input_controls": True,
+    }
     contents = [f.get("content") for f in frames if f.get("type") == "token"]
     assert "second" in contents
     assert frames[-1].get("type") == "done"
@@ -187,7 +193,13 @@ async def test_ws_concurrent_subscribers_both_receive_later_chunks(env: Any) -> 
     assert a_frames[0].get("content") == "first"
     assert [f.get("content") for f in a_frames if f.get("type") == "token"] == ["first", "second"]
     assert a_frames[-1].get("type") == "done"
-    assert b_frames[0] == {"type": "turn_status", "thread_id": tid, "active": True}
+    assert b_frames[0] == {
+        "type": "turn_status",
+        "thread_id": tid,
+        "active": True,
+        "runtime": None,
+        "input_controls": True,
+    }
     assert [f.get("content") for f in b_frames if f.get("type") == "token"] == ["second"]
     assert b_frames[-1].get("type") == "done"
 
@@ -289,7 +301,13 @@ async def test_ws_subscribe_turn_status_idle(env: Any) -> None:
     tid = create.json()["thread_id"]
 
     frame = await _subscribe_ws(c, aid, alice_auth, tid)
-    assert frame == {"type": "turn_status", "thread_id": tid, "active": False}
+    assert frame == {
+        "type": "turn_status",
+        "thread_id": tid,
+        "active": False,
+        "runtime": None,
+        "input_controls": True,
+    }
 
 
 async def test_ws_subscribe_rejects_another_users_thread(env: Any) -> None:

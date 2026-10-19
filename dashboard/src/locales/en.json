@@ -1952,7 +1952,40 @@
       "attachmentsOnly": "{{count}} attachment(s)",
       "attachmentCount": "{{count}} attachment(s)",
       "emptyItem": "Queued message",
-      "flushFailed": "Couldn't send the queued message; it's back in the queue."
+      "flushFailed": "Couldn't send the queued message; it's back in the queue.",
+      "status": {
+        "queued": "Queued",
+        "dispatching": "Submitting",
+        "requested": "Requested",
+        "accepted": "Waiting for a safe point",
+        "unknown": "Outcome unconfirmed",
+        "failed": "Failed",
+        "rejected": "Not accepted"
+      },
+      "withdrawFailed": "The message is already dispatching or cannot be withdrawn. Refresh its status and retry."
+    },
+    "steer": {
+      "action": "Insert now using the active run settings",
+      "attachmentsQueue": "Direct insertion does not support attachments yet. Queue this message instead.",
+      "waiting": "Insertion received; waiting for a safe point in the current run.",
+      "applied": "Message inserted. The agent is continuing with the new input.",
+      "failed": "Insertion failed. Retry or queue the message.",
+      "unavailable": "The active run cannot accept an insertion. Queue the message instead.",
+      "commandsQueue": "Queue slash commands for normal command processing.",
+      "status": {
+        "stale_run": "The active run changed. Please retry.",
+        "busy": "Another insertion is pending. Retry shortly.",
+        "inactive": "The run has ended. Send a normal message."
+      },
+      "interrupted": "Generation interrupted by a new instruction; output retained",
+      "phase": {
+        "llm_before": "Preparing model call",
+        "llm_running": "Generating; insert will stop this generation",
+        "llm_after": "Model finished; handling instructions",
+        "tool_before": "Preparing tools",
+        "tool_running": "Tools running; insert waits for completion",
+        "tool_after": "Tools finished; handling instructions"
+      }
     },
     "agentNoDescription": "No description",
     "noSessionsYet": "Send a message to start chatting",

@@ -14,9 +14,12 @@ export const CHAT_QUEUE_MAX_ITEMS = 10;
 
 export type QueuedChatItem = {
   id: string;
+  status?: string;
   text: string;
   attachments?: ChatAttachment[];
   composerContext?: UserComposerContext;
+  conversationMode?: "ask" | "plan" | "craft";
+  hitlPolicy?: import("../utils/hitlSessionPolicy").HitlSessionPolicy;
   modelRef?: string | null;
   createdAt: number;
   deviceId?: string;
@@ -29,6 +32,8 @@ export type EnqueueChatItemInput = {
   text: string;
   attachments?: ChatAttachment[];
   composerContext?: UserComposerContext;
+  conversationMode?: "ask" | "plan" | "craft";
+  hitlPolicy?: import("../utils/hitlSessionPolicy").HitlSessionPolicy;
   modelRef?: string | null;
 };
 
@@ -174,6 +179,8 @@ export function useChatMessageQueue({
           ? { ...input.composerContext }
           : undefined,
         modelRef: input.modelRef ?? null,
+        conversationMode: input.conversationMode,
+        hitlPolicy: input.hitlPolicy,
         createdAt: Date.now(),
       };
       writeQueues({ ...queuesRef.current, [key]: [...latest, item] });

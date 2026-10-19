@@ -165,6 +165,8 @@ def build_harness_manager_mock(
     mock_manager.stream = MagicMock(side_effect=_stream)
     mock_manager.call = MagicMock(side_effect=_call)
     mock_manager.resume_hitl = MagicMock(side_effect=_resume_hitl)
+    mock_manager.steering_status = MagicMock(return_value=None)
+    mock_manager.steer_message = MagicMock(return_value={"status": "inactive", "phase": "idle"})
     mock_manager._shared_factory = None
     mock_manager.shared_factory = None
     mock_manager._providers = []

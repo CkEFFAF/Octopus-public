@@ -1,6 +1,6 @@
-# Internal beta Harness artifact
+# Internal development Harness artifact
 
-This wheel contains the collaboration contract from spec0031, revision2026-10-18.4, and the provider catalog update from0032. The user has authorized merging and private cloud deployment of this tested artifact. It is not a public package release.
+The pinned `1.0.2.post4.dev1+taskresults.1` wheel adds runtime message steering from spec0033 revision2 and the task-results terminal receipt fix, while preserving the collaboration/provider contracts from0031/0032. It is a local development artifact. This feature has not been merged, deployed, or publicly released.
 
 `source-manifest.json` records the source baseline, source commit, every packaged file hash and the wheel SHA256. The application uses a repository relative uv source and a hash locked wheel, so `uv sync --frozen` installs this contract instead of restoring the older production archive. The override is portable with this repository directory and contains no absolute checkout path.
 
@@ -10,4 +10,4 @@ Future release preparation should publish the reviewed immutable Harness source/
 
 The original source archive reference was `https://github.com/CkEFFAF/octop-harness/archive/2ac4d602f931c985dae3cf4bc36a72b9c7104fbd.tar.gz`.
 
-Task-result compatibility build `1.0.2.post3+taskresults.1` applies `task-results.patch` to clean Harness commit `6636ce2c4fed85c92f37da66459a218ddf158aef`. It only clears the task outcome when terminal receipt persistence fails, plus its regression and local version metadata. The manifest retains the previous wheel provenance and records every source file, patch and current wheel digest.
+The integrated build `1.0.2.post4.dev1+taskresults.1` applies `task-results.patch` to the steering source at Harness commit `6636ce2c4fed85c92f37da66459a218ddf158aef`. It clears the task outcome when terminal receipt persistence fails, plus its regression and local version metadata. The manifest retains the previous wheel provenance and records every source file, patch and current wheel digest.

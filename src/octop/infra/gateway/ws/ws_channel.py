@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from octop_gateway.channel import BaseChannel, MessageProcessor
@@ -40,9 +41,11 @@ class WebSocketChannel(BaseChannel):
         *,
         hub: WebSocketHub,
         channel_id: str = WS_CHANNEL_ID,
+        on_chunk: Callable[[InboundMessage, dict[str, Any]], None] | None = None,
     ) -> None:
         super().__init__(processor, channel_id=channel_id, debounce_seconds=0.0)
         self._hub = hub
+        self._on_chunk = on_chunk
 
     def _default_constraints(self) -> ChannelConstraints:
         return ChannelConstraints(
@@ -146,6 +149,11 @@ class WebSocketChannel(BaseChannel):
         self._hub.mark_turn_active(thread_id)
         try:
             async for chunk in processor.iter_turn_chunks(message):
+                if self._on_chunk is not None:
+                    try:
+                        self._on_chunk(message, chunk)
+                    except Exception:
+                        logger.exception("Could not persist chat input status thread=%s", thread_id)
                 # Never let delivery failures abort the harness turn — otherwise a
                 # flaky client disconnect can stop generation mid-node and leave
                 # an incomplete checkpoint.

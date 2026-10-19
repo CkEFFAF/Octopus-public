@@ -1052,3 +1052,36 @@ async def test_im_projection_stops_on_archive_failure(archive, monkeypatch):
     await tracker.finish(completed=False)
     assert messages_from_dict(_committed_messages(archive))[0].content == "already committed"
     assert archive.store.turn("t")["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_steering_archive_preserves_original_user_partial_and_insert(archive):
+    original = HumanMessage(content="original", id="original")
+    partial = AIMessage(
+        content="partial", id="partial", additional_kwargs={"octop_interrupted": True}
+    )
+    inserted = HumanMessage(content="direction", id="steer:insert")
+    final = AIMessage(content="updated", id="final")
+    turn = archive.begin("a", "t")
+    tracker = RecordingTracker(archive, turn, [original])
+    tracker.observe({"type": "token", "node": "model", "content": "partial"})
+    tracker.observe(
+        {"type": "steering_applied", "command_id": "insert", "partial_output_retained": True}
+    )
+    tracker.observe({"type": "user", "command_id": "insert", "content": "direction"})
+    tracker.observe({"type": "state_update", "data": {"messages": [partial, inserted]}})
+    tracker.observe({"type": "state_snapshot", "data": {"messages": [original, partial, inserted]}})
+    tracker.observe({"type": "token", "node": "model", "content": "updated"})
+    tracker.observe(
+        {"type": "state_snapshot", "data": {"messages": [original, partial, inserted, final]}}
+    )
+    await tracker.finish(completed=True)
+    page = await archive.page("t", limit=20, cursor=None, legacy_reader=no_anchor)
+    messages = messages_from_dict(page["messages"])
+    assert [(m.type, m.content) for m in messages] == [
+        ("human", "original"),
+        ("ai", "partial"),
+        ("human", "direction"),
+        ("ai", "updated"),
+    ]
+    assert messages[1].additional_kwargs["octop_interrupted"] is True

@@ -232,6 +232,7 @@ async def prepare_dashboard_turn(
     agent_id: str,
     user: Any,
     turn: ChatTurnBody,
+    persist_selection: bool = True,
 ) -> PreparedDashboardTurn:
     """Validate MCP/skills, resolve thread, return data for gateway enqueue."""
     row = require_agent_row(agent_id, user=user, as_user=None, server=server)
@@ -285,7 +286,7 @@ async def prepare_dashboard_turn(
         composer_updates["reasoning_mode"] = turn.reasoning_mode
     if turn.reasoning_effort is not None:
         composer_updates["reasoning_effort"] = turn.reasoning_effort.strip().lower() or None
-    if composer_updates:
+    if composer_updates and persist_selection:
         thread_registry.update_composer(thread_id, **composer_updates)
     target_ids = [str(x) for x in turn.target_agent_ids] if turn.target_agent_ids else None
     composer_ctx = build_composer_context(
@@ -328,7 +329,7 @@ async def prepare_dashboard_turn(
         )
     if turn.work_mode is not None:
         updates["work_mode"] = turn.work_mode
-    if updates:
+    if updates and persist_selection:
         selection = executions.save_selection(int(user.id), thread_id, updates)
     if (
         turn.device_id

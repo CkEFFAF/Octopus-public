@@ -1,0 +1,49 @@
+# 0033 runtime message insertion — implementation progress
+
+Date: 2026-10-18 Asia/Shanghai. Spec: docs/specs/0033-agent-live-message-steering.md revision2.
+Branches: feat/agent-live-message-steering in app and companion Harness.
+App baseline 323f585; Harness baseline 6636ce2c4fed85c92f37da66459a218ddf158aef.
+No feature commit, push, merge, production deployment, or public package release has been performed.
+
+Implemented: durable FIFO queue, acknowledgement before draft clear, atomic queued withdrawal vs dispatch, retries by command identity, immutable execution/composer snapshots; per-run text steering before/during/after model and tool calls; model-only cancellation with partial text checkpointed and marked; stale planned tool suppression and already-running tools finishing once; ordinary and approval-resumed streams; same dashboard session lock for resumed operations; receipt persistence/broadcast and SSE/WS event deduplication; active receipts remain visible beyond recent history window; fair paged scan of per-thread heads; recovery never replays possibly-started work. Direct insertion inherits active settings; attachments and setting changes use queue. Bridge/team preserve their existing transport behavior.
+
+Checks completed:
+- Full app non-live suite: 4921 passed,157 skipped,37 warnings (ops/live-steering-app-final-tests.log and XML).
+- Full Harness suite:1846 passed,31 skipped (ops/live-steering-harness-tests.log and XML).
+- App mypy:661 files; Harness mypy:193 files; Ruff checks passed before final documentation edits.
+- Dashboard typecheck passed after implementation; rerun status for final SSE ownership fix below.
+- Latest pre-final Dashboard targeted regression:41 tests across6 files passed.
+- Full Dashboard:1414 passed,12 failed. Same12 failures reproduced individually on untouched HEAD dashboard under identical dependencies (baseline25 passed,12 failed). Sources: sidebar permissions, control admin route expectations, RunReceiptBrowser labels, useChatDockPanel. Evidence ops/live-steering-dashboard-results.json and live-steering-dashboard-baseline-results.json.
+- Local HTTP app: auth/scope/idempotency/withdraw/schema tests passed. Local browser observed native phase text and both Direct insert/Queue controls; applied insertion receipt and queued command persisted/completed. Preview is synthetic localhost only; production GPU manager chat untouched.
+- History fixes were reproduced red first; 62 history/archive tests passed after fixing incremental-insert loss and original-human overwrite.
+- Independent check reviewer found5 P2 issues; source fixes plus targeted tests cover raw OpenAI tool payload, fairness, active history visibility, resume lock and receipt updates. Reviewer then found old SSE completion clearing the next queued run. This final frontend fix and regression test are now written but runtime verification remains pending.
+
+Final verification completed 2026-10-19 after the user's manual approval retry:
+- Elevated frontend execution succeeded; the prior approval quota/esbuild blocker is cleared.
+- Added2200-event delayed SSE cases (with and without a queued successor). The long-stream bug reproduced red, then all44 targeted tests across6 files passed after using exact per-stream sequence intervals and explicit predecessor/run ownership.
+- TypeScript passed. ESLint and Prettier for the final changed stream files passed.
+- Final production Dashboard build succeeded (50.08s), including PWA output. The packaged static output now matches the final source. ops/live-steering-frontend-final-build.log and live-steering-frontend-final-proof.json record the result and artifact hashes.
+- Independent reviewer /root/premerge_review rechecked the final fix and found no remaining material finding.
+- No feature merge or deployment was performed. The12 existing full-Dashboard failures remain separate baseline debt; do not report the entire Dashboard suite as green.
+
+Next authorized release work, if resumed: preserve hooks, include both source repositories and the pinned wheel, and use GPT5.6 Luna medium for routine Git/cloud steps per user preference. Production GPU-manager chat must remain untouched by tests.
+
+Packaging: app vendor/harness/octop_harness-1.0.2.post4.dev1-py3-none-any.whl, SHA256 2d89f428ebfc72f4f77bc674b4cc2382b11a15d31dff8d91ca3d2147b530d35f. 370 packaged files match companion source; installed agent/steering/protocol verified identical. uv.lock hash corrected and uv lock --check --offline passed. vendor/harness/.gitignore explicitly includes the required new wheel. source-manifest.json describes uncommitted source honestly. No public release.
+
+Ops scripts: ops/live-steering-preview.py binds127.0.0.1:18033 only, fake local model, disposable homes. It created a disposable browser-only test login key. Do not publish preview logs/homes (contain synthetic auth material). Keep source repo fixtures isolated. Old unrelated admin pytest folders were not deleted.
+
+Final frontend race fix is now applied in normal sandbox: SSE completion/error is bound to its own observed run and cannot clear the next queued run. Regression added; final TypeScript build passed. Vitest still cannot start esbuild in sandbox (spawn EPERM); final regression execution and new Dashboard production build remain pending. uv.lock wheel hash was checked against actual archive and corrected; uv lock --check --offline passed.
+
+The disposable localhost preview process was stopped after verification. Final screenshot recapture was unavailable because local browser use was disabled in Work settings. No production service was changed.
+
+2026-10-19 final result supersedes the earlier sandbox/approval-blocker notes below: testing and build were retried with manual authorization and completed successfully.
+
+## UI integration and release follow-up — 2026-10-19
+
+UI PR31 is merged at c02bf40745f41e201e9298176ebe3157d7cdd46b. This isolated worktree combines that source with0033, preserving task-results and sharing behavior. GPT-6 Luna reviewed the combined source and fixed two additional P2 boundaries: retire a known terminal steering receipt ID before a manual retry in a later run, and reject persistent inputs for team, Bridge and non-Dashboard threads at the shared REST/WS service boundary. Frontend4 and gateway10 targeted tests, Ruff and Prettier pass. An earlier GPT-6 fix removes an id-less empty tool-call tail with Overwrite; its targeted Harness test passes.
+
+The integrated wheel is1.0.2.post4.dev1+taskresults.1, SHA256 beb8636d683391cb8dc6e22d5384e70c5f771f0be1ddf52c3ffbfb6ce6482e14. All370 manifest source entries and the wheel/lock/manifest hashes match; staged wheel bytes equal working-tree bytes. The independent review found no remaining blocking issue; complete integrated runtime gates are still pending. Historical gate results above apply to their earlier snapshots.
+
+The latest user explicitly authorized merge and Hub deployment and specified GPT-5.6 Luna high for Git/operations and GPT-6 Luna for review/fixes. This supersedes the historical medium-effort handoff note. Deployment preflight confirms the old Hub remains healthy at bbc9a31 with Harness1.0.2.post3; backups are valid. Recheck active operations and an idle window before cutover; keep device service and GPU jobs running. No steering PR, merge or deployment has yet been completed at this checkpoint.
+
+Final integrated gate: full non-live backend4952passed159skipped36warnings (exit0); targeted Vitest10files45tests passed (exit0); tsc, Vite production build, Ruff check/format and mypy passed. uv sync --frozen installed the final combined wheel. The45-path staged diff has no unresolved conflicts or whitespace errors and matches the working tree. These integrated results supersede the pending-gate notes above; normal-hook Git/PR publication and production cutover are the remaining release steps.

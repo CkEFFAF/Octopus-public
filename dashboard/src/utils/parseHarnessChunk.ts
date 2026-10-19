@@ -120,7 +120,40 @@ export interface AttachmentChunk {
   agent_id?: string;
 }
 
-export type HarnessChunk =
+export interface SteeringAckChunk {
+  type: "steering_ack";
+  command_id?: string;
+  status: string;
+  phase?: string;
+  message?: string;
+}
+
+export interface SteeringAppliedChunk {
+  type: "steering_applied";
+  command_id: string;
+  phase: string;
+  partial_output_retained: boolean;
+}
+
+export interface RunPhaseChunk {
+  type: "run_phase";
+  run_id: string;
+  thread_id?: string;
+  phase: string;
+}
+
+export interface UserChunk {
+  type: "user";
+  content: string;
+  source?: string;
+  snapshot?: {
+    attachments?: import("../pages/Chat/hooks/sseHelpers").ChatAttachment[];
+    composerContext?: import("../pages/Chat/hooks/sseHelpers").UserComposerContext;
+  };
+  command_id?: string;
+}
+
+export type HarnessChunk = (
   | TokenChunk
   | ReasoningChunk
   | ToolCallChunk
@@ -133,7 +166,12 @@ export type HarnessChunk =
   | ErrorChunk
   | HitlRequiredChunk
   | SlashActionChunk
-  | AttachmentChunk;
+  | AttachmentChunk
+  | SteeringAckChunk
+  | SteeringAppliedChunk
+  | UserChunk
+  | RunPhaseChunk
+) & { event_id?: string };
 
 /**
  * Parse one ``data: …`` SSE frame line into a typed chunk.
@@ -167,6 +205,15 @@ export function parseHarnessChunk(line: string): HarnessChunk | null {
   if (raw === null || typeof raw !== "object") return null;
 
   const obj = raw as Record<string, unknown>;
+  const chunk = projectHarnessChunk(obj);
+  if (chunk && typeof obj.event_id === "string") chunk.event_id = obj.event_id;
+  return chunk;
+}
+
+function projectHarnessChunk(
+  obj: Record<string, unknown>,
+): HarnessChunk | null {
+  const raw = obj;
   const t = obj.type;
   if (typeof t !== "string") return null;
   const agentId = optionalAgentId(obj);
@@ -287,6 +334,36 @@ export function parseHarnessChunk(line: string): HarnessChunk | null {
         kind: typeof obj.kind === "string" ? obj.kind : undefined,
         filename: typeof obj.filename === "string" ? obj.filename : undefined,
         agent_id: agentId,
+      };
+    case "run_phase":
+      return {
+        type: "run_phase",
+        run_id: typeof obj.run_id === "string" ? obj.run_id : "",
+        phase: typeof obj.phase === "string" ? obj.phase : "unknown",
+      };
+    case "steering_ack":
+      return {
+        type: "steering_ack",
+        command_id:
+          typeof obj.command_id === "string" ? obj.command_id : undefined,
+        status: typeof obj.status === "string" ? obj.status : "unknown",
+        phase: typeof obj.phase === "string" ? obj.phase : undefined,
+        message: typeof obj.message === "string" ? obj.message : undefined,
+      };
+    case "steering_applied":
+      return {
+        type: "steering_applied",
+        command_id: typeof obj.command_id === "string" ? obj.command_id : "",
+        phase: typeof obj.phase === "string" ? obj.phase : "unknown",
+        partial_output_retained: obj.partial_output_retained === true,
+      };
+    case "user":
+      return {
+        type: "user",
+        content: typeof obj.content === "string" ? obj.content : "",
+        source: typeof obj.source === "string" ? obj.source : undefined,
+        command_id:
+          typeof obj.command_id === "string" ? obj.command_id : undefined,
       };
     default:
       // Forward-compatible: keep the unrecognized payload around so
