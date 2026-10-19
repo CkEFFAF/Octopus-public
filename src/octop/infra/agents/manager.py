@@ -3597,6 +3597,7 @@ class AgentManager:
         from octop.infra.agents.middleware.device_target import DeviceTargetMiddleware
         from octop.infra.agents.middleware.octop_ui_offload import OctopUiOffloadMiddleware
         from octop.infra.agents.middleware.reasoning import ReasoningRequestMiddleware
+        from octop.infra.agents.middleware.task_results import TaskResultAvailabilityMiddleware
         from octop.infra.agents.middleware.thread_artifacts import ThreadArtifactsMiddleware
         from octop.infra.agents.middleware.token_quota import TokenQuotaMiddleware
         from octop.infra.agents.middleware.work_mode import WorkModeMiddleware
@@ -3621,6 +3622,7 @@ class AgentManager:
                 usage_repo=self._repos.usage_repo,
             ),
             ReasoningRequestMiddleware(),
+            TaskResultAvailabilityMiddleware(self, row.agent_id),
             WorkModeMiddleware(WorkModeService(self._repos), row.agent_id),
             DeviceTargetMiddleware(
                 self._device_service,
@@ -3678,9 +3680,6 @@ class AgentManager:
         from octop.infra.documents.tools import build_resource_tools
 
         merged_tools.extend(build_resource_tools(self, row.agent_id))
-        from octop.infra.agents.teams.task_results import build_task_result_tools
-
-        merged_tools.extend(build_task_result_tools(self, row.agent_id))
         if cron_tools:
             merged_tools.extend(cron_tools)
         merged_tools.extend(knowledge_tools)

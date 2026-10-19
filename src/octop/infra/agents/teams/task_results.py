@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Literal
+import logging
+from typing import Any, Literal, cast
 
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from octop.i18n import tr
 from octop.infra.agents.teams.collaboration import runtime_config
 from octop.infra.documents.resources import ResourceService, denied
 from octop.infra.errors import OctopError
 from octop.infra.utils.llm_text import strip_thinking
+
+logger = logging.getLogger(__name__)
 
 
 class TaskResultInput(BaseModel):
@@ -97,7 +100,7 @@ class TaskResultService:
             evidence.append({"resource_id": identity, "version": resource["version"]})
         return evidence
 
-    def report(self, agent: str, cfg: dict[str, Any], request: TaskResultInput) -> dict[str, Any]:
+    def bound_invocation(self, agent: str, cfg: dict[str, Any]) -> dict[str, Any]:
         owner = int(cfg.get("user") or 0)
         identity = str(cfg.get("octop_invocation_id") or "")
         item = self.repo.get("collaboration_invocations", owner, identity)
@@ -109,6 +112,12 @@ class TaskResultService:
         ):
             raise denied()
         self.resources.scope(owner, agent, item["child_thread_id"])
+        return cast(dict[str, Any], item)
+
+    def report(self, agent: str, cfg: dict[str, Any], request: TaskResultInput) -> dict[str, Any]:
+        item = self.bound_invocation(agent, cfg)
+        owner = int(cfg.get("user") or 0)
+        identity = item["invocation_id"]
         if item["transport_status"] != "running":
             raise ValueError("TASK_RESULT_NOT_RUNNING")
         summary = strip_thinking(request.summary).strip()
@@ -238,24 +247,45 @@ def build_task_result_tools(manager: Any, agent_id: str) -> list[StructuredTool]
         summary: str,
         resource_ids: list[str] | None = None,
     ) -> str:
-        """Report your task's business outcome before your final public answer.
+        """Report an assigned delegated task's outcome in its current bound child invocation.
 
         This records an expert claim, independently of call completion. Use only
         resources you published in this invocation; text answers need no files.
         The report stays pending until the host persists your final answer.
+        Ordinary conversations should answer directly without this tool; do not
+        create a delegation merely to report a result.
         """
         cfg = runtime_config()
+        if not cfg.get("octop_invocation_id"):
+            return json.dumps(
+                {
+                    "status": "error",
+                    "code": "TASK_RESULT_NOT_APPLICABLE",
+                    "retryable": False,
+                    "error": tr("taskResults.not_applicable", str(cfg.get("language") or "en")),
+                },
+                ensure_ascii=False,
+            )
         try:
             request = TaskResultInput(
                 outcome=outcome, summary=summary, resource_ids=resource_ids or []
             )
             return json.dumps(service.report(agent_id, cfg, request), ensure_ascii=False)
         except Exception as exc:
-            code = (
-                str(exc)
-                if isinstance(exc, ValueError) and str(exc).startswith("TASK_RESULT_")
-                else "TASK_RESULT_DENIED"
-            )
+            if isinstance(exc, ValidationError):
+                code = "TASK_RESULT_DENIED"
+            elif isinstance(exc, ValueError) and str(exc) in {
+                "TASK_RESULT_NOT_RUNNING",
+                "TASK_RESULT_INVALID",
+                "TASK_RESULT_CONFLICT",
+                "TASK_RESULT_EVIDENCE_MISSING",
+            }:
+                code = str(exc)
+            elif isinstance(exc, OctopError):
+                code = "TASK_RESULT_DENIED"
+            else:
+                code = "TASK_RESULT_UNAVAILABLE"
+                logger.error("Task result storage failed (%s)", type(exc).__name__)
             return json.dumps(
                 {
                     "status": "error",

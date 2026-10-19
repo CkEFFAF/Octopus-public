@@ -382,7 +382,6 @@ def test_build_harness_config_includes_cronjob_tools_when_cron_manager_set(
         "read_attachment",
         "publish_artifact",
         "deliver_resource",
-        "report_task_result",
         *(set(NATIVE_TOOL_NAMES) - {"octop_device_select"}),
         "cronjob_list",
         "cronjob_get",
@@ -400,6 +399,7 @@ def test_build_harness_config_includes_cronjob_tools_when_cron_manager_set(
 def test_build_harness_config_includes_search_knowledge_without_cron(
     manager: AgentManager,
 ) -> None:
+    from octop.infra.agents.middleware.task_results import TaskResultAvailabilityMiddleware
     from octop.infra.knowledge.hint import KnowledgeSearchHintMiddleware
 
     cfg = manager._build_harness_config(_row(agent_id="AGT001"))
@@ -408,12 +408,19 @@ def test_build_harness_config_includes_search_knowledge_without_cron(
         "read_attachment",
         "publish_artifact",
         "deliver_resource",
-        "report_task_result",
         *(set(NATIVE_TOOL_NAMES) - {"octop_device_select"}),
         "search_knowledge",
         "work_step",
     }
     assert any(isinstance(item, KnowledgeSearchHintMiddleware) for item in (cfg.middleware or []))
+    assert (
+        sum(isinstance(item, TaskResultAvailabilityMiddleware) for item in (cfg.middleware or []))
+        == 1
+    )
+    reporting = next(
+        item for item in cfg.middleware if isinstance(item, TaskResultAvailabilityMiddleware)
+    )
+    assert [tool.name for tool in reporting.tools] == ["report_task_result"]
 
 
 def test_build_harness_config_defaults_local_shell_backend(manager: AgentManager) -> None:
