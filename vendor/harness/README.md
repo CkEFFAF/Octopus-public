@@ -1,4 +1,4 @@
-# Internal Harness release candidate
+# Vendored Harness for Octop fork releases
 
 ## Current 0034 integration artifact
 
@@ -6,7 +6,9 @@ The application now pins `1.0.2.post4.dev3+activity.3`. Its wheel SHA256 is `9af
 
 `activity3-source-manifest.json` records all 371 packaged source members and their production baseline hashes. `harness-source.zip` includes the corresponding source, tests and build metadata; its SHA256 is `3a9100e62bf891e35cb838b7ba5e0fff4164aa1dcb2ffbd89cb0ea21a05cec4f`. `activity3-verification.md` preserves the source and installed-wheel verification report. The original `source-manifest.json` and patch files below describe the earlier tooltext.1 baseline, not the current activity.3 wheel.
 
-This revision adds public native-task activity/correlation and safe history append after completed parallel checkpoints. Hosts must still serialize writes to the same thread; the application uses its dashboard input-queue lock for scheduled delivery. The isolated application test run has 4993 passing non-live backend tests; real local task/Job and timer-restart evidence is recorded in `docs/progress-workspace-0034.md`. This remains a private review artifact, with no production release or deployment implied.
+This revision adds public native-task activity/correlation and safe history append after completed parallel checkpoints. Hosts must still serialize writes to the same thread; the application uses its dashboard input-queue lock for scheduled delivery. The integration tests and real local task/Job and timer-restart evidence are recorded in `docs/progress-workspace-0034.md`.
+
+The Octop fork release attaches this pinned dependency wheel alongside the application wheel. Install the Harness wheel from the same release before installing the application wheel; this fork dependency is not resolved from the public PyPI index. The application source distribution includes the lock, exact wheel and provenance above so `uv sync --frozen --no-dev` works from the extracted source. Portable packages bundle their locked dependencies. Release assets and the merged source identify publication state; historical checkpoints below are provenance, not current deployment claims.
 
 ## Previous tooltext.1 baseline
 

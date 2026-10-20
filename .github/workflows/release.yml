@@ -66,6 +66,24 @@ jobs:
       - name: Build package
         run: make build
 
+      - name: Include the pinned fork dependency wheel
+        if: github.repository != 'TencentCloud/Octop' && vars.OCTOP_PUBLISH_PYPI != 'true'
+        run: |
+          python3 <<'PY'
+          import pathlib
+          import shutil
+          import tomllib
+
+          root = pathlib.Path.cwd()
+          config = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+          local = config.get("tool", {}).get("uv", {}).get("sources", {}).get("octop-harness", {}).get("path")
+          if local:
+              wheel = (root / local).resolve()
+              if not wheel.is_relative_to(root) or wheel.suffix != ".whl" or not wheel.is_file():
+                  raise SystemExit("Pinned fork dependency must be an existing repository-local wheel")
+              shutil.copy2(wheel, root / "dist" / wheel.name)
+          PY
+
       - name: Upload distributions
         if: github.repository == 'TencentCloud/Octop' || vars.OCTOP_PUBLISH_PYPI == 'true'
         uses: actions/upload-artifact@v4

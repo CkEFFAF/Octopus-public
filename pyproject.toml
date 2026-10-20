@@ -107,6 +107,14 @@ octop = "octop.cli.main:cli"
 [tool.hatch.build.targets.wheel]
 packages = ["src/octop"]
 
+[tool.hatch.build.targets.sdist.force-include]
+"uv.lock" = "uv.lock"
+"vendor/harness/octop_harness-1.0.2.post4.dev3+activity.3-py3-none-any.whl" = "vendor/harness/octop_harness-1.0.2.post4.dev3+activity.3-py3-none-any.whl"
+"vendor/harness/harness-source.zip" = "vendor/harness/harness-source.zip"
+"vendor/harness/activity3-source-manifest.json" = "vendor/harness/activity3-source-manifest.json"
+"vendor/harness/activity3-verification.md" = "vendor/harness/activity3-verification.md"
+"vendor/harness/README.md" = "vendor/harness/README.md"
+
 [tool.hatch.build]
 include = [
     "src/octop/**/*.py",
