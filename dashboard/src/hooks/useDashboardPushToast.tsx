@@ -1,8 +1,8 @@
 import { App } from "antd";
 import { Bell } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { buildDashboardNotifyWsUrl } from "../api/modules/wsNotifications";
 import { getAuthToken } from "../api/request";
 import { useAgent } from "../context/AgentContext";
@@ -42,6 +42,24 @@ function PushToastIcon({
 export function useDashboardPushToast(): void {
   const { notification } = App.useApp();
   const navigate = useNavigate();
+  const location = useLocation();
+  const routeRef = useRef(location.pathname);
+  routeRef.current = location.pathname;
+  const notices = useRef(new Map<string, Set<string>>());
+  const visibleThread = useCallback(() => {
+    if (document.hidden) return null;
+    const match = /^\/chat\/([^/]+)\/([^/]+)\/?$/.exec(routeRef.current);
+    return match
+      ? `${decodeURIComponent(match[1])}\0${decodeURIComponent(match[2])}`
+      : null;
+  }, []);
+  const clearVisibleNotices = useCallback(() => {
+    const thread = visibleThread();
+    if (!thread) return;
+    for (const key of notices.current.get(thread) ?? [])
+      notificationRef.current.destroy(key);
+    notices.current.delete(thread);
+  }, [visibleThread]);
   const { t } = useTranslation();
   const { refresh, agents } = useAgent();
   const agentsRef = useRef(agents);
@@ -54,6 +72,15 @@ export function useDashboardPushToast(): void {
   tRef.current = t;
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
+
+  useEffect(() => {
+    clearVisibleNotices();
+  }, [location.pathname, clearVisibleNotices]);
+  useEffect(() => {
+    document.addEventListener("visibilitychange", clearVisibleNotices);
+    return () =>
+      document.removeEventListener("visibilitychange", clearVisibleNotices);
+  }, [clearVisibleNotices]);
 
   useEffect(() => {
     let ws: WebSocket | null = null;
@@ -130,6 +157,11 @@ export function useDashboardPushToast(): void {
           sessionId: parsed.thread_id,
           agentId: parsed.agent_id,
         });
+        const threadKey = `${parsed.agent_id}\0${parsed.thread_id}`;
+        if (visibleThread() === threadKey) {
+          clearVisibleNotices();
+          return;
+        }
         const agent = agentsRef.current.find(
           (a) => a.agent_id === parsed.agent_id,
         );
@@ -138,6 +170,13 @@ export function useDashboardPushToast(): void {
           ? tRef.current("chat.pushToast.title", { name: parsed.agent_name })
           : tRef.current("chat.pushToast.titleFallback");
         const noticeKey = `dash-push-${parsed.thread_id}-${Date.now()}`;
+        const keys = notices.current.get(threadKey) ?? new Set<string>();
+        keys.add(noticeKey);
+        notices.current.set(threadKey, keys);
+        const forget = () => {
+          keys.delete(noticeKey);
+          if (!keys.size) notices.current.delete(threadKey);
+        };
         notificationRef.current.open({
           key: noticeKey,
           placement: "bottomRight",
@@ -159,7 +198,9 @@ export function useDashboardPushToast(): void {
           ),
           duration: null,
           closable: true,
+          onClose: forget,
           onClick: () => {
+            forget();
             notificationRef.current.destroy(noticeKey);
             navigateRef.current(`/chat/${parsed.agent_id}/${parsed.thread_id}`);
           },
@@ -195,5 +236,5 @@ export function useDashboardPushToast(): void {
         }
       }
     };
-  }, []);
+  }, [clearVisibleNotices, visibleThread]);
 }

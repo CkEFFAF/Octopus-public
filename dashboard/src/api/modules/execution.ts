@@ -1,5 +1,5 @@
 import { request } from "../request";
-import type { Device } from "./devices";
+import type { Device, DeviceRoot } from "./devices";
 
 export type ExecutionTarget = Omit<
   Device,
@@ -7,6 +7,7 @@ export type ExecutionTarget = Omit<
 > & {
   device_id: string | null;
   target_kind: "device" | "local";
+  roots?: DeviceRoot[];
 };
 export interface TargetSelection {
   device_id: string | null;

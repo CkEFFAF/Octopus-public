@@ -498,12 +498,8 @@ const ChatDockPanelShell: React.FC<ChatDockPanelShellProps> = ({
             getPopupContainer={() => document.body}
             open={layoutMenuOpen}
             onOpenChange={setLayoutMenuOpen}
-            overlayStyle={
-              mode === "popup" ? { zIndex: POPUP_Z.menu } : undefined
-            }
-            overlayClassName={
-              mode === "popup" ? styles.popupLayoutDropdown : undefined
-            }
+            overlayStyle={{ zIndex: POPUP_Z.menu }}
+            overlayClassName={styles.popupLayoutDropdown}
           >
             <button
               type="button"

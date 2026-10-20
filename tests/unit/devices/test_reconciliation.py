@@ -146,3 +146,41 @@ async def test_role_revocation_stops_host_job_without_another_user_request(hub: 
             break
         await asyncio.sleep(0.1)
     assert result["status"] == "cancelled"
+
+
+async def test_detached_real_process_job_remains_visible_after_parent_exit(hub: Any) -> None:
+    from types import SimpleNamespace
+
+    from octop.infra.execution.activity import ActivityService
+
+    service, context, events, root = hub
+    owner = context.owner_user_id
+    accepted = (
+        await service.call(
+            owner,
+            context.context_id,
+            "jobs.start",
+            {
+                "argv": [sys.executable, "-c", "import time; time.sleep(20)"],
+                "idempotency_key": "detached-0034",
+            },
+        )
+    )["result"]
+    deadline = asyncio.get_running_loop().time() + 10
+    while asyncio.get_running_loop().time() < deadline:
+        age(events)
+        await ExecutionReconciler(service.devices).tick()
+        row = events.get(owner, f"job:{context.context_id}:{accepted['job_id']}")
+        if row["status"] == "running":
+            break
+        await asyncio.sleep(0.05)
+    manager = SimpleNamespace(
+        _repos=service.devices.repos,
+        _device_service=service.devices,
+        steering_status=lambda agent, thread: None,
+    )
+    snapshot = ActivityService(manager).snapshot(owner, "expert", "thread")
+    node = next(n for n in snapshot["nodes"] if n["type"] == "job")
+    assert node["status"] == "running" and node["observed_status"] == "current"
+    assert snapshot["counts"]["jobs"] == 1
+    await service.call(owner, context.context_id, "jobs.cancel", {"job_id": accepted["job_id"]})

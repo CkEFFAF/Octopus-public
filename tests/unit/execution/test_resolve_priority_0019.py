@@ -84,6 +84,41 @@ async def attach(service: DeviceService, owner: int, directory: Path) -> Any:
 
 
 @pytest.mark.asyncio
+async def test_context_target_tracks_live_connection_without_changing_grants(fleet: Any) -> None:
+    service, owner, _ = fleet
+    enrolled = service.enroll(
+        owner_user_id=owner,
+        name="files-only",
+        platform="windows",
+        capabilities=["files_read"],
+        permissions=["files_read"],
+        roots=[],
+        trust_mode="restricted",
+    )
+    device_id = enrolled["device"]["device_id"]
+    executions = ExecutionService(service)
+    context = executions.resolve(owner, device_id=device_id)
+    assert executions.target(owner, context.context_id)["online"] is False
+
+    async def send(frame: dict[str, Any]) -> None:
+        pass
+
+    async def close() -> None:
+        pass
+
+    connection = await service.connect(device_id, enrolled["device_token"], send, close)
+    try:
+        target = executions.target(owner, context.context_id)
+        assert target["online"] is True
+        assert target["permissions"] == ["files_read"]
+        assert target["trust_mode"] == "restricted"
+        assert target["target_kind"] == "device"
+    finally:
+        service.disconnect(connection)
+    assert executions.target(owner, context.context_id)["online"] is False
+
+
+@pytest.mark.asyncio
 async def test_resolve_priority_explicit_session_expert_account_then_force_choose(
     fleet: Any,
 ) -> None:

@@ -62,6 +62,14 @@ class RunEventRepo:
             ).fetchone()
         return self._public(row) if row is not None else None
 
+    def active(self, owner: int, agent: str, thread: str, limit: int = 200) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM run_events WHERE owner_user_id=? AND agent_id=? AND thread_id=? AND kind IN ('dispatch','job','tool','device') AND status IN ('running','started','accepted','waiting') ORDER BY updated_at DESC,id DESC LIMIT ?",
+                (owner, agent, thread, limit),
+            ).fetchall()
+        return [self._public(row) for row in rows]
+
     def due_jobs(self, before: float, *, limit: int = 64) -> list[dict[str, Any]]:
         """Recover pending observations after restart; oldest checks run first."""
         with self.db.connect() as conn:

@@ -80,6 +80,19 @@ export interface OctopCronRow {
   last_run_at: number | null;
   last_status: string | null;
   last_error: string | null;
+  kind?: string;
+  self_reminder?: boolean;
+  meta?: Record<string, unknown>;
+  timezone?: string;
+  next_run_at?: number | null;
+  scheduler_state?: string;
+  observed_at?: number;
+  thread_id?: string | null;
+  association?: string;
+  fires?: number | null;
+  max_fires?: number | null;
+  remaining?: number | null;
+  capabilities?: { view: boolean; manage: boolean };
 }
 
 /** Body sent to POST /api/agents/:id/cron */

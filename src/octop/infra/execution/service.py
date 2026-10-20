@@ -83,7 +83,8 @@ class ExecutionService:
         if context.target_kind == "local":
             return self.local_backend(owner).metadata(owner)
         assert context.device_id is not None
-        return {**self.devices.owned(owner, context.device_id).public(), "target_kind": "device"}
+        device = self.devices.owned(owner, context.device_id)
+        return {**self.devices.public(device), "target_kind": "device"}
 
     def default_target(self, owner: int) -> dict[str, Any]:
         user = self.devices.repos.user_repo.get(owner)
@@ -196,7 +197,9 @@ class ExecutionService:
             ((value, source) for value, source in candidates if self.has_target(value)), None
         )
         if choice is None:
-            raise OctopError(ErrorCode.FORBIDDEN, "choose an execution device")
+            raise OctopError(
+                ErrorCode.EXECUTION_TARGET_REQUIRED, "choose an execution device", status=409
+            )
         chosen, source = choice
         kind = chosen.get("target_kind", "device")
         selected = chosen.get("device_id")

@@ -1,0 +1,11 @@
+{
+  "dashboard/src/pages/Devices/DeviceFiles.tsx": "00475155e838ada48cddd836f7cf3ab47e6245a6093731b3ff0d03b1687b74e6",
+  "dashboard/src/pages/Devices/DeviceFiles.context.test.tsx": "bc807b835e002e0a88a660982470ef58f39415fb5c6f5f5d3cd4a2a5f6df1496",
+  "dashboard/src/pages/Devices/NativeDeviceFiles.tsx": "94eaae7d2b5f8635b4b50a1405076343f2624e3dcc42b77f59631df54926b9e3",
+  "dashboard/src/pages/Devices/NativeDeviceFiles.module.less": "75a0b3558c2d97d2fdbe8bcd194039cbf67e30a8ece14a7d0c440b97178a3972",
+  "dashboard/src/pages/Devices/NativeDeviceFiles.test.tsx": "b840df680b64e997450ea0f32ed218453b8f85e3c68368ce7d739efdd55c7f4a",
+  "dashboard/src/pages/Chat/components/ExecutionWorkbench.tsx": "57e3af80d30c9e9660a9f0325dc2fb94f9f2e978b88b4696094a611f20781465",
+  "dashboard/src/pages/Chat/components/ExecutionWorkbench.files.test.tsx": "028cd474f023ef09243a1664c4c2f791bf4313fa3b9bfd0f18b4c98aa2dd8f23",
+  "dashboard/src/api/modules/execution.ts": "3c04abaf10ad035fb221f2af2f33d098dfb4599e16886b049b03e3871bd376ea",
+  "dashboard/src/api/modules/devices.ts": "ed02edc0e5118bb3b2ca94d212c50e60c17e60171104c3aeff3c6c644f01feb9"
+}

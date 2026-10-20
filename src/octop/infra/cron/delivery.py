@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -47,6 +48,7 @@ class CronDeliveryCommand:
     device_id: str = ""
     device_grant_version: int = 0
     task_run_id: str = ""
+    reason: str = "timer"
 
 
 class CronDeliveryService:
@@ -71,9 +73,32 @@ class CronDeliveryService:
         """Run one delivery under the target channel session lock."""
 
         output = ""
+        attempt = new_ulid()
+        source = self._repos.session_repo.get(command.session_key)
+        source_thread = (
+            source.thread_id
+            if source and (source.user_id, source.agent_id) == (command.user_id, command.agent_id)
+            else None
+        )
+        attempts = self._repos.cron_attempt_repo
+        attempts.create(
+            attempt,
+            command.user_id,
+            command.agent_id,
+            command.cron_id,
+            source_thread,
+            command.reason,
+        )
+        command = replace(
+            command,
+            task_run_id=(command.task_run_id or new_ulid()) if command.task_type == "agent" else "",
+        )
 
         async def _locked() -> None:
             nonlocal output
+            original = self._gateway.require_session(command.agent_id, command.session_key)
+            if (original.user_id, original.agent_id) != (command.user_id, command.agent_id):
+                raise ValueError("cron session does not belong to user or agent (mismatch)")
             if command.fresh_thread:
                 await self._gateway.thread_registry.reset_by_session_key(command.session_key)
             session = self._gateway.require_session(command.agent_id, command.session_key)
@@ -81,16 +106,42 @@ class CronDeliveryService:
                 raise ValueError(
                     f"session {command.session_key!r} does not belong to user {command.user_id!r}"
                 )
+            if session.agent_id != command.agent_id:
+                raise ValueError("cron session agent mismatch")
+            attempts.update(
+                command.user_id,
+                attempt,
+                "running",
+                thread=session.thread_id,
+                run=command.task_run_id or None,
+            )
             if command.task_type == "text":
                 await self._deliver_text(command, session)
                 output = command.prompt
             else:
                 output = await self._deliver_agent(command, session)
 
-        await self._gateway.run_in_session(
-            command.agent_id,
-            command.session_key,
-            _locked,
+        try:
+            await self._gateway.run_in_session(command.agent_id, command.session_key, _locked)
+        except asyncio.CancelledError:
+            attempts.update(
+                command.user_id, attempt, "cancelled", error="Scheduled delivery was cancelled"
+            )
+            raise
+        except Exception as exc:
+            # Transport exceptions may contain provider URLs, headers or credentials.
+            attempts.update(
+                command.user_id,
+                attempt,
+                "failed",
+                error=f"Scheduled delivery failed ({type(exc).__name__})",
+            )
+            raise
+        attempts.update(
+            command.user_id,
+            attempt,
+            "delivered" if command.task_type == "text" else "completed",
+            result=output[:2000],
         )
         return output
 

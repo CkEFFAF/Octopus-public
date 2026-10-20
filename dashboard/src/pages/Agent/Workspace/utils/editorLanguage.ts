@@ -30,6 +30,8 @@ const EXT_LANGUAGE: Record<string, string> = {
   ini: "ini",
   env: "ini",
   sh: "shell",
+  ps1: "powershell",
+  bat: "bat",
   bash: "shell",
   zsh: "shell",
   sql: "sql",
@@ -53,7 +55,7 @@ const EXT_LANGUAGE: Record<string, string> = {
 };
 
 export function getEditorLanguage(path: string): string {
-  const name = path.split("/").filter(Boolean).pop() ?? path;
+  const name = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
   if (name.toLowerCase() === "dockerfile") return "dockerfile";
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   return EXT_LANGUAGE[ext] ?? "plaintext";

@@ -1,3 +1,4 @@
+import DeviceTargetSelect from "./DeviceTargetSelect";
 import React, {
   lazy,
   Suspense,
@@ -8,7 +9,7 @@ import React, {
   useState,
   type ReactNode,
 } from "react";
-import { Dropdown, Spin, Tooltip } from "antd";
+import { Alert, Button, Dropdown, Spin, Tooltip } from "antd";
 import type { MenuProps } from "antd";
 import {
   BookOpen,
@@ -115,12 +116,11 @@ function hasOpenKind(tabs: readonly DockTab[], kind: DockTab["kind"]): boolean {
 
 /** Title-bar + control: open dock tabs that the float rail normally exposes. */
 const DockAddTabButton: React.FC<{
-  mode: PanelMode;
   addTab: ChatDockAddTabHandlers;
   openTabs: readonly DockTab[];
   menuOpen: boolean;
   onMenuOpenChange: (open: boolean) => void;
-}> = ({ mode, addTab, openTabs, menuOpen, onMenuOpenChange }) => {
+}> = ({ addTab, openTabs, menuOpen, onMenuOpenChange }) => {
   const { t } = useTranslation();
 
   const items: MenuProps["items"] = useMemo(() => {
@@ -241,9 +241,7 @@ const DockAddTabButton: React.FC<{
       getPopupContainer={() => document.body}
       open={menuOpen}
       onOpenChange={onMenuOpenChange}
-      overlayStyle={
-        mode === "popup" ? { zIndex: CHAT_DOCK_POPUP_MENU_Z } : undefined
-      }
+      overlayStyle={{ zIndex: CHAT_DOCK_POPUP_MENU_Z }}
     >
       <Tooltip title={label}>
         <button
@@ -469,7 +467,12 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
         {openTabs.map((tab) => {
           const selected = tab.id === (activeTab?.id ?? null);
           const label =
-            tab.kind === "files" ? (
+            tab.kind === "target-required" ? (
+              <>
+                <Monitor size={16} />
+                <span>{t("workspace0034.chooseTarget")}</span>
+              </>
+            ) : tab.kind === "files" ? (
               <>
                 <FolderOpen size={16} strokeWidth={2} aria-hidden />
                 <span>{t("chat.dockFileList", "文件变更")}</span>
@@ -604,7 +607,6 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
       </div>
       {addTab ? (
         <DockAddTabButton
-          mode={mode}
           addTab={addTab}
           openTabs={openTabs}
           menuOpen={addTabMenuOpen}
@@ -675,6 +677,8 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
               style={{ display: activeTab?.id === tab.id ? "flex" : "none" }}
             >
               <ExecutionWorkbench
+                agentId={agentId}
+                threadId={threadId}
                 context={tab.context}
                 surface={tab.surface}
                 initialFilePath={tab.initialFilePath}
@@ -689,6 +693,34 @@ const ChatDockPanel: React.FC<ChatDockPanelProps> = ({
               threadId={threadId}
               live={isStreamingTurn}
             />
+          </div>
+        )}
+        {activeTab?.kind === "target-required" && (
+          <div
+            className={styles.dockTabBody}
+            style={{
+              padding: 24,
+              display: "flex",
+              flexDirection: "column",
+              gap: 16,
+            }}
+          >
+            <Alert
+              type="info"
+              showIcon
+              message={t("workspace0034.chooseTarget")}
+              description={t("workspace0034.chooseTargetDetail")}
+            />
+            <DeviceTargetSelect agentId={agentId} threadId={threadId} />
+            <Button
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("octop:open-workspace-after-target"),
+                )
+              }
+            >
+              {t("workspace0034.openWorkspaceAfterTarget")}
+            </Button>
           </div>
         )}
         {openTabs.some((tab) => tab.kind === "files") && (

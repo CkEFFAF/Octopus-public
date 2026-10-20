@@ -107,6 +107,23 @@ export function parentPath(path: string): string {
   return path.split("/").slice(0, -1).join("/");
 }
 
+/** Navigate the displayed directory without introducing a new path alias. */
+export function nativeParentPath(path: string, windows: boolean): string {
+  const separator = windows && path.includes("\\") ? "\\" : "/";
+  const trimmed = path.replace(windows ? /[\\/]+$/ : /\/+$/, "");
+  if (!trimmed) return separator;
+  if (windows && /^[a-z]:$/i.test(trimmed)) return trimmed + separator;
+  if (windows && /^([\\/])\1[^\\/]+[\\/][^\\/]+$/.test(trimmed)) return trimmed;
+  const index = windows
+    ? Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"))
+    : trimmed.lastIndexOf("/");
+  // Preserve explicit dot segments: resolving them here could change symlink semantics.
+  if ([".", ".."].includes(trimmed.slice(index + 1)))
+    return trimmed + separator + "..";
+  const parent = index < 0 ? "." : trimmed.slice(0, index) || separator;
+  return windows && /^[a-z]:$/i.test(parent) ? parent + separator : parent;
+}
+
 export function joinPath(path: string, name: string): string {
   return [path, name].filter(Boolean).join("/");
 }

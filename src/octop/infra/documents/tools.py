@@ -12,6 +12,7 @@ from octop.i18n import tr
 from octop.infra.agents.teams.collaboration import runtime_config
 from octop.infra.documents.resources import ResourceService
 from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.execution.activity import ActivityService, WorkPlan
 
 
 class ReadResource(BaseModel):
@@ -26,6 +27,7 @@ class ReadResource(BaseModel):
 class PublishResource(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: str = Field(min_length=1, max_length=4096)
+    modification_request_id: str | None = Field(default=None, max_length=100)
 
 
 class DeliverResource(BaseModel):
@@ -96,7 +98,7 @@ def build_resource_tools(manager: Any, agent_id: str) -> list[StructuredTool]:
         except Exception as exc:
             return failure(exc, cfg)
 
-    async def publish_artifact(path: str) -> str:
+    async def publish_artifact(path: str, modification_request_id: str | None = None) -> str:
         """Publish an immutable snapshot of a report from this invocation's actual backend.
 
         An execution path is read through the bound native device context. Without
@@ -105,7 +107,15 @@ def build_resource_tools(manager: Any, agent_id: str) -> list[StructuredTool]:
         owner, thread, cfg = context()
         try:
             context_id = (cfg.get("octop_execution_context") or {}).get("context_id")
-            result = await service.publish(owner, agent_id, thread, path, context_id)
+            result = await service.publish(
+                owner,
+                agent_id,
+                thread,
+                path,
+                context_id,
+                modification_request_id=modification_request_id,
+                run_id=str(cfg.get("octop_task_run_id") or ""),
+            )
             return json.dumps(
                 {"status": "published", **service.public(result, agent_id, thread)},
                 ensure_ascii=False,
@@ -150,9 +160,29 @@ def build_resource_tools(manager: Any, agent_id: str) -> list[StructuredTool]:
         except Exception as exc:
             return failure(exc, cfg)
 
+    async def work_plan(plan_id: str, revision: int, tasks: list[dict[str, Any]]) -> str:
+        """Declare explicit task dependencies and reported status for the current run.
+
+        Does not schedule work. Use returned revision for the next update; bind task calls
+        with task_id. Never infer depends_on from ordering. Status is an Agent declaration.
+        """
+        owner, thread, cfg = context()
+        try:
+            result = ActivityService(manager).plan(
+                owner,
+                agent_id,
+                thread,
+                str(cfg.get("octop_task_run_id") or ""),
+                WorkPlan.model_validate({"plan_id": plan_id, "revision": revision, "tasks": tasks}),
+            )
+            return json.dumps(result, ensure_ascii=False)
+        except Exception as exc:
+            return failure(exc, cfg)
+
     result = [
         StructuredTool.from_function(coroutine=read_attachment, args_schema=ReadResource),
         StructuredTool.from_function(coroutine=publish_artifact, args_schema=PublishResource),
         StructuredTool.from_function(coroutine=deliver_resource, args_schema=DeliverResource),
+        StructuredTool.from_function(coroutine=work_plan, args_schema=WorkPlan),
     ]
     return result

@@ -1407,6 +1407,10 @@ class GlobalProcessor:
             ]
         if isinstance(meta.get("work_mode"), str):
             request.setdefault("configurable", {})["work_mode"] = meta["work_mode"]
+        if isinstance(meta.get("octop_modification_request_id"), str):
+            request.setdefault("configurable", {})["octop_modification_request_id"] = meta[
+                "octop_modification_request_id"
+            ]
         self.teams.stamp_host_runtime(request, agent_id)
         self._attach_turn_knowledge_config(
             request,

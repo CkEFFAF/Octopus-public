@@ -14,7 +14,7 @@ import {
 } from "../../../api/modules/collaboration";
 import { useServerTimezone } from "../../../hooks/useServerTimezone";
 import { formatMessageTime } from "../../../utils/formatMessageTime";
-import { stripThinkingTags } from "../utils/chatAttachments";
+import { publicText } from "../utils/publicMessageText";
 import { useCollaboration } from "../hooks/useCollaboration";
 import styles from "./CollaborationPanel.module.less";
 
@@ -39,20 +39,6 @@ function reasonKey(code: unknown): string {
     Object.prototype.hasOwnProperty.call(reasonKeys, code)
     ? `collaboration.reasons.${reasonKeys[code]}`
     : "collaboration.reasons.unknown";
-}
-
-/** Only public text is rendered. Reasoning/tool/system blocks are never displayed. */
-function publicText(content: unknown): string {
-  if (typeof content === "string") return stripThinkingTags(content);
-  if (!Array.isArray(content)) return "";
-  return stripThinkingTags(
-    content
-      .filter(
-        (block) => block?.type === "text" && typeof block.text === "string",
-      )
-      .map((block) => block.text)
-      .join("\n"),
-  );
 }
 
 function InvocationDetail({

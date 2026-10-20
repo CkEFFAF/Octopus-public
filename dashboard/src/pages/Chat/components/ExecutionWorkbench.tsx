@@ -7,6 +7,7 @@ import {
   type ExecutionTarget,
 } from "../../../api/modules/execution";
 import { showApiError } from "../../../utils/showApiToast";
+import { RestrictedDeviceFiles } from "../../Devices/DeviceFiles";
 import NativeDeviceFiles from "../../Devices/NativeDeviceFiles";
 import DeviceDesktop from "../../Devices/DeviceDesktop";
 import ChatDockGit from "./ChatDockGit";
@@ -20,11 +21,15 @@ export default function ExecutionWorkbench({
   surface,
   initialFilePath,
   visible,
+  agentId,
+  threadId,
 }: {
   context: ExecutionContext;
   surface: "workspace" | "git" | "jobs" | "terminal" | "browser" | "desktop";
   initialFilePath?: string;
   visible: boolean;
+  agentId?: string;
+  threadId?: string | null;
 }) {
   const { t } = useTranslation();
   const [device, setDevice] = useState<ExecutionTarget | null>(null);
@@ -57,19 +62,42 @@ export default function ExecutionWorkbench({
             : device.name}
         </strong>
         <code title={context.working_dir ?? ""}>
-          {context.working_dir ?? "—"}
+          {surface === "workspace"
+            ? context.working_dir?.split(/[\\/]/).filter(Boolean).pop() ?? "—"
+            : context.working_dir ?? "—"}
         </code>
         <span>{t(`chat.workMode.${context.work_mode}`)}</span>
       </header>
       <div className={styles.surface}>
-        {surface === "workspace" && (
-          <NativeDeviceFiles
-            device={device}
-            executionContext={context}
-            initialFilePath={initialFilePath}
-            onError={(error) => showApiError(error, t("devices.loadFailed"), t)}
-          />
-        )}
+        {surface === "workspace" &&
+          (context.target_kind === "local" || device.trust_mode === "owner" ? (
+            <NativeDeviceFiles
+              device={device}
+              executionContext={context}
+              initialFilePath={initialFilePath}
+              agentId={agentId}
+              threadId={threadId ?? undefined}
+              onError={(error) =>
+                showApiError(error, t("devices.loadFailed"), t)
+              }
+            />
+          ) : device.device_id && device.roots ? (
+            <RestrictedDeviceFiles
+              device={{
+                ...device,
+                device_id: device.device_id,
+                roots: device.roots,
+              }}
+              devices={[]}
+              executionContext={context}
+              onError={(error) =>
+                showApiError(error, t("devices.loadFailed"), t)
+              }
+              onOperation={() => {}}
+            />
+          ) : (
+            <Alert type="warning" message={t("devices.loadFailed")} />
+          ))}
         {surface === "git" && (
           <ChatDockGit
             agentId=""

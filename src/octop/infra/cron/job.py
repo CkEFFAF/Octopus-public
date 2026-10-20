@@ -75,7 +75,7 @@ class CronJob:
             audit_repo=audit_repo,
         )
 
-    async def run(self, *, raise_on_error: bool = False) -> None:
+    async def run(self, *, raise_on_error: bool = False, reason: str = "timer") -> None:
         from octop.infra.metrics import METRICS  # noqa: PLC0415
 
         METRICS.inc("cron_runs_total")
@@ -85,11 +85,14 @@ class CronJob:
             from octop.infra.cron.self_reminder import is_self_reminder_row
 
             row = self._cron_repo.get(self._cron_id)
+            if row is None or (not row.enabled and reason != "manual"):
+                return
             fresh = self._fresh_thread
             if row is not None and is_self_reminder_row(row):
                 fresh = False
             command = CronDeliveryCommand(
                 cron_id=self._cron_id,
+                reason=reason,
                 cron_name=self._name,
                 agent_id=self._agent_id,
                 user_id=self._user_id,

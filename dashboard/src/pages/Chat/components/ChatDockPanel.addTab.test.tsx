@@ -16,6 +16,7 @@ vi.mock("../../../components/BrowserWorkspace", () => ({
 }));
 
 vi.mock("../../../components/BrowserWorkspace/ChatDockPanelShell", () => ({
+  CHAT_DOCK_POPUP_MENU_Z: 2100,
   default: ({
     title,
     children,

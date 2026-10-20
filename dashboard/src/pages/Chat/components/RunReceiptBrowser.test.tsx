@@ -11,6 +11,9 @@ import RunReceiptBrowser from "./RunReceiptBrowser";
 vi.mock("../../../api/modules/execution", () => ({
   executionApi: { runs: vi.fn(), requests: vi.fn(), request: vi.fn() },
 }));
+vi.mock("../../../api/modules/contextInsights", () => ({
+  contextInsightsApi: { request: vi.fn(async () => ({})) },
+}));
 const translation = vi.hoisted(() => ({ t: (key: string) => key }));
 vi.mock("react-i18next", () => ({ useTranslation: () => translation }));
 beforeEach(() => vi.clearAllMocks());

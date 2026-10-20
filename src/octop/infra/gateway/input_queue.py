@@ -302,6 +302,16 @@ class ChatInputQueue:
                 user = self.repos.user_repo.get(owner)
                 meta["user_is_admin"] = bool(user and user.role == "admin")
                 meta["ws_connection_id"] = f"queue:{command_id}"
+                modification_id = item["payload"].get("snapshot", {}).get("modification_request_id")
+                if modification_id:
+                    modification = self.repos.workbench_repo.get(owner, modification_id)
+                    if modification is None or (
+                        modification.get("agent_id"),
+                        modification.get("thread_id"),
+                        modification.get("command_id"),
+                    ) != (agent_id, thread_id, command_id):
+                        raise ValueError("MODIFICATION_QUEUE_BINDING_INVALID")
+                    meta["octop_modification_request_id"] = modification_id
                 inbound.metadata = meta
                 status = "applied"
                 try:

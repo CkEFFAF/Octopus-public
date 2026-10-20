@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
 from octop.api.common.agent import assert_agent_access, require_agent_row, user_owns_agent
@@ -110,6 +110,7 @@ async def cron_examples(
 async def list_cron(
     agent_id: str,
     include_self_reminders: bool = False,
+    thread_id: str | None = None,
     user: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> list[dict[str, Any]]:
@@ -120,12 +121,20 @@ async def list_cron(
     agent_row = require_agent_row(agent_id, user=user, as_user=None, server=server)
     if not _user_may_manage_agent_cron(agent_row=agent_row, user=user):
         return []
-    return [
-        r.to_public_dict(include_agent=True)
-        for r in _get_cron_manager(server).list_by_agent(
-            agent_id, include_self_reminders=include_self_reminders
+    if thread_id:
+        thread = server.services.repos.thread_repo.get(thread_id)
+        if thread is None or (thread.agent_id, thread.user_id) != (agent_id, user.id):
+            raise OctopError(ErrorCode.NOT_FOUND, "thread not found")
+    manager = _get_cron_manager(server)
+    views = [
+        manager.public_view(row)
+        for row in manager.list_by_agent(
+            agent_id,
+            include_self_reminders=include_self_reminders,
+            user_id=user.id,
         )
     ]
+    return [value for value in views if thread_id is None or value["thread_id"] == thread_id]
 
 
 @router.post("/agents/{agent_id}/cron", status_code=201, summary="Create cron job")
@@ -162,7 +171,7 @@ async def create_cron(
         username=user.username,
     )
     row = await _get_cron_manager(server).create(spec)
-    return cast(dict[str, Any], row.to_public_dict(include_agent=True))
+    return cast(dict[str, Any], _get_cron_manager(server).public_view(row))
 
 
 @router.get("/agents/{agent_id}/cron/{cron_id}", summary="Get cron job")
@@ -178,7 +187,7 @@ async def get_cron(
     if row is None:
         raise OctopError(ErrorCode.NOT_FOUND, "cron job not found")
     _assert_cron_manage(agent_id=agent_id, agent_row=agent_row, user=user, row=row)
-    return cast(dict[str, Any], row.to_public_dict(include_agent=True))
+    return cast(dict[str, Any], _get_cron_manager(server).public_view(row))
 
 
 @router.patch("/agents/{agent_id}/cron/{cron_id}", summary="Update cron job")
@@ -224,7 +233,7 @@ async def patch_cron(
         **({"model": (body.model or "").strip() or None} if "model" in patch_fields else {}),
         mcp_servers=mcp_arg,
     )
-    return cast(dict[str, Any], row.to_public_dict(include_agent=True))
+    return cast(dict[str, Any], _get_cron_manager(server).public_view(row))
 
 
 @router.delete("/agents/{agent_id}/cron/{cron_id}", status_code=204, summary="Delete cron job")
@@ -259,3 +268,25 @@ async def run_now(
         raise OctopError(ErrorCode.NOT_FOUND, "cron job not found")
     _assert_cron_manage(agent_id=agent_id, agent_row=agent_row, user=user, row=existing)
     await mgr.run_now(cron_id)
+
+
+@router.get(
+    "/agents/{agent_id}/cron/{cron_id}/attempts",
+    summary="Inspect actual scheduled delivery attempts",
+)
+async def cron_attempts(
+    agent_id: str,
+    cron_id: str,
+    before: int | None = Query(None, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    agent = require_agent_row(agent_id, user=user, as_user=None, server=server)
+    _assert_cron_manage(agent_id=agent_id, agent_row=agent, user=user)
+    return cast(
+        dict[str, Any],
+        server.services.repos.cron_attempt_repo.listing(
+            int(user.id), agent_id, cron_id, before, limit
+        ),
+    )

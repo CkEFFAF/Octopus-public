@@ -32,6 +32,20 @@ async def test_shared_agent_hides_owner_cron_from_peer(env) -> None:
     )
     assert response.status_code == 201, response.text
     created = response.json()
+    for auth in (peer_auth, admin_auth):
+        hidden = await client.get(
+            f"/api/agents/{agent_id}/cron/{created['id']}/attempts", headers=auth
+        )
+        assert hidden.status_code == 403
+    visible = await client.get(
+        f"/api/agents/{agent_id}/cron/{created['id']}/attempts", headers=owner_auth
+    )
+    assert visible.status_code == 200 and visible.json()["items"] == []
+    foreign_thread = await client.get(
+        f"/api/agents/{agent_id}/cron?include_self_reminders=true&thread_id=foreign",
+        headers=owner_auth,
+    )
+    assert foreign_thread.status_code == 404
 
     response = await client.get(f"/api/agents/{agent_id}/cron", headers=peer_auth)
     assert response.status_code == 200, response.text

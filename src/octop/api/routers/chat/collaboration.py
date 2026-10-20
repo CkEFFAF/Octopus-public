@@ -6,7 +6,8 @@ import asyncio
 from typing import Any, Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from octop.api.deps import current_user, get_server
@@ -171,6 +172,7 @@ async def resource_metadata(
     summary="Preview or download verified resource bytes",
 )
 async def resource_content(
+    request: Request,
     agent_id: str,
     thread_id: str,
     resource_id: str,
@@ -182,15 +184,35 @@ async def resource_content(
     resource = await asyncio.to_thread(
         service.owner_view, int(user.id), agent_id, thread_id, resource_id
     )
-    data = await service.bytes(int(user.id), resource)
+    await service.assert_content_authority(int(user.id), resource)
+    size = int(resource["size"])
+    start, end = 0, size - 1
     disposition = "attachment" if download else "inline"
-    return Response(
-        data,
+    headers = {
+        "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(resource['name'], safe='')}",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox",
+        "Cache-Control": "private, no-store",
+        "Accept-Ranges": "bytes",
+        "ETag": f'"{resource["version"]}"',
+    }
+    status = 200
+    requested = request.headers.get("range")
+    if requested and request.headers.get("if-range", headers["ETag"]) == headers["ETag"]:
+        from octop.infra.documents.file_sources import byte_range
+
+        interval = byte_range(requested, size)
+        if interval is None:
+            return Response(
+                status_code=416, headers={**headers, "Content-Range": f"bytes */{size}"}
+            )
+        start, end = interval
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+        status = 206
+    headers["Content-Length"] = str(max(0, end - start + 1))
+    return StreamingResponse(
+        service.content_chunks(int(user.id), resource, start, end),
+        status_code=status,
         media_type=resource["media_type"],
-        headers={
-            "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(resource['name'], safe='')}",
-            "X-Content-Type-Options": "nosniff",
-            "Content-Security-Policy": "sandbox",
-            "Cache-Control": "private, no-store",
-        },
+        headers=headers,
     )
