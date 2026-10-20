@@ -393,6 +393,7 @@ def test_build_harness_config_includes_cronjob_tools_when_cron_manager_set(
         "cancel_self_check",
         "search_knowledge",
         "work_step",
+        "work_plan",
     }
 
 
@@ -411,6 +412,7 @@ def test_build_harness_config_includes_search_knowledge_without_cron(
         *(set(NATIVE_TOOL_NAMES) - {"octop_device_select"}),
         "search_knowledge",
         "work_step",
+        "work_plan",
     }
     assert any(isinstance(item, KnowledgeSearchHintMiddleware) for item in (cfg.middleware or []))
     assert (

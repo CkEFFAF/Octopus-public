@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
@@ -81,6 +82,7 @@ class CronManager:
         self._delivery_service.replace_repos(repos)
 
     async def boot(self) -> None:
+        self._repos.cron_attempt_repo.recover()
         self._scheduler.start()
         rows = self._repos.cron_repo.list_all(include_disabled=False)
         for row in rows:
@@ -186,6 +188,54 @@ class CronManager:
             return rows
         return [r for r in rows if not is_self_reminder_row(r)]
 
+    def public_view(self, row: CronJobRow) -> dict[str, Any]:
+        """Resolve current scheduler observation and authorized session association."""
+        from octop.infra.cron.self_reminder import is_self_reminder_row
+
+        value = row.to_public_dict(include_agent=True)
+        reminder = is_self_reminder_row(row)
+        meta = row.meta or {}
+        fires = max(0, int(meta.get("fires") or 0)) if reminder else None
+        maximum = max(1, min(20, int(meta.get("max_fires") or 1))) if reminder else None
+        exhausted = reminder and fires is not None and maximum is not None and fires >= maximum
+        session = self._repos.session_repo.get(row.session_key)
+        associated = session is not None and (session.user_id, session.agent_id) == (
+            row.user_id,
+            row.agent_id,
+        )
+        job = self._scheduler.get_job(row.cron_id)
+        next_run = getattr(job, "next_run_time", None) if job else None
+        event = row.trigger.startswith("agently:")
+        state = (
+            "exhausted"
+            if exhausted
+            else "paused"
+            if not row.enabled
+            else "scheduler_stopped"
+            if not self._scheduler.running
+            else "waiting_event"
+            if event and self._mail_watch.has_job(row.cron_id)
+            else "scheduled"
+            if next_run
+            else "unregistered"
+        )
+        value.update(
+            timezone=self._timezone,
+            next_run_at=next_run.timestamp() if next_run else None,
+            observed_at=time.time(),
+            scheduler_state=state,
+            thread_id=session.thread_id if associated and session else None,
+            association="current_session" if associated else "missing",
+            fires=fires,
+            max_fires=maximum,
+            remaining=max(0, maximum - fires)
+            if maximum is not None and fires is not None
+            else None,
+            capabilities={"view": True, "manage": not reminder},
+            last_error="Scheduled delivery failed; inspect its attempt" if row.last_error else None,
+        )
+        return value
+
     def list_all(self, *, include_disabled: bool = True) -> list[CronJobRow]:
         return self._repos.cron_repo.list_all(include_disabled=include_disabled)
 
@@ -251,10 +301,19 @@ class CronManager:
             raise OctopError(ErrorCode.NOT_FOUND, f"cron job {cron_id!r} not found")
         job = self._make_job(row)
         logger.info("CronJob %s triggered manually", cron_id)
+
+        async def run_manual() -> None:
+            try:
+                await job.run(raise_on_error=wait, reason="manual")
+            finally:
+                current = self._repos.cron_repo.get(cron_id)
+                if current is None or not current.enabled:
+                    await self._unschedule(cron_id)
+
         if wait:
-            await job.run(raise_on_error=True)
+            await run_manual()
         else:
-            asyncio.ensure_future(job.run())
+            asyncio.ensure_future(run_manual())
 
     def _make_job(self, row: Any) -> CronJob:
         return CronJob.from_row(
@@ -287,11 +346,17 @@ class CronManager:
 
             self._mail_watch.subscribe(source.instance_id, row.cron_id, creds, on_mail)
             return
-        job = self._make_job(row)
+
+        async def scheduled_run() -> None:
+            await self._make_job(row).run()
+            current = self._repos.cron_repo.get(row.cron_id)
+            if current is None or not current.enabled:
+                await self._unschedule(row.cron_id)
+
         if self._scheduler.get_job(row.cron_id):
             self._scheduler.remove_job(row.cron_id)
         self._scheduler.add_job(
-            job.run,
+            scheduled_run,
             trigger=trigger,
             id=row.cron_id,
             replace_existing=True,
@@ -357,7 +422,7 @@ class CronManager:
             prompt=prompt,
             mcp_servers=list(dict.fromkeys([source.mcp_server_name, *row.mcp_servers])),
         )
-        await self._make_job(event_row).run()
+        await self._make_job(event_row).run(reason="event")
 
     async def reload_mail_watches(self) -> None:
         """Rebuild every mailbox watch after a full cron reload."""

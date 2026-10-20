@@ -19,6 +19,14 @@ Windows x64 portable UI/client, Linux x64 portable management UI and Linux x64
 headless device client. Portable dependencies are exported from `uv.lock`.
 Updating the package version does not imply updating the harness dependency.
 
+When the fork pins a repository-local Harness wheel, the Python release also
+attaches that exact wheel. Install it before the Octop wheel; the custom fork
+version is not available from the public PyPI index. Source distributions carry
+the frozen lock and the pinned wheel with its source/provenance, so an extracted
+source package can use `uv sync --frozen --no-dev`. Portable packages already
+bundle their locked dependencies. Historical ignored vendor wheels must not be
+included as substitutes for the pinned artifact.
+
 PyPI, Docker/GHCR, FnOS builds and develop synchronization remain enabled by
 default for `TencentCloud/Octop`. Forks must explicitly opt in with repository
 variables `OCTOP_PUBLISH_PYPI`, `OCTOP_PUBLISH_DOCKER`, `OCTOP_PUBLISH_FNOS` or

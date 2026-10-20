@@ -17,6 +17,7 @@ from octop.infra.db.repos.chat_inputs import ChatInputRepo
 from octop.infra.db.repos.collaboration import CollaborationRepo
 from octop.infra.db.repos.connectors import ConnectorRepo
 from octop.infra.db.repos.cron import CronJobRepo
+from octop.infra.db.repos.cron_attempts import CronAttemptRepo
 from octop.infra.db.repos.devices import DeviceRepo
 from octop.infra.db.repos.invites import InviteRepo
 from octop.infra.db.repos.knowledge import KnowledgeRepo
@@ -37,6 +38,7 @@ from octop.infra.db.repos.usage import UsageRepo
 from octop.infra.db.repos.user_policies import UserPolicyRepo
 from octop.infra.db.repos.users import UserRepo
 from octop.infra.db.repos.voice_providers import VoiceProviderRepo
+from octop.infra.db.repos.workbench import WorkbenchRepo
 from octop.infra.utils.paths import PathLayout
 
 
@@ -78,6 +80,14 @@ class RepoBundle:
     @property
     def chat_input_repo(self) -> ChatInputRepo:
         return ChatInputRepo(self.db)
+
+    @property
+    def cron_attempt_repo(self) -> CronAttemptRepo:
+        return CronAttemptRepo(self.db)
+
+    @property
+    def workbench_repo(self) -> WorkbenchRepo:
+        return WorkbenchRepo(self.db)
 
     @classmethod
     def from_pool(cls, db: DatabasePool) -> RepoBundle:

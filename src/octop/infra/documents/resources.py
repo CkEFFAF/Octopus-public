@@ -130,6 +130,7 @@ class ResourceService:
         source_device_id: str | None = None,
         source_path: str | None = None,
         source_context_id: str | None = None,
+        source_context_key: str | None = None,
         published: bool = False,
     ) -> dict[str, Any]:
         row = self.repos.agent_repo.get(agent)
@@ -160,10 +161,45 @@ class ResourceService:
                 f"{owner}:{agent}:{source_kind}:{path}:{digest}:{publication_scope if published else 'upload'}".encode()
             ).hexdigest()[:32]
         )
+        if source_kind in {"execution", "workspace"} and not published:
+            identity = (
+                "res_"
+                + hashlib.sha256(
+                    json.dumps(
+                        [
+                            owner,
+                            agent,
+                            thread,
+                            source_kind,
+                            source_device_id,
+                            source_context_key or source_context_id,
+                            source_path or path,
+                            digest,
+                        ]
+                    ).encode()
+                ).hexdigest()[:32]
+            )
         existing = self.repo.get("collaboration_resources", owner, identity)
         if existing:
             if thread and existing.get("source_thread_id") not in {None, thread}:
                 raise denied()
+            if source_kind == "execution" and source_context_key:
+                if existing.get("revoked"):
+                    raise denied()
+                if existing.get("source_context_id") != source_context_id:
+                    updated = {**existing, "source_context_id": source_context_id}
+                    self.repo.save(
+                        "collaboration_resources",
+                        owner,
+                        identity,
+                        thread,
+                        updated,
+                        "resource.ready",
+                        event_id=f"{identity}:context:{source_context_id}",
+                        resource_id=identity,
+                        previous=existing,
+                    )
+                    return dict(updated)
             if thread and existing.get("scope_thread_id") is None:
                 updated = {**existing, "scope_thread_id": thread, "source_thread_id": thread}
                 self.repo.save(
@@ -214,7 +250,7 @@ class ResourceService:
         resource = {
             "resource_id": identity,
             "version": digest,
-            "name": name or path.rsplit("/", 1)[-1],
+            "name": name or path.replace("\\", "/").rsplit("/", 1)[-1],
             "media_type": media_type or mimetypes.guess_type(path)[0] or "application/octet-stream",
             "size": len(data),
             "source_agent_id": agent,
@@ -222,6 +258,7 @@ class ResourceService:
             "scope_thread_id": scope_thread,
             "source_kind": source_kind,
             "source_device_id": source_device_id,
+            "source_context_id": source_context_id,
             "source_path": source_path or path,
             "snapshot_locator": digest,
             "legacy_path": path if source_kind == "upload" else None,
@@ -284,7 +321,31 @@ class ResourceService:
         ):
             raise denied()
         self.scope(owner, resource["source_agent_id"], resource["source_thread_id"])
+        self.validate_source_authority(owner, resource)
         return dict(resource)
+
+    def validate_source_authority(self, owner: int, resource: dict[str, Any]) -> None:
+        if resource.get("source_kind") != "execution":
+            return
+        from octop.infra.execution.service import ExecutionService
+
+        execution = ExecutionService(self.manager._device_service)
+        context = execution.get(owner, resource["source_context_id"])
+        if context.agent_id not in {None, resource["source_agent_id"]} or context.thread_id not in {
+            None,
+            resource["source_thread_id"],
+        }:
+            raise denied()
+        if context.target_kind == "device":
+            device = execution.devices.owned(owner, context.device_id or "")
+            if (
+                device.policy_revision != context.policy_revision
+                or device.grant_version != context.grant_version
+                or "files_read" not in device.permissions
+            ):
+                raise denied()
+        elif context.policy_revision != execution.local_backend(owner).revision:
+            raise denied()
 
     def authorize(
         self,
@@ -328,13 +389,30 @@ class ResourceService:
             raise denied()
         return dict(resource)
 
-    async def bytes(self, owner: int, resource: dict[str, Any]) -> bytes:
+    async def assert_content_authority(self, owner: int, resource: dict[str, Any]) -> None:
+        if resource.get("source_kind") == "execution":
+            from octop.infra.execution.service import ExecutionService
+
+            execution = ExecutionService(self.manager._device_service)
+            context = execution.get(owner, resource["source_context_id"])
+            if context.agent_id not in {
+                None,
+                resource["source_agent_id"],
+            } or context.thread_id not in {None, resource["source_thread_id"]}:
+                raise denied()
+            # Rechecks current policy, grant and read capability, even for cached snapshots.
+            await execution.call(
+                owner, context.context_id, "fs.stat", {"path": resource["source_path"]}
+            )
         # Existing upload aliases are mutable; a changed source revokes that version.
         if resource.get("legacy_path"):
             ws = self.workspace(resource["source_agent_id"])
             original = await ws.adownload_bytes(resource["legacy_path"])
             if original is None or hashlib.sha256(original).hexdigest() != resource["version"]:
                 raise denied()
+
+    async def bytes(self, owner: int, resource: dict[str, Any]) -> bytes:
+        await self.assert_content_authority(owner, resource)
         try:
             data = await asyncio.to_thread(self._read_snapshot, owner, resource["version"])
         except OSError as exc:
@@ -346,6 +424,35 @@ class ResourceService:
         ):
             raise denied()
         return data
+
+    async def content_chunks(
+        self, owner: int, resource: dict[str, Any], start: int, end: int
+    ) -> Any:
+        """Read immutable snapshots in bounded chunks after current authority checks.
+
+        Registration verified and atomically published the content digest. A media
+        seek must not re-read/hash the complete snapshot for every byte range.
+        """
+        await self.assert_content_authority(owner, resource)
+        path = self._snapshot_path(owner, resource["version"])
+        try:
+            stream = await asyncio.to_thread(path.open, "rb")
+            try:
+                size = await asyncio.to_thread(lambda: os.fstat(stream.fileno()).st_size)
+                if size != resource["size"]:
+                    raise denied()
+                await asyncio.to_thread(stream.seek, start)
+                remaining = end - start + 1
+                while remaining > 0:
+                    data = await asyncio.to_thread(stream.read, min(65536, remaining))
+                    if not data:
+                        raise denied()
+                    remaining -= len(data)
+                    yield data
+            finally:
+                await asyncio.to_thread(stream.close)
+        except OSError as exc:
+            raise denied() from exc
 
     def _read_snapshot(self, owner: int, version: str) -> builtins.bytes:
         with self._snapshot_path(owner, version).open("rb") as stream:
@@ -410,9 +517,11 @@ class ResourceService:
 
         # Parser cache is below authorization; never cache grant decisions.
         reader = AttachmentService(Snapshot(), cache=self.parse_cache)
-        result = await reader.read(
-            "inbound/" + resource["name"], offset=offset, limit=limit, page=page
-        )
+        # Historical Windows execution snapshots may store an absolute path as
+        # their display name. Parsing uses only a synthetic inbound basename;
+        # the authorized immutable snapshot above remains the byte source.
+        filename = resource["name"].replace("\\", "/").rsplit("/", 1)[-1]
+        result = await reader.read("inbound/" + filename, offset=offset, limit=limit, page=page)
         ready = result.get("status") == "ready"
         updated = {**resource, "parse_state": "ready" if ready else "failed"}
         if resource["parse_state"] != updated["parse_state"]:
@@ -435,9 +544,28 @@ class ResourceService:
         }
 
     async def publish(
-        self, owner: int, agent: str, thread: str, path: str, context_id: str | None = None
+        self,
+        owner: int,
+        agent: str,
+        thread: str,
+        path: str,
+        context_id: str | None = None,
+        *,
+        modification_request_id: str | None = None,
+        run_id: str | None = None,
     ) -> dict[str, Any]:
         self.scope(owner, agent, thread)
+        modification = None
+        if modification_request_id:
+            modification = self.repos.workbench_repo.get(owner, modification_request_id)
+            if modification is None or not run_id or modification.get("run_id") != run_id:
+                raise denied()
+            if (
+                modification is None
+                or (modification.get("agent_id"), modification.get("thread_id")) != (agent, thread)
+                or modification.get("state") not in {"queued", "result_available"}
+            ):
+                raise denied()
         device_id = None
         if context_id:
             from octop.infra.execution.service import ExecutionService
@@ -493,7 +621,7 @@ class ResourceService:
                 raise denied()
             data = await self.workspace(agent).adownload_bytes(path)
             kind = "workspace"
-        return await self.register(
+        resource = await self.register(
             owner,
             agent,
             path,
@@ -505,6 +633,28 @@ class ResourceService:
             source_context_id=context_id,
             published=True,
         )
+        if modification is not None:
+            results = [
+                *modification["results"],
+                {"resource_id": resource["resource_id"], "version": resource["version"]},
+            ]
+            updated = {
+                **modification,
+                "results": list({item["resource_id"]: item for item in results}.values()),
+                "state": "result_available",
+                "revision": modification["revision"] + 1,
+            }
+            if not self.repos.workbench_repo.save(
+                owner,
+                agent,
+                thread,
+                "modification_request",
+                modification_request_id or "",
+                updated,
+                expected=modification["revision"],
+            ):
+                raise ValueError("MODIFICATION_RESULT_CONFLICT")
+        return resource
 
     async def deliver(
         self,

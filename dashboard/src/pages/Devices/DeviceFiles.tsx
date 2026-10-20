@@ -1,17 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Button, Empty, Input, Progress, Select } from "antd";
-import {
-  ArrowUp,
-  Download,
-  File,
-  Folder,
-  RefreshCw,
-  Upload,
-} from "lucide-react";
+import { ArrowUp, Download, Folder, RefreshCw, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   devicesApi,
   type Device,
+  type DeviceCalls,
   type DeviceFileEntry,
   type DeviceOperation,
 } from "../../api/modules/devices";
@@ -24,7 +18,14 @@ import {
   parentPath,
   sha256,
 } from "./helpers";
+import { fileTreeIcon } from "../../utils/fileTreeIcon";
 import NativeDeviceFiles from "./NativeDeviceFiles";
+import {
+  executionApi,
+  type ExecutionContext,
+} from "../../api/modules/execution";
+import { apiErrorMessage } from "../../utils/apiError";
+import styles from "./RestrictedDeviceFiles.module.less";
 
 const CHUNK_SIZE = 1024 * 1024;
 
@@ -51,22 +52,50 @@ export default function DeviceFiles({
   );
 }
 
-function RestrictedDeviceFiles({
+type FileDevice = Pick<
+  Device,
+  | "device_id"
+  | "name"
+  | "roots"
+  | "online"
+  | "revoked_at"
+  | "capabilities"
+  | "permissions"
+>;
+interface RestrictedFilesProps {
+  device: FileDevice;
+  devices: Device[];
+  onError: (error: unknown) => void;
+  onOperation: (operation: DeviceOperation) => void;
+  executionContext?: ExecutionContext;
+}
+export function RestrictedDeviceFiles(props: RestrictedFilesProps) {
+  const context = props.executionContext;
+  return (
+    <RestrictedFiles
+      key={`${
+        props.device.device_id
+      }:${context?.context_id}:${context?.work_mode}:${context?.policy_revision}:${context?.grant_version}:${JSON.stringify(
+        props.device.roots,
+      )}:${props.device.permissions.join(",")}`}
+      {...props}
+    />
+  );
+}
+function RestrictedFiles({
   device,
   devices,
   onError,
   onOperation,
-}: {
-  device: Device;
-  devices: Device[];
-  onError: (error: unknown) => void;
-  onOperation: (operation: DeviceOperation) => void;
-}) {
+  executionContext,
+}: RestrictedFilesProps) {
   const { t } = useTranslation();
   const [rootId, setRootId] = useState(device.roots[0]?.id ?? "");
   const [path, setPath] = useState("");
   const [entries, setEntries] = useState<DeviceFileEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [listed, setListed] = useState(false);
+  const [listingError, setListingError] = useState("");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{
     name: string;
@@ -92,7 +121,11 @@ function RestrictedDeviceFiles({
   const downloadUrl = useRef("");
   const root = device.roots.find((item) => item.id === rootId);
   const readable = Boolean(root?.read && canUse(device, "files_read"));
-  const writable = Boolean(root?.write && canUse(device, "files_write"));
+  const writable = Boolean(
+    root?.write &&
+      canUse(device, "files_write") &&
+      !["ask", "plan"].includes(executionContext?.work_mode ?? "agentic"),
+  );
   const targets = devices.filter(
     (item) =>
       item.device_id !== device.device_id &&
@@ -106,28 +139,75 @@ function RestrictedDeviceFiles({
   const reportError = useRef(onError);
   reportError.current = onError;
 
+  const translate = useRef(t);
+  translate.current = t;
+  const call = useCallback(
+    <K extends Extract<keyof DeviceCalls, `files.${string}`>>(
+      action: K,
+      params: DeviceCalls[K]["params"],
+      signal?: AbortSignal,
+    ): Promise<DeviceCalls[K]["result"]> =>
+      executionContext
+        ? executionApi.call<DeviceCalls[K]["result"]>(
+            executionContext.context_id,
+            action,
+            params,
+            signal,
+          )
+        : devicesApi.call(device.device_id, action, params, signal),
+    [device.device_id, executionContext],
+  );
+
+  const listingEpoch = useRef({ scope: "", epoch: 0, request: 0 });
+  const listingScope = `${rootId}\0${path}`;
+  if (listingEpoch.current.scope !== listingScope)
+    listingEpoch.current = {
+      scope: listingScope,
+      epoch: listingEpoch.current.epoch + 1,
+      request: 0,
+    };
   const load = useCallback(
     async (signal?: AbortSignal) => {
+      const currentEpoch = listingEpoch.current.epoch;
+      const request = ++listingEpoch.current.request;
+      const current = () =>
+        !signal?.aborted &&
+        listingEpoch.current.epoch === currentEpoch &&
+        listingEpoch.current.request === request;
       if (!readable) {
         setEntries([]);
         return;
       }
+      setEntries([]);
       setLoading(true);
+      setListed(false);
+      setListingError("");
       try {
-        const result = await devicesApi.call(
-          device.device_id,
+        const result = await call(
           "files.list",
           { root_id: rootId, path },
           signal,
         );
-        if (!signal?.aborted) setEntries(result.entries);
+        if (current()) {
+          setEntries(result.entries);
+          setListed(true);
+        }
       } catch (error) {
-        if (!signal?.aborted) reportError.current(error);
+        if (current()) {
+          setListingError(
+            apiErrorMessage(
+              error,
+              translate.current("devices.loadFailed"),
+              translate.current,
+            ),
+          );
+          reportError.current(error);
+        }
       } finally {
-        if (!signal?.aborted) setLoading(false);
+        if (current()) setLoading(false);
       }
     },
-    [device.device_id, path, readable, rootId],
+    [call, path, readable, rootId],
   );
 
   useEffect(() => {
@@ -136,13 +216,18 @@ function RestrictedDeviceFiles({
     return () => abort.abort();
   }, [load]);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    setDownload(null);
+    setLocalResult(null);
+    setProgress(null);
+    setBusy(false);
+    return () => {
       controller.current?.abort();
+      controller.current = null;
       if (downloadUrl.current) URL.revokeObjectURL(downloadUrl.current);
-    },
-    [],
-  );
+      downloadUrl.current = "";
+    };
+  }, [rootId, path]);
 
   async function upload(file: globalThis.File) {
     if (!writable || controller.current) return;
@@ -161,8 +246,7 @@ function RestrictedDeviceFiles({
       const bytes = new Uint8Array(await file.arrayBuffer());
       const hash = await sha256(bytes);
       abort.signal.throwIfAborted();
-      const begun = await devicesApi.call(
-        device.device_id,
+      const begun = await call(
         "files.write_begin",
         {
           root_id: rootId,
@@ -173,10 +257,10 @@ function RestrictedDeviceFiles({
         abort.signal,
       );
       uploadId = begun.upload_id;
+      abort.signal.throwIfAborted();
       for (let offset = 0; offset < bytes.length; offset += CHUNK_SIZE) {
         const chunk = bytes.subarray(offset, offset + CHUNK_SIZE);
-        const result = await devicesApi.call(
-          device.device_id,
+        const result = await call(
           "files.write_chunk",
           {
             upload_id: uploadId,
@@ -185,6 +269,7 @@ function RestrictedDeviceFiles({
           },
           abort.signal,
         );
+        abort.signal.throwIfAborted();
         if (result.bytes_done !== offset + chunk.length)
           throw new Error(t("devices.chunkMismatch"));
         setProgress({
@@ -194,12 +279,12 @@ function RestrictedDeviceFiles({
           total: file.size,
         });
       }
-      const committed = await devicesApi.call(
-        device.device_id,
+      const committed = await call(
         "files.write_commit",
         { upload_id: uploadId },
         abort.signal,
       );
+      abort.signal.throwIfAborted();
       if (committed.sha256 !== hash || committed.size !== file.size)
         throw new Error(t("devices.checksumMismatch"));
       uploadId = "";
@@ -212,13 +297,15 @@ function RestrictedDeviceFiles({
     } catch (error) {
       if (uploadId) {
         try {
-          await devicesApi.call(device.device_id, "files.write_abort", {
+          await call("files.write_abort", {
             upload_id: uploadId,
           });
         } catch (abortError) {
-          reportError.current(abortError);
+          if (controller.current === abort && !abort.signal.aborted)
+            reportError.current(abortError);
         }
       }
+      if (controller.current !== abort) return;
       if (!abort.signal.aborted) onError(error);
       if (abort.signal.aborted)
         setLocalResult({
@@ -227,9 +314,11 @@ function RestrictedDeviceFiles({
         });
       setProgress(null);
     } finally {
-      controller.current = null;
-      setBusy(false);
-      if (fileInput.current) fileInput.current.value = "";
+      if (controller.current === abort) {
+        controller.current = null;
+        setBusy(false);
+        if (fileInput.current) fileInput.current.value = "";
+      }
     }
   }
 
@@ -249,21 +338,21 @@ function RestrictedDeviceFiles({
     downloadUrl.current = "";
     setDownload(null);
     try {
-      const stat = await devicesApi.call(
-        device.device_id,
+      const stat = await call(
         "files.stat",
         { root_id: rootId, path: entry.path },
         abort.signal,
       );
+      abort.signal.throwIfAborted();
       const bytes = new Uint8Array(stat.size);
       let offset = 0;
       do {
-        const result = await devicesApi.call(
-          device.device_id,
+        const result = await call(
           "files.read",
           { root_id: rootId, path: entry.path, offset, length: CHUNK_SIZE },
           abort.signal,
         );
+        abort.signal.throwIfAborted();
         const chunk = base64ToBytes(result.data_b64);
         if (
           result.offset !== offset ||
@@ -290,6 +379,7 @@ function RestrictedDeviceFiles({
       setDownload({ url: downloadUrl.current, name: entry.name });
       setProgress(null);
     } catch (error) {
+      if (controller.current !== abort) return;
       if (!abort.signal.aborted) onError(error);
       if (abort.signal.aborted)
         setLocalResult({
@@ -298,13 +388,15 @@ function RestrictedDeviceFiles({
         });
       setProgress(null);
     } finally {
-      controller.current = null;
-      setBusy(false);
+      if (controller.current === abort) {
+        controller.current = null;
+        setBusy(false);
+      }
     }
   }
 
   return (
-    <div className="devices-tool">
+    <div className={`devices-tool ${styles.files}`}>
       <label className="devices-field">
         <span>{t("devices.sharedRoot")}</span>
         <Select
@@ -322,7 +414,11 @@ function RestrictedDeviceFiles({
           }))}
         />
       </label>
-      {root && <p className="devices-path">{root.path}</p>}
+      {root && (
+        <p className="devices-path" title={root.path}>
+          {root.path}
+        </p>
+      )}
       <div className="devices-actions">
         <Button
           icon={<ArrowUp size={16} />}
@@ -341,6 +437,7 @@ function RestrictedDeviceFiles({
         </Button>
         <Button
           icon={<Upload size={16} />}
+          title={t("devices.fileHint")}
           disabled={!writable || busy}
           onClick={() => fileInput.current?.click()}
         >
@@ -360,16 +457,21 @@ function RestrictedDeviceFiles({
       {!readable && (
         <Alert type="info" showIcon message={t("devices.readUnavailable")} />
       )}
-      {readable && !loading && entries.length === 0 && (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={t("devices.emptyDirectory")}
-        />
-      )}
+      {listingError && <Alert type="error" message={listingError} />}
+      {readable &&
+        listed &&
+        !loading &&
+        !listingError &&
+        entries.length === 0 && (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={t("devices.emptyDirectory")}
+          />
+        )}
       <div className="devices-file-list">
         {entries.map((entry) => (
           <div className="devices-file" key={entry.path}>
-            {entry.is_dir ? <Folder size={17} /> : <File size={17} />}
+            {entry.is_dir ? <Folder size={17} /> : fileTreeIcon(entry.name, 17)}
             <button
               className="devices-file-name"
               disabled={busy}
@@ -437,85 +539,89 @@ function RestrictedDeviceFiles({
           showIcon
         />
       )}
-      <p className="devices-muted">{t("devices.fileHint")}</p>
-      <details className="devices-transfer-panel">
-        <summary>{t("devices.transferTitle")}</summary>
-        <div className="devices-tool devices-transfer-form">
-          <label className="devices-field">
-            <span>{t("devices.sourceFile")}</span>
-            <Input
-              value={sourcePath}
-              placeholder={t("devices.relativeFile")}
-              onChange={(event) => setSourcePath(event.target.value)}
-            />
-          </label>
-          <label className="devices-field">
-            <span>{t("devices.targetDevice")}</span>
-            <Select
-              aria-label={t("devices.targetDevice")}
-              value={targetId || undefined}
-              onChange={(value) => {
-                setTargetId(value);
-                setTargetRootId("");
-              }}
-              options={targets.map((item) => ({
-                value: item.device_id,
-                label: item.name,
-              }))}
-            />
-          </label>
-          <label className="devices-field">
-            <span>{t("devices.targetRoot")}</span>
-            <Select
-              aria-label={t("devices.targetRoot")}
-              value={targetRootId || undefined}
-              onChange={setTargetRootId}
-              options={target?.roots
-                .filter((item) => item.write)
-                .map((item) => ({ value: item.id, label: item.name }))}
-            />
-          </label>
-          <label className="devices-field">
-            <span>{t("devices.targetFile")}</span>
-            <Input
-              value={targetPath}
-              placeholder={t("devices.relativeFile")}
-              onChange={(event) => setTargetPath(event.target.value)}
-            />
-          </label>
-          <Button
-            loading={transferBusy}
-            disabled={
-              !readable ||
-              !targetRoot ||
-              !sourcePath.trim() ||
-              !targetPath.trim()
-            }
-            onClick={async () => {
-              if (!targetRoot) return;
-              setTransferBusy(true);
-              try {
-                const operation = await devicesApi.transfer({
-                  source_device_id: device.device_id,
-                  source_root_id: rootId,
-                  source_path: sourcePath,
-                  target_device_id: targetId,
-                  target_root_id: targetRootId,
-                  target_path: targetPath,
-                });
-                onOperation(operation);
-              } catch (error) {
-                onError(error);
-              } finally {
-                setTransferBusy(false);
+      {!executionContext && (
+        <p className="devices-muted">{t("devices.fileHint")}</p>
+      )}
+      {!executionContext && (
+        <details className="devices-transfer-panel">
+          <summary>{t("devices.transferTitle")}</summary>
+          <div className="devices-tool devices-transfer-form">
+            <label className="devices-field">
+              <span>{t("devices.sourceFile")}</span>
+              <Input
+                value={sourcePath}
+                placeholder={t("devices.relativeFile")}
+                onChange={(event) => setSourcePath(event.target.value)}
+              />
+            </label>
+            <label className="devices-field">
+              <span>{t("devices.targetDevice")}</span>
+              <Select
+                aria-label={t("devices.targetDevice")}
+                value={targetId || undefined}
+                onChange={(value) => {
+                  setTargetId(value);
+                  setTargetRootId("");
+                }}
+                options={targets.map((item) => ({
+                  value: item.device_id,
+                  label: item.name,
+                }))}
+              />
+            </label>
+            <label className="devices-field">
+              <span>{t("devices.targetRoot")}</span>
+              <Select
+                aria-label={t("devices.targetRoot")}
+                value={targetRootId || undefined}
+                onChange={setTargetRootId}
+                options={target?.roots
+                  .filter((item) => item.write)
+                  .map((item) => ({ value: item.id, label: item.name }))}
+              />
+            </label>
+            <label className="devices-field">
+              <span>{t("devices.targetFile")}</span>
+              <Input
+                value={targetPath}
+                placeholder={t("devices.relativeFile")}
+                onChange={(event) => setTargetPath(event.target.value)}
+              />
+            </label>
+            <Button
+              loading={transferBusy}
+              disabled={
+                !readable ||
+                !targetRoot ||
+                !sourcePath.trim() ||
+                !targetPath.trim()
               }
-            }}
-          >
-            {t("devices.startTransfer")}
-          </Button>
-          <p className="devices-muted">{t("devices.transferHint")}</p>
-        </div>
-      </details>
+              onClick={async () => {
+                if (!targetRoot) return;
+                setTransferBusy(true);
+                try {
+                  const operation = await devicesApi.transfer({
+                    source_device_id: device.device_id,
+                    source_root_id: rootId,
+                    source_path: sourcePath,
+                    target_device_id: targetId,
+                    target_root_id: targetRootId,
+                    target_path: targetPath,
+                  });
+                  onOperation(operation);
+                } catch (error) {
+                  onError(error);
+                } finally {
+                  setTransferBusy(false);
+                }
+              }}
+            >
+              {t("devices.startTransfer")}
+            </Button>
+            <p className="devices-muted">{t("devices.transferHint")}</p>
+          </div>
+        </details>
+      )}
     </div>
   );
 }

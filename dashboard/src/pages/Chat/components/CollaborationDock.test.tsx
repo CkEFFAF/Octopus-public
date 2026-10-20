@@ -28,6 +28,9 @@ vi.mock("../../../hooks/useServerTimezone", () => ({
 vi.mock("../../../components/DocumentPreviewCore", () => ({
   default: () => null,
 }));
+vi.mock("../../Agent/Workspace/components/CodeEditor", () => ({
+  default: ({ value }: { value: string }) => <pre>{value}</pre>,
+}));
 vi.mock("../../../components/BrowserWorkspace", () => ({
   default: () => null,
 }));
@@ -125,7 +128,11 @@ it("reaches verified report bytes from the parent panel using the real shared do
   fireEvent.click(
     await screen.findByRole("button", { name: "common.preview" }),
   );
-  expect(await screen.findByText("hello")).toBeInTheDocument();
+  // The real dock lazy-loads its preview; module transforms can exceed the
+  // default one-second query timeout while the complete suite runs.
+  expect(
+    await screen.findByText("hello", {}, { timeout: 10000 }),
+  ).toBeInTheDocument();
   expect(screen.getByRole("tab")).toHaveTextContent("Report.txt");
   expect(screen.getByRole("tab")).toHaveAttribute("aria-selected", "true");
   fireEvent.click(screen.getByRole("button", { name: "collaboration.title" }));

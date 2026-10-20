@@ -69,6 +69,8 @@ function ThemedApp() {
     algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
     token: {
       borderRadius: 10,
+      fontFamily:
+        '-apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Microsoft YaHei", "Noto Sans SC", sans-serif',
       ...(isMobile
         ? {
             fontSize: 15,

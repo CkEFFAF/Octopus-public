@@ -17,7 +17,18 @@ export interface CronTaskExamples {
 export const octopCronApi = {
   settings: () => request<OctopCronSettings>("/cron/settings"),
 
-  list: (agentId: string) => request<OctopCronRow[]>(`/agents/${agentId}/cron`),
+  list: (agentId: string, includeSelfReminders = false, threadId?: string) =>
+    request<OctopCronRow[]>(
+      `/agents/${agentId}/cron?include_self_reminders=${includeSelfReminders}${
+        threadId ? `&thread_id=${encodeURIComponent(threadId)}` : ""
+      }`,
+    ),
+  attempts: (agentId: string, cronId: string, before?: number | null) =>
+    request<CronAttemptPage>(
+      `/agents/${agentId}/cron/${cronId}/attempts${
+        before ? `?before=${before}` : ""
+      }`,
+    ),
 
   create: (agentId: string, body: OctopCronCreateBody) =>
     request<OctopCronRow>(`/agents/${agentId}/cron`, {
@@ -42,3 +53,23 @@ export const octopCronApi = {
       method: "POST",
     }),
 };
+
+export interface CronAttempt {
+  id: number;
+  attempt_id: string;
+  source_thread_id: string | null;
+  actual_thread_id: string | null;
+  run_id: string | null;
+  reason: string;
+  status: string;
+  created_at: number;
+  started_at: number | null;
+  finished_at: number | null;
+  public_error: string | null;
+  result_excerpt: string | null;
+}
+export interface CronAttemptPage {
+  items: CronAttempt[];
+  has_more: boolean;
+  next_cursor: number | null;
+}

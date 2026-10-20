@@ -1635,6 +1635,8 @@ class AgentManager:
         uid = user_id
         if uid is None:
             row = self.get_row(agent_id)
+            if row is None:
+                raise ValueError("MODIFICATION_AGENT_UNAVAILABLE")
             uid = self._connector_uid_for(row) if row is not None else None
         mcp_labels = self.mcp_server_labels_for_user(uid) if uid is not None else {}
         return resolve_tool_display_name(
@@ -3336,6 +3338,20 @@ class AgentManager:
             )
         request_cfg.setdefault("octop_turn_id", new_short_id())
         request_cfg.setdefault("octop_task_run_id", new_short_id())
+        modification_id = request_cfg.get("octop_modification_request_id")
+        if modification_id:
+            from octop.infra.documents.annotations import AnnotationService
+
+            row = self.get_row(agent_id)
+            if row is None or row.user_id is None:
+                raise ValueError("MODIFICATION_RUN_BINDING_INVALID")
+            AnnotationService(self).bind_run(
+                row.user_id,
+                row.agent_id,
+                str(req.get("thread_id") or ""),
+                str(modification_id),
+                str(request_cfg["octop_task_run_id"]),
+            )
         request_cfg["conversation_mode_extra_read_tools"] = ["job_status", "job_logs", "work_step"]
         requested_mode = (
             req.get("conversation_mode")

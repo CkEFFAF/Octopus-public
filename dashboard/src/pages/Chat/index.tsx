@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import ExpertActivity from "./components/ExpertActivity";
+import TaskActivity from "./components/TaskActivity";
 import { useExpertAnimation } from "./hooks/useExpertAnimation";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -1389,6 +1390,13 @@ function ChatPageInner() {
                 {resolvedAgentId && !sharedExpertViewer && (
                   <div className={styles.mobileToolbarRight}>
                     {activeThreadId && (
+                      <TaskActivity
+                        agentId={resolvedAgentId}
+                        threadId={activeThreadId}
+                        compact
+                      />
+                    )}
+                    {activeThreadId && (
                       <CollaborationPanel
                         triggerClassName={styles.menuBtn}
                         key={`${resolvedAgentId}/${activeThreadId}`}
@@ -1482,7 +1490,17 @@ function ChatPageInner() {
                 forkDisabled={sessionForkDisabled}
                 forkDisabledHint={sessionForkDisabledHint}
                 isTeam={isTeamChat}
-                activity={expertActivity}
+                activity={
+                  <>
+                    {resolvedAgentId && activeThreadId && (
+                      <TaskActivity
+                        agentId={resolvedAgentId}
+                        threadId={activeThreadId}
+                      />
+                    )}{" "}
+                    {expertActivity}
+                  </>
+                }
                 actions={roomActions}
               />
             )}

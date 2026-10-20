@@ -44,7 +44,7 @@ interface IconSpec {
 }
 
 function basename(path: string): string {
-  return path.split("/").filter(Boolean).pop() || path;
+  return path.split(/[\\/]/).filter(Boolean).pop() || path;
 }
 
 function extension(path: string): string {
@@ -65,6 +65,8 @@ const NAME_MAP: Record<string, IconSpec> = {
   "HEARTBEAT.md": { Icon: Heart, color: "#ef4444" },
   "MEMORY.md": { Icon: Database, color: "#0891b2" },
   Makefile: { Icon: Wrench, color: "#78716c" },
+  ".env": { Icon: Key, color: "#84cc16" },
+  ".gitignore": { Icon: Settings, color: "#78716c" },
   Dockerfile: { Icon: FileCode, color: "#0ea5e9" },
 };
 
@@ -142,6 +144,17 @@ const EXT_MAP: Record<string, IconSpec> = {
   vue: { Icon: Code2, color: "#42b883" },
   svelte: { Icon: Code2, color: "#ff3e00" },
 
+  ps1: { Icon: Terminal, color: "#2563eb" },
+  bat: { Icon: Terminal, color: "#2563eb" },
+  cmd: { Icon: Terminal, color: "#2563eb" },
+  exe: { Icon: Terminal, color: "#64748b" },
+  db: { Icon: Database, color: "#0891b2" },
+  sqlite: { Icon: Database, color: "#0891b2" },
+  flac: { Icon: FileAudio, color: "#0d9488" },
+  ogg: { Icon: FileAudio, color: "#0d9488" },
+  avi: { Icon: FileVideo, color: "#7c3aed" },
+  mkv: { Icon: FileVideo, color: "#7c3aed" },
+  psd: { Icon: FileImage, color: "#8b5cf6" },
   // Logs / misc
   log: { Icon: ScrollText, color: "#94a3b8" },
 

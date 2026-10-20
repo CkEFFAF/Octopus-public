@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Image, Tabs } from "antd";
-import { ArrowDownToLine } from "lucide-react";
+import { ArrowDownToLine, Minus, Plus, Scan } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { isNotFoundApiError } from "../utils/apiError";
 import type { DocKind } from "../utils/docKind";
@@ -28,6 +28,14 @@ export interface DocumentPreviewCoreProps {
   ) => Promise<Blob>;
   /** Optional download when the kind cannot be rendered (e.g. legacy ``.ppt``). */
   onDownload?: () => void | Promise<void>;
+  onCellSelect?: (sheet: string, cells: string) => void;
+  location?: {
+    kind: string;
+    page?: number;
+    rect?: [number, number, number, number];
+    sheet?: string;
+    cells?: string;
+  };
 }
 
 function isAbortError(err: unknown): boolean {
@@ -41,6 +49,7 @@ interface ExcelSheetData {
   name: string;
   /** First row is header; remaining rows are body cells as strings. */
   matrix: string[][];
+  addresses: string[][];
 }
 
 interface ExcelMediaItem {
@@ -81,24 +90,6 @@ function columnLooksLikeImage(title: string): boolean {
   return /截图|设计稿|图片|image|screenshot|photo|附图|缩略图|draft/i.test(
     title,
   );
-}
-
-/** Drop leading/trailing columns that have no header and no cell values. */
-function trimEmptyMatrixColumns(matrix: string[][]): string[][] {
-  if (matrix.length === 0) return matrix;
-  const colCount = Math.max(0, ...matrix.map((row) => row.length));
-  if (colCount === 0) return matrix;
-
-  const colHasContent = Array.from({ length: colCount }, (_, index) =>
-    matrix.some((row) => (row[index] ?? "").trim().length > 0),
-  );
-  let start = 0;
-  while (start < colCount && !colHasContent[start]) start += 1;
-  let end = colCount - 1;
-  while (end >= start && !colHasContent[end]) end -= 1;
-  if (start === 0 && end === colCount - 1) return matrix;
-  if (start > end) return matrix.map(() => [] as string[]);
-  return matrix.map((row) => row.slice(start, end + 1));
 }
 
 function mimeForMediaName(name: string): string {
@@ -248,7 +239,7 @@ function buildExcelTable(
   sheet: ExcelSheetData,
   emptyColumnTitle: (n: number) => string,
 ): ExcelTableModel {
-  const matrix = trimEmptyMatrixColumns(sheet.matrix);
+  const matrix = sheet.matrix;
   const header = matrix[0] ?? [];
   const body = matrix.slice(1);
   const colCount = Math.max(
@@ -341,6 +332,8 @@ export default function DocumentPreviewCore({
   filename,
   fetchBlob,
   onDownload,
+  onCellSelect,
+  location,
 }: DocumentPreviewCoreProps) {
   const { t } = useTranslation();
   const [src, setSrc] = useState("");
@@ -358,9 +351,19 @@ export default function DocumentPreviewCore({
   const [excelTab, setExcelTab] = useState("0");
   const [excelTruncated, setExcelTruncated] = useState(false);
   const [excelMedia, setExcelMedia] = useState<ExcelMediaItem[]>([]);
+  const locationHost = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const wordZoom = useRef<number | null>(null);
+  const fitWord = useRef<() => void>();
+  const [wordScale, setWordScale] = useState(1);
   const objectUrlRef = useRef<string | undefined>(undefined);
-  const pptxViewerRef = useRef<{ destroy: () => void } | null>(null);
+  const pptxViewerRef = useRef<{
+    destroy: () => void;
+    goToSlide: (
+      index: number,
+      options?: ScrollIntoViewOptions,
+    ) => Promise<void>;
+  } | null>(null);
 
   const handleDownload = useCallback(() => {
     void onDownload?.();
@@ -384,7 +387,80 @@ export default function DocumentPreviewCore({
   }, [activeSheet, t]);
 
   useEffect(() => {
+    if (location?.kind !== "sheet" || !location.sheet) return;
+    const index = excelSheets.findIndex(
+      (sheet) => sheet.name === location.sheet,
+    );
+    if (index >= 0) setExcelTab(String(index));
+  }, [location, excelSheets]);
+
+  useEffect(() => {
+    const root = locationHost.current;
+    if (!root || !location) return;
+    let disposed = false;
+    let target: HTMLElement | null = null;
+    let overlay: HTMLDivElement | null = null;
+    if (location.kind === "slide" && location.page)
+      void pptxViewerRef.current?.goToSlide(location.page - 1, {
+        block: "center",
+      });
+    const locate = () => {
+      if (disposed) return;
+      const selector =
+        location.kind === "sheet" && location.sheet && location.cells
+          ? `[data-sheet-name="${CSS.escape(location.sheet)}"] [data-cell="${
+              location.cells.split(":")[0]
+            }"]`
+          : location.page
+          ? `[data-pdf-page="${location.page}"], [data-document-page="${
+              location.page
+            }"], [data-slide-index="${location.page - 1}"]`
+          : null;
+      const found = selector ? root.querySelector<HTMLElement>(selector) : null;
+      if (!found || target === found) return;
+      overlay?.remove();
+      target = found;
+      found.scrollIntoView({ block: "center", inline: "center" });
+      if (location.kind === "sheet") {
+        found.style.outline = "3px solid #e9a23b";
+        return;
+      }
+      if (location.rect) {
+        const [x, y, w, h] = location.rect;
+        overlay = document.createElement("div");
+        overlay.dataset.annotationRegion = "true";
+        Object.assign(overlay.style, {
+          position: "absolute",
+          left: `${x * 100}%`,
+          top: `${y * 100}%`,
+          width: `${w * 100}%`,
+          height: `${h * 100}%`,
+          border: "2px solid #e9a23b",
+          background: "rgba(233,162,59,.16)",
+          pointerEvents: "none",
+          zIndex: "4",
+          boxSizing: "border-box",
+        });
+        if (getComputedStyle(found).position === "static")
+          found.style.position = "relative";
+        found.appendChild(overlay);
+      }
+    };
+    locate();
+    const observer = new MutationObserver(locate);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => {
+      disposed = true;
+      observer.disconnect();
+      overlay?.remove();
+      if (target && location.kind === "sheet") target.style.outline = "";
+    };
+  }, [location, loading, excelTab]);
+
+  useEffect(() => {
     let cancelled = false;
+    let pageResize: ResizeObserver | undefined;
+    wordZoom.current = null;
     setLoading(true);
     setLoadPhase("file");
     setDownloadPercent(null);
@@ -446,6 +522,30 @@ export default function DocumentPreviewCore({
             if (!cancelled && containerRef.current) {
               neutralizeDocxPreviewChrome(containerRef.current);
               sanitizeDocxPreviewLayout(containerRef.current);
+              const host = containerRef.current;
+              const pages = Array.from(
+                host.querySelectorAll<HTMLElement>("section.docx-doc"),
+              );
+              pages.forEach((page, index) => {
+                page.dataset.documentPage = String(index + 1);
+              });
+              const fitPages = () => {
+                const available = Math.max(0, host.clientWidth - 32);
+                if (!available) return;
+                pages.forEach((page) => {
+                  if (page.offsetWidth) {
+                    const scale =
+                      wordZoom.current ??
+                      Math.min(1, available / page.offsetWidth);
+                    page.style.setProperty("zoom", String(scale));
+                    setWordScale(scale);
+                  }
+                });
+              };
+              fitWord.current = fitPages;
+              pageResize = new ResizeObserver(fitPages);
+              pageResize.observe(host);
+              fitPages();
             }
           }
         } else if (kind === "excel") {
@@ -454,7 +554,12 @@ export default function DocumentPreviewCore({
           let truncated = false;
           const sheets: ExcelSheetData[] = wb.SheetNames.map((name) => {
             const sheet = wb.Sheets[name];
-            if (!sheet) return { name, matrix: [] as string[][] };
+            if (!sheet)
+              return {
+                name,
+                matrix: [] as string[][],
+                addresses: [] as string[][],
+              };
             const ref = sheet["!ref"];
             if (ref) {
               const range = xlsx.utils.decode_range(ref);
@@ -465,7 +570,16 @@ export default function DocumentPreviewCore({
                 truncated = true;
               }
             }
-            return { name, matrix: sheetToMatrix(xlsx, sheet) };
+            const matrix = sheetToMatrix(xlsx, sheet);
+            const origin = ref
+              ? xlsx.utils.decode_range(ref).s
+              : { r: 0, c: 0 };
+            const addresses = matrix.map((row, r) =>
+              row.map((_, c) =>
+                xlsx.utils.encode_cell({ r: r + origin.r, c: c + origin.c }),
+              ),
+            );
+            return { name, matrix, addresses };
           });
           let media: ExcelMediaItem[] = [];
           try {
@@ -494,6 +608,7 @@ export default function DocumentPreviewCore({
           );
           if (containerRef.current && !cancelled) {
             const viewer = await PptxViewer.open(buf, containerRef.current, {
+              fitMode: "contain",
               zipLimits: RECOMMENDED_ZIP_LIMITS,
               lazySlides: true,
               lazyMedia: true,
@@ -527,6 +642,8 @@ export default function DocumentPreviewCore({
     return () => {
       cancelled = true;
       abortController.abort();
+      pageResize?.disconnect();
+      fitWord.current = undefined;
       if (objectUrlRef.current) {
         URL.revokeObjectURL(objectUrlRef.current);
         objectUrlRef.current = undefined;
@@ -534,7 +651,7 @@ export default function DocumentPreviewCore({
       pptxViewerRef.current?.destroy();
       pptxViewerRef.current = null;
     };
-  }, [kind, fetchBlob, reloadNonce, onBlobProgress]);
+  }, [kind, filename, fetchBlob, reloadNonce, onBlobProgress]);
 
   if (empty) {
     return (
@@ -599,13 +716,13 @@ export default function DocumentPreviewCore({
     if (!src) {
       // Progress-bar skeleton while the blob downloads (large files take seconds).
       return (
-        <div className={styles.documentPreview}>
+        <div className={styles.documentPreview} ref={locationHost}>
           <PdfViewerSkeleton percent={downloadPercent} />
         </div>
       );
     }
     return (
-      <div className={styles.documentPreview}>
+      <div className={styles.documentPreview} ref={locationHost}>
         <PdfDocumentPreview fileUrl={src} filename={filename} />
       </div>
     );
@@ -613,7 +730,7 @@ export default function DocumentPreviewCore({
 
   if (kind === "excel") {
     return (
-      <div className={styles.documentPreview}>
+      <div className={styles.documentPreview} ref={locationHost}>
         <div className={styles.xlsxWrap}>
           {excelSheets.length > 1 ? (
             <Tabs
@@ -650,6 +767,7 @@ export default function DocumentPreviewCore({
           {activeTable ? (
             <div className={styles.xlsxTableHost}>
               <table
+                data-sheet-name={activeSheet?.name}
                 className={styles.xlsxTable}
                 style={{ minWidth: activeTable.scrollX }}
               >
@@ -668,7 +786,21 @@ export default function DocumentPreviewCore({
                 <thead>
                   <tr>
                     {activeTable.columns.map((col) => (
-                      <th key={col.key} title={col.title}>
+                      <th
+                        key={col.key}
+                        title={col.title}
+                        data-cell={
+                          activeSheet?.addresses[0]?.[Number(col.key.slice(1))]
+                        }
+                        onClick={() =>
+                          onCellSelect?.(
+                            activeSheet?.name ?? "Sheet1",
+                            activeSheet?.addresses[0]?.[
+                              Number(col.key.slice(1))
+                            ] ?? "",
+                          )
+                        }
+                      >
                         {col.title}
                       </th>
                     ))}
@@ -681,6 +813,19 @@ export default function DocumentPreviewCore({
                         const text = row.cells[colIndex] ?? "";
                         return (
                           <td
+                            data-cell={
+                              activeSheet?.addresses[row.rowIndex + 1]?.[
+                                colIndex
+                              ]
+                            }
+                            onClick={() =>
+                              onCellSelect?.(
+                                activeSheet?.name ?? "Sheet1",
+                                activeSheet?.addresses[row.rowIndex + 1]?.[
+                                  colIndex
+                                ] ?? "",
+                              )
+                            }
                             key={col.key}
                             className={
                               col.isImageCol
@@ -738,7 +883,51 @@ export default function DocumentPreviewCore({
   }
 
   return (
-    <div className={styles.documentPreview}>
+    <div
+      className={`${styles.documentPreview} ${
+        kind === "word" ? styles.wordPreview : ""
+      }`}
+      ref={locationHost}
+    >
+      {kind === "word" && (
+        <div className={styles.wordToolbar}>
+          <Button
+            size="small"
+            type="text"
+            aria-label={t("workspace.pdfZoomOut", "Zoom out")}
+            icon={<Minus size={14} />}
+            disabled={loading || wordScale <= 0.2}
+            onClick={() => {
+              wordZoom.current = Math.max(0.2, wordScale - 0.15);
+              fitWord.current?.();
+            }}
+          />
+          <span>{Math.round(wordScale * 100)}%</span>
+          <Button
+            size="small"
+            type="text"
+            aria-label={t("workspace.pdfZoomIn", "Zoom in")}
+            icon={<Plus size={14} />}
+            disabled={loading || wordScale >= 2}
+            onClick={() => {
+              wordZoom.current = Math.min(2, wordScale + 0.15);
+              fitWord.current?.();
+            }}
+          />
+          <Button
+            size="small"
+            type="text"
+            icon={<Scan size={14} />}
+            disabled={loading}
+            onClick={() => {
+              wordZoom.current = null;
+              fitWord.current?.();
+            }}
+          >
+            {t("workspace.pdfFitWidth", "Fit width")}
+          </Button>
+        </div>
+      )}
       <div
         className={kind === "word" ? styles.docxWrap : styles.pptxWrap}
         ref={containerRef}

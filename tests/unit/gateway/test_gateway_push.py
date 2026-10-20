@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -43,6 +44,53 @@ def gateway(tmp_path: Path) -> Gateway:
 
     gw._channel_manager.run_in_session = run_in_session
     return gw
+
+
+@pytest.mark.asyncio
+async def test_dashboard_proactive_delivery_waits_for_the_actual_thread_turn(
+    gateway: Gateway,
+) -> None:
+    sk = ThreadRegistry.dashboard_key(agent_id="a1", user_id=1)
+    gateway.thread_registry._threads.insert(
+        thread_id="thr_busy", agent_id="a1", user_id=1, channel_type="dashboard", session_key=sk
+    )
+    gateway.thread_registry._sessions.upsert(
+        session_key=sk,
+        agent_id="a1",
+        user_id=1,
+        channel_type="dashboard",
+        chat_type="dm",
+        thread_id="thr_busy",
+    )
+    locks: dict[tuple[str, str], asyncio.Lock] = {}
+    started, release = asyncio.Event(), asyncio.Event()
+    order: list[str] = []
+
+    async def run_locked(channel: str, key: str, operation) -> None:
+        async with locks.setdefault((channel, key), asyncio.Lock()):
+            await operation()
+
+    gateway._channel_manager.run_in_session = run_locked
+
+    async def inbound() -> None:
+        order.append("turn started")
+        started.set()
+        await release.wait()
+        order.append("turn finished")
+
+    async def delivery() -> None:
+        order.append("scheduled delivery")
+
+    turn = asyncio.create_task(run_locked(WS_CHANNEL_ID, "thread:thr_busy", inbound))
+    await started.wait()
+    proactive = asyncio.create_task(gateway.run_in_session("a1", sk, delivery))
+    try:
+        await asyncio.sleep(0)
+        assert order == ["turn started"]
+    finally:
+        release.set()
+        await asyncio.gather(turn, proactive)
+    assert order == ["turn started", "turn finished", "scheduled delivery"]
 
 
 @pytest.mark.asyncio

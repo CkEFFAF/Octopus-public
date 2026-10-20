@@ -500,7 +500,12 @@ class Gateway:
         session = self.require_session(agent_id, session_key)
         manager = self._require_channel_manager()
         channel_id = self._channel_id_for_session(session)
-        await manager.run_in_session(channel_id, session_key, operation)
+        lock_key = (
+            f"thread:{session.thread_id}"
+            if session.channel_type == ThreadRegistry.CHANNEL_DASHBOARD
+            else session_key
+        )
+        await manager.run_in_session(channel_id, lock_key, operation)
 
     async def push_text_from_session(
         self,

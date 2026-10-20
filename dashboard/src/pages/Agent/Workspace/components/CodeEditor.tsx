@@ -40,6 +40,20 @@ interface CodeEditorProps {
   readOnly?: boolean;
   /** Override the Monaco language derived from the file extension. */
   language?: string;
+  onSave?: () => void;
+  onSelection?: (range: {
+    line: number;
+    column: number;
+    end_line: number;
+    end_column: number;
+    quote: string;
+  }) => void;
+  location?: {
+    line?: number;
+    column?: number;
+    end_line?: number;
+    end_column?: number;
+  };
 }
 
 export default function CodeEditor({
@@ -48,6 +62,9 @@ export default function CodeEditor({
   onChange,
   readOnly = false,
   language,
+  onSave,
+  onSelection,
+  location,
 }: CodeEditorProps) {
   const resolvedLanguage = language ?? getEditorLanguage(path);
   const isDark = useIsDark();
@@ -55,7 +72,28 @@ export default function CodeEditor({
   const editorRef = useRef<{
     updateOptions: (opts: { automaticLayout?: boolean }) => void;
     layout: () => void;
+    setSelection: (selection: {
+      startLineNumber: number;
+      startColumn: number;
+      endLineNumber: number;
+      endColumn: number;
+    }) => void;
+    revealLineInCenter: (line: number) => void;
   } | null>(null);
+  const saveRef = useRef(onSave);
+  saveRef.current = onSave;
+  const selectionRef = useRef(onSelection);
+  selectionRef.current = onSelection;
+  useEffect(() => {
+    if (!location?.line || !editorRef.current) return;
+    editorRef.current.setSelection({
+      startLineNumber: location.line,
+      startColumn: location.column ?? 1,
+      endLineNumber: location.end_line ?? location.line,
+      endColumn: location.end_column ?? location.column ?? 1,
+    });
+    editorRef.current.revealLineInCenter(location.line);
+  }, [location]);
 
   useEffect(() => {
     const wrap = wrapRef.current;
@@ -80,8 +118,25 @@ export default function CodeEditor({
     return () => mo.disconnect();
   }, []);
 
-  const handleMount: OnMount = (editor) => {
+  const handleMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
+    editor.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
+      () => saveRef.current?.(),
+    );
+    editor.onDidChangeCursorSelection(({ selection }) => {
+      if (selection.isEmpty()) return;
+      selectionRef.current?.({
+        line: selection.startLineNumber,
+        column: selection.startColumn,
+        end_line: selection.endLineNumber,
+        end_column: selection.endColumn,
+        quote: (editor.getModel()?.getValueInRange(selection) ?? "").slice(
+          0,
+          4000,
+        ),
+      });
+    });
     const panel = wrapRef.current?.closest("[data-dock-panel]");
     if (panel?.getAttribute("data-dock-resizing") === "1") {
       editor.updateOptions({ automaticLayout: false });

@@ -1,0 +1,96 @@
+.files {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+  gap: 10px;
+  color: var(--fn-text-primary, #20232b);
+  font-size: 13px;
+
+  :global(.devices-field) {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    > span {
+      flex-shrink: 0;
+      color: var(--fn-text-secondary, #697180);
+    }
+    > div {
+      flex: 1;
+      min-width: 0;
+    }
+  }
+
+  :global(.devices-path) {
+    margin: 0;
+    font-size: 12px;
+    line-height: 20px;
+    color: var(--fn-text-tertiary, #79818d);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  :global(.devices-actions) {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 2px 0 8px;
+    border-bottom: 1px solid var(--fn-border-primary, #e8e9ed);
+  }
+
+  :global(.devices-file-list) {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  :global(.devices-file) {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 42px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 6px;
+    > svg {
+      flex-shrink: 0;
+    }
+    &:hover,
+    &:focus-within {
+      background: var(--fn-bg-layout, #f6f7f9);
+    }
+  }
+
+  :global(.devices-file-name) {
+    display: flex;
+    flex: 1;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-width: 0;
+    min-height: 42px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    > span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    > small {
+      flex-shrink: 0;
+      color: var(--fn-text-tertiary, #79818d);
+      font-size: 11px;
+    }
+  }
+}

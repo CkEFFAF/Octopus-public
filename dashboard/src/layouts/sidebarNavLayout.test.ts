@@ -139,9 +139,11 @@ describe("sidebarNavLayout", () => {
     expect(shown).not.toContain("channels");
     expect(shown).toContain("chat");
     expect(shown).toContain("personalization");
+    // The model page is available to signed-in users; privileged modules remain filtered.
+    expect(shown).toContain("models");
     expect(
       visibleEditorGroups(editor, sections).map((group) => group.id),
-    ).toEqual(["settings", "c_aabbccdd"]);
+    ).toEqual(["settings", "admin", "c_aabbccdd"]);
   });
 
   it("keeps a new empty group only in the editor", () => {

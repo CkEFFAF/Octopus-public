@@ -152,7 +152,7 @@ export interface DeviceInput {
   dx?: number;
 }
 
-interface DeviceCalls {
+export interface DeviceCalls {
   status: { params: Record<string, never>; result: DeviceStatus };
   "files.list": {
     params: { root_id: string; path: string };

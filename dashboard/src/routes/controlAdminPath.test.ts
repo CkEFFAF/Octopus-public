@@ -49,14 +49,21 @@ describe("pathPermissionKeys", () => {
     expect([...PERM.advancedPage]).toContain("captcha");
   });
 
-  it("keeps voice and search on models page, not advanced", () => {
-    expect(pathPermissionKeys("/admin/models")).toEqual([...PERM.modelsPage]);
+  it("allows the signed-in model page while preserving voice/search module permissions", () => {
+    expect(pathPermissionKeys("/admin/models")).toBe("authenticated");
+    expect(canAccessPath(null, "/admin/models")).toBe(false);
+    expect(
+      canAccessPath({ role: "user", permissions: [] }, "/admin/models"),
+    ).toBe(true);
+    expect(
+      canAccessPath({ role: "user", permissions: [] }, "/admin/voice"),
+    ).toBe(false);
     expect(pathPermissionKeys("/admin/voice")).toEqual([...PERM.modelsPage]);
     expect([...PERM.modelsPage]).toContain("voice");
     expect([...PERM.modelsPage]).toContain("search");
     expect([...PERM.advancedPage]).not.toContain("voice");
     expect([...PERM.advancedPage]).not.toContain("search");
-    expect(NAV_PERMISSIONS.models).toEqual(PERM.modelsPage);
+    expect(NAV_PERMISSIONS.models).toBe("authenticated");
   });
 
   it("does not gate common pages", () => {

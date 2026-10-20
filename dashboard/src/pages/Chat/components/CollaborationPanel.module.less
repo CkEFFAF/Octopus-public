@@ -202,9 +202,186 @@
   flex: 1;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
+  container-type: inline-size;
+  > p {
+    margin: 12px;
+  }
+}
+.previewHeader {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 8px;
+  min-height: 54px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--fn-border-primary, #e8e9ed);
+  background: var(--fn-bg-primary, #fff);
+}
+.previewIdentity {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 100px;
+  gap: 9px;
+  > div {
+    min-width: 0;
+  }
+  strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.6;
+  }
+}
+.previewFileIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 1px solid var(--fn-border-primary, #e8e9ed);
+  border-radius: 8px;
+  background: var(--fn-bg-secondary, #f8f9fb);
+}
+.previewActions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+}
+.previewControls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--fn-border-primary, #e8e9ed);
+  font-size: 12px;
+  color: var(--fn-text-secondary);
+  > span {
+    white-space: nowrap;
+  }
+  > :global(.octop-input-number) {
+    width: 64px;
+  }
+  > input {
+    width: 140px;
+    min-width: 0;
+    flex: 1;
+    max-width: 220px;
+  }
+}
+.previewContent {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
   padding: 12px;
-  gap: 10px;
   overflow: auto;
+  gap: 12px;
+  > video {
+    width: 100%;
+    max-height: 100%;
+    min-height: 0;
+  }
+  > audio {
+    width: 100%;
+    margin: auto 0;
+  }
+}
+.mediaControls {
+  padding: 8px 0;
+  border-top: 1px solid var(--fn-border-primary, #e8e9ed);
+  border-bottom: 0;
+}
+.imageControls {
+  gap: 4px;
+  > span {
+    min-width: 44px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+}
+@container (max-width: 420px) {
+  .previewActionText {
+    display: none;
+  }
+  .previewHeader {
+    padding: 8px;
+  }
+  .previewFileIcon {
+    display: none;
+  }
+}
+.annotatedPreview {
+  position: relative;
+  container-type: inline-size;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.annotationPane {
+  width: 300px;
+  flex-shrink: 0;
+  min-height: 0;
+  display: flex;
+  > * {
+    width: 100%;
+    min-width: 0;
+    max-height: none;
+  }
+}
+.resourceProof {
+  font-size: 11px;
+  color: var(--fn-text-tertiary);
+  summary {
+    cursor: pointer;
+  }
+}
+@container (max-width:700px) {
+  .annotatedPreview:has(.imageControls) .annotationPane {
+    top: 104px;
+  }
+  .annotationPane {
+    position: absolute;
+    z-index: 10;
+    right: 8px;
+    top: 64px;
+    bottom: 8px;
+    width: min(320px, calc(100% - 16px));
+    background: var(--fn-bg-elevated, #fff);
+    border: 1px solid var(--fn-border-primary, #e8e9ed);
+    border-radius: 10px;
+    box-shadow: 0 8px 28px #0002;
+    overflow: hidden;
+  }
+}
+.imageRegion {
+  position: relative;
+  align-self: center;
+  flex-shrink: 0;
+  max-width: 100%;
+  touch-action: none;
+  img {
+    display: block;
+    max-width: 100%;
+  }
+}
+.region {
+  position: absolute;
+  border: 2px solid #3b82f6;
+  background: #3b82f622;
+  pointer-events: none;
 }
 .preview img,
 .preview video {

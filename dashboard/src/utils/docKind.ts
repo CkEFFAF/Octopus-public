@@ -8,7 +8,7 @@
 export type DocKind = "pdf" | "word" | "excel" | "pptx" | "ppt";
 
 const WORD_EXT = new Set(["docx", "doc"]);
-const EXCEL_EXT = new Set(["xlsx", "xls", "xlsm"]);
+const EXCEL_EXT = new Set(["xlsx", "xls", "xlsm", "csv", "tsv"]);
 
 export function getDocKind(path: string): DocKind | null {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";

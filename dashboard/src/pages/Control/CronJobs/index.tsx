@@ -31,6 +31,7 @@ import PageShell from "../../../layouts/PageShell";
 import { useAgent } from "../../../context/AgentContext";
 import { taskExampleColumns } from "./taskExamples";
 import { useTaskExamples } from "./useTaskExamples";
+import ScheduleBrowser from "../../../components/ScheduleBrowser";
 import styles from "./index.module.less";
 
 type CronJob = CronJobSpecOutput;
@@ -89,6 +90,7 @@ function CronJobsEmptyState({
 }
 
 function CronJobsPage() {
+  const [scheduleTab, setScheduleTab] = useState("schedules");
   const { t } = useTranslation();
   const { isMobile, viewMode, setViewMode, showCardView } =
     useCardTableView("table");
@@ -274,147 +276,170 @@ function CronJobsPage() {
       subtitle={t("pageShell.tasks.subtitle")}
       agentScoped
     >
-      {activeAgent?.bridge ? (
-        <Alert
-          type="info"
-          showIcon
-          message={t("chat.remoteExpert.editBanner")}
-          description={t("chat.remoteExpert.editTasks")}
-          style={{ marginBottom: 12 }}
+      <Segmented
+        value={scheduleTab}
+        onChange={(v) => setScheduleTab(String(v))}
+        options={[
+          { value: "schedules", label: t("workspace0034.schedules") },
+          { value: "reminders", label: t("workspace0034.reminders") },
+          { value: "manage", label: t("workspace0034.scheduleManage") },
+        ]}
+      />
+      {scheduleTab !== "manage" && (
+        <ScheduleBrowser
+          agentId={activeAgentId}
+          reminder={scheduleTab === "reminders"}
         />
-      ) : null}
-      {showToolbar ? (
-        <div className={styles.gridToolbar}>
-          <span className={styles.gridCount}>
-            {t("cronJobs.totalItems", { count: jobs.length })}
-            {contentBusy ? (
-              <span className={styles.refreshHint}>
-                {" · "}
-                {listStale ? t("cronJobs.loadingJobs") : t("cronJobs.syncing")}
-              </span>
-            ) : null}
-          </span>
-          <div className={styles.gridToolbarRight}>
-            <Segmented
-              size="small"
-              value={viewMode}
-              onChange={(v) => setViewMode(v as "table" | "card")}
-              options={[
-                {
-                  value: "table",
-                  label: (
-                    <span className={styles.viewModeLabel}>
-                      <List size={14} />
-                      {t("cronJobs.viewTable")}
-                    </span>
-                  ),
-                },
-                {
-                  value: "card",
-                  label: (
-                    <span className={styles.viewModeLabel}>
-                      <LayoutGrid size={14} />
-                      {t("cronJobs.viewCard")}
-                    </span>
-                  ),
-                },
-              ]}
-            />
-            <Tooltip title={t("common.refresh")}>
-              <Button
-                icon={<RefreshCw size={15} />}
-                loading={refreshing || listRefreshing || listStale}
-                onClick={() => void handleRefresh()}
-              />
-            </Tooltip>
-            <Button type="primary" onClick={handleCreate} disabled={listStale}>
-              + {t("cronJobs.createJob")}
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {showBodySpinner ? (
-        <div className={styles.firstLoad}>
-          <Spin />
-        </div>
-      ) : showEmpty ? (
-        <CronJobsEmptyState
-          onCreate={handleCreate}
-          onSuggestionClick={handleSuggestionClick}
-          suggestions={taskExamples}
-        />
-      ) : (
-        <div
-          className={`${styles.listShell} ${
-            contentBusy ? styles.listShellBusy : ""
-          }`}
-        >
-          {contentBusy ? (
-            <div className={styles.listBusyBar} aria-hidden>
-              <Spin size="small" />
-            </div>
-          ) : null}
-          {showCardView ? (
-            <div className={styles.cardGrid}>
-              {jobs.map((job) => (
-                <CronJobCard
-                  key={job.id}
-                  job={job}
-                  timeZone={cronTimezone}
-                  onToggleEnabled={handleToggleEnabled}
-                  onExecuteNow={handleExecuteNow}
-                  onEdit={handleEdit}
-                  onDelete={handleDelete}
-                />
-              ))}
-            </div>
-          ) : (
-            <ResizableTable
-              className={styles.cronTable}
-              columns={columns}
-              dataSource={jobs}
-              rowKey="id"
-              size="middle"
-              tableLayout="fixed"
-              scroll={{ x: 1562 }}
-              storageKey="cron-jobs-table-widths"
-              minWidth={72}
-              pagination={{
-                pageSize: 10,
-                showSizeChanger: false,
-                showTotal: (total) =>
-                  t("cronJobs.totalItems", { count: total }),
-              }}
-            />
-          )}
-        </div>
       )}
+      <div hidden={scheduleTab !== "manage"}>
+        {activeAgent?.bridge ? (
+          <Alert
+            type="info"
+            showIcon
+            message={t("chat.remoteExpert.editBanner")}
+            description={t("chat.remoteExpert.editTasks")}
+            style={{ marginBottom: 12 }}
+          />
+        ) : null}
+        {showToolbar ? (
+          <div className={styles.gridToolbar}>
+            <span className={styles.gridCount}>
+              {t("cronJobs.totalItems", { count: jobs.length })}
+              {contentBusy ? (
+                <span className={styles.refreshHint}>
+                  {" · "}
+                  {listStale
+                    ? t("cronJobs.loadingJobs")
+                    : t("cronJobs.syncing")}
+                </span>
+              ) : null}
+            </span>
+            <div className={styles.gridToolbarRight}>
+              <Segmented
+                size="small"
+                value={viewMode}
+                onChange={(v) => setViewMode(v as "table" | "card")}
+                options={[
+                  {
+                    value: "table",
+                    label: (
+                      <span className={styles.viewModeLabel}>
+                        <List size={14} />
+                        {t("cronJobs.viewTable")}
+                      </span>
+                    ),
+                  },
+                  {
+                    value: "card",
+                    label: (
+                      <span className={styles.viewModeLabel}>
+                        <LayoutGrid size={14} />
+                        {t("cronJobs.viewCard")}
+                      </span>
+                    ),
+                  },
+                ]}
+              />
+              <Tooltip title={t("common.refresh")}>
+                <Button
+                  icon={<RefreshCw size={15} />}
+                  loading={refreshing || listRefreshing || listStale}
+                  onClick={() => void handleRefresh()}
+                />
+              </Tooltip>
+              <Button
+                type="primary"
+                onClick={handleCreate}
+                disabled={listStale}
+              >
+                + {t("cronJobs.createJob")}
+              </Button>
+            </div>
+          </div>
+        ) : null}
 
-      <JobDrawer
-        open={drawerOpen}
-        editingJob={editingJob}
-        activeAgentId={activeAgentId}
-        cronTimezone={cronTimezone}
-        form={form}
-        onClose={handleDrawerClose}
-        onSubmit={handleSubmit}
-      />
+        {showBodySpinner ? (
+          <div className={styles.firstLoad}>
+            <Spin />
+          </div>
+        ) : showEmpty ? (
+          <CronJobsEmptyState
+            onCreate={handleCreate}
+            onSuggestionClick={handleSuggestionClick}
+            suggestions={taskExamples}
+          />
+        ) : (
+          <div
+            className={`${styles.listShell} ${
+              contentBusy ? styles.listShellBusy : ""
+            }`}
+          >
+            {contentBusy ? (
+              <div className={styles.listBusyBar} aria-hidden>
+                <Spin size="small" />
+              </div>
+            ) : null}
+            {showCardView ? (
+              <div className={styles.cardGrid}>
+                {jobs.map((job) => (
+                  <CronJobCard
+                    key={job.id}
+                    job={job}
+                    timeZone={cronTimezone}
+                    onToggleEnabled={handleToggleEnabled}
+                    onExecuteNow={handleExecuteNow}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                  />
+                ))}
+              </div>
+            ) : (
+              <ResizableTable
+                className={styles.cronTable}
+                columns={columns}
+                dataSource={jobs}
+                rowKey="id"
+                size="middle"
+                tableLayout="fixed"
+                scroll={{ x: 1562 }}
+                storageKey="cron-jobs-table-widths"
+                minWidth={72}
+                pagination={{
+                  pageSize: 10,
+                  showSizeChanger: false,
+                  showTotal: (total) =>
+                    t("cronJobs.totalItems", { count: total }),
+                }}
+              />
+            )}
+          </div>
+        )}
 
-      <JobDetailDrawer
-        open={detailDrawerOpen}
-        job={detailJob}
-        timeZone={cronTimezone}
-        onClose={handleDetailClose}
-      />
+        <JobDrawer
+          open={drawerOpen}
+          editingJob={editingJob}
+          activeAgentId={activeAgentId}
+          cronTimezone={cronTimezone}
+          form={form}
+          onClose={handleDrawerClose}
+          onSubmit={handleSubmit}
+        />
 
-      <ExecuteNowModal
-        open={executingJob !== null}
-        job={executingJob}
-        loading={executing}
-        onCancel={handleExecuteNowCancel}
-        onConfirm={handleExecuteNowConfirm}
-      />
+        <JobDetailDrawer
+          open={detailDrawerOpen}
+          job={detailJob}
+          timeZone={cronTimezone}
+          onClose={handleDetailClose}
+        />
+
+        <ExecuteNowModal
+          open={executingJob !== null}
+          job={executingJob}
+          loading={executing}
+          onCancel={handleExecuteNowCancel}
+          onConfirm={handleExecuteNowConfirm}
+        />
+      </div>
     </PageShell>
   );
 }

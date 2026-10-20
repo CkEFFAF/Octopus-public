@@ -11,6 +11,7 @@ import {
   executionSelectionReady,
 } from "./deviceTarget";
 import { useTranslation } from "react-i18next";
+import { parseApiError } from "../../../utils/apiError";
 import { showApiError } from "../../../utils/showApiToast";
 import {
   canonicalizeDockFilePath,
@@ -33,6 +34,7 @@ const LEGACY_FILE_SIZE_KEY = "octop:file-panel:size";
 const LEGACY_BROWSER_SIZE_KEY = "octop:browser-panel:size";
 
 export type DockTab =
+  | { id: "target-required"; kind: "target-required" }
   | { id: "files"; kind: "files" }
   | { id: "workspace"; kind: "workspace" }
   | { id: "browser"; kind: "browser" }
@@ -259,6 +261,16 @@ export function useChatDockPanel(
         setActiveTabId(id);
         openDock();
       } catch (error) {
+        if (parseApiError(error)?.code === "EXECUTION_TARGET_REQUIRED") {
+          setOpenTabs((tabs) =>
+            tabs.some((tab) => tab.id === "target-required")
+              ? tabs
+              : [...tabs, { id: "target-required", kind: "target-required" }],
+          );
+          setActiveTabId("target-required");
+          openDock();
+          return true;
+        }
         showApiError(error, t("devices.loadFailed"), t);
       }
       return true;
@@ -418,6 +430,13 @@ export function useChatDockPanel(
 
   const toggleWorkspacePanel = useCallback(() => {
     void openExecutionTab("workspace");
+  }, [openExecutionTab]);
+
+  useEffect(() => {
+    const open = () => void openExecutionTab("workspace");
+    window.addEventListener("octop:open-workspace-after-target", open);
+    return () =>
+      window.removeEventListener("octop:open-workspace-after-target", open);
   }, [openExecutionTab]);
 
   const toggleBrowserPanel = useCallback(() => {

@@ -7,6 +7,7 @@ import {
   deviceWorkspaceUrl,
   workspaceView,
   supportsWorkspaceView,
+  nativeParentPath,
 } from "./helpers";
 
 const device: Device = {
@@ -21,6 +22,25 @@ const device: Device = {
   last_seen_at: null,
   revoked_at: null,
 };
+
+describe("native parent directory navigation", () => {
+  it.each([
+    ["D:/samples/workspace", true, "D:/samples"],
+    ["D:/samples/", true, "D:/"],
+    ["D:/", true, "D:/"],
+    [String.raw`D:\samples\workspace`, true, String.raw`D:\samples`],
+    ["D:\\", true, "D:\\"],
+    [String.raw`\\server\share\folder`, true, String.raw`\\server\share`],
+    ["\\\\server\\share\\", true, String.raw`\\server\share`],
+    ["/home/owner/workspace/", false, "/home/owner"],
+    ["/home", false, "/"],
+    ["/", false, "/"],
+    ["/home/../", false, "/home/../.."],
+    [".", false, "./.."],
+  ])("%s → %s", (path, windows, expected) => {
+    expect(nativeParentPath(path, windows)).toBe(expected);
+  });
+});
 
 describe("device permission gates", () => {
   it("requires both desktop grants for input", () => {

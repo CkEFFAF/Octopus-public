@@ -181,6 +181,12 @@ describe("TrajectoryInspector", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Preview" }));
 
+    // A cold lazy Markdown import first renders plaintext; wait for the actual renderer.
+    await screen.findByRole(
+      "heading",
+      { level: 2, name: "Rules" },
+      { timeout: 10000 },
+    );
     await waitFor(() => {
       expect(eventMock).toHaveBeenCalledWith("A1", "T1", "ctx-1");
       const preview = screen.getByTestId("trajectory-preview");
@@ -192,7 +198,7 @@ describe("TrajectoryInspector", () => {
       );
       expect(preview).not.toHaveTextContent("summary: meta");
     });
-  });
+  }, 15000);
 
   it("labels the middle tab Result for tool events", () => {
     render(

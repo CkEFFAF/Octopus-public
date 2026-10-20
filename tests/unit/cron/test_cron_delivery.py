@@ -289,7 +289,7 @@ async def test_agent_strips_orphan_thinking_prefix() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fresh_thread_resets_before_require_session() -> None:
+async def test_fresh_thread_checks_authority_before_reset_and_reloads_session() -> None:
     session = _session(channel_type="feishu")
     order: list[str] = []
 
@@ -313,7 +313,7 @@ async def test_fresh_thread_resets_before_require_session() -> None:
         repos=MagicMock(),
     )
     await service.deliver(_command(fresh_thread=True, task_type="text"))
-    assert order == ["reset", "require"]
+    assert order == ["require", "reset", "require"]
 
 
 @pytest.mark.asyncio
