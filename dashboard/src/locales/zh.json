@@ -1644,6 +1644,11 @@
     "path_outside_root": "文件路径超出当前专家的存储根目录，无法读写。请改用存储根目录内的路径，或在专家设置中扩大存储根目录（Windows 上请显式指定盘符路径，例如 D:/octop-data）。"
   },
   "chat": {
+    "capabilitySaved": "已保存",
+    "capabilityAfterTurn": "已保存，本回合结束后生效",
+    "capabilityNextRequest": "下次模型请求生效",
+    "capabilityFailed": "操作失败",
+    "capabilityTestPassed": "探测通过",
     "resizeComposer": "调整输入区高度",
     "contextInspect": {
       "sourceTypes": {
@@ -2503,6 +2508,26 @@
     "octop_expert_get": "读取专家配置",
     "octop_expert_create": "创建专家",
     "octop_expert_update": "配置专家",
+    "octop_connector_catalog": "查看连接器配置要求",
+    "octop_connector_list": "列出连接器",
+    "octop_connector_get": "读取连接器设置",
+    "octop_connector_create": "创建连接器",
+    "octop_connector_update": "更新连接器",
+    "octop_connector_test": "测试连接器",
+    "octop_connector_attach": "启用连接器",
+    "octop_skill_list": "查看技能",
+    "octop_skill_search": "搜索技能",
+    "octop_skill_install": "安装技能",
+    "octop_skill_save": "编写技能",
+    "octop_skill_set_enabled": "设置技能开关",
+    "octop_plugin_catalog": "查看插件目录",
+    "octop_plugin_install": "安装插件",
+    "octop_plugin_set_enabled": "设置专家插件",
+    "octop_tool_list": "查看工具",
+    "octop_tool_set_enabled": "设置工具开关",
+    "octop_mcp_list": "查看 MCP 服务",
+    "octop_mcp_upsert": "配置 MCP 服务",
+    "octop_mcp_test": "测试 MCP 服务",
     "octop_subagent_catalog": "查找子代理模板",
     "octop_subagent_list": "列出子代理",
     "octop_subagent_get": "读取子代理",
@@ -6565,6 +6590,9 @@
     }
   },
   "connectors": {
+    "agentConfigurationHint": "可在对话中让 Agent 配置连接器或 MCP，保存后列表会同步更新。需要用户同意的 OAuth 授权仍在服务商页面完成。",
+    "imapPort": "IMAP TLS 端口",
+    "smtpPort": "SMTP TLS 端口（465 / 587）",
     "tabMine": "我的连接",
     "loadFailed": "加载连接器失败",
     "tabCatalog": "服务目录",

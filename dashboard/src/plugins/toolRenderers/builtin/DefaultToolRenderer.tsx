@@ -8,6 +8,7 @@ import {
   parseStructuredToolOutput,
 } from "../../../utils/toolMediaBlocks";
 import { formatToolArguments } from "../../../utils/formatToolArguments";
+import { nativeCapabilityStatus } from "../../../utils/nativeCapabilityReceipt";
 import {
   useToolDisplayNames,
   resolveToolLabel,
@@ -130,7 +131,12 @@ export function DefaultToolRenderer({
         : null,
     [toolData.arguments, toolName, toolData.output],
   );
-  const statusLabel = completed
+  const capabilityStatus = completed
+    ? nativeCapabilityStatus(toolName, output)
+    : null;
+  const statusLabel = capabilityStatus
+    ? t(`chat.${capabilityStatus}`)
+    : completed
     ? t("common.done", "Done")
     : running
     ? t("common.running", "Running")

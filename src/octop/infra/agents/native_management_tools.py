@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from functools import wraps
+from types import CodeType
 from typing import TYPE_CHECKING, Any, cast
 
 from langchain_core.tools import StructuredTool
@@ -28,6 +29,11 @@ from octop.infra.utils.ulid import new_ulid
 
 if TYPE_CHECKING:
     from octop.infra.history.sharing import ThreadSharingService
+
+
+# Only the static argument models are reusable. Tools and their authenticated
+# closures must be rebuilt for each manager/expert, never cached across accounts.
+_ARGUMENT_SCHEMAS: dict[CodeType, type[BaseModel]] = {}
 
 
 def message_text(wire: Any, *, limit: int = 4000) -> tuple[str, bool]:
@@ -97,7 +103,12 @@ def build_native_management_tools(
                     repos.audit_repo.write(
                         actor=f"agent:{agent_id}:user:{user.id}",
                         action=func.__name__,
-                        target=str(value.get("agent_id") or value.get("thread_id") or agent_id),
+                        target=str(
+                            value.get("instance_id")
+                            or value.get("agent_id")
+                            or value.get("thread_id")
+                            or agent_id
+                        ),
                         payload=json.dumps({"status": "saved" if writes else "read"}),
                     )
                     return json.dumps(value, ensure_ascii=False)
@@ -112,12 +123,41 @@ def build_native_management_tools(
                     envelope = (
                         exc.to_envelope() if isinstance(exc, OctopError) else {"error": str(exc)}
                     )
+                    if func.__name__.startswith("octop_connector_"):
+                        from octop.infra.connectors.credentials import redact_credential_values
+
+                        kind = kwargs.get("kind") or ""
+                        instance = repos.connector_repo.get(kwargs.get("instance_id") or "")
+                        if instance is not None and instance.user_id == cfg.get("user"):
+                            kind = instance.kind
+                            envelope = redact_credential_values(
+                                envelope,
+                                manager._connector_svc.decrypt(instance.instance_id),
+                                kind=kind,
+                            )
+                        envelope = redact_credential_values(
+                            envelope, kwargs.get("credentials") or {}, kind=kind
+                        )
+                    if func.__name__.startswith("octop_mcp_"):
+                        from octop.infra.agents.native_extension_tools import redact_mcp_result
+
+                        user = repos.user_repo.get(int(cfg.get("user") or 0))
+                        if user is not None and not user.disabled:
+                            stored = manager._connector_svc.get_custom_servers(user.id).get(
+                                kwargs.get("name")
+                            )
+                            if isinstance(stored, dict):
+                                envelope = redact_mcp_result(envelope, stored)
+                        envelope = redact_mcp_result(envelope, kwargs.get("server") or {})
                     return json.dumps(envelope, ensure_ascii=False)
 
-            tool = StructuredTool.from_function(coroutine=invoke)
-            schema = cast(type[BaseModel], tool.args_schema)
-            schema.model_config["extra"] = "forbid"
-            schema.model_rebuild(force=True)
+            schema = _ARGUMENT_SCHEMAS.get(func.__code__)
+            tool = StructuredTool.from_function(coroutine=invoke, args_schema=schema)
+            if schema is None:
+                schema = cast(type[BaseModel], tool.args_schema)
+                schema.model_config["extra"] = "forbid"
+                schema.model_rebuild(force=True)
+                _ARGUMENT_SCHEMAS[func.__code__] = schema
             tools.append(tool)
             return invoke
 
@@ -316,6 +356,18 @@ def build_native_management_tools(
             ),
             "rules": "Only owned resources can be changed. Ask/Plan are read-only. Device selection affects later turns. Team members are dispatched with ask_agent. Foreign shared members support text collaboration only; cross-account device execution is unsupported. Publish a conversation snapshot only when the user explicitly requests external sharing; preview the exact public text first and use its digest. Never publish automatically.",
         }
+
+    from octop.infra.agents.native_connector_tools import register_connector_tools
+
+    register_connector_tools(
+        manager, repos, agent_id, identity=identity, owned=owned, operation=operation
+    )
+
+    from octop.infra.agents.native_extension_tools import register_extension_tools
+
+    register_extension_tools(
+        manager, repos, agent_id, identity=identity, owned=owned, operation=operation
+    )
 
     @operation()
     async def octop_resource_list() -> dict[str, Any]:

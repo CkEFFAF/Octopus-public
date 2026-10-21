@@ -4,6 +4,7 @@ import { App } from "antd";
 import { useTranslation } from "react-i18next";
 import { request } from "../../../api/request";
 import { useAsyncResource } from "../../../hooks/useAsyncResource";
+import { useNativeCapabilityRefresh } from "../../../hooks/useNativeCapabilityRefresh";
 import { parseApiError } from "../../../utils/apiError";
 import { showApiError } from "../../../utils/showApiToast";
 
@@ -144,6 +145,8 @@ export function useSkills(
       logLabel: "Skills",
     },
   );
+
+  useNativeCapabilityRefresh(enabled ? agentId : null, "skills", fetchSkills);
 
   const getDetail = useCallback(
     async (slug: string): Promise<SkillDetail | null> => {

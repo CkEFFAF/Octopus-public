@@ -320,6 +320,10 @@ User-facing datetime display and cron/scheduling defaults MUST use the server ti
 
 **Connectors:** `infra/connectors/` — catalog, OAuth registry, MCP gateway; HTTP surface in `api/routers/connectors.py`.
 
+**Native capability configuration:** `infra/agents/native_connector_tools.py` and `native_extension_tools.py` register through the authenticated/audited wrapper in `native_management_tools.py`. Connector/MCP writes require the `connectors` module; server-wide plugin installation requires `plugins`; workspace skills and expert switches require ownership. Do not borrow host credentials or rebuild an active graph. Skills/connectors use live configuration; graph-bound plugin additions queue reloads after active turns. Shared credential preparation lives in `infra/connectors/credentials.py`, and skill content goes through canonical package validation and Harness workspace APIs.
+
+Native parameter models may be reused by function code, but StructuredTool instances and identity/resource closures must remain expert/manager specific. Reload concurrency tests use explicit start/release gates; wall-clock watchdogs detect deadlocks rather than requiring a loaded Windows runner to schedule within a subsecond sleep.
+
 **Metrics:** `from octop.infra.metrics import METRICS` — lazy-import inside functions to avoid circular imports.
 
 **API docs:** Interactive docs live at `/api/docs` (Scalar, backed by `/api/openapi.json`). When adding or changing API routes, keep the generated docs readable for humans:
