@@ -8,6 +8,28 @@ const items = [
 ];
 
 describe("queued message controls", () => {
+  it("lets an unconfirmed receipt be dismissed without inserting or reclaiming it", async () => {
+    const onSteer = vi.fn();
+    const onReclaim = vi.fn();
+    const onDismiss = vi.fn().mockResolvedValue(true);
+    render(
+      <ChatQueuedMessages
+        items={[{ ...items[0], status: "unknown" }]}
+        onReclaim={onReclaim}
+        onSteer={onSteer}
+        onDismiss={onDismiss}
+        canSteer
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "chat.steer.immediateAction" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "chat.queue.dismiss" }));
+    await act(async () => {});
+    expect(onDismiss).toHaveBeenCalledExactlyOnceWith("first");
+    expect(onSteer).not.toHaveBeenCalled();
+    expect(onReclaim).not.toHaveBeenCalled();
+  });
   it("inserts only the selected queued message and blocks duplicate clicks while pending", async () => {
     let resolve!: (value: boolean) => void;
     const onSteer = vi.fn(
@@ -30,7 +52,7 @@ describe("queued message controls", () => {
     })[1];
     fireEvent.click(insert);
     fireEvent.click(insert);
-    expect(onSteer).toHaveBeenCalledExactlyOnceWith("second");
+    expect(onSteer).toHaveBeenCalledExactlyOnceWith("second", false);
     expect(onReclaim).not.toHaveBeenCalled();
     expect(
       screen.getAllByRole("button", { name: "chat.queue.withdraw" })[0],
@@ -38,6 +60,26 @@ describe("queued message controls", () => {
     await act(async () => resolve(false));
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
     expect(insert).toBeEnabled();
+  });
+
+  it("offers immediate interruption for the selected queued message", async () => {
+    const onSteer = vi.fn().mockResolvedValue(true);
+    render(
+      <ChatQueuedMessages
+        items={items}
+        onReclaim={vi.fn()}
+        onSteer={onSteer}
+        canSteer
+      />,
+    );
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "chat.steer.immediateAction" })[1],
+    );
+    await act(async () => {});
+    expect(onSteer).toHaveBeenCalledExactlyOnceWith("second", true);
+    expect(
+      screen.getAllByRole("button", { name: "chat.steer.action" }),
+    ).toHaveLength(2);
   });
 
   it("withdraws the selected message for editing without inserting it", () => {
@@ -76,10 +118,10 @@ describe("queued message controls", () => {
         canSteer
       />,
     );
-    for (const button of screen.getAllByRole("button", {
-      name: "chat.steer.action",
-    })) {
-      expect(button).toBeDisabled();
+    for (const name of ["chat.steer.action", "chat.steer.immediateAction"]) {
+      for (const button of screen.getAllByRole("button", { name })) {
+        expect(button).toBeDisabled();
+      }
     }
     expect(
       screen.getAllByRole("button", { name: "chat.queue.withdraw" })[2],

@@ -271,6 +271,11 @@ class QueuedInputBody(BaseModel):
 
 class PromoteQueuedInputBody(BaseModel):
     run_id: str = Field(min_length=1, max_length=128)
+    cancel_tools: bool = Field(
+        default=False,
+        strict=True,
+        description="Interrupt current tool waits before insertion; external work may continue.",
+    )
 
 
 class ActiveChatRunBody(BaseModel):

@@ -8,6 +8,7 @@
 
 ### 新增
 
+- 排队消息新增“立即打断并插入”，可中断当前工具等待并返回被用户打断的结果；保留“等工具结束后插入”，同步显示插入状态及外部后台任务可能继续运行的提示。
 - 0025 S0：设备 `capability_policy_json` 能力策略包；MCP resolve 在 apply_defaults 时并入「专家 ∪ 设备包 ∪ 账号 default_open」，Dashboard `[]` 同时退出账号与设备默认；Device Manager 可编辑并告警缺失 MCP；提供 seed API/脚本（不改写专家名单）。
 - 数据面韧性（0026 S0）：备份 integrity sidecar（sha256）、异地 hook/rsync、失败 webhook 告警、`octop backup verify` / `health-check` / `drill`、本地 auto retention 默认 14、生产 `OCTOP_HOME`/`OctopData` 文档统一。
 - 0028 S0 执行隔离：team host 无 MCP hard invariant 回归（含模拟设备包/default_open/显式名单）；Linux 非根 `root_dir` 的 bwrap 门禁（`OCTOP_REQUIRE_BWRAP` / 生产默认）；开发/生产 `OCTOP_HOME` 标记与启动检查；管理端 egress 允许名单骨架与 ops 文档。
@@ -16,6 +17,7 @@
 
 ### 修复
 
+- 自提醒运行同步插入完成与结束状态；根据已落盘的对应用户消息修复漏回执，未确认状态可单独清除且不会重发消息或停止后台任务。
 - 专家派发按实际被调用专家、会话和运行重新绑定执行上下文，保留继承、专家默认与显式目标策略，以及账户、权限版本和只读模式边界。
 - 上下文占比读取当前会话模型容量与专家运行上限，区分真实配置和兼容回退；模型调用、模型切换和会话切换后刷新圆环，管理端重启后不再用累计计费用量代替单次请求占用。
 - 原生专家创建和修改工具支持经过归属校验的默认设备绑定及清除，返回保存后的设备摘要；派发工具明确说明如何选择专家默认设备或显式设备。

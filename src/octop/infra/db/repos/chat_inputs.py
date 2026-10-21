@@ -105,6 +105,29 @@ class ChatInputRepo:
             )
         return bool(result.rowcount)
 
+    def reconcile_applied(self, owner: int, agent_id: str, thread_id: str) -> None:
+        """Repair missed receipts only when the canonical inserted user message exists."""
+        confirmed: list[tuple[str, str]] = []
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT status,payload_json FROM run_events WHERE owner_user_id=? "
+                "AND agent_id=? AND thread_id=? AND kind='chat_steer' "
+                "AND status IN ('requested','accepted','unknown')",
+                (owner, agent_id, thread_id),
+            ).fetchall()
+            for row in rows:
+                command_id = json.loads(row["payload_json"]).get("command_id")
+                if not isinstance(command_id, str) or not command_id:
+                    continue
+                if conn.execute(
+                    "SELECT 1 FROM thread_messages WHERE thread_id=? "
+                    "AND message_id=? AND role IN ('human','user')",
+                    (thread_id, f"steer:{command_id}"),
+                ).fetchone():
+                    confirmed.append((command_id, row["status"]))
+        for command_id, previous in confirmed:
+            self.transition(owner, command_id, previous, "applied")
+
     def promote_queued_to_steer(
         self,
         owner: int,
@@ -113,6 +136,8 @@ class ChatInputRepo:
         command_id: str,
         run_id: str,
         text: str,
+        *,
+        cancel_tools: bool = False,
     ) -> tuple[dict[str, Any] | None, bool]:
         """Atomically reserve a queued receipt for one direct-insertion attempt."""
         identity = self.event_id(owner, command_id)
@@ -127,7 +152,7 @@ class ChatInputRepo:
                 raise ValueError("command_conflict")
             payload = json.loads(row["payload_json"])
             if row["kind"] == "chat_steer" and payload.get("_promoted_from_queue"):
-                if row["run_id"] != run_id:
+                if row["run_id"] != run_id or bool(payload.get("cancel_tools")) != cancel_tools:
                     raise ValueError("command_conflict")
                 return RunEventRepo._public(row), False
             if row["kind"] != "chat_input" or row["status"] != "queued":
@@ -135,6 +160,8 @@ class ChatInputRepo:
 
             payload["_promoted_from_queue"] = True
             payload["text"] = text
+            if cancel_tools:
+                payload["cancel_tools"] = True
             result = conn.execute(
                 "UPDATE run_events SET kind = 'chat_steer', run_id = ?, status = 'requested', "
                 "payload_json = ?, updated_at = ? WHERE owner_user_id = ? AND agent_id = ? "
@@ -173,6 +200,7 @@ class ChatInputRepo:
             if not payload.pop("_promoted_from_queue", False):
                 return None
             payload.pop("text", None)
+            payload.pop("cancel_tools", None)
             result = conn.execute(
                 "UPDATE run_events SET kind = 'chat_input', run_id = ?, status = 'queued', "
                 "payload_json = ?, updated_at = ? WHERE owner_user_id = ? AND event_id = ? "

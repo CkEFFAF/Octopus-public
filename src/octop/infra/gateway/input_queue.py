@@ -50,6 +50,7 @@ class ChatInputQueue:
     def list(self, owner: int, agent_id: str, thread_id: str) -> dict[str, Any]:
         self.assert_scope(owner, agent_id, thread_id)
         supported = self._supports_persistent_inputs(agent_id)
+        self.repos.chat_input_repo.reconcile_applied(owner, agent_id, thread_id)
         return {
             "inputs": self.repos.chat_input_repo.list(owner, agent_id, thread_id),
             "runtime": self.agents.steering_status(agent_id, thread_id),
@@ -141,8 +142,33 @@ class ChatInputQueue:
             "phase": outcome["phase"],
         }
 
+    def dismiss(self, owner: int, agent_id: str, thread_id: str, command_id: str) -> dict[str, Any]:
+        """Hide a terminal/unconfirmed receipt without cancelling or replaying work."""
+        self.assert_scope(owner, agent_id, thread_id)
+        item = self.repos.chat_input_repo.get(owner, command_id)
+        if item is None or item["agent_id"] != agent_id or item["thread_id"] != thread_id:
+            raise OctopError(ErrorCode.NOT_FOUND, "chat input not found")
+        if item["status"] == "dismissed":
+            return item
+        if item["status"] not in {
+            "unknown",
+            "failed",
+            "rejected",
+        } or not self.repos.chat_input_repo.transition(
+            owner, command_id, item["status"], "dismissed"
+        ):
+            raise ValueError("input_not_dismissible")
+        return self.repos.chat_input_repo.get(owner, command_id) or item
+
     def promote_to_steer(
-        self, owner: int, agent_id: str, thread_id: str, command_id: str, run_id: str
+        self,
+        owner: int,
+        agent_id: str,
+        thread_id: str,
+        command_id: str,
+        run_id: str,
+        *,
+        cancel_tools: bool = False,
     ) -> dict[str, Any]:
         self.assert_scope(owner, agent_id, thread_id)
         if not self._supports_persistent_inputs(agent_id):
@@ -152,7 +178,7 @@ class ChatInputQueue:
             raise OctopError(ErrorCode.NOT_FOUND, "chat input not found")
         payload = item["payload"]
         if item["kind"] == "chat_steer" and payload.get("_promoted_from_queue"):
-            if item["run_id"] != run_id:
+            if item["run_id"] != run_id or bool(payload.get("cancel_tools")) != cancel_tools:
                 raise ValueError("command_conflict")
             return item
         if item["kind"] != "chat_input" or item["status"] != "queued":
@@ -178,7 +204,7 @@ class ChatInputQueue:
         assert isinstance(text, str)
 
         promoted, claimed = self.repos.chat_input_repo.promote_queued_to_steer(
-            owner, agent_id, thread_id, command_id, run_id, text.strip()
+            owner, agent_id, thread_id, command_id, run_id, text.strip(), cancel_tools=cancel_tools
         )
         if promoted is None:
             raise OctopError(ErrorCode.NOT_FOUND, "chat input not found")
@@ -186,7 +212,12 @@ class ChatInputQueue:
             return promoted
         try:
             outcome = self.agents.steer_stream(
-                agent_id, thread_id, command_id, text.strip(), run_id=run_id
+                agent_id,
+                thread_id,
+                command_id,
+                text.strip(),
+                run_id=run_id,
+                **({"cancel_tools": True} if cancel_tools else {}),
             )
         except Exception:
             logger.exception("Promoted chat input outcome is unknown command=%s", command_id)

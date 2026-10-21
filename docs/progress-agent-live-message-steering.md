@@ -1,5 +1,67 @@
 # 0033 runtime message insertion — implementation progress
 
+## 2026-10-21 combined release
+
+The user explicitly authorized merging and deploying both unreleased revisions.
+They are being published together from `hotfix/immediate-steering-and-receipts`.
+The latest full regression remains5050passed157skipped; the normal pre-commit
+gate is required before publication. A workspace GNU make4.4.1 is available when
+run outside the Windows sandbox. Hub cutover must wait for idle, preserve device
+and GPU work, and verify the exact merged source, built static and pinned Harness.
+PR, CI and deployment completion are recorded separately in the release evidence.
+
+## 2026-10-21 revision5: stale self-reminder receipts
+
+The follow-up screenshots exposed an independent scheduled-delivery path that
+consumed insertion events without updating receipts or broadcasting control frames.
+Read-only production correlation proved one waiting receipt already had its exact
+inserted human message in history; a second unknown receipt had no such proof.
+No production task or database was mutated during diagnosis.
+
+Implemented scheduled control observation, explicit terminal/active-idle updates,
+canonical-message receipt repair, and a separate clear-status action that retains
+audit data without replaying or cancelling work. Pending work cannot be dismissed.
+The revision4 Harness artifact is unchanged. Final evidence: full non-live backend
+5050passed157skipped36warnings (494.53s,exit0),156cron/queue/API tests and84UI tests
+pass, Ruff/format and mypy pass, i18n76pass, TypeScript and production build pass.
+Both revisions are uncommitted and not
+deployed. Details: `docs/reviews/2026-10-21-stuck-steering-receipts.md`.
+
+## 2026-10-21 revision4: immediate insertion
+
+The user requested an additional action that interrupts a currently waiting tool
+and inserts the queued message immediately, plus matching UI. Implemented against
+the latest local application baseline `210529788395aa7ec953ea94cb7192582498beb9` in
+`octopus-connectors-skills-repair-20261019`; the historical worktrees below were
+not edited. Local code is uncommitted and has not been merged or deployed.
+
+Both queue-row choices are present: insert after tools finish, or interrupt and
+insert now. Immediate mode is bound to the authenticated run, persisted in its
+receipt and applied once. Current tool handler waits are cancelled, each call gets
+an interrupted ToolMessage, and the graph continues with the inserted input. A
+backend ignoring cancellation does not block insertion or supply a second result.
+The model/UI explicitly say external/background work may continue. Narrow-screen
+queue rows place status below the message text to preserve room for all actions.
+
+Verification: full non-live backend **5045 passed,158 skipped**; final installed
+wheel queue/API/real-graph regression **27 passed**; original Harness steering
+regression **10 passed**. Dashboard focus **26 passed** and broader chat-store/queue
+**71 passed** (overlapping runs), TypeScript/build pass. Application Ruff/format
+**1355 files**, mypy **672 files**; Harness Ruff/format **359 files**, mypy **194 files**.
+i18n **76 passed**. GNU make is absent; its applicable commands were run directly.
+The real component was clicked via ego-browser using synthetic callbacks; both
+modes selected the expected queue item and375px layout had no horizontal overflow.
+Screenshot capture was unavailable, so screenshots are not counted as evidence.
+Temporary preview files, browser space and server were removed/stopped.
+
+Final Harness `1.0.2.post4.dev4+interrupt.2` preserves all368unaffected runtime
+members; the three changed modules, readable patch, exact wheel/source archive and
+hash manifest are under `vendor/harness/`. All371installed runtime members match
+the full-suite-tested code and final lock. Full details and remaining execution
+limits: `docs/reviews/2026-10-21-immediate-steering.md`.
+
+## Historical progress
+
 Date: 2026-10-18 Asia/Shanghai. Spec: docs/specs/0033-agent-live-message-steering.md revision2.
 Branches: feat/agent-live-message-steering in app and companion Harness.
 App baseline 323f585; Harness baseline 6636ce2c4fed85c92f37da66459a218ddf158aef.

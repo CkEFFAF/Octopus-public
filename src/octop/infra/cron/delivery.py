@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from langchain_core.messages import AIMessage, HumanMessage
 
 from octop.i18n import tr
+from octop.i18n.domains.stream import format_stream_error
 from octop.infra.cron.task_type import CronTaskType, normalize_cron_task_type
 from octop.infra.gateway.process import build_harness_request
 from octop.infra.gateway.process.message_keys import COMPOSER_CTX_KEY, build_composer_context
@@ -198,6 +199,10 @@ class CronDeliveryService:
         usage = UsageTracker()
         parts: list[str] = []
         interaction_required = False
+        dashboard = session.channel_type == ThreadRegistry.CHANNEL_DASHBOARD
+        run_id = ""
+        terminal_seen = False
+        fallback_phase = "failed"
         try:
             from octop.infra.connectors.gateway.adapters.agently_cli import write_scope
 
@@ -205,6 +210,35 @@ class CronDeliveryService:
                 async for chunk in self._agent_manager.stream(command.agent_id, request):
                     tracker.observe(chunk)
                     usage.observe(chunk)
+                    kind = chunk.get("type")
+                    if dashboard and kind in {"run_phase", "steering_applied", "user"}:
+                        if kind == "run_phase":
+                            run_id = str(chunk.get("run_id") or run_id)
+                            terminal_seen = chunk.get("phase") in {
+                                "completed",
+                                "failed",
+                                "cancelled",
+                                "paused",
+                            }
+                        elif kind == "steering_applied":
+                            # The scheduled turn buffers public output. Preserve
+                            # its prior assistant text before the inserted user,
+                            # then deliver only the new answer at completion.
+                            prior = strip_thinking("".join(parts)).strip()
+                            if prior:
+                                await self._gateway.observe_dashboard_resume(
+                                    session.user_id,
+                                    command.agent_id,
+                                    session.thread_id,
+                                    {"type": "token", "content": prior},
+                                )
+                            parts.clear()
+                        await self._gateway.observe_dashboard_resume(
+                            session.user_id,
+                            command.agent_id,
+                            session.thread_id,
+                            chunk,
+                        )
                     if chunk.get("type") in ("token", "delta"):
                         parts.append(str(chunk.get("content") or chunk.get("text") or ""))
                     elif chunk.get("type") == "hitl_required":
@@ -214,10 +248,42 @@ class CronDeliveryService:
             outbound = strip_thinking("".join(parts)).strip()
             if not outbound:
                 raise RuntimeError("cron agent run produced no visible response")
+            fallback_phase = "completed"
+        except asyncio.CancelledError:
+            fallback_phase = "cancelled"
+            raise
+        except Exception as exc:
+            if dashboard:
+                locale = resolve_user_locale(
+                    user_repo=self._repos.user_repo,
+                    user_id=session.user_id,
+                    channel_type=session.channel_type,
+                )
+                await self._gateway.observe_dashboard_resume(
+                    session.user_id,
+                    command.agent_id,
+                    session.thread_id,
+                    {"type": "error", "message": format_stream_error(exc, locale)},
+                )
+            raise
         finally:
             # ``fresh_thread`` already put an empty thread on the session, so a run
             # that raised before this left a conversation with no rows at all.
             self._project_best_effort(session.thread_id, tracker.inputs)
+            if dashboard:
+                if run_id and not terminal_seen:
+                    await self._gateway.observe_dashboard_resume(
+                        session.user_id,
+                        command.agent_id,
+                        session.thread_id,
+                        {"type": "run_phase", "run_id": run_id, "phase": fallback_phase},
+                    )
+                await self._gateway.observe_dashboard_resume(
+                    session.user_id,
+                    command.agent_id,
+                    session.thread_id,
+                    {"type": "done"},
+                )
         if usage.usage is not None:
             record_turn_usage(
                 self._repos.usage_repo,

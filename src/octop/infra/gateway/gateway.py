@@ -150,7 +150,7 @@ class Gateway:
     async def observe_dashboard_resume(
         self, owner: int, agent_id: str, thread_id: str, chunk: dict[str, Any]
     ) -> None:
-        """Use the same durable receipts and broadcast stream for SSE resumes."""
+        """Share durable receipts and control frames across resumes and scheduled turns."""
         inbound = InboundMessage(
             channel_id=WS_CHANNEL_ID,
             channel_type="dashboard",
@@ -160,6 +160,13 @@ class Gateway:
             metadata={"thread_id": thread_id},
         )
         try:
+            if chunk.get("type") == "run_phase":
+                if chunk.get("phase") in {"completed", "failed", "cancelled", "paused"}:
+                    self._ws_hub.mark_turn_idle(thread_id)
+                else:
+                    self._ws_hub.mark_turn_active(thread_id)
+            elif chunk.get("type") == "done":
+                self._ws_hub.mark_turn_idle(thread_id)
             self.inputs.observe(inbound, chunk)
         except Exception:
             logger.exception("Could not persist resumed chat input status thread=%s", thread_id)

@@ -1,14 +1,18 @@
 # 0033. Runtime message steering for agent turns
 
 **Date**: 2026-10-18 (Asia/Shanghai)
-**Revision**: 3
-**Status**: Implemented
+**Revision**: 5
+**Status**: Implemented (revisions4 and5 locally verified; not released)
 **Contract**: During a running agent turn, submitting a message defaults to queue. Each queued message offers explicit interrupt-and-insert and withdraw actions. “Run now” must account for LLM and tool boundaries.
 **Implementation**: Initial feature and UI PR31 merged through PR32 (`5eb213320f291f410efb6bf754e1e1583ed71c49`) and deployed on 2026-10-19 with combined Harness `1.0.2.post4.dev1+taskresults.1`. Revision3 follows the user's clarified queue-first UI flow; its validation and release are tracked in the existing progress document.
 
 ## Summary
 
-Users can choose what to do with a message while an agent is running: queue it for after the turn, ask the agent to handle it as soon as a safe point is reached, or withdraw a message that is still queued. The interface reports whether an insertion is waiting, applied, completed, or failed. Tool execution is never force-cancelled or replayed to make room for a message.
+Users can queue, insert after current tools finish, explicitly interrupt tool waits and insert immediately, or withdraw a queued message. The interface reports acknowledged waiting, interrupting, applied and failure states. Immediate mode returns an interrupted result for each cancelled call, without replaying it or claiming that external/background work has stopped.
+
+Revision4 is authorized by the user's 2026-10-21 report that a `sleep 900` tool blocks insertion and explicit request to adjust the UI. It supersedes the revision3 unconditional no-tool-cancellation rule only for the new immediate action. Previous validation does not establish revision4 behavior; current evidence belongs in `docs/progress-agent-live-message-steering.md`.
+
+Revision5 addresses the user's follow-up screenshots of permanently waiting and unconfirmed receipts. Read-only production evidence found the inserted human message already present while its receipt remained accepted; scheduled delivery consumed steering events without observing or broadcasting them. Revision4 runtime code is unchanged; receipt/lifecycle and UI evidence must be refreshed.
 
 ## Context
 
@@ -23,12 +27,14 @@ This feature crosses the Dashboard, authenticated chat WebSocket, gateway proces
 - **AC-3**: Run-now requests bind to the authenticated owner, agent, thread and active run. Invalid, stale, duplicate, or cross-owner requests fail without changing the run.
 - **AC-4**: Run-now during LLM generation stops that generation at a supported cooperative boundary, retains any emitted partial assistant text as an explicitly interrupted message, applies the user's new message once, then resumes from the thread checkpoint.
 - **AC-5**: At LLM-before/after and tool-before/after boundaries, the new user message is applied before the next LLM call. A pending tool call is re-evaluated and must not be executed from stale model output.
-- **AC-6**: A run-now request received during tool execution waits for tool completion; it never cancels or replays the tool. The new user message is applied before the next LLM call.
+- **AC-6**: Default insertion during tool execution still waits for completion and never replays the tool. The explicit immediate action cancels the current tool handler waits, emits one correctly paired interrupted ToolMessage per call, then applies the new user message before the next LLM call. A cancellation-resistant backend cannot block insertion or append a late tool result to the checkpoint. External work is reported as unconfirmed, never automatically retried.
 - **AC-7**: UI status identifies the observed phase (`llm_before`, `llm_running`, `llm_after`, `tool_before`, `tool_running`, `tool_after`, terminal or paused status) and uses server acknowledgements as its source. It does not claim an insertion was applied before the server confirms it.
 - **AC-8**: Normal queued turns, HITL pauses, attachment metadata, model and execution-selection snapshots preserve existing behavior. A queue flush must not bypass an open HITL pause.
 - **AC-9**: Phase-aware control and inserted-message processing are covered by Harness, gateway/API, and Dashboard tests using synthetic threads; production conversations are not interrupted for verification.
 - **AC-10**: Sending while the local agent is running queues by default and never implicitly interrupts. Each queue row displays its acknowledged state and explicit insert/withdraw icon buttons. Insert acts on that exact queued message without changing an unsent draft. Withdraw retrieves that exact message for editing, confirming before replacing an existing draft. The independent stop control remains available while typing.
 - **AC-11**: Promoting a queued item to insertion is one server operation using its existing command ID and stored text. Promotion races atomically with dispatch and withdrawal; exactly one wins. Explicit runtime rejection preserves the original queued item and FIFO position. Uncertain outcomes are visible and never automatically replayed. Attachments and slash commands remain queued.
+- **AC-12**: Each queue row exposes separately labelled insert-after-tools and interrupt-and-insert-now actions. Both honor pending, inactive, attachment and command guards. Immediate mode is persisted and forwarded with the authenticated run ID; retries do not change an acknowledged operation's mode. Live tool results visibly identify user interruption and the possibility of external work continuing. Desktop and narrow-screen layouts remain usable.
+- **AC-13**: Dashboard scheduled/self-reminder runs persist and broadcast run phases, insertion application and inserted-user events, preserving prior visible assistant output before the inserted user. Success, failure and cancellation end the visible stream. Missed receipts are repaired only when the exact inserted human ID exists in that owned thread's canonical history. Unproven outcomes stay unconfirmed. Users can dismiss an unconfirmed/failed receipt without deleting its audit payload, cancelling work or replaying input; pending work cannot be dismissed.
 
 ## Decision
 
@@ -46,7 +52,8 @@ Queue: `queued -> withdrawn | dispatching -> applied | completed | paused | fail
 | LLM running | Cancel and drain only the model handler, preserve public partial text, then append user and generate again |
 | LLM after | Append and jump back to the model; a late request at graph exit starts a fresh model step from the finished checkpoint |
 | Tool before | Supersede tool calls not yet admitted, then replan |
-| Tool running | Let admitted tools finish once; skip stale calls not yet started |
+| Tool running (default) | Let admitted tools finish once; skip stale calls not yet started |
+| Tool running (explicit immediate mode) | Cancel tool handler waits, allow bounded cancellation cleanup, emit interrupted results, then apply the message; ignore late handler returns |
 | Tool after | Append before the next model call |
 | HITL paused | Keep the approval pause; do not start queued work or bypass with direct insertion |
 
@@ -58,7 +65,7 @@ Ordinary streaming and HITL resume use the same run-control wrapper. The graph i
 
 **Key invariants**:
 
-- No tool is force-cancelled or automatically replayed.
+- Default insertion does not cancel tools. Explicit immediate insertion cancels handler waits; neither mode automatically replays tool work or guarantees external process termination.
 - An inserted user message is appended to the conversation exactly once.
 - Partial generated assistant output is retained and marked interrupted before the inserted user turn.
 - Stale run IDs and terminal statuses cannot mutate a different run.

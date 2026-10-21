@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -61,6 +61,55 @@ async def test_durable_inputs_auth_retry_withdraw_and_schema(tmp_octop_home):
         assert len(listed.json()["inputs"]) == 1
         withdrawn = await client.delete(base + "/queue-one", headers=users["alice"])
         assert withdrawn.json()["status"] == "withdrawn"
+        queued_now = await client.post(
+            base,
+            headers=users["alice"],
+            json={
+                "command_id": "queue-now",
+                "snapshot": {"text": "handle now"},
+                "turn": {"type": "user_turn", "thread_id": thread, "text": "handle now"},
+            },
+        )
+        assert queued_now.status_code == 200
+        now_path = base + "/queue-now/steer"
+        invalid_mode = await client.post(
+            now_path, headers=users["alice"], json={"run_id": "run", "cancel_tools": "true"}
+        )
+        assert invalid_mode.status_code == 422
+        denied_now = await client.post(
+            now_path, headers=users["bob"], json={"run_id": "run", "cancel_tools": True}
+        )
+        assert denied_now.status_code == 403
+        with patch.object(
+            server.app_runtime.gateway.inputs.agents,
+            "steer_stream",
+            Mock(return_value={"status": "accepted", "phase": "tool_running"}),
+        ) as steer:
+            immediate = await client.post(
+                now_path, headers=users["alice"], json={"run_id": "run", "cancel_tools": True}
+            )
+            assert immediate.status_code == 200, immediate.text
+            assert immediate.json()["payload"]["cancel_tools"] is True
+            retry_now = await client.post(
+                now_path, headers=users["alice"], json={"run_id": "run", "cancel_tools": True}
+            )
+            assert retry_now.json()["event_id"] == immediate.json()["event_id"]
+            steer.assert_called_once_with(
+                agent, thread, "queue-now", "handle now", run_id="run", cancel_tools=True
+            )
+        dismiss_path = base + "/queue-now/dismiss"
+        assert (await client.post(dismiss_path, headers=users["alice"])).status_code == 409
+        owner = int(immediate.json()["event_id"].split(":")[1])
+        server.app_runtime.gateway.inputs.repos.chat_input_repo.transition(
+            owner, "queue-now", "accepted", "unknown"
+        )
+        assert (await client.post(dismiss_path, headers=users["bob"])).status_code == 403
+        dismissed = await client.post(dismiss_path, headers=users["alice"])
+        assert dismissed.status_code == 200
+        assert dismissed.json()["status"] == "dismissed"
+        assert (await client.post(dismiss_path, headers=users["alice"])).json()[
+            "status"
+        ] == "dismissed"
         inserted = await client.post(
             base + "/steer",
             headers=users["alice"],

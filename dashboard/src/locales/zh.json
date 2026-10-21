@@ -1949,6 +1949,10 @@
       "label": "排队中的消息",
       "action": "排队",
       "withdraw": "撤回并取回编辑",
+      "dismiss": "清除此状态提示",
+      "dismissHint": "仅隐藏这条状态提示，保留历史记录，不停止任务或重新发送消息。",
+      "unconfirmedHint": "上次插入是否生效未能确认，系统不会自动重发。这条记录不代表任务仍在等待。",
+      "dismissFailed": "暂时无法清除状态提示，请稍后重试。",
       "remove": "从队列移除",
       "reclaim": "取回编辑",
       "reclaimOverwriteTitle": "替换当前草稿？",
@@ -1963,14 +1967,19 @@
         "dispatching": "正在提交",
         "requested": "请求中",
         "accepted": "等待安全节点",
-        "unknown": "结果待确认",
+        "interrupting": "正在打断工具并插入",
+        "unknown": "结果未确认",
         "failed": "执行失败",
         "rejected": "请求未接受"
       },
       "withdrawFailed": "消息已开始提交或暂时无法撤回，请刷新状态后重试。"
     },
     "steer": {
-      "action": "打断并直接插入（工具执行中会等待完成）",
+      "action": "等工具结束后插入",
+      "immediateAction": "立即打断并插入",
+      "immediateHint": "立即打断并插入：停止等待当前工具，让 Agent 处理此消息。已提交的外部或后台任务可能继续运行。",
+      "interrupting": "立即插入请求已送达，正在打断当前工具调用。",
+      "toolInterrupted": "工具调用已被用户打断，Agent 将继续处理插入消息。外部或后台任务的停止状态尚未确认，可能仍在运行。",
       "promoteFailed": "暂时无法插入，请查看此消息的最新状态；仍在排队的消息会继续保留。",
       "attachmentsQueue": "直接插入暂不支持附件，请使用排队发送。",
       "waiting": "插入请求已送达，等待当前安全节点。",
@@ -1989,7 +1998,8 @@
         "llm_running": "正在生成；直接插入会停止本次生成",
         "llm_after": "模型生成结束，正在处理新指令",
         "tool_before": "正在准备工具调用",
-        "tool_running": "工具执行中；直接插入会等待工具完成",
+        "tool_running": "工具执行中；可等完成后插入，或立即打断并插入",
+        "tool_interrupting": "正在打断工具调用，即将处理插入消息",
         "tool_after": "工具执行完毕，即将处理新指令"
       }
     },

@@ -84,7 +84,10 @@ export function usePersistentChatQueue({
         createdAt: row.created_at * 1000,
       }),
       id: row.payload.command_id,
-      status: row.status,
+      status:
+        row.status === "accepted" && row.payload.cancel_tools
+          ? "interrupting"
+          : row.status,
     }));
   const stableId = (fingerprint: string) => {
     let id = requestIds.current.get(fingerprint);
@@ -179,7 +182,18 @@ export function usePersistentChatQueue({
     const item = items.find((row) => row.id === id);
     return item && (await remove(id)) ? item : null;
   };
-  const promote = async (id: string): Promise<boolean> => {
+  const dismiss = async (id: string): Promise<boolean> => {
+    if (!agentId || !threadId) return false;
+    try {
+      await chatInputsApi.dismiss(agentId, threadId, id);
+      await refresh().catch(() => null);
+      return true;
+    } catch {
+      message.error(t("chat.queue.dismissFailed"));
+      return false;
+    }
+  };
+  const promote = async (id: string, cancelTools = false): Promise<boolean> => {
     if (!agentId || !threadId) return false;
     try {
       const current = await refresh();
@@ -201,13 +215,16 @@ export function usePersistentChatQueue({
         threadId,
         id,
         current.runtime.run_id,
+        cancelTools,
       );
       await refresh().catch(() => null);
       if (!["accepted", "applied"].includes(receipt.status)) {
         message.error(t("chat.steer.failed"));
         return false;
       }
-      message.info(t("chat.steer.waiting"));
+      message.info(
+        t(cancelTools ? "chat.steer.interrupting" : "chat.steer.waiting"),
+      );
       return true;
     } catch {
       await refresh().catch(() => null);
@@ -289,6 +306,7 @@ export function usePersistentChatQueue({
     enqueue,
     remove,
     reclaim,
+    dismiss,
     promote,
     clear,
     steer,
