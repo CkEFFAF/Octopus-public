@@ -173,8 +173,10 @@ def _email_send(creds: dict[str, Any], args: dict[str, Any]) -> str:
     msg["To"] = to_addr
     host = correct_netease_smtp_host(from_addr, creds.get("smtp_host"))
     port = int(creds.get("smtp_port") or 587)
-    with smtplib.SMTP(host, port, timeout=IMAP_CONNECT_TIMEOUT) as smtp:
-        smtp.starttls()
+    smtp_type = smtplib.SMTP_SSL if port == 465 else smtplib.SMTP
+    with smtp_type(host, port, timeout=IMAP_CONNECT_TIMEOUT) as smtp:
+        if port != 465:
+            smtp.starttls()
         smtp.login(from_addr, str(creds.get("password") or ""))
         smtp.send_message(msg)
     return json.dumps({"ok": True, "to": to_addr}, ensure_ascii=False)

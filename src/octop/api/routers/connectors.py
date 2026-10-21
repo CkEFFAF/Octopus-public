@@ -18,16 +18,12 @@ from octop.api.common.public_base import resolve_public_base
 from octop.api.deps import current_user, get_server, require_permission
 from octop.i18n import tr
 from octop.infra.auth.sso.redirect_after import sanitize_redirect_after
-from octop.infra.connectors.builder import (
-    mcp_server_name,
-    normalize_weiyun_mcp_token,
-    validate_create_credentials,
-)
 from octop.infra.connectors.catalog import (
     catalog_entry_to_dict,
     get_catalog_entry,
     list_catalog,
 )
+from octop.infra.connectors.credentials import merge_credentials, prepare_credentials
 from octop.infra.connectors.custom_mcp import (
     CUSTOM_MCP_KIND,
     is_custom_mcp_kind,
@@ -36,7 +32,6 @@ from octop.infra.connectors.custom_mcp import (
     redact_servers_for_api,
 )
 from octop.infra.connectors.default_open import (
-    build_instance_config_json,
     read_default_open,
 )
 from octop.infra.connectors.gateway.cli_dirs import cleanup_creds_cli_dirs
@@ -303,69 +298,15 @@ def _instance_to_dict(inst: Any) -> dict[str, Any]:
 
 
 async def _prepare_credentials(
-    kind: str,
-    credentials: dict[str, Any],
-    settings_repo: Any,
+    kind: str, credentials: dict[str, Any], settings_repo: Any
 ) -> dict[str, Any]:
-    entry = get_catalog_entry(kind)
-    if entry is None:
-        raise ValueError(f"unknown connector kind: {kind}")
-    cred_payload = dict(credentials)
-    if entry.auth_kind == "auth_code" and cred_payload.get("code"):
-        code = str(cred_payload.pop("code")).strip()
-        extra = {
-            k: cred_payload.pop(k) for k in ("bkn", "knowledge_base_id") if cred_payload.get(k)
-        }
-        exchanged = await exchange_pasted_auth_code(
-            kind=kind,
-            code=code,
-            settings_repo=settings_repo,
-            extra=extra or None,
-        )
-        cred_payload.update(exchanged)
-    elif entry.kind == "tencent-weiyun" and entry.auth_kind == "personal_token":
-        raw = str(cred_payload.get("token") or cred_payload.get("access_token") or "").strip()
-        token = normalize_weiyun_mcp_token(raw)
-        if not token:
-            raise ValueError("token is required")
-        cred_payload = {"token": token}
-    return validate_create_credentials(kind, cred_payload)
+    return await prepare_credentials(kind, credentials, settings_repo)
 
 
 def _merge_credentials(
-    old: dict[str, Any],
-    new: dict[str, Any],
-    *,
-    kind: str | None = None,
+    old: dict[str, Any], new: dict[str, Any], *, kind: str | None = None
 ) -> dict[str, Any]:
-    # QCC: switching auth mode must replace the other mode's secrets, not layer them.
-    if kind == "qcc":
-        new_api_key = str(new.get("api_key") or "").strip()
-        new_access = str(new.get("access_token") or new.get("token") or "").strip()
-        oauth_in_new = bool(new.get("oauth_client_id") or new.get("refresh_token") or new_access)
-        if new_api_key and not oauth_in_new:
-            out: dict[str, Any] = {"api_key": new_api_key}
-            if old.get("internal_token"):
-                out["internal_token"] = old["internal_token"]
-            return out
-        if oauth_in_new:
-            merged_oauth = dict(old)
-            for key, value in new.items():
-                if value is None:
-                    continue
-                if isinstance(value, str) and not value.strip():
-                    continue
-                merged_oauth[key] = value
-            merged_oauth.pop("api_key", None)
-            return merged_oauth
-    merged = dict(old)
-    for key, value in new.items():
-        if value is None:
-            continue
-        if isinstance(value, str) and not value.strip():
-            continue
-        merged[key] = value
-    return merged
+    return merge_credentials(old, new, kind=kind)
 
 
 def _credentials_preview(kind: str, creds: dict[str, Any]) -> dict[str, Any]:
@@ -432,6 +373,9 @@ def _credentials_preview(kind: str, creds: dict[str, Any]) -> dict[str, Any]:
             preview["imap_host"] = str(creds["imap_host"])
         if creds.get("smtp_host"):
             preview["smtp_host"] = str(creds["smtp_host"])
+        for key in ("imap_port", "smtp_port"):
+            if creds.get(key):
+                preview[key] = int(creds[key])
         if str(creds.get("password") or "").strip():
             preview["password_configured"] = True
     elif entry.auth_kind == "api_credentials":
@@ -741,32 +685,20 @@ async def create_instance(
     cred_input = dict(body.credentials)
 
     try:
-        cred_payload = await _prepare_credentials(
-            body.kind, cred_input, server.services.settings_repo
-        )
-    except ValueError as exc:
-        raise OctopError(
-            ErrorCode.CONNECTOR_INVALID_CREDENTIALS,
-            str(exc),
-            details={"reason": str(exc)},
-        ) from exc
-
-    instance_id = new_ulid()
-    repo.create(
-        instance_id=instance_id,
-        user_id=user.id,
-        kind=body.kind,
-        display_name=display_name,
-        mcp_server_name=mcp_server_name(body.kind, instance_id),
-        shared=body.shared,
-        config_json=build_instance_config_json(
+        inst = await svc.create_instance(
+            user.id,
             kind=body.kind,
-            default_open=bool(body.default_open),
-            email=cred_payload.get("email"),
+            display_name=display_name,
+            credentials=cred_input,
             description=description,
-        ),
-    )
-    svc.encrypt_and_store(instance_id=instance_id, payload=cred_payload)
+            shared=body.shared,
+            default_open=body.default_open,
+        )
+    except ConnectorNameTakenError:
+        _raise_name_taken(display_name)
+    except ValueError as exc:
+        raise OctopError(ErrorCode.CONNECTOR_INVALID_CREDENTIALS, str(exc)) from exc
+    instance_id = inst.instance_id
     server.services.audit_repo.write(
         actor=user.username,
         action="connector.instance.create",
@@ -852,57 +784,22 @@ async def patch_instance(
             ErrorCode.CONNECTOR_INVALID_CREDENTIALS,
             "status or default_open is required",
         )
-    if body.display_name is not None:
-        display_name = body.display_name.strip()
-        if not display_name:
-            raise OctopError(ErrorCode.CONNECTOR_INVALID_CREDENTIALS, "display_name is required")
-        svc = _connector_service(server)
-        if repo.name_exists(
-            inst.user_id, display_name, exclude_instance_id=instance_id
-        ) or _custom_name_exists(svc, inst.user_id, display_name):
-            _raise_name_taken(display_name)
-        repo.update_metadata(instance_id, display_name=display_name)
-    if body.shared is not None:
-        repo.update_metadata(instance_id, shared=body.shared)
-    if body.credentials is not None:
-        svc = _connector_service(server)
-        merged = _merge_credentials(svc.decrypt(instance_id), body.credentials, kind=inst.kind)
-        try:
-            prepared = await _prepare_credentials(inst.kind, merged, server.services.settings_repo)
-        except ValueError as exc:
-            raise OctopError(
-                ErrorCode.CONNECTOR_INVALID_CREDENTIALS,
-                str(exc),
-                details={"reason": str(exc)},
-            ) from exc
-        svc.encrypt_and_store(instance_id=instance_id, payload=prepared)
-    if body.status is not None:
-        status = body.status.strip()
-        if status not in ("active", "disabled"):
-            raise OctopError(
-                ErrorCode.CONNECTOR_INVALID_CREDENTIALS, "status must be active or disabled"
-            )
-        repo.update_status(instance_id, status)
-    if body.default_open is not None or body.description is not None:
-        config = dict(ConnectorRepo.parse_config_json(inst))
-        if body.default_open is not None:
-            if body.default_open:
-                config["default_open"] = True
-            else:
-                config.pop("default_open", None)
-        if body.description is not None:
-            description = body.description.strip()
-            if not description:
-                raise OctopError(
-                    ErrorCode.CONNECTOR_INVALID_CREDENTIALS,
-                    "description is required",
-                )
-            config["description"] = description
-        repo.update_config_json(
-            instance_id, json.dumps(config, ensure_ascii=False) if config else None
+    svc = _connector_service(server)
+    try:
+        inst = await svc.update_instance(
+            inst.user_id,
+            instance_id,
+            display_name=body.display_name,
+            description=body.description,
+            credentials=body.credentials,
+            status=body.status,
+            shared=body.shared,
+            default_open=body.default_open,
         )
-    inst = repo.get(instance_id)
-    assert inst is not None
+    except ConnectorNameTakenError:
+        _raise_name_taken(body.display_name or "")
+    except ValueError as exc:
+        raise OctopError(ErrorCode.CONNECTOR_INVALID_CREDENTIALS, str(exc)) from exc
     _schedule_connector_reload(
         server,
         inst.user_id,

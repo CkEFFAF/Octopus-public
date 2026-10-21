@@ -82,6 +82,8 @@ export interface ConnectorCredentialsPreview {
   mail_provider?: string;
   imap_host?: string;
   smtp_host?: string;
+  imap_port?: number;
+  smtp_port?: number;
   password_configured?: boolean;
   app_id?: string;
   bot_id?: string;

@@ -306,16 +306,33 @@ function ChatPageInner() {
       if (event.kind !== "toolDone" || event.sessionId !== activeThreadId)
         return;
       if (
-        !/^octop_(expert|project|thread|subagent)_(create|update|update_members|rename|save|install)$/.test(
+        !/^octop_(expert|project|thread|subagent|connector|mcp|skill|tool|plugin)_(create|update|update_members|rename|save|install|attach|upsert|set_enabled)$/.test(
           event.toolName,
         )
       )
         return;
+      let receipt: Record<string, unknown>;
+      try {
+        receipt = JSON.parse(event.result ?? "") as Record<string, unknown>;
+      } catch {
+        return;
+      }
+      if (receipt?.saved !== true) return;
       void refreshAgents({ silent: true, force: true });
       void fetchSessions(activeThreadId ?? undefined);
-      if (event.toolName.startsWith("octop_expert_")) void refreshChatSkills();
+      if (
+        /^octop_(expert|skill|plugin)_/.test(event.toolName) &&
+        receipt.agent_id === resolvedAgentId
+      )
+        void refreshChatSkills();
     });
-  }, [activeThreadId, refreshAgents, fetchSessions, refreshChatSkills]);
+  }, [
+    activeThreadId,
+    resolvedAgentId,
+    refreshAgents,
+    fetchSessions,
+    refreshChatSkills,
+  ]);
 
   const handleLoadMoreSessions = useCallback(() => {
     void loadMoreSessions(activeThreadId ?? undefined);

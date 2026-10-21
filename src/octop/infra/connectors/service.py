@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from pathlib import Path
@@ -13,6 +14,11 @@ from octop.config import OctopConfig
 from octop.infra.connectors import qcc
 from octop.infra.connectors.builder import build_http_mcp_spec, mcp_server_name, new_internal_token
 from octop.infra.connectors.catalog import get_catalog_entry, uses_internal_http_mcp
+from octop.infra.connectors.credentials import (
+    merge_credentials,
+    prepare_credentials,
+    redact_credential_values,
+)
 from octop.infra.connectors.crypto import decrypt_credentials, encrypt_credentials
 from octop.infra.connectors.custom_mcp import (
     CUSTOM_MCP_DISPLAY_NAME,
@@ -33,7 +39,11 @@ from octop.infra.connectors.custom_mcp import (
     validate_servers_map,
     wrap_servers,
 )
-from octop.infra.connectors.default_open import merge_mcp_servers_with_defaults, read_default_open
+from octop.infra.connectors.default_open import (
+    build_instance_config_json,
+    merge_mcp_servers_with_defaults,
+    read_default_open,
+)
 from octop.infra.connectors.gateway import agently_auth
 from octop.infra.connectors.gateway.cli_dirs import resolve_cli_config_key
 from octop.infra.connectors.gateway.feishu_user_auth import (
@@ -90,6 +100,141 @@ class ConnectorService:
         self._secret_repo = secret_repo
         self._settings_repo = settings_repo
         self._config = config
+
+    def _validate_name(self, owner: int, name: str, *, exclude: str | None = None) -> str:
+        name = name.strip()
+        if not name or len(name) > 64:
+            raise ValueError("display_name must contain 1 to 64 characters")
+        custom_names = self.get_custom_servers(owner)
+        if self._repo.name_exists(owner, name, exclude_instance_id=exclude) or any(
+            name in {key, str(spec.get("display_name") or key)}
+            for key, spec in custom_names.items()
+        ):
+            raise ConnectorNameTakenError(f"connector name {name!r} is already in use")
+        return name
+
+    async def create_instance(
+        self,
+        owner: int,
+        *,
+        kind: str,
+        display_name: str,
+        credentials: dict[str, Any],
+        description: str | None = None,
+        shared: bool = False,
+        default_open: bool = False,
+    ) -> ConnectorRow:
+        entry = get_catalog_entry(kind)
+        if entry is None or entry.phase != "available" or is_custom_mcp_kind(kind):
+            raise ValueError(
+                "unsupported connector kind; custom MCP uses its separate configuration"
+            )
+        name = self._validate_name(owner, display_name)
+        description = entry.description if description is None else description.strip()
+        if not description or len(description) > 500:
+            raise ValueError("description must contain 1 to 500 characters")
+        prepared = await prepare_credentials(kind, credentials, self._settings_repo)
+        instance_id = new_ulid()
+        self._repo.create(
+            instance_id=instance_id,
+            user_id=owner,
+            kind=kind,
+            display_name=name,
+            mcp_server_name=mcp_server_name(kind, instance_id),
+            shared=shared,
+            config_json=build_instance_config_json(
+                kind=kind,
+                default_open=default_open,
+                email=prepared.get("email"),
+                description=description,
+            ),
+        )
+        self.encrypt_and_store(instance_id=instance_id, payload=prepared)
+        row = self._repo.get(instance_id)
+        assert row is not None
+        return row
+
+    def owned_instance(self, owner: int, instance_id: str) -> ConnectorRow:
+        row = self._repo.get(instance_id)
+        if row is None or row.user_id != owner:
+            raise OctopError(ErrorCode.FORBIDDEN, "owned connector required")
+        return row
+
+    async def update_instance(
+        self,
+        owner: int,
+        instance_id: str,
+        *,
+        display_name: str | None = None,
+        description: str | None = None,
+        credentials: dict[str, Any] | None = None,
+        status: str | None = None,
+        shared: bool | None = None,
+        default_open: bool | None = None,
+    ) -> ConnectorRow:
+        row = self.owned_instance(owner, instance_id)
+        if is_custom_mcp_kind(row.kind):
+            raise ValueError("custom MCP uses its separate configuration")
+        if all(
+            value is None
+            for value in (display_name, description, credentials, status, shared, default_open)
+        ):
+            raise ValueError("supply at least one connector configuration field")
+        # Validate every field before changing metadata or replacing credentials.
+        if display_name is not None:
+            display_name = self._validate_name(owner, display_name, exclude=instance_id)
+        if description is not None:
+            description = description.strip()
+            if not description or len(description) > 500:
+                raise ValueError("description must contain 1 to 500 characters")
+        if status is not None and status not in ("active", "disabled"):
+            raise ValueError("status must be active or disabled")
+        prepared = None
+        if credentials is not None:
+            merged = merge_credentials(self.decrypt(instance_id), credentials, kind=row.kind)
+            prepared = await prepare_credentials(row.kind, merged, self._settings_repo)
+        if prepared is not None:
+            self.encrypt_and_store(instance_id=instance_id, payload=prepared)
+        self._repo.update_metadata(instance_id, display_name=display_name, shared=shared)
+        if status is not None:
+            self._repo.update_status(instance_id, status)
+        if description is not None or default_open is not None:
+            config = dict(self._repo.parse_config_json(row))
+            if description is not None:
+                config["description"] = description
+            if default_open is not None:
+                if default_open:
+                    config["default_open"] = True
+                else:
+                    config.pop("default_open", None)
+            self._repo.update_config_json(instance_id, json.dumps(config, ensure_ascii=False))
+        updated = self._repo.get(instance_id)
+        assert updated is not None
+        return updated
+
+    async def probe_instance(
+        self, owner: int, instance_id: str, *, locale: str = "en"
+    ) -> dict[str, Any]:
+        """Authenticate/list capabilities with stored credentials; never send a message."""
+        from octop.infra.connectors.probe import probe_connector
+
+        row = self.owned_instance(owner, instance_id)
+        entry = get_catalog_entry(row.kind)
+        if entry is None:
+            raise ValueError("unsupported connector kind")
+        credentials = self.decrypt(instance_id)
+        try:
+            credentials = await self.ensure_fresh_credentials(instance_id, row.kind)
+            if not credentials:
+                raise ValueError("missing credentials")
+            if row.kind == "agently-cli":
+                credentials["_locale"] = locale
+            result = await probe_connector(
+                entry, credentials, instance_id=instance_id, config=self._config
+            )
+        except Exception as exc:
+            result = {"ok": False, "error": str(exc)}
+        return dict(redact_credential_values(result, credentials, kind=row.kind))
 
     def list_user_instances(
         self,

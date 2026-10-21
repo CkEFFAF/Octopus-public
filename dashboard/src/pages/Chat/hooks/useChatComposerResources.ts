@@ -9,7 +9,10 @@ import {
   type KnowledgeCapability,
 } from "../../../api/modules/knowledgeBases";
 import type { ResolvedModel } from "../../../api/types";
-import { CONNECTORS_CHANGED_EVENT } from "../../Agent/Connectors/customMcpUtils";
+import {
+  CONNECTORS_CHANGED_EVENT,
+  notifyConnectorsChanged,
+} from "../../Agent/Connectors/customMcpUtils";
 import { useCurrentUser } from "../../../hooks/useCurrentUser";
 import { useAgent } from "../../../context/AgentContext";
 import { activeModelToRef } from "./useChatContextWindow";
@@ -138,7 +141,13 @@ export function useChatComposerResources(
       if (
         event.kind !== "toolDone" ||
         event.sessionId !== activeThreadId ||
-        event.toolName !== "octop_expert_update" ||
+        ![
+          "octop_expert_update",
+          "octop_connector_create",
+          "octop_connector_update",
+          "octop_connector_attach",
+          "octop_mcp_upsert",
+        ].includes(event.toolName ?? "") ||
         !event.result
       )
         return;
@@ -154,6 +163,11 @@ export function useChatComposerResources(
         result.agent_id !== resolvedAgentId
       )
         return;
+      if (
+        event.toolName?.startsWith("octop_connector_") ||
+        event.toolName === "octop_mcp_upsert"
+      )
+        notifyConnectorsChanged();
       const update = result.current_conversation_update;
       if (!update || typeof update !== "object") return;
       const names = (update as Record<string, unknown>).mcp_servers;

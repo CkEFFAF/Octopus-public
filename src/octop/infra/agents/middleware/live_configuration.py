@@ -63,6 +63,12 @@ class LiveConfigurationMiddleware(AgentMiddleware[Any, Any]):
         self._known_names: set[str] = set()
 
     def _selection(self, cfg: dict[str, Any]) -> list[str]:
+        return self.resolve_selection(cfg)
+
+    def resolve_selection(
+        self, cfg: dict[str, Any], *, explicit: list[str] | None = None
+    ) -> list[str]:
+        """Resolve the same scoped choices for live tools and explicit attachment."""
         owner = int(cfg.get("user") or 0)
         row = self.manager.get_row(self.agent_id)
         if not owner or row is None or cfg.get("octop_shared_text_scope") is not None:
@@ -76,7 +82,11 @@ class LiveConfigurationMiddleware(AgentMiddleware[Any, Any]):
         if is_team_agent(row) or modes & {"ask", "plan"}:
             return []
         updates = getattr(self.manager, "_live_connector_selections", {})
-        selection = updates.get(_key(self.agent_id, cfg), cfg.get("mcp_servers"))
+        selection = (
+            explicit
+            if explicit is not None
+            else updates.get(_key(self.agent_id, cfg), cfg.get("mcp_servers"))
+        )
         execution = cfg.get("octop_execution_context") or {}
         if "device_id" in execution and not execution["device_id"]:
             defaults, denied = [], []

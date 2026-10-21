@@ -377,7 +377,17 @@ def validate_create_credentials(
         password = str(credentials.get("password") or "").strip()
         if not email or not password:
             raise ValueError("email and password (authorization code) are required")
+        if credentials.get("mail_provider") == "custom" and not all(
+            str(credentials.get(key) or "").strip() for key in ("imap_host", "smtp_host")
+        ):
+            raise ValueError("custom mailboxes require imap_host and smtp_host")
+        for key in ("imap_port", "smtp_port"):
+            port = credentials.get(key)
+            if port is not None and (isinstance(port, bool) or not 1 <= int(port) <= 65535):
+                raise ValueError("mail server ports must be between 1 and 65535")
         imap_host, imap_port, smtp_host, smtp_port = resolve_mail_servers(credentials)
+        if not all(1 <= port <= 65535 for port in (imap_port, smtp_port)):
+            raise ValueError("mail server ports must be between 1 and 65535")
         internal_token = new_internal_token()
         out = {
             "email": email,

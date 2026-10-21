@@ -1,4 +1,6 @@
 import { useTranslation } from "react-i18next";
+import { useEffect } from "react";
+import { CONNECTORS_CHANGED_EVENT } from "./customMcpUtils";
 import {
   connectorsApi,
   type ConnectorCatalogEntry,
@@ -26,6 +28,15 @@ export function useConnectorInstances() {
     [],
     { errorFallback: t("connectors.loadFailed"), t, logLabel: "Connectors" },
   );
+
+  useEffect(() => {
+    const onChanged = () => {
+      void refresh();
+    };
+    window.addEventListener(CONNECTORS_CHANGED_EVENT, onChanged);
+    return () =>
+      window.removeEventListener(CONNECTORS_CHANGED_EVENT, onChanged);
+  }, [refresh]);
 
   return {
     catalog: data.catalog,
