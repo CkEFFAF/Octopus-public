@@ -14,6 +14,7 @@ from langgraph.config import var_child_runnable_config
 from pydantic import ValidationError
 
 from octop.infra.agents.middleware.live_configuration import LiveConfigurationMiddleware
+from octop.infra.agents.native_management_tools import build_native_management_tools
 from tests.integration.test_native_management_tools import call
 from tests.integration.test_native_management_tools import native as native
 
@@ -38,6 +39,29 @@ async def create_mail(tools):
     )
     assert result.get("saved"), result
     return result
+
+
+async def test_repeated_native_builds_keep_expert_closures_and_strict_arguments(native):
+    _client, srv, _auth, aid, _uid, tools = native
+    created = await call(tools, "octop_expert_create", name="Second tool binding")
+    other_id = created["agent_id"]
+    other_tools = {
+        tool.name: tool
+        for tool in build_native_management_tools(
+            srv.app_runtime.agent_registry, srv.services.repos, other_id
+        )
+    }
+    assert (await call(tools, "octop_expert_get"))["agent_id"] == aid
+    assert (await call(other_tools, "octop_expert_get"))["agent_id"] == other_id
+    with pytest.raises(ValidationError):
+        await other_tools["octop_connector_create"].ainvoke(
+            {
+                "kind": "qq-mail",
+                "display_name": "Invalid override",
+                "credentials": MAIL,
+                "user_id": _uid,
+            }
+        )
 
 
 async def test_ordinary_user_create_rotate_test_and_http_preview(native, monkeypatch):

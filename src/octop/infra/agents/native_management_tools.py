@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from functools import wraps
+from types import CodeType
 from typing import TYPE_CHECKING, Any, cast
 
 from langchain_core.tools import StructuredTool
@@ -28,6 +29,11 @@ from octop.infra.utils.ulid import new_ulid
 
 if TYPE_CHECKING:
     from octop.infra.history.sharing import ThreadSharingService
+
+
+# Only the static argument models are reusable. Tools and their authenticated
+# closures must be rebuilt for each manager/expert, never cached across accounts.
+_ARGUMENT_SCHEMAS: dict[CodeType, type[BaseModel]] = {}
 
 
 def message_text(wire: Any, *, limit: int = 4000) -> tuple[str, bool]:
@@ -145,10 +151,13 @@ def build_native_management_tools(
                         envelope = redact_mcp_result(envelope, kwargs.get("server") or {})
                     return json.dumps(envelope, ensure_ascii=False)
 
-            tool = StructuredTool.from_function(coroutine=invoke)
-            schema = cast(type[BaseModel], tool.args_schema)
-            schema.model_config["extra"] = "forbid"
-            schema.model_rebuild(force=True)
+            schema = _ARGUMENT_SCHEMAS.get(func.__code__)
+            tool = StructuredTool.from_function(coroutine=invoke, args_schema=schema)
+            if schema is None:
+                schema = cast(type[BaseModel], tool.args_schema)
+                schema.model_config["extra"] = "forbid"
+                schema.model_rebuild(force=True)
+                _ARGUMENT_SCHEMAS[func.__code__] = schema
             tools.append(tool)
             return invoke
 

@@ -2,9 +2,9 @@
 
 Date: 2026-10-21
 Revision: 3
-Status: Implemented locally, revision3; revision1 deployed through PR37
+Status: Implemented revision3; release readiness tracked in PR40; revision1 deployed through PR37
 Baseline for revision3: main `4b59917be90bf8204bc93cd9fa825055a9b0f756` (PR39).
-Execution: one agent, as requested. No deployment.
+Execution: one agent. Deployment authorized by the user; gated by PR40 checks and protected backups.
 
 ## Requirements
 
@@ -31,6 +31,8 @@ Execution: one agent, as requested. No deployment.
 ## Design
 
 Revision3 extends the user's explicit request to let Agents expand skills, tools and MCP as well as connectors. Workspace skill authoring/market/URL installation reuses canonical validation and commit hooks; plugin installation reuses the existing process registry/installer behind the plugins module permission and queues safe reloads. Tool switches preserve unrelated settings. Custom MCP configuration reuses encrypted ConnectorService storage and standard transport validation. UI receipts distinguish saving, probing, next-request capability updates and after-turn loading; open skill/tool panels refresh on scoped successful writes. OAuth and absent host dependencies remain separate authorization/setup steps.
+
+Parameter models are reused by function code to avoid repeated synchronous Pydantic reflection during expert reloads. Tool instances, manager/expert bindings and per-call identity checks remain independent; no credentials or callable closures are cached. The reload regression proves event-loop progress while a Harness rebuild is held behind an explicit release gate, with bounded deadlock watchdogs rather than a short scheduling race.
 
 Revision2 is authorized by the user's request to complete first-time Agent connector configuration after the missing creation tool was diagnosed. It reuses ConnectorService and the existing native tool identity/audit wrapper; transport handlers delegate to shared domain operations. Native tools accept only credentials explicitly supplied for the requested connection, store them using the existing encrypted credential vault, and never retrieve server login tokens as a substitute for conversation identity. The existing Dashboard remains available for protected manual/OAuth entry. This revision does not add a new secret collection protocol or promise that credentials supplied as tool arguments disappear from model history.
 
