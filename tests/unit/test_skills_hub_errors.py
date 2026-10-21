@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -14,6 +15,58 @@ from octop.api.routers.skills import (
     _run_skillhub_cmd,
     _skillhub_stderr_suggests_upgrade,
 )
+
+
+@pytest.mark.asyncio
+async def test_missing_optional_cli_does_not_install_software(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from octop.api.routers import skills
+
+    monkeypatch.setattr(skills, "_resolve_skillhub_bin", lambda: None)
+    installer = AsyncMock()
+    monkeypatch.setattr(skills, "_install_skillhub_cli", installer)
+    with pytest.raises(HTTPException) as exc:
+        await skills._ensure_skillhub_cli()
+    assert exc.value.status_code == 503
+    installer.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cli_fallback_does_not_upgrade_on_registry_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from octop.api.routers import skills
+
+    monkeypatch.setattr(skills, "_ensure_skillhub_cli", AsyncMock(return_value="skillhub"))
+    upgrade = AsyncMock()
+    monkeypatch.setattr(skills, "_upgrade_skillhub_cli", upgrade)
+    run = AsyncMock(return_value=(1, "", "new version available; run skillhub self-upgrade"))
+    monkeypatch.setattr(skills, "_run_skillhub_cmd", run)
+    with pytest.raises(HTTPException):
+        await skills._download_skillhub_package_via_cli("demo")
+    assert run.await_count == 1
+    assert "--skip-self-upgrade" in run.await_args.args[1]
+    upgrade.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enable, expected", [(False, {"demo"}), (True, set()), (None, None)])
+async def test_workspace_install_persists_explicit_enable_state(
+    monkeypatch: pytest.MonkeyPatch, enable: bool | None, expected: set[str] | None
+) -> None:
+    from octop.api.routers import skills
+
+    persist = AsyncMock()
+    monkeypatch.setattr(skills, "_persist_disabled", persist)
+    target = skills._AgentWorkspaceInstallTarget(
+        workspace=None, config={}, server="server", agent_id="expert"
+    )
+    await target.after_install("demo", enable=enable)
+    if expected is None:
+        persist.assert_not_called()
+    else:
+        persist.assert_awaited_once_with("server", "expert", expected)
 
 
 def test_map_install_error_http_404() -> None:

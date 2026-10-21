@@ -103,9 +103,17 @@ def prepare_skillhub_package(
         if normalized == "SKILL.md":
             try:
                 manifest = content.decode("utf-8")
-            except UnicodeDecodeError:
-                pass
+            except UnicodeDecodeError as exc:
+                raise SkillPackageError("SKILL.md must be UTF-8 text") from exc
             else:
+                metadata, _ = parse_frontmatter(manifest)
+                if not manifest.startswith(("---\n", "---\r\n")) or not all(
+                    isinstance(metadata.get(key), str) and metadata[key].strip()
+                    for key in ("name", "description")
+                ):
+                    raise SkillPackageError(
+                        "SKILL.md requires YAML frontmatter with a name and description"
+                    )
                 content = with_skillhub_presentation_metadata(
                     manifest,
                     display_name=display_name,

@@ -61,7 +61,7 @@ python "{{OCTOP_BUILTIN_SKILLS}}/skill-manager/scripts/manage_skills.py" <comman
 - 新安装请求本身即表示同意新增；目标已存在时停止并说明冲突，只有获得明确同意才使用 `--force`。
 - 编辑现有 Skill 前先读取其 `SKILL.md` 和相关资源，只改该 Skill 目录；修改后重新 `inspect`。
 - 删除前点名目标并取得明确确认。使用 `remove --yes`，不要直接 `rm -rf`。需要恢复时使用 `restore`。
-- 安装后报告 slug 和最终路径。新安装、更新或删除的 Skill 通常从下一次新会话开始完整生效。
+- 安装后报告 slug 和最终路径。当前会话会在下一次模型请求时重新读取技能目录；新安装、更新、删除及启用状态无需新建会话。安装不代表已执行或验证技能中的第三方代码。
 
 ## 安全边界
 

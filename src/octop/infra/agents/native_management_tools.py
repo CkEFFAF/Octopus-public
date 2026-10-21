@@ -319,7 +319,12 @@ def build_native_management_tools(
 
     @operation()
     async def octop_resource_list() -> dict[str, Any]:
-        """Find valid model, skill package, knowledge base, connector and tool references without credentials."""
+        """Find model, skill, knowledge, connector and tool references without credentials.
+
+        Connector availability means configured, not verified upstream login.
+        QQ Mail uses an IMAP/SMTP app password, not browser OAuth. The Agently
+        mail cron source is a different connector and cannot diagnose QQ login.
+        """
         user = identity()
         store = manager.providers_for_user(user.id)
         models = [
@@ -406,7 +411,8 @@ def build_native_management_tools(
     ) -> dict[str, Any]:
         """Configure your expert. device_binding sets its owned device/local default; {} clears it.
 
-        Omitted fields stay. Defaults affect later turns. For a peer dispatch on
+        Omitted fields stay. Connector changes to this expert also apply to the
+        current conversation at its next model request. Device defaults affect later turns. For a peer dispatch on
         this device use ask_agent(target_policy="member_default") or "explicit";
         the default "inherit" deliberately keeps the caller's target.
         """
@@ -436,9 +442,17 @@ def build_native_management_tools(
             if key in fields:
                 fields[key] = dump_id_list(fields[key])
         updated = await manager.update(row.agent_id, **fields)
+        capability_update = None
+        if mcp_servers is not None:
+            from octop.infra.agents.middleware.live_configuration import remember_self_update
+
+            names = id_list_from_row(updated, "mcp_servers")
+            if remember_self_update(manager, row.agent_id, names):
+                capability_update = {"mcp_servers": names, "effective": "next_model_request"}
         return {
             **expert_payload(updated, detail=True),
             "saved": True,
+            "current_conversation_update": capability_update,
             **reload_status(row.agent_id),
         }
 

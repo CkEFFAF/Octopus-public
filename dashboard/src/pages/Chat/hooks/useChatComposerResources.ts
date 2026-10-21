@@ -133,6 +133,41 @@ export function useChatComposerResources(
     if (isNewSession) composerTouchedRef.current = false;
   }, [isNewSession]);
 
+  useEffect(() => {
+    return chatStore.onToolEvent((event) => {
+      if (
+        event.kind !== "toolDone" ||
+        event.sessionId !== activeThreadId ||
+        event.toolName !== "octop_expert_update" ||
+        !event.result
+      )
+        return;
+      let result: Record<string, unknown>;
+      try {
+        result = JSON.parse(event.result) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+      if (
+        !result ||
+        result.saved !== true ||
+        result.agent_id !== resolvedAgentId
+      )
+        return;
+      const update = result.current_conversation_update;
+      if (!update || typeof update !== "object") return;
+      const names = (update as Record<string, unknown>).mcp_servers;
+      if (
+        !Array.isArray(names) ||
+        !names.every((name) => typeof name === "string")
+      )
+        return;
+      composerTouchedRef.current = true;
+      setSelectedConnectors(names);
+      if (resolvedAgentId) saveConnectors(resolvedAgentId, names);
+    });
+  }, [activeThreadId, resolvedAgentId]);
+
   // Auto = omit turn model; backend applies the expert default.
   useEffect(() => {
     const local = activeThreadId

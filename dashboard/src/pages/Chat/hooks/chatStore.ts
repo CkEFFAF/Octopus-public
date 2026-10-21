@@ -285,6 +285,7 @@ export interface ToolEvent {
   sessionId: string;
   toolName: string;
   toolId: string;
+  result?: string;
 }
 export type StreamEventKind = "streamStart" | "streamEnd" | "streamResume";
 export interface StreamEvent {
@@ -2132,6 +2133,7 @@ function closeToolCall(
     sessionId: sessionId ?? "",
     toolName: target.toolData?.name ?? "",
     toolId: target.toolData?.callId ?? "",
+    result: output,
   });
 }
 
