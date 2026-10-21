@@ -1875,6 +1875,9 @@ function ChatPageInner() {
               onSteerQueued={
                 persistentQueue.enabled ? persistentQueue.promote : undefined
               }
+              onDismissQueued={
+                persistentQueue.enabled ? persistentQueue.dismiss : undefined
+              }
               runtimePhase={persistentQueue.runtime?.phase}
               queuedItems={queuedItems}
               onReclaimQueued={reclaimQueued}

@@ -25,7 +25,7 @@ dependencies = [
     "apscheduler>=3.10,<4",
     "argon2-cffi>=23.1",
     "pyjwt>=2.8",
-    "octop-harness[all]==1.0.2.post4.dev3+activity.3",
+    "octop-harness[all]==1.0.2.post4.dev4+interrupt.2",
     "octop-memory>=1.0.0",
     "lark-oapi>=1.7.3",
     "octop-gateway>=1.0.0",
@@ -109,10 +109,12 @@ packages = ["src/octop"]
 
 [tool.hatch.build.targets.sdist.force-include]
 "uv.lock" = "uv.lock"
-"vendor/harness/octop_harness-1.0.2.post4.dev3+activity.3-py3-none-any.whl" = "vendor/harness/octop_harness-1.0.2.post4.dev3+activity.3-py3-none-any.whl"
+"vendor/harness/octop_harness-1.0.2.post4.dev4+interrupt.2-py3-none-any.whl" = "vendor/harness/octop_harness-1.0.2.post4.dev4+interrupt.2-py3-none-any.whl"
 "vendor/harness/harness-source.zip" = "vendor/harness/harness-source.zip"
 "vendor/harness/activity3-source-manifest.json" = "vendor/harness/activity3-source-manifest.json"
 "vendor/harness/activity3-verification.md" = "vendor/harness/activity3-verification.md"
+"vendor/harness/interrupt-source-manifest.json" = "vendor/harness/interrupt-source-manifest.json"
+"vendor/harness/interrupt-steering.patch" = "vendor/harness/interrupt-steering.patch"
 "vendor/harness/README.md" = "vendor/harness/README.md"
 
 [tool.hatch.build]
@@ -235,4 +237,4 @@ filterwarnings = [
 
 # Portable internal-beta review artifact; source/hash provenance lives next to the wheel.
 [tool.uv.sources]
-octop-harness = { path = "vendor/harness/octop_harness-1.0.2.post4.dev3+activity.3-py3-none-any.whl" }
+octop-harness = { path = "vendor/harness/octop_harness-1.0.2.post4.dev4+interrupt.2-py3-none-any.whl" }

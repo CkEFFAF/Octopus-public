@@ -90,6 +90,7 @@ async def test_deliver_agent_stamps_composer_on_human_message() -> None:
     agent_manager.get_row = MagicMock(return_value=agent_row)
 
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
     gateway.push_session_text = AsyncMock()
@@ -130,6 +131,7 @@ async def test_deliver_agent_merges_default_open_when_empty() -> None:
     agent_manager.get_row = MagicMock(return_value=agent_row)
 
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
     gateway.push_session_text = AsyncMock()
@@ -173,6 +175,7 @@ async def test_deliver_agent_skips_default_open_mcp_for_team_host() -> None:
     agent_manager.get_row = MagicMock(return_value=agent_row)
 
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
     gateway.push_session_text = AsyncMock()
@@ -208,6 +211,7 @@ async def test_deliver_agent_explicit_mcp_overrides_defaults() -> None:
     agent_manager.get_row = MagicMock(return_value=agent_row)
 
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
     gateway.push_session_text = AsyncMock()
@@ -274,6 +278,7 @@ async def test_deliver_agent_attaches_expert_knowledge_bases() -> None:
     repos.user_repo.get.return_value = MagicMock(role="user")
 
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
     gateway.push_session_text = AsyncMock()
@@ -310,6 +315,7 @@ async def test_deliver_agent_explicit_still_applies_device_deny() -> None:
     agent_manager.get_row = MagicMock(return_value=agent_row)
 
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
     gateway.push_session_text = AsyncMock()

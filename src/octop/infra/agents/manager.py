@@ -1422,14 +1422,26 @@ class AgentManager:
             self._harness_manager.cancel(agent_id, thread_id)
 
     def steer_stream(
-        self, agent_id: str, thread_id: str, command_id: str, text: str, *, run_id: str
+        self,
+        agent_id: str,
+        thread_id: str,
+        command_id: str,
+        text: str,
+        *,
+        run_id: str,
+        cancel_tools: bool = False,
     ) -> dict[str, str]:
         """Insert only into the identified invocation at a runtime-owned boundary."""
         if self._harness_manager is None:
             return {"status": "inactive", "phase": "idle"}
         try:
             return self._harness_manager.steer_message(
-                agent_id, thread_id, command_id, text, run_id=run_id
+                agent_id,
+                thread_id,
+                command_id,
+                text,
+                run_id=run_id,
+                **({"cancel_tools": True} if cancel_tools else {}),
             )
         except KeyError:
             return {"status": "inactive", "phase": "idle"}

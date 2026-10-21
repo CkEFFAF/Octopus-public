@@ -1949,6 +1949,10 @@
       "label": "Queued messages",
       "action": "Queue",
       "withdraw": "Withdraw and edit",
+      "dismiss": "Dismiss this status",
+      "dismissHint": "Hide this status only. Keep its history; do not stop work or resend the message.",
+      "unconfirmedHint": "The prior insertion outcome is unconfirmed and will not be retried automatically. This record does not mean work is still waiting.",
+      "dismissFailed": "Could not dismiss this status. Please retry shortly.",
       "remove": "Remove from queue",
       "reclaim": "Edit queued message",
       "reclaimOverwriteTitle": "Replace current draft?",
@@ -1963,6 +1967,7 @@
         "dispatching": "Submitting",
         "requested": "Requested",
         "accepted": "Waiting for a safe point",
+        "interrupting": "Interrupting tools and inserting",
         "unknown": "Outcome unconfirmed",
         "failed": "Failed",
         "rejected": "Not accepted"
@@ -1970,7 +1975,11 @@
       "withdrawFailed": "The message is already dispatching or cannot be withdrawn. Refresh its status and retry."
     },
     "steer": {
-      "action": "Interrupt and insert (waits for running tools)",
+      "action": "Insert after tools finish",
+      "immediateAction": "Interrupt and insert now",
+      "immediateHint": "Stop waiting for current tools and handle this message now. External or background operations may continue running.",
+      "interrupting": "Immediate insertion received; interrupting current tool calls.",
+      "toolInterrupted": "Tool call interrupted by the user. The agent will handle the inserted message. External or background operations may still be running; their stop status is unconfirmed.",
       "promoteFailed": "Could not insert. Check the latest message status; messages still queued are retained.",
       "attachmentsQueue": "Direct insertion does not support attachments yet. Queue this message instead.",
       "waiting": "Insertion received; waiting for a safe point in the current run.",
@@ -1989,7 +1998,8 @@
         "llm_running": "Generating; insert will stop this generation",
         "llm_after": "Model finished; handling instructions",
         "tool_before": "Preparing tools",
-        "tool_running": "Tools running; insert waits for completion",
+        "tool_running": "Tools running; insert after completion or interrupt and insert now",
+        "tool_interrupting": "Interrupting tools; handling inserted message next",
         "tool_after": "Tools finished; handling instructions"
       }
     },
