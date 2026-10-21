@@ -74,12 +74,52 @@ vi.mock("../../../context/AgentContext", () => ({
 }));
 
 import { useChatComposerResources } from "./useChatComposerResources";
+import { emitToolEvent } from "./chatStore";
 
 beforeEach(() => {
   localStorage.clear();
 });
 
 describe("useChatComposerResources — per-expert KB selection", () => {
+  it("hot-updates connectors only from a successful receipt for the active conversation", async () => {
+    const { result, rerender } = renderHook(
+      ({ threadId }) => useChatComposerResources("expertA", threadId),
+      { initialProps: { threadId: "thread-a" } },
+    );
+    await waitFor(() => expect(result.current.chatConnectors.length).toBe(2));
+    const emit = (
+      sessionId: string,
+      agentId: string,
+      saved: boolean,
+      names: string[],
+    ) => {
+      act(() =>
+        emitToolEvent({
+          kind: "toolDone",
+          sessionId,
+          toolName: "octop_expert_update",
+          toolId: "config",
+          result: JSON.stringify({
+            saved,
+            agent_id: agentId,
+            current_conversation_update: { mcp_servers: names },
+          }),
+        }),
+      );
+    };
+    emit("thread-a", "expertA", true, ["c1"]);
+    expect(result.current.selectedConnectors).toEqual(["c1"]);
+    emit("thread-a", "expertA", false, ["c2"]);
+    emit("thread-a", "expertB", true, ["c2"]);
+    emit("thread-other", "expertA", true, ["c2"]);
+    expect(result.current.selectedConnectors).toEqual(["c1"]);
+    emit("thread-a", "expertA", true, []);
+    expect(result.current.selectedConnectors).toEqual([]);
+    rerender({ threadId: "thread-b" });
+    emit("thread-a", "expertA", true, ["c2"]);
+    expect(result.current.selectedConnectors).toEqual([]);
+  });
+
   it("restores expert A's manual selection after switching A -> B -> A", async () => {
     const threadId = "thread-existing"; // existing session → saved prefs apply
     const { result, rerender } = renderHook(

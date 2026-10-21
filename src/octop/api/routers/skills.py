@@ -351,10 +351,15 @@ async def _install_skillhub_cli() -> str:
 
 
 async def _ensure_skillhub_cli() -> str:
-    """Return path to the ``skillhub`` binary, auto-installing it if needed."""
+    """Use an existing optional CLI without installing software during a request."""
     skillhub_bin = _resolve_skillhub_bin()
     if skillhub_bin is None:
-        skillhub_bin = await _install_skillhub_cli()
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=503,
+            detail="SkillHub HTTP service is unavailable and the optional SkillHub CLI is not installed.",
+        )
     return skillhub_bin
 
 
@@ -1031,10 +1036,13 @@ class _AgentWorkspaceInstallTarget:
         await _write_skill_files(self._workspace, skill_root, files)
 
     async def after_install(self, slug: str, *, enable: bool | None = None) -> None:
-        if not enable:
+        if enable is None:
             return
         disabled = _disabled_set(self._config)
-        disabled.discard(slug)
+        if enable:
+            disabled.discard(slug)
+        else:
+            disabled.add(slug)
         await _persist_disabled(self._server, self._agent_id, disabled)
 
 
@@ -1283,10 +1291,9 @@ async def _download_skillhub_package_via_cli(
     from fastapi import HTTPException  # noqa: PLC0415
 
     skillhub_bin = await _ensure_skillhub_cli()
-    await _upgrade_skillhub_cli(skillhub_bin)
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        install_args = ["--dir", tmpdir, "install", skill_name]
+        install_args = ["--skip-self-upgrade", "--dir", tmpdir, "install", skill_name]
         try:
             rc, _stdout, stderr = await _run_skillhub_cmd(
                 skillhub_bin,
@@ -1301,27 +1308,6 @@ async def _download_skillhub_package_via_cli(
             raise HTTPException(
                 status_code=502, detail=f"Failed to run skillhub CLI: {exc}"
             ) from exc
-
-        if (
-            rc != 0
-            and _skillhub_stderr_suggests_upgrade(stderr)
-            and await _upgrade_skillhub_cli(skillhub_bin)
-        ):
-            try:
-                rc, _stdout, stderr = await _run_skillhub_cmd(
-                    skillhub_bin,
-                    install_args,
-                    timeout=120,
-                )
-            except TimeoutError:
-                raise HTTPException(
-                    status_code=504,
-                    detail=f"skillhub install timed out for '{skill_name}'",
-                ) from None
-            except Exception as exc:
-                raise HTTPException(
-                    status_code=502, detail=f"Failed to run skillhub CLI: {exc}"
-                ) from exc
 
         if rc != 0:
             err_msg = stderr.strip()
@@ -1420,7 +1406,7 @@ async def _hub_search(request: Request, *, q: str, limit: int) -> list[dict[str,
     try:
         rc, stdout, stderr = await _run_skillhub_cmd(
             skillhub_bin,
-            ["search", "--search-limit", str(effective_limit), query],
+            ["--skip-self-upgrade", "search", "--search-limit", str(effective_limit), query],
             timeout=30,
         )
     except TimeoutError:

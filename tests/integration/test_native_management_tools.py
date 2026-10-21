@@ -519,6 +519,39 @@ async def test_self_reload_defers_and_coalesces_until_turn_release(
     reload.assert_awaited_once_with(aid)
 
 
+async def test_self_connector_update_returns_scoped_hot_update_receipt(native, monkeypatch):
+    _c, srv, _auth, aid, uid, tools = native
+    manager = srv.app_runtime.agent_registry
+    reload = AsyncMock()
+    monkeypatch.setattr(manager, "_reload_agent", reload)
+    token = var_child_runnable_config.set(
+        {
+            "configurable": {
+                "user": uid,
+                "agent_id": aid,
+                "thread_id": "current-thread",
+                "octop_task_run_id": "current-run",
+                "work_mode": "agentic",
+            }
+        }
+    )
+    await manager._begin_invocation(aid)
+    try:
+        result = await call(tools, "octop_expert_update", mcp_servers=[])
+        assert result["saved"] is True
+        assert result["current_conversation_update"] == {
+            "mcp_servers": [],
+            "effective": "next_model_request",
+        }
+        assert result["reload_status"] == "pending_current_turn"
+        assert manager._live_connector_selections[(uid, aid, "current-thread", "current-run")] == []
+        reload.assert_not_awaited()
+    finally:
+        var_child_runnable_config.reset(token)
+        manager._end_invocation(aid)
+        await asyncio.sleep(0)
+
+
 async def test_device_selection_is_for_next_turn_and_preserves_context(native: Any) -> None:
     _c, srv, _auth, aid, uid, tools = native
     devices = srv.app_runtime.devices

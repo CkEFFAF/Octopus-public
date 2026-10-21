@@ -389,7 +389,12 @@ class CronManager:
             or source.status != "active"
             or not source.has_credentials
         ):
-            raise OctopError(ErrorCode.CRON_TRIGGER_INVALID, "Agent Mail source is unavailable")
+            raise OctopError(
+                ErrorCode.CRON_TRIGGER_INVALID,
+                "Agent Mail trigger requires an active agently-cli connector with credentials; "
+                "an IMAP/SMTP mailbox (qq-mail) is not an Agent Mail event source. "
+                "This error does not test mailbox authentication.",
+            )
         if source.user_id != user_id and not source.shared:
             raise OctopError(
                 ErrorCode.FORBIDDEN, "Agent Mail source is not visible to the job owner"
