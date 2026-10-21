@@ -8,6 +8,8 @@
 
 ### 新增
 
+- Agent 可通过原生工具自行配置连接器、编写和安装技能、管理工具开关、安装插件及配置 HTTP／stdio MCP；沿用账号归属和模块权限，插件在活跃回合结束后加载。
+- 能力配置结果区分已保存、探测通过及生效时机，技能、工具和连接器界面自动同步；学校邮箱支持自定义 IMAP／SMTP 主机和 TLS 端口，包括 SMTP 465。
 - 排队消息新增“立即打断并插入”，可中断当前工具等待并返回被用户打断的结果；保留“等工具结束后插入”，同步显示插入状态及外部后台任务可能继续运行的提示。
 - 0025 S0：设备 `capability_policy_json` 能力策略包；MCP resolve 在 apply_defaults 时并入「专家 ∪ 设备包 ∪ 账号 default_open」，Dashboard `[]` 同时退出账号与设备默认；Device Manager 可编辑并告警缺失 MCP；提供 seed API/脚本（不改写专家名单）。
 - 数据面韧性（0026 S0）：备份 integrity sidecar（sha256）、异地 hook/rsync、失败 webhook 告警、`octop backup verify` / `health-check` / `drill`、本地 auto retention 默认 14、生产 `OCTOP_HOME`/`OctopData` 文档统一。
