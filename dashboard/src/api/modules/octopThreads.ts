@@ -88,6 +88,7 @@ export interface SidebarSchedule {
 }
 
 export interface SidebarStatus {
+  schedule_counts?: { schedules: number; reminders: number };
   working_threads: Array<
     Pick<
       OctopThread,

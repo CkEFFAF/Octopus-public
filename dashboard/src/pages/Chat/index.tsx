@@ -61,6 +61,7 @@ import { browserApi } from "../../api/modules/browser";
 import { octopThreadsApi } from "../../api/modules/octopThreads";
 import type { ChatAttachment } from "./hooks/useChat";
 import MessageList from "./components/MessageList";
+import type { ScheduleMessageAnchor } from "./utils/scheduleMessage";
 import ChatInput, { type ChatInputHandle } from "./components/ChatInput";
 import WelcomeScreen from "./components/WelcomeScreen";
 import AgentNotReadyScreen from "./components/AgentNotReadyScreen";
@@ -1605,6 +1606,14 @@ function ChatPageInner() {
                   isTeam={isTeamChat}
                 >
                   <MessageList
+                    messageAnchor={
+                      (
+                        location.state as {
+                          scheduleMessage?: ScheduleMessageAnchor;
+                        } | null
+                      )?.scheduleMessage
+                    }
+                    messageAnchorKey={location.key}
                     messages={messages}
                     agentId={resolvedAgentId}
                     composerLookups={composerLookups}

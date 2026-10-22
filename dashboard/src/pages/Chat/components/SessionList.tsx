@@ -1,4 +1,5 @@
 import SessionActivity from "./SessionActivity";
+import ExpertScheduleBadge from "./ExpertScheduleBadge";
 import {
   SidebarActivityProvider,
   useSessionActivity,
@@ -387,6 +388,10 @@ function ActiveAgentCard({
           </div>
           <div className={styles.expertRowStatus}>
             <ExpertStatusLabel phase={phase} />
+            <ExpertScheduleBadge
+              agentId={agent.agent_id}
+              owned={agent.is_owner === true}
+            />
             <ExpertPinButton pinned={pinned} onClick={onTogglePin} />
             <button
               type="button"
@@ -541,6 +546,10 @@ function InactiveAgentRow({
           </div>
           <div className={styles.expertRowStatus}>
             <ExpertStatusLabel phase={phase} />
+            <ExpertScheduleBadge
+              agentId={agent.agent_id}
+              owned={agent.is_owner === true}
+            />
             {onTogglePin && (
               <ExpertPinButton pinned={pinned} onClick={onTogglePin} />
             )}

@@ -93,6 +93,9 @@ export interface OctopCronRow {
   max_fires?: number | null;
   remaining?: number | null;
   capabilities?: { view: boolean; manage: boolean };
+  category?: "once" | "repeat" | "ended";
+  agent_name?: string;
+  thread_title?: string | null;
 }
 
 /** Body sent to POST /api/agents/:id/cron */

@@ -24,11 +24,13 @@ def sidebar_status(
             }
         )
     schedules = []
+    schedule_counts = {"schedules": 0, "reminders": 0}
     if include_schedules:
         for row in cron_manager.list_by_agent(
             agent_id, user_id=user_id, include_self_reminders=True
         ):
             view = cron_manager.public_view(row)
+            schedule_counts["reminders" if view["self_reminder"] else "schedules"] += 1
             thread_id = view["thread_id"]
             thread = gateway.thread_registry.get_thread(thread_id) if thread_id else None
             if thread is None or (thread.agent_id, thread.user_id) != (agent_id, user_id):
@@ -47,4 +49,4 @@ def sidebar_status(
                     "self_reminder": view["self_reminder"],
                 }
             )
-    return {"working_threads": working, "schedules": schedules}
+    return {"working_threads": working, "schedules": schedules, "schedule_counts": schedule_counts}

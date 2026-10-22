@@ -7573,6 +7573,24 @@
     "timezone": "Snapshot timezone"
   },
   "workspace0034": {
+    "allExperts": "All experts · Schedule center",
+    "scheduleCenter": "Schedule center",
+    "expertTaskPanel": "Expert task panel",
+    "allConversations": "All conversations",
+    "manageTasks": "Manage tasks",
+    "sortHint": "One-offs first · Frequent repeats next · Ended tasks last",
+    "scheduleCenterDescription": "Browse and manage schedules and reminders across all experts and conversations",
+    "filterExpert": "Filter expert",
+    "searchSchedules": "Search tasks, experts or conversations",
+    "filterCategory": "Filter task type",
+    "moreFive": "View 5 more",
+    "expertSchedules": "{{count}} {{kind}}, open management",
+    "category": {
+      "all": "All types",
+      "once": "One-off",
+      "repeat": "Recurring",
+      "ended": "Ended"
+    },
     "previewAnnotate": "Preview & annotate",
     "conflictCompare": "The remote version changed. Compare it below with the draft retained in your editor before saving again.",
     "remoteVersion": "Remote version",

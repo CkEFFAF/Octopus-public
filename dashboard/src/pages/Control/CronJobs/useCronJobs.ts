@@ -179,10 +179,10 @@ function toOctopPatchBody(values: CronJobFormValues) {
   };
 }
 
-export function useCronJobs() {
+export function useCronJobs(enabled = true) {
   const { t } = useTranslation();
   const { activeAgentId, activeAgent } = useAgent();
-  const canManageJobs = activeAgent?.is_owner === true;
+  const canManageJobs = enabled && activeAgent?.is_owner === true;
   const [jobs, setJobs] = useState<CronJob[]>([]);
   /** Which agent the currently painted `jobs` belong to (may lag activeAgent). */
   const [jobsOwnerId, setJobsOwnerId] = useState<string | null>(null);

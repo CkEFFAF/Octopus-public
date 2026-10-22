@@ -36,6 +36,7 @@ class SidebarSchedule(BaseModel):
 
 
 class SidebarStatus(BaseModel):
+    schedule_counts: dict[str, int] = Field(default_factory=dict)
     working_threads: list[SidebarWorkingThread] = Field(
         description="Actual running turns owned by this user, independent of the selected chat."
     )

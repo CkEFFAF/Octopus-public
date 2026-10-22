@@ -219,6 +219,16 @@ class CronManager:
             if next_run
             else "unregistered"
         )
+        if state == "unregistered" and row.trigger.startswith("date:") and row.last_status == "ok":
+            from apscheduler.triggers.date import DateTrigger
+
+            trigger = build_trigger(row.trigger, timezone=self._timezone)
+            if (
+                isinstance(trigger, DateTrigger)
+                and row.last_run_at is not None
+                and trigger.run_date.timestamp() <= row.last_run_at <= time.time()
+            ):
+                state = "ended"
         value.update(
             timezone=self._timezone,
             next_run_at=next_run.timestamp() if next_run else None,
@@ -238,6 +248,34 @@ class CronManager:
 
     def list_all(self, *, include_disabled: bool = True) -> list[CronJobRow]:
         return self._repos.cron_repo.list_all(include_disabled=include_disabled)
+
+    def list_page(
+        self,
+        *,
+        user_id: int,
+        agent_id: str | None = None,
+        thread_id: str | None = None,
+        reminder: bool | None = None,
+        category: str | None = None,
+        search: str = "",
+        offset: int = 0,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        from octop.infra.cron.listing import list_schedule_page
+
+        return list_schedule_page(
+            self,
+            repos=self._repos,
+            timezone=self._timezone,
+            user_id=user_id,
+            agent_id=agent_id,
+            thread_id=thread_id,
+            reminder=reminder,
+            category=category,
+            search=search,
+            offset=offset,
+            limit=limit,
+        )
 
     async def update(
         self,

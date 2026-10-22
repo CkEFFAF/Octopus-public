@@ -6,6 +6,7 @@ import {
   type ExpertPhase,
 } from "../../../components/AnimatedExpertAvatar/model";
 import ExpertAgentAvatar from "./ExpertAgentAvatar";
+import ExpertScheduleBadge from "./ExpertScheduleBadge";
 import styles from "../index.module.less";
 
 export function sidebarExpertPhase(
@@ -129,6 +130,10 @@ export function PinnedExperts({
               <ExpertPinButton
                 pinned
                 onClick={() => onTogglePin(agent.agent_id)}
+              />
+              <ExpertScheduleBadge
+                agentId={agent.agent_id}
+                owned={agent.is_owner === true}
               />
             </div>
           );
