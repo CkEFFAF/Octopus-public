@@ -12,7 +12,8 @@ from octop.infra.agents.providers.probe import fetch_openai_compatible_models
 
 
 @pytest.mark.asyncio
-async def test_go_discovery_uses_public_catalog_and_filters_protocols() -> None:
+async def test_go_discovery_rewrites_url_and_keeps_all_remote_ids() -> None:
+    """0036.1: Go list URL rewrite stays; preset whitelist filter is gone."""
     client = AsyncMock()
     client.__aenter__.return_value = client
     client.get.return_value = httpx.Response(
@@ -24,6 +25,8 @@ async def test_go_discovery_uses_public_catalog_and_filters_protocols() -> None:
                 {"id": "step-5-preview"},
                 {"id": "claude-haiku-5-5"},
                 {"id": "gemini-4-argon-contributor"},
+                {"id": "omen-alpha"},
+                {"id": "minimax-m3.1-flash-free"},
             ]
         },
     )
@@ -35,7 +38,15 @@ async def test_go_discovery_uses_public_catalog_and_filters_protocols() -> None:
         )
     assert client.get.await_args.args[0] == "https://opencode.ai/inference/go/v1/models"
     assert result["ok"] is True
-    assert {m["id"] for m in result["models"]} == {"mimo-v2.6-pro", "grok-4.7", "step-5-preview"}
+    assert {m["id"] for m in result["models"]} == {
+        "mimo-v2.6-pro",
+        "grok-4.7",
+        "step-5-preview",
+        "claude-haiku-5-5",
+        "gemini-4-argon-contributor",
+        "omen-alpha",
+        "minimax-m3.1-flash-free",
+    }
 
 
 @pytest.mark.asyncio

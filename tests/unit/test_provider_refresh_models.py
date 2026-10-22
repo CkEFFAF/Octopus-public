@@ -253,3 +253,190 @@ async def test_refresh_openai_without_key_falls_back_to_preset() -> None:
     assert result["ok"] is True
     assert result["source_used"] == "preset"
     fetch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_refresh_go_keeps_remote_ids_absent_from_preset() -> None:
+    """0036.1 AC-001: omen-alpha / gemini-4-argon / minimax flash not dropped."""
+    row = _row(
+        name="OpenCode Go (Compatible)",
+        base_url="https://opencode.ai/inference/go/openai/v1",
+        models=[{"id": "my-custom-model", "name": "Mine", "enabled": True}],
+    )
+    update = MagicMock()
+    server = _mock_server(row, update=update)
+    remote = {
+        "ok": True,
+        "models": [
+            {"id": "omen-alpha", "name": "omen-alpha"},
+            {"id": "gemini-4-argon-contributor", "name": "gemini-4-argon-contributor"},
+            {"id": "minimax-m3.1-flash-free", "name": "minimax-m3.1-flash-free"},
+            {"id": "mimo-v2.6-pro", "name": "mimo-v2.6-pro"},
+        ],
+    }
+    # Preset deliberately omits the three "new" remote ids.
+    preset = {
+        "id": "opencode-go-openai",
+        "name": "OpenCode Go (Compatible)",
+        "models": [
+            {
+                "id": "mimo-v2.6-pro",
+                "name": "MiMo V2.6 Pro",
+                "input": ["text"],
+                "context_window": 1000,
+            }
+        ],
+    }
+    with (
+        patch(
+            "octop.infra.agents.providers.refresh.fetch_openai_compatible_models",
+            new=AsyncMock(return_value=remote),
+        ),
+        patch(
+            "octop.infra.agents.providers.refresh.match_provider_preset",
+            return_value=preset,
+        ),
+        patch(
+            "octop.infra.agents.providers.refresh.enrich_models_from_upstream",
+            new=AsyncMock(side_effect=lambda models, provider_key=None: (models, 0)),
+        ),
+        patch("octop.infra.agents.providers.refresh.clear_stale_pins_for_provider"),
+        patch(
+            "octop.infra.agents.providers.refresh.is_local_runtime_provider",
+            return_value=False,
+        ),
+    ):
+        result = await refresh_provider_models(row=row, server=server, prefer="auto")
+
+    assert result["ok"] is True
+    by_id = {m["id"]: m for m in result["models"]}
+    for mid in (
+        "omen-alpha",
+        "gemini-4-argon-contributor",
+        "minimax-m3.1-flash-free",
+    ):
+        assert mid in by_id
+        assert by_id[mid]["source"] == "remote"
+        assert by_id[mid]["enabled"] is False
+    assert by_id["my-custom-model"]["source"] == "user"
+    assert "my-custom-model" in update.call_args.kwargs["models_json"]
+
+
+@pytest.mark.asyncio
+async def test_refresh_models_dev_failure_still_persists_remote_ids() -> None:
+    """0036.1 AC-004: models.dev down must not block writing remote ids."""
+    row = _row(
+        name="OpenCode Go (Compatible)",
+        base_url="https://opencode.ai/inference/go/openai/v1",
+        models=[],
+    )
+    update = MagicMock()
+    server = _mock_server(row, update=update)
+    remote = {
+        "ok": True,
+        "models": [{"id": "omen-alpha", "name": "omen-alpha"}],
+    }
+    preset = {
+        "id": "opencode-go-openai",
+        "name": "OpenCode Go (Compatible)",
+        "models": [],
+    }
+
+    async def _boom(models, provider_key=None):
+        # Simulate unexpected failure path; enrich should still degrade.
+        raise RuntimeError("models.dev exploded")
+
+    with (
+        patch(
+            "octop.infra.agents.providers.refresh.fetch_openai_compatible_models",
+            new=AsyncMock(return_value=remote),
+        ),
+        patch(
+            "octop.infra.agents.providers.refresh.match_provider_preset",
+            return_value=preset,
+        ),
+        patch(
+            "octop.infra.agents.providers.refresh.enrich_models_from_upstream",
+            new=AsyncMock(side_effect=_boom),
+        ),
+        patch("octop.infra.agents.providers.refresh.clear_stale_pins_for_provider"),
+        patch(
+            "octop.infra.agents.providers.refresh.is_local_runtime_provider",
+            return_value=False,
+        ),
+    ):
+        result = await refresh_provider_models(row=row, server=server, prefer="auto")
+
+    assert result["ok"] is True
+    assert result["upstream_enriched"] == 0
+    assert any(m["id"] == "omen-alpha" for m in result["models"])
+    update.assert_called_once()
+    assert "omen-alpha" in update.call_args.kwargs["models_json"]
+
+
+@pytest.mark.asyncio
+async def test_refresh_enriches_empty_fields_from_models_dev() -> None:
+    """0036.1 AC-003: empty fields filled from models.dev when reachable."""
+    from octop.infra.agents.providers import upstream_catalog as uc
+
+    row = _row(
+        name="OpenCode Go (Compatible)",
+        base_url="https://opencode.ai/inference/go/openai/v1",
+        models=[],
+    )
+    update = MagicMock()
+    server = _mock_server(row, update=update)
+    remote = {
+        "ok": True,
+        "models": [{"id": "gemini-4-argon-contributor", "name": "gemini-4-argon-contributor"}],
+    }
+    preset = {
+        "id": "opencode-go-openai",
+        "name": "OpenCode Go (Compatible)",
+        "models": [],
+    }
+    catalog = {
+        "opencode-go": {
+            "models": {
+                "gemini-4-argon-contributor": {
+                    "id": "gemini-4-argon-contributor",
+                    "name": "Gemini 4 Argon Contributor",
+                    "reasoning": True,
+                    "modalities": {"input": ["text", "image"]},
+                    "limit": {"context": 1048576, "output": 65536},
+                }
+            }
+        }
+    }
+    uc.reset_upstream_catalog_cache()
+    with (
+        patch(
+            "octop.infra.agents.providers.refresh.fetch_openai_compatible_models",
+            new=AsyncMock(return_value=remote),
+        ),
+        patch(
+            "octop.infra.agents.providers.refresh.match_provider_preset",
+            return_value=preset,
+        ),
+        patch(
+            "octop.infra.agents.providers.upstream_catalog.fetch_models_dev_api",
+            new=AsyncMock(return_value=catalog),
+        ),
+        patch("octop.infra.agents.providers.refresh.clear_stale_pins_for_provider"),
+        patch(
+            "octop.infra.agents.providers.refresh.is_local_runtime_provider",
+            return_value=False,
+        ),
+    ):
+        result = await refresh_provider_models(row=row, server=server, prefer="auto")
+
+    assert result["ok"] is True
+    assert result["upstream_enriched"] >= 1
+    m = next(x for x in result["models"] if x["id"] == "gemini-4-argon-contributor")
+    assert m["name"] == "Gemini 4 Argon Contributor"
+    assert m["context_window"] == 1048576
+    assert m["max_output_tokens"] == 65536
+    assert m["input"] == ["text", "image"]
+    assert m["reasoning"] is True
+    assert m["source"] == "remote"
+    assert m["enabled"] is False
