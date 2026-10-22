@@ -27,6 +27,8 @@ export interface ProviderModel {
   /** Embedding-only: excluded from chat picker and auto-route. */
   embedding?: boolean;
   task?: string;
+  /** Catalog provenance after refresh-models (0036). */
+  source?: "user" | "remote" | "preset";
 }
 
 export function isEmbeddingModel(

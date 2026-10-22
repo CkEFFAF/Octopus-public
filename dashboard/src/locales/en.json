@@ -4212,7 +4212,12 @@
     "onnxCacheDir": "Cache: {{dir}}",
     "onnxLocalCached": "Cached models",
     "onnxQuickDownload": "Quick download from catalog…",
-    "defaultModelExtra": "Model used by Test connection; leave empty to use the first enabled model"
+    "defaultModelExtra": "Model used by Test connection; leave empty to use the first enabled model",
+    "refreshModels": "Update models",
+    "refreshModelsSuccess": "{{name}} updated: {{added}} added (source {{source}})",
+    "refreshModelsFailed": "Failed to update models: {{error}}",
+    "refreshModelsUnsupported": "This protocol cannot list remote models and no bundled preset matched",
+    "refreshModelsLocalDisabled": "Local runtimes manage models on-device; catalog refresh is disabled"
   },
   "advancedSettings": {
     "description": "Manage runtime configuration and environment variables.",

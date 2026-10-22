@@ -16,6 +16,7 @@ describe("model catalog synchronization", () => {
     const [model] = mergePresetModels([], [grok], [grok]);
     expect(model.use_responses_api).toBe(true);
     expect(model.enabled).toBe(false);
+    expect(model.source).toBe("remote");
   });
   it("uses official metadata for newly discovered models and leaves them disabled", () => {
     const [model] = mergePresetModels(
@@ -23,7 +24,12 @@ describe("model catalog synchronization", () => {
       [{ id: preset.id, name: preset.id }],
       [preset],
     );
-    expect(model).toMatchObject({ ...preset, enabled: false, thinking: null });
+    expect(model).toMatchObject({
+      ...preset,
+      enabled: false,
+      thinking: null,
+      source: "remote",
+    });
     expect(model.max_tokens).toBeUndefined();
   });
 
@@ -39,7 +45,8 @@ describe("model catalog synchronization", () => {
       input: ["text"],
       reasoning: false,
     };
-    expect(mergePresetModels([current], [preset], [preset])).toEqual([current]);
+    const [merged] = mergePresetModels([current], [preset], [preset]);
+    expect(merged).toMatchObject({ ...current, source: "remote" });
     expect(current.name).toBe("我的模型");
   });
 
@@ -51,17 +58,48 @@ describe("model catalog synchronization", () => {
       [preset],
     );
     expect(result).toHaveLength(3);
-    expect(result[0]).toEqual(old);
+    expect(result[0]).toMatchObject({ ...old, source: "user" });
     expect(result[1]).toMatchObject({
       name: preset.name,
       input: preset.input,
       enabled: false,
+      source: "remote",
     });
     expect(result[2]).toMatchObject({
       id: "new-id",
       name: "New",
       enabled: false,
+      source: "remote",
     });
     expect(result[2].context_window).toBeUndefined();
+  });
+
+  it("never deletes user-only models and tags source=user", () => {
+    const custom = {
+      id: "my-custom-model",
+      name: "Mine",
+      enabled: true,
+    };
+    const result = mergePresetModels([custom], [{ id: "gpt-x", name: "gpt-x" }], [
+      preset,
+    ]);
+    expect(result.find((m) => m.id === "my-custom-model")).toMatchObject({
+      id: "my-custom-model",
+      enabled: true,
+      source: "user",
+    });
+    expect(result.find((m) => m.id === "gpt-x")?.source).toBe("remote");
+    expect(result.find((m) => m.id === preset.id)?.source).toBe("preset");
+  });
+
+  it("adds preset-only models when remote catalog omits them", () => {
+    const result = mergePresetModels([], [], [preset]);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: preset.id,
+      name: preset.name,
+      enabled: false,
+      source: "preset",
+    });
   });
 });
