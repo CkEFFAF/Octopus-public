@@ -2086,6 +2086,8 @@
     "sessionWorking": "正在回复",
     "sessionWorkingShort": "工作中",
     "sessionSchedules": "{{count}} 个定时任务",
+    "sessionScheduleLastRun": "最近触发",
+    "sessionScheduleOpenWorkbench": "共 {{count}} 个任务 · 点击打开任务工作台",
     "composerContextLabel": "消息附加上下文",
     "contextWindow": {
       "tooltip": "上下文占用 {{used}} / {{max}} · {{percent}}%（最近一次模型请求）",

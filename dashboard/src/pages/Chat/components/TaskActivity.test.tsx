@@ -1,5 +1,11 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import {
   activityApi,
@@ -33,6 +39,61 @@ vi.mock("../../../hooks/useServerTimezone", () => ({
 }));
 vi.mock("./TaskActivityGraph", () => ({ default: () => <div /> }));
 describe("task workbench entry", () => {
+  it.each(["schedules", "reminders"])(
+    "opens the requested %s page for the matching chat and clears the link on close",
+    async (tab) => {
+      function LocationProbe() {
+        const location = useLocation();
+        return (
+          <output data-testid="workbench-location">{location.search}</output>
+        );
+      }
+      const view = render(
+        <MemoryRouter initialEntries={[`/chat/a/t?task_view=${tab}&keep=1`]}>
+          <Routes>
+            <Route
+              path="/chat/:agentId/:threadId"
+              element={
+                <>
+                  <TaskActivity agentId="a" threadId="t" />
+                  <LocationProbe />
+                </>
+              }
+            />
+          </Routes>
+        </MemoryRouter>,
+      );
+      await waitFor(() => expect(screen.getByRole("dialog")).toBeVisible());
+      expect(
+        screen.getByRole("button", {
+          name: new RegExp(`workspace0034.${tab}`),
+        }),
+      ).toHaveAttribute("aria-current", "page");
+      fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+      expect(screen.getByTestId("workbench-location")).toHaveTextContent(
+        "?keep=1",
+      );
+      view.unmount();
+    },
+  );
+
+  it("does not open a different expert's workbench from a schedule link", async () => {
+    const view = render(
+      <MemoryRouter initialEntries={["/chat/other/t?task_view=schedules"]}>
+        <Routes>
+          <Route
+            path="/chat/:agentId/:threadId"
+            element={<TaskActivity agentId="a" threadId="t" />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    view.unmount();
+  });
   it("delays mouse summary, and double click opens one workbench without summary", async () => {
     vi.useFakeTimers();
     const { unmount } = render(

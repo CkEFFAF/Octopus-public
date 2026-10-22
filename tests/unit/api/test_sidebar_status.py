@@ -72,6 +72,10 @@ async def test_activity_and_schedules_follow_actual_owned_threads(rig: Any) -> N
         assert set(schedules) == {"daily", "paused", "reminder"}
         assert schedules["daily"].next_run_at is not None
         assert schedules["daily"].timezone == "Asia/Shanghai"
+        assert schedules["daily"].created_at > 0
+        assert schedules["daily"].last_run_at is None
+        assert schedules["reminder"].self_reminder is True
+        assert schedules["daily"].self_reminder is False
         assert schedules["paused"].scheduler_state == "paused"
         assert schedules["reminder"].scheduler_state == "exhausted"
         assert "private task content" not in result.model_dump_json()

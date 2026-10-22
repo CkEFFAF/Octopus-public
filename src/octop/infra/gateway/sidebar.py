@@ -42,6 +42,9 @@ def sidebar_status(
                     "scheduler_state": view["scheduler_state"],
                     "next_run_at": view["next_run_at"],
                     "timezone": view["timezone"],
+                    "last_run_at": view["last_run_at"],
+                    "created_at": row.created_at,
+                    "self_reminder": view["self_reminder"],
                 }
             )
     return {"working_threads": working, "schedules": schedules}

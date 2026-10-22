@@ -105,6 +105,9 @@ export function useSessionActivity(threadId: string) {
     () => chatStore.getSnapshot(threadId).isStreaming,
   );
   return {
+    agentId: Object.entries(values).find(([, value]) =>
+      value.schedules.some((row) => row.thread_id === threadId),
+    )?.[0],
     working:
       streaming ||
       Object.values(values).some((value) =>

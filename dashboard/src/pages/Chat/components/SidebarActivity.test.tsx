@@ -7,7 +7,8 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
+import { ConfigProvider } from "antd";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   octopThreadsApi,
@@ -78,21 +79,33 @@ const common = {
   onNewChat: vi.fn(),
   onFork: vi.fn(),
 };
+function LocationProbe() {
+  const location = useLocation();
+  return (
+    <output data-testid="location">
+      {location.pathname}
+      {location.search}
+    </output>
+  );
+}
 function classic() {
   return (
-    <MemoryRouter>
-      <SessionList
-        {...common}
-        sessions={[idle]}
-        hasMore={false}
-        loadingMore={false}
-        onLoadMore={vi.fn()}
-        onFetchAllSessions={vi.fn()}
-        onDelete={vi.fn()}
-        onRename={vi.fn()}
-        onPin={vi.fn()}
-      />
-    </MemoryRouter>
+    <ConfigProvider prefixCls="octop">
+      <MemoryRouter>
+        <LocationProbe />
+        <SessionList
+          {...common}
+          sessions={[idle]}
+          hasMore={false}
+          loadingMore={false}
+          onLoadMore={vi.fn()}
+          onFetchAllSessions={vi.fn()}
+          onDelete={vi.fn()}
+          onRename={vi.fn()}
+          onPin={vi.fn()}
+        />
+      </MemoryRouter>
+    </ConfigProvider>
   );
 }
 beforeEach(() => {
@@ -141,15 +154,21 @@ it("shows background activity and schedule states without treating selection as 
   expect(row.className).toMatch(/sessionRowWorking/);
   const scheduled = within(row).getByLabelText("chat.sessionSchedules");
   expect(scheduled).toHaveAttribute("data-scheduled", "true");
-  expect(scheduled.title).toContain("Daily check");
-  expect(scheduled.title).toContain("2027");
-  expect(scheduled.title).toContain("Asia/Shanghai");
+  expect(scheduled).not.toHaveAttribute("title");
   fireEvent.focus(scheduled);
-  expect(await screen.findByRole("tooltip")).toHaveTextContent("Daily check");
+  const details = await screen.findByRole("tooltip");
+  expect(details.className).toContain("octop-tooltip-inner");
+  expect(details.style.color).toBe("var(--fn-text-primary)");
+  expect(details).toHaveTextContent("Daily check");
+  expect(details).toHaveTextContent("2027");
+  expect(details).toHaveTextContent("Asia/Shanghai");
   fireEvent.blur(scheduled);
   common.onSelect.mockClear();
   fireEvent.keyDown(scheduled, { key: "Enter" });
   expect(common.onSelect).not.toHaveBeenCalled();
+  expect(screen.getByTestId("location")).toHaveTextContent(
+    "/chat/expert/old-background?task_view=schedules",
+  );
   const selected = screen
     .getByText("Selected idle chat")
     .closest('[role="button"]') as HTMLElement;
@@ -167,6 +186,86 @@ it("shows background activity and schedule states without treating selection as 
   );
   expect(screen.queryByLabelText("chat.sessionSchedules")).toBeNull();
   view.unmount();
+});
+
+it("limits hover to the two nearest schedules and clicks through to this chat's workbench", async () => {
+  vi.mocked(octopThreadsApi.sidebarStatus).mockResolvedValue({
+    working_threads: [],
+    schedules: [
+      {
+        ...status.schedules[1],
+        id: "next",
+        enabled: true,
+        scheduler_state: "scheduled",
+        name: "Next check",
+        next_run_at: 1800000200,
+      },
+      {
+        ...status.schedules[1],
+        id: "sooner",
+        enabled: true,
+        scheduler_state: "scheduled",
+        name: "Sooner check",
+        next_run_at: 1800000000,
+      },
+      ...Array.from({ length: 40 }, (_, i) => ({
+        ...status.schedules[1],
+        id: `old-${i}`,
+        name: `Archived check ${i}`,
+        scheduler_state: "exhausted",
+        last_run_at: 1700000000 + i,
+      })),
+    ],
+  });
+  render(classic());
+  const badge = await screen.findByRole("button", {
+    name: "chat.sessionSchedules",
+  });
+  fireEvent.mouseEnter(badge);
+  const preview = await screen.findByRole("tooltip");
+  expect(within(preview).getAllByRole("listitem")).toHaveLength(2);
+  expect(within(preview).queryByText("Archived check 0")).toBeNull();
+  await waitFor(() =>
+    expect(within(preview).getByText("Sooner check")).toBeVisible(),
+  );
+  expect(within(preview).getByText("Next check")).toBeVisible();
+  common.onSelect.mockClear();
+  fireEvent.click(badge);
+  expect(common.onSelect).not.toHaveBeenCalled();
+  expect(screen.getByTestId("location")).toHaveTextContent(
+    "/chat/expert/selected?task_view=schedules",
+  );
+});
+
+it("previews the latest past reminders with actual fire times and opens the reminders page", async () => {
+  vi.mocked(octopThreadsApi.sidebarStatus).mockResolvedValue({
+    working_threads: [],
+    schedules: Array.from({ length: 8 }, (_, i) => ({
+      ...status.schedules[1],
+      id: `reminder-${i}`,
+      name: `Past reminder ${i}`,
+      self_reminder: true,
+      scheduler_state: "exhausted",
+      last_run_at: 1700000000 + i * 60,
+    })),
+  });
+  render(classic());
+  const badge = await screen.findByRole("button", {
+    name: "chat.sessionSchedules",
+  });
+  fireEvent.focus(badge);
+  const preview = await screen.findByRole("tooltip");
+  expect(within(preview).getAllByRole("listitem")).toHaveLength(2);
+  await waitFor(() =>
+    expect(within(preview).getByText("Past reminder 7")).toBeVisible(),
+  );
+  expect(within(preview).getByText("Past reminder 6")).toBeVisible();
+  expect(preview).toHaveTextContent("2023");
+  expect(preview).toHaveTextContent("chat.sessionScheduleLastRun");
+  fireEvent.keyDown(badge, { key: " " });
+  expect(screen.getByTestId("location")).toHaveTextContent(
+    "/chat/expert/selected?task_view=reminders",
+  );
 });
 
 it("also exposes an older running conversation in minimal previews", async () => {

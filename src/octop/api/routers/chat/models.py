@@ -30,6 +30,9 @@ class SidebarSchedule(BaseModel):
     scheduler_state: str
     next_run_at: float | None
     timezone: str
+    last_run_at: float | None = None
+    created_at: float = 0
+    self_reminder: bool = False
 
 
 class SidebarStatus(BaseModel):

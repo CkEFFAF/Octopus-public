@@ -16,6 +16,7 @@ import {
   Pencil,
   Trash2,
   GitFork,
+  Share2,
 } from "lucide-react";
 import { showConfirmModal } from "../../../utils/confirmModal";
 import type { Session } from "../hooks/useSessions";
@@ -98,7 +99,14 @@ export default function ChatTitleBar({
         onClick: () => setCollapseThinking(!collapseThinking),
       },
       ...(onShare
-        ? [{ key: "share", label: t("chatShare.title"), onClick: onShare }]
+        ? [
+            {
+              key: "share",
+              label: t("chatShare.title"),
+              icon: <Share2 size={14} />,
+              onClick: onShare,
+            },
+          ]
         : []),
       { type: "divider" },
       {
