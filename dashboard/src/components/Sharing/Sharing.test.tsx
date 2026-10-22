@@ -137,9 +137,11 @@ it("opens desktop share preview, creates exactly its digest with default expiry,
     </MemoryRouter>,
   );
   await user.click(screen.getByRole("button", { name: "更多" }));
-  await user.click(
-    await screen.findByRole("menuitem", { name: "chatShare.title" }),
-  );
+  const shareMenuItem = await screen.findByRole("menuitem", {
+    name: "chatShare.title",
+  });
+  expect(shareMenuItem.querySelector("svg.lucide-share-2")).toBeInTheDocument();
+  await user.click(shareMenuItem);
   const dialog = await screen.findByRole("dialog");
   expect(
     await within(dialog).findByText("Public question"),

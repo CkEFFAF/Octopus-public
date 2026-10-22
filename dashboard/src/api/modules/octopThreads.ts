@@ -73,6 +73,9 @@ export interface SidebarSchedule {
   scheduler_state: string;
   next_run_at: number | null;
   timezone: string;
+  last_run_at?: number | null;
+  created_at?: number;
+  self_reminder?: boolean;
 }
 
 export interface SidebarStatus {

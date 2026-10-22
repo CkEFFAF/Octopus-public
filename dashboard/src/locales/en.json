@@ -2086,6 +2086,8 @@
     "sessionWorking": "Working",
     "sessionWorkingShort": "Working",
     "sessionSchedules": "{{count}} scheduled task(s)",
+    "sessionScheduleLastRun": "Last fired",
+    "sessionScheduleOpenWorkbench": "{{count}} tasks · Click to open task workbench",
     "composerContextLabel": "Message context",
     "contextWindow": {
       "tooltip": "Context {{used}} / {{max}} · {{percent}}% (last model request)",
