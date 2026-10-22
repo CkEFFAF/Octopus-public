@@ -8,6 +8,7 @@ import time
 from typing import Any
 
 from octop.infra.db.pool import DatabasePool
+from octop.infra.db.repos.conversation_metadata import mark_metadata_dirty, record_semantic_event
 
 
 class CollaborationRepo:
@@ -62,6 +63,29 @@ class CollaborationRepo:
                 ).rowcount
             if not changed:
                 return False
+            if thread:
+                record_semantic_event(
+                    conn,
+                    thread,
+                    f"collaboration:{event_id}",
+                    "collaboration",
+                    {
+                        "event_type": event,
+                        "status": payload.get("transport_status"),
+                        "outcome": payload.get("task_outcome"),
+                        "source_refs": [
+                            {
+                                "kind": "invocation"
+                                if table == "collaboration_invocations"
+                                else "resource",
+                                "id": identity,
+                            }
+                        ],
+                        "author_kind": "runtime",
+                    },
+                    float(payload.get("updated_at") or time.time()),
+                )
+                mark_metadata_dirty(conn, thread, "activity")
             if table == "collaboration_invocations":
                 conn.execute(
                     "UPDATE collaboration_invocations SET transport_status=?,source_thread_id=?,"

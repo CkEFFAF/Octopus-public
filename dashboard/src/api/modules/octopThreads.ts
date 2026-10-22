@@ -45,6 +45,15 @@ export function normalizeThreadArtifacts(
 export interface OctopThread {
   thread_id: string;
   title: string | null;
+  title_source?: string;
+  title_revision?: number;
+  metadata?: {
+    one_liner: string;
+    display_state?: string;
+    work_state: string;
+    freshness: string;
+    generated_at: number;
+  } | null;
   channel_type: string;
   session_key: string;
   last_active: number;

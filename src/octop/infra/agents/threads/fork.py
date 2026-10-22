@@ -190,6 +190,7 @@ async def fork_dashboard_thread(
     locale: str = "en",
     thread_message_repo: Any | None = None,
     history_archive: Any | None = None,
+    conversation_metadata_repo: Any | None = None,
 ) -> dict[str, Any]:
     """Create a dashboard thread seeded through the selected assistant reply."""
     from langchain_core.messages import message_to_dict, messages_from_dict  # noqa: PLC0415
@@ -257,6 +258,10 @@ async def fork_dashboard_thread(
         elif thread_message_repo is not None:
             assert prefix_projection_inputs is not None
             thread_message_repo.append_if_ready(dest_id, prefix_projection_inputs)
+        if conversation_metadata_repo is not None:
+            await asyncio.to_thread(
+                conversation_metadata_repo.record_fork, user_id, dest_id, source.thread_id
+            )
     except Exception:
         if archive is not None:
             await asyncio.to_thread(archive.remove_thread, dest_id)

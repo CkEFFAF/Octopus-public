@@ -47,6 +47,8 @@ import ScheduleBrowser, {
 import TaskActivityGraph from "./TaskActivityGraph";
 import styles from "./TaskActivity.module.less";
 
+export const OPEN_TASK_ACTIVITY_EVENT = "octop:open-task-activity";
+
 export function ActivityStatus({
   node,
   stale = false,
@@ -346,6 +348,18 @@ export default function TaskActivity({
   const [filter, setFilter] = useState("all");
   const [view, setView] = useState("auto");
   const [selected, setSelected] = useState("");
+  useEffect(() => {
+    const show = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.agentId !== agentId || detail?.threadId !== threadId) return;
+      setSummary(false);
+      setSection("live");
+      setSelected(detail.nodeId ?? "");
+      setOpen(true);
+    };
+    window.addEventListener(OPEN_TASK_ACTIVITY_EVENT, show);
+    return () => window.removeEventListener(OPEN_TASK_ACTIVITY_EVENT, show);
+  }, [agentId, threadId]);
   const [older, setOlder] = useState<ActivityNode[]>([]);
   const [cursor, setCursor] = useState<number | null>(null);
   const [historyBusy, setHistoryBusy] = useState(false);

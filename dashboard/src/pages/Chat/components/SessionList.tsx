@@ -50,6 +50,8 @@ import SharedExpertHint from "./SharedExpertHint";
 import RemoteExpertHint from "./RemoteExpertHint";
 import TeamChatBadge from "./TeamChatBadge";
 import styles from "../index.module.less";
+import { useServerTimezone } from "../../../hooks/useServerTimezone";
+import { formatMessageTime } from "../../../utils/formatMessageTime";
 
 function AgentUnreadBadge({ count }: { count: number }) {
   const { t } = useTranslation();
@@ -91,6 +93,7 @@ const SessionItem = memo(function SessionItem({
 }: SessionItemProps) {
   const { working } = useSessionActivity(session.id);
   const { t } = useTranslation();
+  const timezone = useServerTimezone();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(session.name);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -229,7 +232,37 @@ const SessionItem = memo(function SessionItem({
         />
       ) : (
         <>
-          <span className={styles.sessionRowTitle}>{session.name}</span>
+          <span className={styles.sessionRowCopy}>
+            <span className={styles.sessionRowHeading}>
+              <span className={styles.sessionRowTitle}>{session.name}</span>
+              {session.updatedAt && (
+                <time
+                  className={styles.sessionRowTime}
+                  dateTime={session.updatedAt}
+                >
+                  {formatMessageTime(
+                    new Date(session.updatedAt).getTime(),
+                    timezone,
+                  )}
+                </time>
+              )}
+            </span>
+            {session.metadata?.one_liner && (
+              <span className={styles.sessionRowSummary}>
+                {session.metadata.display_state &&
+                  session.metadata.display_state !== "unknown" && (
+                    <span>
+                      {t(
+                        `conversationMetadata.states.${session.metadata.display_state}`,
+                        session.metadata.display_state,
+                      )}{" "}
+                      ·{" "}
+                    </span>
+                  )}
+                {session.metadata.one_liner}
+              </span>
+            )}
+          </span>
           <SessionActivity threadId={session.id} />
           {session.pinned ? (
             <span

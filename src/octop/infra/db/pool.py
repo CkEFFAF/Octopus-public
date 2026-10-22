@@ -75,7 +75,10 @@ class SqlitePool:
                 raise
 
     def close(self) -> None:
-        self._conn.close()
+        # Cancelling an async caller does not stop its executor thread. Wait for
+        # outstanding connection/transaction leases before closing SQLite.
+        with self._lock:
+            self._conn.close()
 
 
 class _CompatRow(Mapping[str, Any]):

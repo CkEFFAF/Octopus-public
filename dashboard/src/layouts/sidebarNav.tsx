@@ -66,6 +66,7 @@ export const SIDEBAR_NAV_KEYS = [
   "acp",
   "admin-users",
   "models",
+  "conversation-metadata",
   "admin-storage",
   "admin-plugins",
   "admin-security",
@@ -122,6 +123,7 @@ export const SIDEBAR_GROUPED_NAV_KEYS = [
   "acp",
   "admin-users",
   "models",
+  "conversation-metadata",
   "admin-storage",
   "admin-plugins",
   "admin-security",
@@ -292,6 +294,12 @@ export function buildNavSections(
       path: "/admin/models",
       icon: <Cpu size={iconSize} strokeWidth={iconStroke} />,
       labelKey: "nav.models",
+    });
+    adminItems.push({
+      key: "conversation-metadata",
+      path: "/settings/conversation-metadata",
+      icon: <MessageSquareText size={iconSize} strokeWidth={iconStroke} />,
+      labelKey: "conversationMetadata.settingsTitle",
     });
   }
   if (navAllowed(user, "admin-storage")) {

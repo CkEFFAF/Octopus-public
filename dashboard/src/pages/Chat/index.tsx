@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import ExpertActivity from "./components/ExpertActivity";
 import TaskActivity from "./components/TaskActivity";
+import ConversationOverview from "./components/ConversationOverview";
 import { useExpertAnimation } from "./hooks/useExpertAnimation";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -1408,6 +1409,14 @@ function ChatPageInner() {
                 {resolvedAgentId && !sharedExpertViewer && (
                   <div className={styles.mobileToolbarRight}>
                     {activeThreadId && (
+                      <ConversationOverview
+                        agentId={resolvedAgentId}
+                        threadId={activeThreadId}
+                        onOpenArtifact={openFileAt}
+                        compact
+                      />
+                    )}
+                    {activeThreadId && (
                       <TaskActivity
                         agentId={resolvedAgentId}
                         threadId={activeThreadId}
@@ -1510,6 +1519,13 @@ function ChatPageInner() {
                 isTeam={isTeamChat}
                 activity={
                   <>
+                    {resolvedAgentId && activeThreadId && (
+                      <ConversationOverview
+                        agentId={resolvedAgentId}
+                        threadId={activeThreadId}
+                        onOpenArtifact={openFileAt}
+                      />
+                    )}
                     {resolvedAgentId && activeThreadId && (
                       <TaskActivity
                         agentId={resolvedAgentId}
