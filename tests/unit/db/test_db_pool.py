@@ -27,6 +27,30 @@ def test_db_pool_creates_file(tmp_path: Path):
     assert db_path.exists()
 
 
+@pytest.mark.parametrize("lease", ["connect", "transaction"])
+def test_close_waits_for_an_active_connection_lease(tmp_path: Path, lease: str) -> None:
+    pool = SqlitePool(tmp_path / "closing.db")
+    closing = threading.Event()
+    closed = threading.Event()
+
+    def close() -> None:
+        closing.set()
+        pool.close()
+        closed.set()
+
+    closer = threading.Thread(target=close)
+    try:
+        with getattr(pool, lease)() as conn:
+            closer.start()
+            assert closing.wait(2)
+            assert not closed.wait(0.2), "close invalidated a leased connection"
+            assert conn.execute("SELECT 1").fetchone()[0] == 1
+    finally:
+        closer.join(timeout=2)
+    assert not closer.is_alive()
+    assert closed.is_set()
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX-only mode bits")
 def test_db_pool_file_is_0600(tmp_path: Path):
     db_path = tmp_path / "octop.db"
