@@ -25,6 +25,8 @@ from octop.infra.conversations.models import (
     GeneratedBrief,
     GeneratedDigest,
     GeneratedTitle,
+    HistoryBatchRequest,
+    HistoryBatchView,
     JobView,
     MetadataSettings,
     ModelOption,
@@ -164,6 +166,33 @@ class ConversationService:
             owner, agent, thread, kind, {}, f"{owner}:{thread}:{kind}:{command}"
         )
         return self.job_view(value)
+
+    def history_batch(self, owner: int) -> HistoryBatchView | None:
+        value = self.repos.conversation_metadata_repo.history_batch(owner)
+        return HistoryBatchView(**value) if value else None
+
+    def start_history_batch(self, owner: int, body: HistoryBatchRequest) -> HistoryBatchView:
+        if body.thread_ids is not None:
+            if body.agent_id is None:
+                raise OctopError(
+                    ErrorCode.SLASH_BAD_ARGS, "Agent required for selected conversations"
+                )
+            for thread in body.thread_ids:
+                self.scope(owner, body.agent_id, thread)
+        elif body.agent_id is not None:
+            agent = self.repos.agent_repo.get(body.agent_id)
+            if agent is None or (agent.user_id != owner and not agent.is_shared):
+                raise denied()
+        settings = self.settings(owner)
+        if not settings.brief_available or (
+            settings.title_enabled and not settings.title_available
+        ):
+            raise OctopError(ErrorCode.SLASH_BAD_ARGS, "METADATA_MODEL_UNAVAILABLE")
+        return HistoryBatchView(
+            **self.repos.conversation_metadata_repo.start_history_batch(
+                owner, body.command_id, body.agent_id, body.thread_ids
+            )
+        )
 
     def job(self, owner: int, agent: str, thread: str, identity: str) -> JobView:
         self.scope(owner, agent, thread)

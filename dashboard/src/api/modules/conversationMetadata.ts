@@ -133,6 +133,15 @@ export interface ConversationSource {
   text: string;
   details: Record<string, unknown>;
 }
+export interface HistoryBatch {
+  batch_id: string;
+  total: number;
+  queued: number;
+  running: number;
+  ready: number;
+  failed: number;
+  cancelled: number;
+}
 const scope = (agent: string, thread: string) =>
   `/agents/${encodeURIComponent(agent)}/threads/${encodeURIComponent(thread)}`;
 export const metadataCommandId = () =>
@@ -140,6 +149,17 @@ export const metadataCommandId = () =>
   `metadata_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
 export const conversationMetadataApi = {
+  historyBatch: () =>
+    request<HistoryBatch | null>("/settings/conversation-metadata/batch"),
+  startHistoryBatch: (body: {
+    command_id: string;
+    agent_id?: string;
+    thread_ids?: string[];
+  }) =>
+    request<HistoryBatch>("/settings/conversation-metadata/batch", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   settings: () =>
     request<MetadataSettingsView>("/settings/conversation-metadata"),
   saveSettings: (body: MetadataSettings) =>

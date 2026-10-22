@@ -8,6 +8,46 @@ from tests.support.auth import create_user
 
 
 @pytest.mark.asyncio
+async def test_account_history_batch_http_restores_progress_and_isolates_users(
+    env_with_main_agent, monkeypatch
+):
+    client, server, auth, agent = env_with_main_agent
+    repos = server.services.repos
+    owner = repos.agent_repo.get(agent).user_id
+    # No external model calls: exercise the real router, authentication and database queue.
+    monkeypatch.setattr(
+        "octop.infra.conversations.service.ConversationService.resolve_model",
+        lambda *args: "test/model",
+    )
+    for i in range(61):
+        repos.thread_repo.insert(
+            thread_id=f"batch-http-{i}",
+            agent_id=agent,
+            user_id=owner,
+            channel_type="dashboard",
+            session_key=f"batch-http-{i}",
+        )
+    url = "/api/settings/conversation-metadata/batch"
+    assert (await client.get(url)).status_code == 401
+    started = await client.post(url, headers=auth, json={"command_id": "all-http"})
+    assert started.status_code == 202
+    assert started.json()["total"] >= 61
+    restored = (await client.get(url, headers=auth)).json()
+    assert restored["batch_id"] == "all-http" and restored["total"] == started.json()["total"]
+    duplicate = await client.post(url, headers=auth, json={"command_id": "double-click"})
+    assert duplicate.json()["batch_id"] == "all-http"
+    other = await create_user(client, auth, username="batch-other")
+    assert (await client.get(url, headers=other)).json() is None
+    invalid = await client.post(
+        url,
+        headers=other,
+        json={"command_id": "foreign-http", "agent_id": agent, "thread_ids": ["batch-http-0"]},
+    )
+    assert invalid.status_code == 403
+    assert "HistoryBatchRequest" in client._octop_app.openapi()["components"]["schemas"]
+
+
+@pytest.mark.asyncio
 async def test_metadata_routes_enforce_owner_cas_and_job_idempotency(env_with_main_agent):
     client, server, auth, agent = env_with_main_agent
     repos = server.services.repos

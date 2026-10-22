@@ -5,6 +5,8 @@ import {
   Button,
   Form,
   Modal,
+  Progress,
+  Radio,
   Select,
   Space,
   Spin,
@@ -17,6 +19,8 @@ import PageShell from "../../../layouts/PageShell";
 import { useAgent } from "../../../context/AgentContext";
 import {
   conversationMetadataApi,
+  metadataCommandId,
+  type HistoryBatch,
   type MetadataSettings,
   type MetadataSettingsView,
 } from "../../../api/modules/conversationMetadata";
@@ -34,12 +38,40 @@ export default function ConversationMetadataSettings() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
+  const [batchScope, setBatchScope] = useState<"all" | "selected">("all");
+  const [batch, setBatch] = useState<HistoryBatch | null>(null);
+  const [batchError, setBatchError] = useState("");
+  const [commandId, setCommandId] = useState(metadataCommandId);
   const [batchAgent, setBatchAgent] = useState("");
   const [threads, setThreads] = useState<{ value: string; label: string }[]>(
     [],
   );
   const [selected, setSelected] = useState<string[]>([]);
   const [batchBusy, setBatchBusy] = useState(false);
+  const pending = Boolean(batch && (batch.queued || batch.running));
+  useEffect(() => {
+    let alive = true;
+    const refresh = async () => {
+      try {
+        const value = await conversationMetadataApi.historyBatch();
+        if (alive) {
+          setBatch(value);
+          setBatchError("");
+        }
+      } catch (err) {
+        if (alive)
+          setBatchError(
+            apiErrorMessage(err, t("conversationMetadata.generationFailed")),
+          );
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 5000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [t]);
   const load = useCallback(async () => {
     try {
       setError("");
@@ -56,7 +88,7 @@ export default function ConversationMetadataSettings() {
     void load();
   }, [load]);
   useEffect(() => {
-    if (!batchOpen || !batchAgent) return;
+    if (!batchOpen || batchScope !== "selected" || !batchAgent) return;
     let alive = true;
     setThreads([]);
     setSelected([]);
@@ -86,7 +118,7 @@ export default function ConversationMetadataSettings() {
     return () => {
       alive = false;
     };
-  }, [batchOpen, batchAgent, message, t]);
+  }, [batchOpen, batchScope, batchAgent, message, t]);
   const save = async (values: MetadataSettings) => {
     if (!settings) return;
     setSaving(true);
@@ -112,9 +144,17 @@ export default function ConversationMetadataSettings() {
   const enqueue = async () => {
     setBatchBusy(true);
     try {
-      await conversationMetadataApi.batch(batchAgent, selected);
+      const value = await conversationMetadataApi.startHistoryBatch({
+        command_id: commandId,
+        ...(batchScope === "selected"
+          ? { agent_id: batchAgent, thread_ids: selected }
+          : {}),
+      });
+      setBatch(value);
+      setBatchError("");
+      setCommandId(metadataCommandId());
       message.success(
-        t("conversationMetadata.batchQueued", { count: selected.length }),
+        t("conversationMetadata.batchQueued", { count: value.total }),
       );
       setBatchOpen(false);
     } catch (err) {
@@ -240,43 +280,132 @@ export default function ConversationMetadataSettings() {
               >
                 {t("common.cancel")}
               </Button>
-              <Button onClick={() => setBatchOpen(true)}>
-                {t("conversationMetadata.organizeHistory")}
-              </Button>
             </Space>
           </Form>
         )}
+        <section
+          className={styles.history}
+          aria-label={t("conversationMetadata.organizeHistory")}
+        >
+          <Typography.Title level={4}>
+            {t("conversationMetadata.organizeHistory")}
+          </Typography.Title>
+          <Typography.Paragraph>
+            {t("conversationMetadata.historyAllHint")}
+          </Typography.Paragraph>
+          <Button
+            type="primary"
+            disabled={!settings || pending}
+            onClick={() => {
+              setBatchScope("all");
+              setBatchOpen(true);
+            }}
+          >
+            {t(
+              pending
+                ? "conversationMetadata.batchInProgress"
+                : "conversationMetadata.organizeAll",
+            )}
+          </Button>
+          {batchError && <Alert type="error" showIcon message={batchError} />}
+          {batch && (
+            <div className={styles.batchProgress} role="status">
+              <Progress
+                percent={
+                  batch.total
+                    ? Math.round(
+                        (100 * (batch.ready + batch.failed + batch.cancelled)) /
+                          batch.total,
+                      )
+                    : 100
+                }
+                status={
+                  pending
+                    ? "active"
+                    : batch.failed || batch.cancelled
+                    ? "exception"
+                    : "success"
+                }
+              />
+              <Typography.Paragraph>
+                {t("conversationMetadata.batchProgress", { ...batch })}
+              </Typography.Paragraph>
+              {Boolean(batch.failed || batch.cancelled) && (
+                <Typography.Text type="warning">
+                  {t("conversationMetadata.batchFailureHint")}
+                </Typography.Text>
+              )}
+            </div>
+          )}
+        </section>
       </div>
       <Modal
         open={batchOpen}
         title={t("conversationMetadata.organizeHistory")}
         onCancel={() => setBatchOpen(false)}
         onOk={() => void enqueue()}
-        okButtonProps={{ disabled: !batchAgent || !selected.length }}
+        okText={t("conversationMetadata.startOrganizing")}
+        okButtonProps={{
+          disabled:
+            pending ||
+            (batchScope === "selected" && (!batchAgent || !selected.length)) ||
+            !settings?.brief_available ||
+            (settings.title_enabled && !settings.title_available),
+        }}
         confirmLoading={batchBusy}
       >
-        <p>{t("conversationMetadata.historySelectionHint")}</p>
-        <Space direction="vertical" className={styles.full}>
-          <Select
-            className={styles.full}
-            aria-label={t("conversationMetadata.agent")}
-            placeholder={t("conversationMetadata.agent")}
-            value={batchAgent || undefined}
-            onChange={setBatchAgent}
-            options={agents.map((a) => ({ value: a.agent_id, label: a.name }))}
+        <Radio.Group
+          value={batchScope}
+          onChange={(event) => setBatchScope(event.target.value)}
+          aria-label={t("conversationMetadata.historyScope")}
+        >
+          <Radio value="all">{t("conversationMetadata.allHistory")}</Radio>
+          <Radio value="selected">
+            {t("conversationMetadata.selectedHistory")}
+          </Radio>
+        </Radio.Group>
+        <p>
+          {t(
+            batchScope === "all"
+              ? "conversationMetadata.historyAllHint"
+              : "conversationMetadata.historySelectionHint",
+          )}
+        </p>
+        {(!settings?.brief_available ||
+          (settings.title_enabled && !settings.title_available)) && (
+          <Alert
+            className={styles.notice}
+            type="warning"
+            showIcon
+            message={t("conversationMetadata.modelUnavailableHint")}
           />
-          <Select
-            className={styles.full}
-            mode="multiple"
-            aria-label={t("conversationMetadata.selectThreads")}
-            placeholder={t("conversationMetadata.selectThreads")}
-            value={selected}
-            onChange={setSelected}
-            options={threads}
-            loading={batchBusy}
-            maxCount={50}
-          />
-        </Space>
+        )}
+        {batchScope === "selected" && (
+          <Space direction="vertical" className={styles.full}>
+            <Select
+              className={styles.full}
+              aria-label={t("conversationMetadata.agent")}
+              placeholder={t("conversationMetadata.agent")}
+              value={batchAgent || undefined}
+              onChange={setBatchAgent}
+              options={agents.map((a) => ({
+                value: a.agent_id,
+                label: a.name,
+              }))}
+            />
+            <Select
+              className={styles.full}
+              mode="multiple"
+              aria-label={t("conversationMetadata.selectThreads")}
+              placeholder={t("conversationMetadata.selectThreads")}
+              value={selected}
+              onChange={setSelected}
+              options={threads}
+              loading={batchBusy}
+              maxCount={50}
+            />
+          </Space>
+        )}
       </Modal>
     </PageShell>
   );

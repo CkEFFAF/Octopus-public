@@ -54,6 +54,7 @@ const groups = [
     path: "/admin/models",
     keys: [
       "models",
+      "conversation-metadata",
       "bridge",
       "thread-shares",
       "admin-users",

@@ -106,6 +106,85 @@ class ConversationMetadataRepo:
         with self.db.transaction() as conn:
             conn.execute("UPDATE thread_metadata SET auto_enrolled=1 WHERE thread_id=?", (thread,))
 
+    @staticmethod
+    def _history_batch(conn: Any, owner: int, batch: str | None = None) -> dict[str, Any] | None:
+        if batch is None:
+            latest = conn.execute(
+                "SELECT request_json FROM thread_metadata_jobs WHERE owner_user_id=? "
+                "AND dedup_key LIKE 'batch:%' ORDER BY id DESC LIMIT 1",
+                (owner,),
+            ).fetchone()
+            if latest is None:
+                return None
+            batch = json.loads(latest["request_json"])["batch_id"]
+        rows = conn.execute(
+            "SELECT status,COUNT(*) AS count FROM thread_metadata_jobs "
+            "WHERE owner_user_id=? AND request_json=? GROUP BY status",
+            (owner, encoded({"batch_id": batch})),
+        ).fetchall()
+        if not rows:
+            return None
+        counts = {row["status"]: row["count"] for row in rows}
+        return {
+            "batch_id": batch,
+            "total": sum(counts.values()),
+            "queued": counts.get("queued", 0) + counts.get("retry", 0),
+            **{key: counts.get(key, 0) for key in ("running", "ready", "failed", "cancelled")},
+        }
+
+    def history_batch(self, owner: int) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            return self._history_batch(conn, owner)
+
+    def start_history_batch(
+        self, owner: int, command: str, agent: str | None, threads: list[str] | None
+    ) -> dict[str, Any]:
+        # One transaction snapshots the full account scope, without a recent-list cap.
+        with self.db.transaction() as conn:
+            if self.db.dialect == "postgresql":
+                conn.execute(
+                    "SELECT id FROM users WHERE id=? FOR NO KEY UPDATE", (owner,)
+                ).fetchone()
+            previous = self._history_batch(conn, owner, command)
+            if previous:
+                return previous
+            active = conn.execute(
+                "SELECT request_json FROM thread_metadata_jobs WHERE owner_user_id=? "
+                "AND dedup_key LIKE 'batch:%' AND status IN ('queued','retry','running') "
+                "ORDER BY id DESC LIMIT 1",
+                (owner,),
+            ).fetchone()
+            if active:
+                current = self._history_batch(
+                    conn, owner, json.loads(active["request_json"])["batch_id"]
+                )
+                assert current is not None
+                return current
+            where = "t.user_id=? AND (a.user_id=? OR a.is_shared=1)"
+            values: list[Any] = [owner, owner]
+            if agent is not None:
+                where += " AND t.agent_id=?"
+                values.append(agent)
+            if threads is not None:
+                where += f" AND t.thread_id IN ({','.join('?' for _ in threads)})"
+                values.extend(threads)
+            now = time.time()
+            prefix = f"batch:{owner}:{command}:"
+            conn.execute(
+                "INSERT INTO thread_metadata_jobs(job_id,dedup_key,owner_user_id,agent_id,thread_id,"
+                "kind,request_json,created_at,updated_at) "
+                "SELECT ? || t.thread_id,? || t.thread_id,t.user_id,t.agent_id,t.thread_id,'brief',?,?,? "
+                f"FROM threads t JOIN agents a ON a.agent_id=t.agent_id WHERE {where} "
+                "ON CONFLICT(dedup_key) DO NOTHING",
+                (prefix, prefix, encoded({"batch_id": command}), now, now, *values),
+            )
+            conn.execute(
+                "UPDATE thread_metadata SET auto_enrolled=1 WHERE thread_id IN "
+                "(SELECT thread_id FROM thread_metadata_jobs WHERE owner_user_id=? AND request_json=?)",
+                (owner, encoded({"batch_id": command})),
+            )
+            return self._history_batch(conn, owner, command) or {"batch_id": command, "total": 0}
+
     def record_fork(self, owner: int, thread: str, source: str) -> None:
         with self.db.transaction() as conn:
             row = conn.execute(

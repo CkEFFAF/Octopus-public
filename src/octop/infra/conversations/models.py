@@ -99,6 +99,22 @@ class MetadataJobRequest(Contract):
     command_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
 
 
+class HistoryBatchRequest(Contract):
+    command_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+    agent_id: str | None = Field(default=None, min_length=1, max_length=300)
+    thread_ids: list[str] | None = Field(default=None, min_length=1, max_length=50)
+
+
+class HistoryBatchView(Contract):
+    batch_id: str
+    total: int = 0
+    queued: int = 0
+    running: int = 0
+    ready: int = 0
+    failed: int = 0
+    cancelled: int = 0
+
+
 class TitleAction(Contract):
     expected_revision: int = Field(ge=0)
     action: Literal["apply", "restore"]
