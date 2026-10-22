@@ -44,6 +44,8 @@ export interface OctopAgent {
   system_prompt: string | null;
   template_name: string | null;
   state: "running" | "stopped" | "failed" | "starting" | "stopping" | string;
+  /** True while the server is executing an invocation for this expert. */
+  is_working?: boolean;
   last_error: string | null;
   icon: string | null;
   icon_name: string | null;
@@ -380,6 +382,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
               return (
                 a.agent_id === b.agent_id &&
                 a.state === b.state &&
+                a.is_working === b.is_working &&
                 a.unread_count === b.unread_count &&
                 a.bootstrap_pending === b.bootstrap_pending &&
                 a.name === b.name &&
@@ -433,6 +436,13 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   // already in localStorage.
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refresh({ silent: true });
+    }, 5000);
+    return () => window.clearInterval(timer);
   }, [refresh]);
 
   // Re-sync agent runtime state when the user returns to the tab (e.g. after

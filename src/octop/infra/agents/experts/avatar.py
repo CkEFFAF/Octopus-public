@@ -13,6 +13,18 @@ from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.media.attachment_hints import sniff_image_media_type
 
 MAX_AVATAR_BYTES = 5 * 1024 * 1024
+EXPERT_AVATAR_CHARACTERS = (
+    "swallow",
+    "fox",
+    "owl",
+    "rabbit",
+    "beaver",
+    "cat",
+    "redpanda",
+    "penguin",
+    "corgi",
+    "raccoon",
+)
 AVATAR_DIR = ".octop"
 _AVATAR_NAMES: tuple[str, ...] = (
     "avatar.png",
