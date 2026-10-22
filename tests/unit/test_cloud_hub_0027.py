@@ -8,6 +8,10 @@ import subprocess
 import textwrap
 from pathlib import Path
 
+import pytest
+
+posix_only = pytest.mark.skipif(os.name != "posix", reason="POSIX hub runtime scripts")
+
 REPO = Path(__file__).resolve().parents[2]
 OPS = REPO / "ops" / "cloud-hub"
 
@@ -21,6 +25,7 @@ def test_0027_spec_ready_s0() -> None:
     assert "127.0.0.1" in text
 
 
+@posix_only
 def test_s0_artifacts_exist_and_executable() -> None:
     for name in (
         "install-hub.sh",
@@ -120,6 +125,7 @@ def test_ops_doc_and_0009_errata() -> None:
     assert "0027-ops-host-runtime.md" in spec
 
 
+@posix_only
 def test_hub_validate_bind_host_helper(tmp_path: Path) -> None:
     script = textwrap.dedent(
         f"""\
@@ -146,6 +152,7 @@ def test_hub_validate_bind_host_helper(tmp_path: Path) -> None:
     assert "refusing public bind" in proc.stderr or "WARNING" in proc.stderr
 
 
+@posix_only
 def test_hub_archive_stale_dropins(tmp_path: Path) -> None:
     dropin = tmp_path / "octop-hub.service.d"
     dropin.mkdir()
@@ -174,6 +181,7 @@ def test_hub_archive_stale_dropins(tmp_path: Path) -> None:
     assert len(archived) == 1
 
 
+@posix_only
 def test_hub_record_version_retention(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -224,6 +232,7 @@ def test_hub_record_version_retention(tmp_path: Path) -> None:
     assert "OK" in proc.stdout
 
 
+@posix_only
 def test_hub_select_rollback_prefers_pre_upgrade(tmp_path: Path) -> None:
     """Without --sha, rollback must restore the latest pre-upgrade SHA, not post-upgrade/current."""
     repo = tmp_path / "repo"
@@ -249,9 +258,7 @@ def test_hub_select_rollback_prefers_pre_upgrade(tmp_path: Path) -> None:
         check=True,
         capture_output=True,
     )
-    old_sha = subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
-    ).strip()
+    old_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
     script = textwrap.dedent(
         f"""\
         set -euo pipefail
@@ -290,6 +297,7 @@ def test_hub_select_rollback_prefers_pre_upgrade(tmp_path: Path) -> None:
     assert "OK" in proc.stdout
 
 
+@posix_only
 def test_render_unit_substitutes_placeholders(tmp_path: Path) -> None:
     out = tmp_path / "unit"
     env = {
