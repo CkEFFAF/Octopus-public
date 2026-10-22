@@ -12,7 +12,10 @@ from typing import Any
 import httpx
 
 from octop.infra.agents.providers import KIND_TO_PROTOCOL
-from octop.infra.agents.providers.catalog import effective_provider_models
+from octop.infra.agents.providers.catalog import (
+    effective_provider_models,
+    is_opencode_go_openai,
+)
 from octop.infra.agents.providers.opencode_session import ensure_opencode_session_header
 
 logger = logging.getLogger(__name__)
@@ -279,15 +282,16 @@ async def fetch_openai_compatible_models(
     locale: str = "en",
     provider_name: str | None = None,
 ) -> dict[str, Any]:
-    """List models via OpenAI-compatible ``GET {base}/models``."""
+    """List models via OpenAI-compatible ``GET {base}/models``.
+
+    OpenCode Go Compatible rewrites the list URL to the shared Go discovery
+    endpoint. Remotely returned ids are **not** filtered by bundled preset
+    (0036.1): preset / models.dev only enrich metadata later in refresh.
+    """
     url = _models_list_url(base_url)
-    go_catalog = effective_provider_models(
-        SimpleNamespace(name=provider_name, kind="openai", base_url=base_url)
-    )
-    go_model_ids = {model["id"] for model in go_catalog}
-    if go_model_ids:
+    if is_opencode_go_openai(base_url=base_url, provider_name=provider_name):
         # Go exposes discovery at the shared endpoint, independently of its
-        # protocol-specific chat URLs. Only exact built-in identities qualify.
+        # protocol-specific chat URLs. Identity gate is name+endpoint only.
         url = "https://opencode.ai/inference/go/v1/models"
     headers: dict[str, str] = {"Authorization": f"Bearer {api_key}"}
     extra_headers = ensure_opencode_session_header(provider_name, extra_headers, base_url=base_url)
@@ -338,8 +342,6 @@ async def fetch_openai_compatible_models(
         if not isinstance(mid, str) or not mid.strip():
             continue
         mid = mid.strip()
-        if go_model_ids and mid not in go_model_ids:
-            continue
         if mid in seen:
             continue
         seen.add(mid)

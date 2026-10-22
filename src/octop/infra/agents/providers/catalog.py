@@ -33,6 +33,18 @@ _GO_ENDPOINTS = {
 }
 
 
+def is_opencode_go_openai(*, base_url: str | None, provider_name: str | None) -> bool:
+    """True when name+endpoint match the bundled OpenCode Go OpenAI-compatible identity.
+
+    Used for list-URL rewrite only — never as a model-id whitelist.
+    """
+    name = str(provider_name or "").strip()
+    if name not in _GO_IDENTITIES["opencode-go-openai"]:
+        return False
+    root = str(base_url or "").strip().rstrip("/")
+    return root in _GO_ENDPOINTS["openai"]
+
+
 def effective_provider_models(provider: Any) -> list[dict[str, Any]]:
     """Fill missing Go metadata and append selectable models without writing rows.
 

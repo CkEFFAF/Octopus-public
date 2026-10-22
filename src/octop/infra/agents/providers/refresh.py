@@ -13,6 +13,10 @@ from octop.infra.agents.providers.probe import (
     provider_headers,
 )
 from octop.infra.agents.providers.store import clear_stale_pins_for_provider
+from octop.infra.agents.providers.upstream_catalog import (
+    enrich_models_from_upstream,
+    resolve_models_dev_provider_key,
+)
 
 # Protocols that can list models via OpenAI-compatible GET /models (S0).
 _REMOTE_LIST_KINDS = frozenset({"openai"})
@@ -75,11 +79,13 @@ def _new_from_catalog(
     preset: dict[str, Any] | None,
     source: str,
 ) -> dict[str, Any]:
+    preset_input = (preset or {}).get("input")
     base: dict[str, Any] = {
         "id": model_id,
         "name": (preset or {}).get("name") or name or model_id,
         "enabled": False,
-        "input": deepcopy((preset or {}).get("input")) or ["text"],
+        # Leave input unset when preset has none so models.dev can fill blanks (0036.1).
+        "input": deepcopy(preset_input) if preset_input is not None else None,
         "thinking": None,
         "source": source,
     }
@@ -330,6 +336,20 @@ async def refresh_provider_models(
         preset_models,
     )
 
+    # OQ-0036.1-3: preset enrich already applied in merge; models.dev fills blanks only.
+    upstream_key = resolve_models_dev_provider_key(
+        preset_id=str((preset or {}).get("id") or "") or None,
+        provider_name=str(getattr(row, "name", "") or "") or None,
+    )
+    try:
+        merged, upstream_enriched = await enrich_models_from_upstream(
+            merged, provider_key=upstream_key
+        )
+    except Exception:
+        # Defense in depth: enrich_models_from_upstream already swallows errors.
+        upstream_enriched = 0
+    stats["upstream_enriched"] = upstream_enriched
+
     if remote_ok and preset_models:
         source_used = "remote+preset"
     elif remote_ok:
@@ -362,6 +382,7 @@ async def refresh_provider_models(
         "remote_supported": remote_supported,
         "added": stats["added"],
         "enriched": stats["enriched"],
+        "upstream_enriched": stats.get("upstream_enriched", 0),
         "kept_user": stats["kept_user"],
         "models": merged,
         "error": None,
