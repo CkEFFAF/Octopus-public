@@ -1,5 +1,14 @@
-import { useEffect, useId, useRef, useState } from "react";
-import { Alert, Button, Empty, Segmented, Skeleton } from "antd";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  Alert,
+  Button,
+  Empty,
+  Input,
+  Select,
+  Segmented,
+  Skeleton,
+  Tag,
+} from "antd";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
@@ -13,6 +22,8 @@ import {
   Circle,
   Loader2,
   Copy,
+  Bot,
+  MessageSquare,
   ExternalLink,
 } from "lucide-react";
 import styles from "./ScheduleBrowser.module.less";
@@ -21,54 +32,12 @@ import {
   type CronAttempt,
   type CronAttemptPage,
 } from "../api/modules/cronjob";
+import { useSchedulePage } from "../hooks/useSchedulePage";
+import { useIsMobile } from "../hooks/useIsMobile";
 import type { OctopCronRow } from "../api/types";
 
 export function useSchedules(agentId: string, threadId?: string) {
-  const [items, setItems] = useState<OctopCronRow[]>([]);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    let disposed = false;
-    let timer: ReturnType<typeof setTimeout>;
-    let epoch = 0;
-    setItems([]);
-    setLoading(true);
-    setError("");
-    async function refresh() {
-      const current = ++epoch;
-      try {
-        const rows = await octopCronApi.list(agentId, true, threadId);
-        if (!disposed && current === epoch) {
-          setItems(rows);
-          setError("");
-        }
-      } catch (e) {
-        if (!disposed && current === epoch) setError(String(e));
-      } finally {
-        if (!disposed && current === epoch) {
-          setLoading(false);
-          timer = setTimeout(
-            () => void refresh(),
-            document.hidden ? 30000 : 3000,
-          );
-        }
-      }
-    }
-    const visible = () => {
-      if (!document.hidden) {
-        clearTimeout(timer);
-        void refresh();
-      }
-    };
-    void refresh();
-    document.addEventListener("visibilitychange", visible);
-    return () => {
-      disposed = true;
-      clearTimeout(timer);
-      document.removeEventListener("visibilitychange", visible);
-    };
-  }, [agentId, threadId]);
-  return { items, error, loading };
+  return useSchedulePage({ agent_id: agentId, thread_id: threadId });
 }
 
 function time(value: number | null | undefined, timezone?: string) {
@@ -81,10 +50,14 @@ export function ScheduleDetail({
   item,
   agentId,
   onBack,
+  currentThreadId,
+  onNavigate,
 }: {
   item: OctopCronRow;
   agentId: string;
   onBack?: () => void;
+  currentThreadId?: string;
+  onNavigate?: () => void;
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -175,10 +148,26 @@ export function ScheduleDetail({
       if (currentIdentity.current.epoch === requestedEpoch) setBusy(false);
     }
   }
-  const chat = (thread: string) =>
+  const chat = (thread: string, attempt?: CronAttempt) => {
+    onNavigate?.();
     navigate(
       `/chat/${encodeURIComponent(agentId)}/${encodeURIComponent(thread)}`,
+      {
+        state: attempt
+          ? {
+              scheduleMessage: {
+                threadId: thread,
+                after: (attempt.started_at ?? attempt.created_at) * 1000,
+                before: attempt.finished_at
+                  ? attempt.finished_at * 1000
+                  : undefined,
+                excerpt: attempt.result_excerpt ?? "",
+              },
+            }
+          : undefined,
+      },
     );
+  };
   const state = scheduleState(item);
   const purpose = schedulePurpose(item);
   const compact =
@@ -227,7 +216,7 @@ export function ScheduleDetail({
             <CalendarClock size={18} />
           )}
           <h3>{purpose}</h3>
-          {item.thread_id && (
+          {item.thread_id && item.thread_id !== currentThreadId && (
             <Button
               type="text"
               size="small"
@@ -240,14 +229,10 @@ export function ScheduleDetail({
         </div>
         <div className={styles.statusRow}>
           <span className={`${styles.statusDot} ${styles[state] ?? ""}`} />
-          <span>{t(`workspace0034.scheduleState.${state}`)}</span>
-          <span className={styles.muted}>
-            {t(
-              item.trigger.startsWith("date:")
-                ? "workspace0034.scheduleOnce"
-                : "workspace0034.scheduleRepeat",
-            )}
-          </span>
+          {!["ended", "exhausted"].includes(state) && (
+            <span>{t(`workspace0034.scheduleState.${state}`)}</span>
+          )}
+          <ScheduleTag item={item} />
           {item.self_reminder && (
             <span className={styles.muted}>
               {t("workspace0034.executedCount", {
@@ -424,7 +409,7 @@ function AttemptResult({
 }: {
   attempt: CronAttempt;
   timezone?: string;
-  onChat: (thread: string) => void;
+  onChat: (thread: string, attempt?: CronAttempt) => void;
 }) {
   const { t } = useTranslation();
   const Icon =
@@ -435,6 +420,15 @@ function AttemptResult({
       : ["failed", "unknown"].includes(attempt.status)
       ? AlertCircle
       : Circle;
+  const conversation = attempt.actual_thread_id ? (
+    <Button
+      type="link"
+      size="small"
+      onClick={() => onChat(attempt.actual_thread_id!, attempt)}
+    >
+      {t("workspace0034.viewConversation")}
+    </Button>
+  ) : null;
   return (
     <li data-status={attempt.status}>
       <div className={styles.attemptHeader}>
@@ -469,6 +463,7 @@ function AttemptResult({
           key={attempt.result_excerpt}
           text={attempt.result_excerpt}
           clampClass={styles.resultClamped}
+          actions={conversation}
         />
       ) : (
         <p className={styles.muted}>
@@ -479,14 +474,8 @@ function AttemptResult({
           )}
         </p>
       )}
-      {attempt.actual_thread_id && (
-        <Button
-          type="link"
-          size="small"
-          onClick={() => onChat(attempt.actual_thread_id!)}
-        >
-          {t("workspace0034.viewConversation")}
-        </Button>
+      {(!attempt.result_excerpt || attempt.public_error) && conversation && (
+        <div className={styles.contentActions}>{conversation}</div>
       )}
     </li>
   );
@@ -495,9 +484,11 @@ function AttemptResult({
 export function ExpandableText({
   text,
   clampClass,
+  actions,
 }: {
   text: string;
   clampClass: string;
+  actions?: ReactNode;
 }) {
   const { t } = useTranslation();
   const element = useRef<HTMLParagraphElement>(null);
@@ -518,15 +509,22 @@ export function ExpandableText({
       <p ref={element} className={expanded ? "" : clampClass}>
         {text}
       </p>
-      {overflowing && (
-        <Button
-          size="small"
-          type="text"
-          icon={expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {t(expanded ? "workspace0034.collapse" : "workspace0034.expand")}
-        </Button>
+      {(overflowing || actions) && (
+        <div className={styles.contentActions}>
+          {overflowing && (
+            <Button
+              size="small"
+              type="text"
+              icon={
+                expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+              }
+              onClick={() => setExpanded((value) => !value)}
+            >
+              {t(expanded ? "workspace0034.collapse" : "workspace0034.expand")}
+            </Button>
+          )}
+          {actions}
+        </div>
       )}
     </>
   );
@@ -575,26 +573,82 @@ function readableTrigger(
   return trigger.replace(/^cron:/, "Cron · ");
 }
 
+function scheduleCategory(item: OctopCronRow) {
+  return (
+    item.category ??
+    (["ended", "exhausted"].includes(scheduleState(item))
+      ? "ended"
+      : item.trigger.startsWith("date:")
+      ? "once"
+      : "repeat")
+  );
+}
+
+export function ScheduleTag({ item }: { item: OctopCronRow }) {
+  const { t } = useTranslation();
+  const category = scheduleCategory(item);
+  return (
+    <Tag
+      color={
+        category === "once"
+          ? "blue"
+          : category === "repeat"
+          ? "purple"
+          : "default"
+      }
+    >
+      {t(`workspace0034.category.${category}`)}
+    </Tag>
+  );
+}
+
 export default function ScheduleBrowser({
   agentId,
   threadId,
   reminder = false,
   onScopeChange,
+  global = false,
+  onManage,
+  onNavigate,
 }: {
-  agentId: string;
+  agentId?: string;
   threadId?: string;
   reminder?: boolean;
   onScopeChange?: (scope: string) => void;
+  global?: boolean;
+  onManage?: (item: OctopCronRow) => void;
+  onNavigate?: () => void;
 }) {
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const [scope, setScope] = useState("thread");
-  const { items, error, loading } = useSchedules(
-    agentId,
-    scope === "thread" ? threadId : undefined,
-  );
+  const [category, setCategory] = useState<
+    "once" | "repeat" | "ended" | undefined
+  >();
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(search), 250);
+    return () => clearTimeout(timer);
+  }, [search]);
+  const {
+    items: rows,
+    total,
+    error,
+    loading,
+    has_more,
+    loadingMore,
+    loadMore,
+    refresh,
+  } = useSchedulePage({
+    agent_id: agentId,
+    thread_id: scope === "thread" ? threadId : undefined,
+    reminder,
+    category,
+    search: query,
+  });
   const [selected, setSelected] = useState("");
-  const rows = items.filter((i) => Boolean(i.self_reminder) === reminder);
-  const current = rows.find((i) => i.id === selected);
+  const current = rows.find((i) => `${i.agent_id}:${i.id}` === selected);
   useEffect(() => {
     setSelected("");
     setScope("thread");
@@ -616,21 +670,57 @@ export default function ScheduleBrowser({
             ]}
           />
         ) : (
-          <span>{t("workspace0034.scheduleAll")}</span>
+          <span className={styles.scopeTitle}>
+            {reminder ? <Bell size={15} /> : <CalendarClock size={15} />}
+            {t(
+              global
+                ? "workspace0034.allConversations"
+                : "workspace0034.scheduleAll",
+            )}
+          </span>
         )}
-        <small>
+        <small className={styles.totalBadge}>
           {loading
             ? t("workspace0034.loading")
-            : error
-            ? t("workspace0034.observationUnavailable")
-            : t("workspace0034.scheduleTotal", { count: rows.length })}
+            : t("workspace0034.scheduleTotal", { count: total })}
         </small>
       </div>
+      <div className={styles.filters}>
+        <Input.Search
+          allowClear
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={t("workspace0034.searchSchedules")}
+          aria-label={t("workspace0034.searchSchedules")}
+        />
+        <Select
+          value={category ?? "all"}
+          aria-label={t("workspace0034.filterCategory")}
+          onChange={(value) => {
+            setCategory(
+              value === "all"
+                ? undefined
+                : (value as "once" | "repeat" | "ended"),
+            );
+            setSelected("");
+          }}
+          options={["all", "once", "repeat", "ended"].map((value) => ({
+            value,
+            label: t(`workspace0034.category.${value}`),
+          }))}
+        />
+      </div>
+      <p className={styles.sortHint}>{t("workspace0034.sortHint")}</p>
       {error && (
         <Alert
           type="warning"
           message={t("workspace0034.observationUnavailable")}
           showIcon
+          action={
+            <Button onClick={() => void refresh()}>
+              {t("common.refresh")}
+            </Button>
+          }
         />
       )}
       {loading ? (
@@ -645,63 +735,118 @@ export default function ScheduleBrowser({
           />
         </div>
       ) : (
-        <div className={styles.columns}>
+        <div
+          className={`${styles.columns} ${
+            isMobile && current ? styles.mobileDetail : ""
+          }`}
+        >
           <nav
             className={styles.list}
             aria-label={t(
               reminder ? "workspace0034.reminders" : "workspace0034.schedules",
             )}
           >
-            {rows.map((item) => (
-              <button
-                key={item.id}
-                className={`${styles.row} ${
-                  selected === item.id ? styles.selected : ""
-                }`}
-                onClick={() => setSelected(item.id)}
-                aria-pressed={selected === item.id}
-              >
-                {reminder ? <Bell size={18} /> : <CalendarClock size={18} />}
-                <span className={styles.text}>
-                  <strong>{schedulePurpose(item)}</strong>
-                  <span className={styles.rowState}>
-                    {t(`workspace0034.scheduleState.${scheduleState(item)}`)}
+            {rows.map((item) => {
+              const identity = `${item.agent_id}:${item.id}`;
+              return (
+                <button
+                  key={identity}
+                  className={`${styles.row} ${
+                    selected === identity ? styles.selected : ""
+                  }`}
+                  onClick={() => setSelected(identity)}
+                  aria-pressed={selected === identity}
+                >
+                  <span
+                    className={styles.taskIcon}
+                    data-category={scheduleCategory(item)}
+                  >
+                    {reminder ? (
+                      <Bell size={16} />
+                    ) : (
+                      <CalendarClock size={16} />
+                    )}
                   </span>
-                  <small>
-                    {item.next_run_at
-                      ? `${t("workspace0034.scheduleNext")} ${time(
-                          item.next_run_at,
-                          item.timezone,
-                        )}`
-                      : item.self_reminder &&
-                        scheduleState(item) === "exhausted"
-                      ? t("workspace0034.executedCount", {
-                          fires: item.fires,
-                          max: item.max_fires,
-                        })
-                      : item.last_run_at
-                      ? `${t(
-                          item.last_status === "ok"
-                            ? item.task_type === "text"
-                              ? "workspace0034.attemptStatus.delivered"
-                              : "workspace0034.attemptStatus.completed"
-                            : "workspace0034.attemptStatus.failed",
-                        )} · ${time(item.last_run_at, item.timezone)}`
-                      : t("workspace0034.noExecutionYet")}
-                  </small>
-                  {threadId && item.thread_id !== threadId && (
-                    <small>{t("workspace0034.otherConversation")}</small>
-                  )}
-                </span>
-              </button>
-            ))}
+                  <span className={styles.text}>
+                    <strong>{schedulePurpose(item)}</strong>
+                    <span className={styles.rowState}>
+                      <ScheduleTag item={item} />
+                      {!["ended", "exhausted"].includes(scheduleState(item)) &&
+                        t(`workspace0034.scheduleState.${scheduleState(item)}`)}
+                    </span>
+                    {global && (
+                      <span className={styles.rowContext}>
+                        <span>
+                          <Bot size={12} />
+                          {item.agent_name ?? item.agent_id}
+                        </span>
+                        <span
+                          title={
+                            item.thread_title || item.thread_id || undefined
+                          }
+                        >
+                          <MessageSquare size={12} />
+                          {item.thread_title ||
+                            item.thread_id ||
+                            t("workspace0034.scheduleUnlinked")}
+                        </span>
+                      </span>
+                    )}
+                    {!item.next_run_at && !item.trigger.startsWith("date:") && (
+                      <small>{readableTrigger(item.trigger, t)}</small>
+                    )}
+                    <small>
+                      {item.next_run_at
+                        ? `${t("workspace0034.scheduleNext")} ${time(
+                            item.next_run_at,
+                            item.timezone,
+                          )} · ${readableTrigger(item.trigger, t)}`
+                        : item.self_reminder &&
+                          scheduleState(item) === "exhausted"
+                        ? t("workspace0034.executedCount", {
+                            fires: item.fires,
+                            max: item.max_fires,
+                          })
+                        : item.last_run_at
+                        ? time(item.last_run_at, item.timezone)
+                        : t("workspace0034.noExecutionYet")}
+                    </small>
+                    {threadId && item.thread_id !== threadId && (
+                      <small>{t("workspace0034.otherConversation")}</small>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+            {has_more && (
+              <Button
+                block
+                loading={loadingMore}
+                onClick={() => void loadMore()}
+              >
+                {t("workspace0034.moreFive")}
+              </Button>
+            )}
           </nav>
           {current ? (
-            <ScheduleDetail
-              item={current}
-              agentId={agentId}
-              onBack={() => setSelected("")}
-            />
+            <div className={styles.detailPane}>
+              {onManage && current.capabilities?.manage && (
+                <Button
+                  className={styles.manageButton}
+                  onClick={() => onManage(current)}
+                >
+                  {t("workspace0034.scheduleManage")}
+                </Button>
+              )}
+              <ScheduleDetail
+                key={`${current.agent_id}:${current.id}`}
+                item={current}
+                agentId={current.agent_id}
+                currentThreadId={threadId}
+                onNavigate={onNavigate}
+                onBack={() => setSelected("")}
+              />
+            </div>
           ) : (
             <div className={styles.empty}>
               <Empty

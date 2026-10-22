@@ -7573,6 +7573,24 @@
     "timezone": "快照时区"
   },
   "workspace0034": {
+    "allExperts": "全部专家 · 统一管理",
+    "scheduleCenter": "定时任务总管理",
+    "expertTaskPanel": "专家任务面板",
+    "allConversations": "全部会话",
+    "manageTasks": "管理任务",
+    "sortHint": "一次性优先 · 重复任务按频次排序 · 已结束置后",
+    "scheduleCenterDescription": "统一查看和管理全部专家、会话的定时任务与自提醒",
+    "filterExpert": "筛选专家",
+    "searchSchedules": "搜索任务、专家或会话",
+    "filterCategory": "筛选任务类型",
+    "moreFive": "查看更多（5 条）",
+    "expertSchedules": "{{count}} 个{{kind}}，点击管理",
+    "category": {
+      "all": "全部类型",
+      "once": "一次性",
+      "repeat": "重复",
+      "ended": "已结束"
+    },
     "previewAnnotate": "预览与批注",
     "conflictCompare": "远端版本已改变。以下仅展示远端内容；本地草稿仍在编辑器中，请比较后另存或重新编辑。",
     "remoteVersion": "远端版本",

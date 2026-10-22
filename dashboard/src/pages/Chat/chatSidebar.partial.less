@@ -307,3 +307,41 @@
     background: color-mix(in srgb, var(--fn-color-brand) 20%, transparent);
   }
 }
+.expertScheduleBadges {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  button {
+    display: inline-flex;
+    gap: 3px;
+    align-items: center;
+    border: 0;
+    border-radius: 4px;
+    padding: 2px 4px;
+    color: var(--fn-color-primary, #c94674);
+    background: var(--fn-bg-secondary, #f5f6f8);
+    font-size: 11px;
+    cursor: pointer;
+    &:focus-visible {
+      outline: 2px solid currentColor;
+    }
+  }
+}
+.expertTaskPreview {
+  max-width: 280px;
+  p {
+    margin: 6px 0;
+  }
+  ul {
+    margin: 8px 0 0;
+    padding-left: 16px;
+  }
+  li {
+    margin-top: 8px;
+  }
+  small {
+    display: block;
+    opacity: 0.8;
+    margin-top: 3px;
+  }
+}

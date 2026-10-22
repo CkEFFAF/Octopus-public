@@ -38,6 +38,11 @@ import {
 import * as chatStore from "../hooks/chatStore";
 import { shouldBlockHistoryRefresh } from "../hooks/wsResumeGate";
 import styles from "../index.module.less";
+import {
+  findScheduleMessage,
+  type ScheduleMessageAnchor,
+} from "../utils/scheduleMessage";
+import { alignElementToScrollerTop } from "../utils/turnTimeline";
 
 /** Virtualize long threads; short chats keep the simpler DOM path. */
 const VIRTUALIZE_THRESHOLD = 30;
@@ -84,6 +89,8 @@ const virtuosoComponents: Components<MessageGroup, VirtuosoListContext> = {
 };
 
 interface MessageListProps {
+  messageAnchor?: ScheduleMessageAnchor;
+  messageAnchorKey?: string;
   messages: ChatMessage[];
   agentId?: string | null;
   composerLookups?: ComposerTagLookups;
@@ -336,6 +343,8 @@ export default function MessageList(props: MessageListProps) {
   );
 
   const stableSessionKey = sessionKey || "__default__";
+  const jumpedAnchor = useRef("");
+  const requestedAnchorPage = useRef("");
 
   // Keep this callback identity stable. An inline parent `onLoadMoreHistory`
   // (or flag churn) used to recreate it every render → useAutoScroll re-bound
@@ -708,6 +717,78 @@ export default function MessageList(props: MessageListProps) {
     skipNextDepsScrollRef.current = true;
     scrollToBottom(true, true);
   }, [isStreaming, messages, scrollToBottom]);
+
+  useEffect(() => {
+    const anchor = props.messageAnchor;
+    const key = `${stableSessionKey}:${props.messageAnchorKey ?? ""}`;
+    if (
+      !anchor ||
+      anchor.threadId !== sessionKey ||
+      jumpedAnchor.current === key ||
+      loading ||
+      historyLoadingMore
+    )
+      return;
+    const target = findScheduleMessage(messages, anchor);
+    if (!target) {
+      // Fetch older pages only until the execution's time window is reached.
+      const oldest = messages[0]?.timestamp;
+      const pageKey = `${key}:${messages[0]?.id ?? ""}:${messages.length}`;
+      if (
+        historyHasMore &&
+        (oldest == null || oldest >= anchor.after - 1000) &&
+        requestedAnchorPage.current !== pageKey
+      ) {
+        requestedAnchorPage.current = pageKey;
+        void onLoadMoreHistory?.();
+      }
+      return;
+    }
+    skipNextDepsScrollRef.current = true;
+    armProgrammaticGuard(1500);
+    const index = messageGroups.findIndex((group) =>
+      group.messages.some((message) => message.id === target.id),
+    );
+    if (useVirtual)
+      virtuosoRef.current?.scrollToIndex({
+        index: firstItemIndex + index,
+        align: "start",
+        behavior: "auto",
+      });
+    let frame = 0;
+    let retries = 30;
+    const align = () => {
+      const element = bubbleRefsMap.current.get(target.id);
+      const scroller = scrollerRef.current ?? containerRef.current;
+      if (element && scroller) {
+        alignElementToScrollerTop(scroller, element, "auto");
+        element.animate?.(
+          [
+            { backgroundColor: "rgba(255, 190, 75, 0.3)" },
+            { backgroundColor: "transparent" },
+          ],
+          { duration: 1600 },
+        );
+        jumpedAnchor.current = key;
+      } else if (--retries > 0) frame = requestAnimationFrame(align);
+    };
+    frame = requestAnimationFrame(align);
+    return () => cancelAnimationFrame(frame);
+  }, [
+    props.messageAnchor,
+    props.messageAnchorKey,
+    stableSessionKey,
+    sessionKey,
+    messages,
+    messageGroups,
+    loading,
+    historyLoadingMore,
+    historyHasMore,
+    onLoadMoreHistory,
+    useVirtual,
+    firstItemIndex,
+    armProgrammaticGuard,
+  ]);
 
   const groupContext = useMemo<GroupRenderContext>(
     () => ({

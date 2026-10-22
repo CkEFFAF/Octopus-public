@@ -8,11 +8,19 @@ import {
   Spin,
   Tooltip,
   Alert,
+  Select,
 } from "antd";
-import { LayoutGrid, List, RefreshCw } from "lucide-react";
+import {
+  LayoutGrid,
+  List,
+  RefreshCw,
+  CalendarClock,
+  Bell,
+  SlidersHorizontal,
+} from "lucide-react";
 import type { CronJobSpecOutput } from "../../../api/types";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { setPendingPrefillText } from "../../Chat/hooks/chatStore";
 import {
   createColumns,
@@ -90,12 +98,30 @@ function CronJobsEmptyState({
 }
 
 function CronJobsPage() {
-  const [scheduleTab, setScheduleTab] = useState("schedules");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const scheduleTab = searchParams.get("tab") ?? "schedules";
+  const selectedAgentId = searchParams.get("agent") ?? undefined;
+  const setScheduleTab = (tab: string) =>
+    setSearchParams((old) => {
+      const next = new URLSearchParams(old);
+      next.set("tab", tab);
+      if (tab === "manage" && !next.has("agent") && activeAgentId)
+        next.set("agent", activeAgentId);
+      return next;
+    });
   const { t } = useTranslation();
   const { isMobile, viewMode, setViewMode, showCardView } =
     useCardTableView("table");
   const navigate = useNavigate();
-  const { activeAgentId, activeAgent } = useAgent();
+  const { activeAgentId, activeAgent, agents, setActiveAgent } = useAgent();
+  useEffect(() => {
+    if (
+      scheduleTab === "manage" &&
+      selectedAgentId &&
+      selectedAgentId !== activeAgentId
+    )
+      setActiveAgent(selectedAgentId);
+  }, [scheduleTab, selectedAgentId, activeAgentId, setActiveAgent]);
   const canManageJobs = activeAgent?.is_owner === true;
   const taskExamples = useTaskExamples(activeAgentId);
   const {
@@ -111,7 +137,7 @@ function CronJobsPage() {
     executeNow,
     jobToFormValues,
     refetchJobs,
-  } = useCronJobs();
+  } = useCronJobs(scheduleTab === "manage");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<CronJobFormValues | null>(null);
   const [form] = Form.useForm<CronJobFormValues>();
@@ -248,7 +274,7 @@ function CronJobsPage() {
 
   // Shared experts are not a task scope. Non-owners should see the same
   // "pick an agent" empty as if nothing were selected — no shared-expert copy.
-  if (!activeAgentId || !canManageJobs) {
+  if (scheduleTab === "manage" && (!activeAgentId || !canManageJobs)) {
     return (
       <PageShell
         title={t("pageShell.tasks.title")}
@@ -272,24 +298,79 @@ function CronJobsPage() {
 
   return (
     <PageShell
-      title={t("pageShell.tasks.title")}
-      subtitle={t("pageShell.tasks.subtitle")}
-      agentScoped
+      title={t("workspace0034.scheduleCenter")}
+      subtitle={t("workspace0034.scheduleCenterDescription")}
     >
-      <Segmented
-        value={scheduleTab}
-        onChange={(v) => setScheduleTab(String(v))}
-        options={[
-          { value: "schedules", label: t("workspace0034.schedules") },
-          { value: "reminders", label: t("workspace0034.reminders") },
-          { value: "manage", label: t("workspace0034.scheduleManage") },
-        ]}
-      />
-      {scheduleTab !== "manage" && (
-        <ScheduleBrowser
-          agentId={activeAgentId}
-          reminder={scheduleTab === "reminders"}
+      <div className={styles.globalToolbar}>
+        <Select
+          showSearch
+          optionFilterProp="label"
+          value={selectedAgentId ?? "all"}
+          aria-label={t("workspace0034.filterExpert")}
+          onChange={(value) => {
+            if (value !== "all") setActiveAgent(value);
+            setSearchParams((old) => {
+              const next = new URLSearchParams(old);
+              if (value === "all") {
+                next.delete("agent");
+                next.set("tab", "schedules");
+              } else next.set("agent", value);
+              return next;
+            });
+          }}
+          options={[
+            { value: "all", label: t("workspace0034.allExperts") },
+            ...agents
+              .filter((a) => a.is_owner)
+              .map((a) => ({ value: a.agent_id, label: a.name })),
+          ]}
         />
+        <Segmented
+          value={scheduleTab}
+          onChange={(v) => setScheduleTab(String(v))}
+          options={[
+            {
+              value: "schedules",
+              label: (
+                <span className={styles.tabLabel}>
+                  <CalendarClock size={14} />
+                  {t("workspace0034.schedules")}
+                </span>
+              ),
+            },
+            {
+              value: "reminders",
+              label: (
+                <span className={styles.tabLabel}>
+                  <Bell size={14} />
+                  {t("workspace0034.reminders")}
+                </span>
+              ),
+            },
+            {
+              value: "manage",
+              label: (
+                <span className={styles.tabLabel}>
+                  <SlidersHorizontal size={14} />
+                  {t("workspace0034.manageTasks")}
+                </span>
+              ),
+            },
+          ]}
+        />
+      </div>
+      {scheduleTab !== "manage" && (
+        <div className={styles.globalBrowser}>
+          <ScheduleBrowser
+            agentId={selectedAgentId}
+            global
+            reminder={scheduleTab === "reminders"}
+            onManage={(item) => {
+              setActiveAgent(item.agent_id);
+              setSearchParams({ agent: item.agent_id, tab: "manage" });
+            }}
+          />
+        </div>
       )}
       <div hidden={scheduleTab !== "manage"}>
         {activeAgent?.bridge ? (
@@ -418,7 +499,7 @@ function CronJobsPage() {
         <JobDrawer
           open={drawerOpen}
           editingJob={editingJob}
-          activeAgentId={activeAgentId}
+          activeAgentId={activeAgentId ?? ""}
           cronTimezone={cronTimezone}
           form={form}
           onClose={handleDrawerClose}

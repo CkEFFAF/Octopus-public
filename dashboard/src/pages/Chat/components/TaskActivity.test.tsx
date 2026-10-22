@@ -26,7 +26,13 @@ vi.mock("../../../api/modules/activity", () => ({
 }));
 vi.mock("../../../api/modules/cronjob", () => ({
   octopCronApi: {
-    list: vi.fn(async () => []),
+    page: vi.fn(async () => ({
+      items: [],
+      total: 0,
+      has_more: false,
+      next_offset: null,
+      counts: { schedules: 0, reminders: 0 },
+    })),
     attempts: vi.fn(async () => ({
       items: [],
       has_more: false,

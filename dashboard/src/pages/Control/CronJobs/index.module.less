@@ -636,3 +636,46 @@
     width: 100%;
   }
 }
+.globalToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 0 0 14px;
+  margin-bottom: 0;
+  > :first-child {
+    min-width: 200px;
+  }
+}
+.tabLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+.globalBrowser {
+  height: calc(100dvh - 240px);
+  min-height: 400px;
+  border: 1px solid var(--fn-border-color, #e8e9ed);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--fn-bg-primary, #fff);
+  box-shadow: 0 3px 16px #17243b05;
+}
+@media (max-width: 650px) {
+  .globalToolbar {
+    gap: 10px;
+    > :first-child {
+      width: 100%;
+    }
+  }
+  .tabLabel {
+    font-size: 12px;
+    gap: 5px;
+  }
+  .globalBrowser {
+    height: calc(100dvh - 290px);
+    min-height: 380px;
+  }
+}

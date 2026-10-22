@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
@@ -57,6 +57,15 @@ class CronExamplesResponse(BaseModel):
     task_examples: dict[str, list[str]] | None = None
 
 
+class SchedulePage(BaseModel):
+    items: list[dict[str, Any]]
+    next_schedule: dict[str, Any] | None = None
+    total: int
+    has_more: bool
+    next_offset: int | None
+    counts: dict[str, int]
+
+
 def _get_cron_manager(server: Any) -> Any:
     assert server.app_runtime is not None
     return server.app_runtime.cron_manager
@@ -104,6 +113,38 @@ async def cron_examples(
         catalog=getattr(server, "expert_catalog", None),
     )
     return CronExamplesResponse(task_examples=examples)
+
+
+@router.get("/cron", summary="Browse schedules across owned experts", response_model=SchedulePage)
+async def schedule_page(
+    agent_id: str | None = None,
+    thread_id: str | None = None,
+    reminder: bool | None = None,
+    category: Literal["once", "repeat", "ended"] | None = None,
+    search: str = "",
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=5, ge=1, le=2000),
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> SchedulePage:
+    """Only the current user's owned experts and jobs. One-offs first, frequent repeats
+    next, ended tasks last. Includes self-reminders; fetch five more with next_offset.
+    """
+    if agent_id:
+        row = require_agent_row(agent_id, user=user, as_user=None, server=server)
+        _assert_cron_manage(agent_id=agent_id, agent_row=row, user=user)
+    return SchedulePage(
+        **_get_cron_manager(server).list_page(
+            user_id=user.id,
+            agent_id=agent_id,
+            thread_id=thread_id,
+            reminder=reminder,
+            category=category,
+            search=search,
+            offset=offset,
+            limit=limit,
+        )
+    )
 
 
 @router.get("/agents/{agent_id}/cron", summary="List cron jobs")

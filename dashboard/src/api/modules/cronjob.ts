@@ -14,7 +14,33 @@ export interface CronTaskExamples {
   en?: string[];
 }
 
+export interface ScheduleQuery {
+  agent_id?: string;
+  thread_id?: string;
+  reminder?: boolean;
+  category?: "once" | "repeat" | "ended";
+  search?: string;
+}
+export interface SchedulePage {
+  items: OctopCronRow[];
+  next_schedule?: Pick<OctopCronRow, "next_run_at" | "timezone"> | null;
+  total: number;
+  has_more: boolean;
+  next_offset: number | null;
+  counts: { schedules: number; reminders: number };
+}
+
 export const octopCronApi = {
+  page: (query: ScheduleQuery, offset = 0, limit = 5) => {
+    const params = new URLSearchParams({
+      offset: String(offset),
+      limit: String(limit),
+    });
+    Object.entries(query).forEach(([key, value]) => {
+      if (value !== undefined && value !== "") params.set(key, String(value));
+    });
+    return request<SchedulePage>(`/cron?${params}`);
+  },
   settings: () => request<OctopCronSettings>("/cron/settings"),
 
   list: (agentId: string, includeSelfReminders = false, threadId?: string) =>

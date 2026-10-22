@@ -21,6 +21,28 @@ async def env(env_alice_bob_agent):
 # --- CRUD cycle ---------------------------------------------------------------
 
 
+async def test_schedule_center_pages_and_validates_queries(env: Any) -> None:
+    client, _server, owner, outsider, aid = env
+    for index in range(7):
+        response = await client.post(
+            f"/api/agents/{aid}/cron",
+            headers=owner,
+            json={"trigger": f"interval:{60 + index}", "prompt": f"page {index}"},
+        )
+        assert response.status_code == 201
+    first = await client.get("/api/cron", headers=owner)
+    assert first.status_code == 200
+    assert len(first.json()["items"]) == 5 and first.json()["total"] == 7
+    second = await client.get("/api/cron?offset=5", headers=owner)
+    assert len(second.json()["items"]) == 2 and not second.json()["has_more"]
+    assert {value["id"] for value in first.json()["items"]}.isdisjoint(
+        value["id"] for value in second.json()["items"]
+    )
+    assert (await client.get("/api/cron", headers=outsider)).json()["total"] == 0
+    assert (await client.get("/api/cron?offset=-1", headers=owner)).status_code == 422
+    assert (await client.get("/api/cron?category=invalid", headers=owner)).status_code == 422
+
+
 async def test_create_lists_get_patch_delete_cycle(env: Any) -> None:
     c, _srv, alice_auth, _bob_auth, aid = env
 

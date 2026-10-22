@@ -1,4 +1,5 @@
 import SessionActivity from "./SessionActivity";
+import ExpertScheduleBadge from "./ExpertScheduleBadge";
 import {
   SidebarActivityProvider,
   useSessionActivity,
@@ -616,6 +617,10 @@ function MinimalAgentSessionNavContent({
               <ExpertPinButton
                 pinned={pinnedIds.includes(agent.agent_id)}
                 onClick={() => togglePin(agent.agent_id)}
+              />
+              <ExpertScheduleBadge
+                agentId={agent.agent_id}
+                owned={agent.is_owner === true}
               />
               <button
                 type="button"

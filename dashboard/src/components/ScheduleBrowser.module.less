@@ -8,12 +8,26 @@
   font-size: 14px;
 }
 .scope {
-  padding: 16px 20px;
+  padding: 12px 18px;
   border-bottom: 1px solid var(--fn-border-color, #e8e9ed);
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+}
+.scopeTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.totalBadge {
+  border-radius: 20px;
+  background: var(--fn-bg-secondary, #f2f4f8);
+  padding: 3px 10px;
+  color: var(--fn-text-secondary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .columns {
   display: flex;
@@ -22,39 +36,68 @@
   flex: 1;
   overflow: hidden;
 }
+.filters {
+  display: flex;
+  gap: 10px;
+  padding: 12px 18px 8px;
+  > :first-child {
+    flex: 1;
+    min-width: 120px;
+  }
+  > :last-child {
+    min-width: 130px;
+  }
+}
+.sortHint {
+  margin: 0;
+  padding: 0 18px 10px;
+  color: var(--fn-text-tertiary, #87909f);
+  font-size: 11px;
+  border-bottom: 1px solid var(--fn-border-color, #e8e9ed);
+}
+.detailPane {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+.manageButton {
+  margin: 16px 20px 0;
+}
 .list {
-  width: 300px;
+  width: clamp(280px, 31%, 360px);
   flex-shrink: 0;
   overflow: auto;
   border-right: 1px solid var(--fn-border-color, #e8e9ed);
-  padding: 8px;
+  padding: 10px;
   background: var(--fn-bg-secondary, #f8f9fb);
 }
 .row {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: flex-start;
   width: 100%;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  border: 1px solid var(--fn-border-color, #e8e9ed);
+  border-radius: 10px;
   padding: 14px 12px;
   text-align: left;
-  background: transparent;
+  background: var(--fn-bg-primary, #fff);
   color: inherit;
   cursor: pointer;
-  margin-bottom: 4px;
+  margin-bottom: 8px;
   line-height: 1.5;
   .text {
     flex: 1;
     min-width: 0;
   }
   strong {
-    display: block;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     font-size: 14px;
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
+    line-height: 1.55;
   }
   small {
     display: block;
@@ -68,7 +111,8 @@
     color: var(--fn-text-secondary);
   }
   &:hover {
-    background: var(--fn-bg-tertiary, #eef1f5);
+    border-color: var(--fn-color-primary, #e36b90);
+    background: var(--fn-bg-tertiary, #f8f9fc);
   }
   &:focus-visible {
     outline: 2px solid var(--fn-color-primary, #5278df);
@@ -76,14 +120,71 @@
 }
 .selected {
   background: var(--fn-bg-primary, #fff);
-  border-color: var(--fn-border-color, #dce1e8);
-  box-shadow: inset 3px 0 var(--fn-color-primary, #5278df);
+  border-color: var(--fn-color-primary, #e36b90);
+  box-shadow:
+    inset 3px 0 var(--fn-color-primary, #e36b90),
+    0 2px 8px #17243b08;
+}
+.taskIcon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: #eff6ff;
+  &[data-category="repeat"] {
+    background: #f4efff;
+    svg {
+      color: #8055b9;
+    }
+  }
+  &[data-category="ended"] {
+    background: var(--fn-bg-secondary, #f0f2f5);
+    svg {
+      color: #929baa;
+    }
+  }
+  svg {
+    margin: 0;
+    color: #427dc9;
+  }
+}
+.rowContext {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  color: var(--fn-text-tertiary, #87909f);
+  font-size: 11px;
+  > span {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  svg {
+    margin: 0;
+  }
 }
 .rowState {
-  display: block;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
   color: var(--fn-text-secondary);
-  font-size: 13px;
-  margin-top: 3px;
+  font-size: 11px;
+  margin-top: 7px;
+  :global(.octop-tag),
+  :global(.ant-tag) {
+    margin: 0;
+    border-radius: 5px;
+    font-size: 11px;
+    line-height: 20px;
+  }
 }
 .detail {
   flex: 1;
@@ -94,8 +195,10 @@
   line-height: 1.6;
 }
 .detailHeader {
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--fn-border-color, #e8e9ed);
+  padding: 18px;
+  border: 1px solid var(--fn-border-color, #e8e9ed);
+  border-radius: 12px;
+  background: var(--fn-bg-secondary, #f8f9fb);
 }
 .titleRow {
   display: flex;
@@ -110,7 +213,7 @@
     flex: 1;
     min-width: 0;
     margin: 0;
-    font-size: 18px;
+    font-size: 17px;
     font-weight: 600;
     line-height: 1.5;
     overflow-wrap: anywhere;
@@ -125,7 +228,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-top: 12px;
+  margin: 12px 0 0 28px;
   font-size: 13px;
 }
 .statusDot {
@@ -145,7 +248,7 @@
   color: var(--fn-text-secondary);
 }
 .scheduleLine {
-  margin: 8px 0 0;
+  margin: 10px 0 0 28px;
   color: var(--fn-text-secondary);
   font-size: 13px;
   overflow-wrap: anywhere;
@@ -191,6 +294,8 @@
 }
 .contentActions {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin: 8px 0 20px;
 }
@@ -211,11 +316,11 @@
   margin: 0;
   list-style: none;
   li {
-    padding: 14px 16px;
+    padding: 16px 18px;
     margin-bottom: 12px;
     border: 1px solid var(--fn-border-color, #edf0f4);
     border-radius: 10px;
-    background: var(--fn-bg-secondary, #f8f9fb);
+    background: var(--fn-bg-primary, #fff);
     &[data-status="completed"],
     &[data-status="delivered"] {
       .attemptHeader > svg {
@@ -237,6 +342,14 @@
   }
   button {
     margin-top: 6px;
+  }
+  .contentActions {
+    margin: 8px 0 0 26px;
+    gap: 12px;
+    button {
+      margin: 0;
+      padding-inline: 0;
+    }
   }
 }
 .attemptHeader {
@@ -285,7 +398,8 @@
 .technical {
   margin-top: 20px;
   border-top: 1px solid var(--fn-border-color, #e8e9ed);
-  font-size: 12px;
+  font-size: 11px;
+  opacity: 0.8;
 }
 .errorDetail {
   margin-left: 26px;
@@ -310,12 +424,23 @@
   display: none;
   margin-bottom: 16px;
 }
+.mobileDetail {
+  .list {
+    display: none;
+  }
+  .back {
+    display: inline-flex;
+  }
+  .detailPane {
+    width: 100%;
+  }
+}
 @media (max-width: 900px) {
-  .columns:has(.detail) .list {
+  .columns:has(.detailPane) .list {
     display: none;
   }
   .detail {
-    padding: 20px;
+    padding: 16px;
   }
   .back {
     display: inline-flex;
@@ -330,7 +455,25 @@
 }
 @media (max-width: 650px) {
   .detail {
-    padding: 20px;
+    padding: 12px;
+  }
+  .detailHeader {
+    padding: 14px;
+  }
+  .filters {
+    padding-inline: 12px;
+    gap: 8px;
+    > :last-child {
+      min-width: 104px;
+    }
+  }
+  .sortHint {
+    padding-inline: 12px;
+    font-size: 10px;
+  }
+  .statusRow,
+  .scheduleLine {
+    margin-left: 0;
   }
   .detailHeader h3 {
     font-size: 18px;

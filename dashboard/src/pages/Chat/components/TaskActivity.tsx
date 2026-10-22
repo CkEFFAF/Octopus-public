@@ -456,16 +456,14 @@ export default function TaskActivity({
   const runningJobs = running.filter((n) => n.type === "job").length;
   const selectedNode = nodes.find((n) => n.id === selected);
   const scheduleCount =
-    schedules.loading || schedules.error
-      ? "?"
-      : schedules.items.filter((i) => !i.self_reminder).length;
+    schedules.loading || schedules.error ? "?" : schedules.counts.schedules;
   const reminderCount =
-    schedules.loading || schedules.error
-      ? "?"
-      : schedules.items.filter((i) => i.self_reminder).length;
-  const nextSchedule = schedules.items
-    .filter((i) => i.next_run_at)
-    .sort((a, b) => a.next_run_at! - b.next_run_at!)[0];
+    schedules.loading || schedules.error ? "?" : schedules.counts.reminders;
+  const nextSchedule =
+    schedules.next_schedule ??
+    schedules.items
+      .filter((i) => i.next_run_at)
+      .sort((a, b) => a.next_run_at! - b.next_run_at!)[0];
   const nextTime = nextSchedule?.next_run_at
     ? new Date(nextSchedule.next_run_at * 1000).toLocaleTimeString(undefined, {
         timeZone: nextSchedule.timezone,
@@ -753,8 +751,7 @@ export default function TaskActivity({
                   count:
                     navSchedules.loading || navSchedules.error
                       ? "?"
-                      : navSchedules.items.filter((i) => !i.self_reminder)
-                          .length,
+                      : navSchedules.counts.schedules,
                 },
                 {
                   key: "reminders",
@@ -763,8 +760,7 @@ export default function TaskActivity({
                   count:
                     navSchedules.loading || navSchedules.error
                       ? "?"
-                      : navSchedules.items.filter((i) => i.self_reminder)
-                          .length,
+                      : navSchedules.counts.reminders,
                 },
               ].map((item) => (
                 <button
@@ -791,6 +787,10 @@ export default function TaskActivity({
                   threadId={threadId}
                   reminder={section === "reminders"}
                   onScopeChange={setScheduleScope}
+                  onNavigate={() => {
+                    setOpen(false);
+                    setSummary(false);
+                  }}
                 />
               ) : (
                 <>

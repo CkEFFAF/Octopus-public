@@ -1,9 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "../hooks/useChat";
 import * as fileDetection from "../hooks/useChatFileDetection";
 import * as knowledgeParser from "../../../utils/parseKnowledgeCitations";
 import MessageList from "./MessageList";
+import * as turnTimeline from "../utils/turnTimeline";
 
 vi.mock("../../../context/AgentContext", () => ({
   useAgent: () => ({ activeAgentId: "host", agents: [] }),
@@ -17,6 +18,10 @@ vi.mock("../hooks/useAutoScroll", () => ({
   }),
 }));
 vi.mock("./TurnTimelineRail", () => ({ default: () => null }));
+vi.mock("./loadOlderGate", async (original) => ({
+  ...(await original<typeof import("./loadOlderGate")>()),
+  shouldAutoFillOlderHistory: () => false,
+}));
 vi.mock("./GeneratingIndicator", () => ({ default: () => null }));
 vi.mock("./MessageBubble", () => ({
   default: ({
@@ -73,6 +78,62 @@ function largeTools(prefix: string, count: number): ChatMessage[] {
 afterEach(() => vi.restoreAllMocks());
 
 describe("message list streaming work", () => {
+  it("aligns the actual scheduled result bubble after navigation", async () => {
+    const align = vi
+      .spyOn(turnTimeline, "alignElementToScrollerTop")
+      .mockImplementation(() => {});
+    render(
+      <MessageList
+        agentId="host"
+        sessionKey="thread"
+        messages={[
+          {
+            ...message("question", "user", "Check training"),
+            timestamp: 10000,
+          },
+          {
+            ...message("target", "assistant", "Training finished"),
+            timestamp: 11000,
+          },
+        ]}
+        messageAnchor={{
+          threadId: "thread",
+          after: 10000,
+          before: 12000,
+          excerpt: "Training finished",
+        }}
+      />,
+    );
+    await waitFor(() => expect(align).toHaveBeenCalled());
+    expect(align.mock.calls.at(-1)?.[1]).toHaveAttribute(
+      "data-message-id",
+      "target",
+    );
+  });
+  it("loads older history when the linked scheduled result is outside the loaded page", () => {
+    const load = vi.fn();
+    render(
+      <MessageList
+        agentId="host"
+        sessionKey="thread"
+        messages={[
+          {
+            ...message("recent", "assistant", "Recent output"),
+            timestamp: 20000,
+          },
+        ]}
+        historyHasMore
+        onLoadMoreHistory={load}
+        messageAnchor={{
+          threadId: "thread",
+          after: 10000,
+          before: 12000,
+          excerpt: "Older output",
+        }}
+      />,
+    );
+    expect(load).toHaveBeenCalledOnce();
+  });
   it("does not reprocess completed turns when new tokens arrive", () => {
     const history = [
       message("old-user", "user", "old question"),
