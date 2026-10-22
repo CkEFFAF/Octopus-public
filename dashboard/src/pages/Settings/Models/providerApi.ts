@@ -85,3 +85,32 @@ export async function pollCodexOAuth(stateId: string) {
     provider_name?: string;
   }>(`/providers/codex-oauth/pending/${encodeURIComponent(stateId)}`);
 }
+
+export type RefreshModelsPrefer = "auto" | "remote" | "preset";
+
+export interface RefreshProviderModelsResult {
+  ok: boolean;
+  provider_id?: number;
+  source_used?: "remote+preset" | "remote" | "preset" | null;
+  remote_supported?: boolean;
+  added?: { id: string; source?: string }[];
+  enriched?: number;
+  kept_user?: { id: string }[];
+  models?: import("./useProviders").ProviderModel[];
+  error?: string | null;
+}
+
+export async function refreshProviderModels(
+  providerId: number,
+  prefer: RefreshModelsPrefer = "auto",
+  apiPrefix = "/providers",
+): Promise<RefreshProviderModelsResult> {
+  return request<RefreshProviderModelsResult>(
+    `${apiPrefix}/${providerId}/refresh-models`,
+    {
+      method: "POST",
+      body: JSON.stringify({ prefer }),
+    },
+  );
+}
+

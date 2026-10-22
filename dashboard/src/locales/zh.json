@@ -4212,7 +4212,12 @@
     "onnxLocalCached": "已缓存模型",
     "onnxQuickDownload": "从目录快速下载…",
     "defaultModelExtra": "测试连接时使用此模型；留空则使用第一个已启用的模型",
-    "deleteProviderFailedSimple": "删除模型服务失败"
+    "deleteProviderFailedSimple": "删除模型服务失败",
+    "refreshModels": "更新模型",
+    "refreshModelsSuccess": "{{name}} 已更新：新增 {{added}} 个（来源 {{source}}）",
+    "refreshModelsFailed": "更新模型失败：{{error}}",
+    "refreshModelsUnsupported": "当前协议不支持远程拉取，且无匹配的预置模型目录",
+    "refreshModelsLocalDisabled": "本地运行时请在卡片内管理模型，不支持一键更新目录"
   },
   "advancedSettings": {
     "description": "管理运行配置和环境变量等高级选项。",

@@ -36,6 +36,7 @@ from octop.infra.agents.providers.probe import (
     provider_headers,
 )
 from octop.infra.agents.providers.reasoning import reasoning_capability
+from octop.infra.agents.providers.refresh import refresh_provider_models
 from octop.infra.agents.providers.resolved import list_resolved_models as _list_resolved_models
 from octop.infra.agents.providers.store import clear_stale_pins_for_provider
 from octop.infra.errors import ErrorCode, OctopError
@@ -101,6 +102,10 @@ class ProviderFetchModelsBody(BaseModel):
     base_url: str | None = None
     extra_json: str | None = None
     name: str | None = None
+
+
+class ProviderRefreshModelsBody(BaseModel):
+    prefer: str = "auto"
 
 
 def _is_codex_base_url(base_url: str | None) -> bool:
@@ -558,6 +563,33 @@ async def admin_test_provider(
     )
 
 
+@admin_router.post("/{provider_id}/refresh-models", summary="Refresh saved provider model catalog")
+async def admin_refresh_provider_models(
+    provider_id: int,
+    request: Request,
+    body: ProviderRefreshModelsBody | None = None,
+    _: Any = Depends(require_permission("providers")),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    """Merge remote OpenAI-compatible catalog and/or bundled preset into DB models."""
+    row = server.services.provider_repo.get_for_admin(provider_id)
+    if row is None:
+        raise OctopError(ErrorCode.NOT_FOUND, "provider not found")
+    row = await _maybe_refresh_codex_row(server, row)
+    prefer = body.prefer if body else "auto"
+    result = await refresh_provider_models(
+        row=row,
+        server=server,
+        locale=resolve_request_locale(request),
+        prefer=prefer,
+    )
+    if result.get("ok") and result.get("models") is not None:
+        refreshed = server.services.provider_repo.get(row.user_id, provider_id)
+        if refreshed is not None:
+            result = {**result, "models": _row_to_dict(refreshed)["models"]}
+    return result
+
+
 def _require_own_provider(server: Any, user_id: int, provider_id: int) -> None:
     if server.services.provider_repo.get(user_id, provider_id) is None:
         raise OctopError(ErrorCode.NOT_FOUND, "provider not found")
@@ -648,3 +680,18 @@ async def test_provider(
 ) -> dict[str, Any]:
     _require_own_provider(server, user.id, provider_id)
     return await admin_test_provider(provider_id, request=request, body=body, _=user, server=server)
+
+
+
+@router.post("/{provider_id}/refresh-models", summary="Refresh models for a provider owned by this account")
+async def refresh_provider_models_route(
+    provider_id: int,
+    request: Request,
+    body: ProviderRefreshModelsBody | None = None,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    _require_own_provider(server, user.id, provider_id)
+    return await admin_refresh_provider_models(
+        provider_id, request=request, body=body, _=user, server=server
+    )

@@ -6,12 +6,13 @@
 import { useEffect, useState } from "react";
 import { App, Button, Card, Switch, Tooltip } from "antd";
 
-import { Pencil, Trash2, Zap } from "lucide-react";
+import { Pencil, RefreshCw, Trash2, Zap } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { request } from "../../../../../api/request";
 import { ollamaModelApi } from "../../../../../api/modules/ollamaModel";
 import { onnxModelApi } from "../../../../../api/modules/onnxModel";
 import { isOllamaProviderRow, isOnnxProviderRow } from "../../presetUtils";
+import { refreshProviderModels } from "../../providerApi";
 import type { ProviderRow, ProviderPreset } from "../../useProviders";
 import { ProviderConfigModal } from "../modals/ProviderConfigModal";
 import {
@@ -44,6 +45,7 @@ export function ProviderCard({
   const { modal, message } = App.useApp();
   const [modalOpen, setModalOpen] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [serviceEnabled, setServiceEnabled] = useState(false);
   const [serviceRunning, setServiceRunning] = useState(false);
@@ -93,6 +95,52 @@ export function ProviderCard({
       message.error(t("models.testConnectionFailed", { error: msg }));
     } finally {
       setTesting(false);
+    }
+  };
+
+
+  const canRemoteList = provider.kind === "openai" && !isLocalRuntime;
+  const hasPresetCatalog = Boolean(preset?.models?.length);
+  const refreshDisabled =
+    isLocalRuntime || (!canRemoteList && !hasPresetCatalog);
+  const refreshDisabledReason = isLocalRuntime
+    ? t("models.refreshModelsLocalDisabled")
+    : !canRemoteList && !hasPresetCatalog
+      ? t("models.refreshModelsUnsupported")
+      : undefined;
+
+  const handleRefreshModels = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (refreshDisabled) return;
+    setRefreshing(true);
+    try {
+      const result = await refreshProviderModels(
+        provider.id,
+        "auto",
+        apiPrefix,
+      );
+      if (result.ok) {
+        const added = result.added?.length ?? 0;
+        message.success(
+          t("models.refreshModelsSuccess", {
+            name: provider.name,
+            added,
+            source: result.source_used ?? "preset",
+          }),
+        );
+        await onSaved();
+      } else {
+        message.error(
+          t("models.refreshModelsFailed", {
+            error: result.error ?? "unknown",
+          }),
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      message.error(t("models.refreshModelsFailed", { error: msg }));
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -335,6 +383,24 @@ export function ProviderCard({
             </span>
           </div>
           <div className={styles.cardActionsRight}>
+            <Tooltip
+              title={
+                refreshDisabled
+                  ? refreshDisabledReason
+                  : t("models.refreshModels")
+              }
+            >
+              <Button
+                type="text"
+                size="small"
+                loading={refreshing}
+                disabled={refreshDisabled}
+                onClick={(e) => void handleRefreshModels(e)}
+                className={styles.cardActionBtn}
+                icon={<RefreshCw size={14} />}
+                data-testid="provider-refresh-models"
+              />
+            </Tooltip>
             {hasApiKey && !isOnnx && (
               <Tooltip title={t("models.test")}>
                 <Button
