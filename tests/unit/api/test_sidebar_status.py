@@ -57,11 +57,12 @@ async def test_activity_and_schedules_follow_actual_owned_threads(rig: Any) -> N
             meta=meta,
         )
     server = SimpleNamespace(
+        services=SimpleNamespace(repos=repos),
         app_runtime=SimpleNamespace(
             gateway=gateway,
             cron_manager=manager,
             agent_registry=SimpleNamespace(get_row=repos.agent_repo.get),
-        )
+        ),
     )
     owner = SimpleNamespace(id=rig.owner, is_admin=True)
     await manager.boot()
@@ -108,5 +109,23 @@ async def test_activity_and_schedules_follow_actual_owned_threads(rig: Any) -> N
         repos.agent_repo.set_shared("parent", True)
         result = await get_sidebar_status("parent", user=outsider, server=server)
         assert not result.working_threads and not result.schedules
+        # Persisted background jobs remain visible after the chat turn ends.
+        repos.run_event_repo.save(
+            event_id="background-1",
+            owner=rig.owner,
+            agent_id="parent",
+            thread_id="root",
+            run_id="",
+            context_id=None,
+            kind="job",
+            status="running",
+            payload={"job_id": "job-1", "command": "private command", "output": "private logs"},
+        )
+        owned = await get_sidebar_status("parent", user=owner, server=server)
+        assert [row.thread_id for row in owned.working_threads] == ["root"]
+        assert owned.background_tasks[0].name == "job-1"
+        assert "private" not in str(owned.background_tasks)
+        foreign = await get_sidebar_status("parent", user=outsider, server=server)
+        assert not foreign.background_tasks
     finally:
         await manager.shutdown()

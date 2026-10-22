@@ -1,3 +1,5 @@
+import FailureDiagnostics from "../../../components/FailureDiagnostics";
+import ConversationOutline from "./ConversationOutline";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -17,16 +19,9 @@ import {
   Tag,
   Typography,
 } from "antd";
-import {
-  FileText,
-  FileCode2,
-  FileImage,
-  FileSpreadsheet,
-  File,
-  RefreshCw,
-} from "lucide-react";
+import { FileText, RefreshCw } from "lucide-react";
+import { fileTreeIcon } from "../../../utils/fileTreeIcon";
 import { useTranslation } from "react-i18next";
-import { useIsMobile } from "../../../hooks/useIsMobile";
 import { useServerTimezone } from "../../../hooks/useServerTimezone";
 import {
   formatServerDateTime,
@@ -60,7 +55,6 @@ export default function ConversationOverview({
 }) {
   const { t } = useTranslation();
   const { message, modal } = App.useApp();
-  const mobile = useIsMobile();
   const timezone = useServerTimezone();
   const [open, setOpen] = useState(false);
   const [brief, setBrief] = useState<ConversationBrief | null>(null);
@@ -171,7 +165,11 @@ export default function ConversationOverview({
         .job(agentId, threadId, job.job_id)
         .then(async (value) => {
           if (cancelled || identityRef.current !== identity) return;
-          if (value.status === "failed" || value.status === "cancelled") {
+          if (value.status === "cancelled") {
+            setJob(value);
+            return;
+          }
+          if (value.status === "failed") {
             setJob(value);
             message.error(
               t(
@@ -373,7 +371,7 @@ export default function ConversationOverview({
         open={open}
         onClose={() => setOpen(false)}
         title={t("conversationMetadata.overviewTitle")}
-        width={mobile ? "100%" : 600}
+        width="min(600px, 100vw)"
         destroyOnClose
       >
         {error && (
@@ -495,11 +493,26 @@ export default function ConversationOverview({
                 }
               />
             )}
+            <FailureDiagnostics
+              value={job?.result.diagnostic ?? brief.provenance.diagnostic}
+            />
             {generating && (
               <Alert
                 type="info"
                 className={styles.notice}
                 message={t("conversationMetadata.generating")}
+                action={
+                  <Button
+                    onClick={async () => {
+                      if (job)
+                        setJob(
+                          await api.cancelJob(agentId, threadId, job.job_id),
+                        );
+                    }}
+                  >
+                    {t("conversationMetadata.stopOrganizing")}
+                  </Button>
+                }
                 showIcon
               />
             )}
@@ -518,6 +531,16 @@ export default function ConversationOverview({
               activeKey={tab}
               onChange={setTab}
               items={[
+                {
+                  key: "outline",
+                  label: t("conversationMetadata.outline"),
+                  children: (
+                    <ConversationOutline
+                      brief={brief}
+                      references={references}
+                    />
+                  ),
+                },
                 {
                   key: "overview",
                   label: t("conversationMetadata.overview"),
@@ -848,21 +871,9 @@ export default function ConversationOverview({
                                     const ext =
                                       name.split(".").pop()?.toLowerCase() ||
                                       "";
-                                    const Icon =
-                                      /^(png|jpg|jpeg|gif|webp|svg)$/.test(ext)
-                                        ? FileImage
-                                        : /^(csv|xlsx|xls)$/.test(ext)
-                                        ? FileSpreadsheet
-                                        : /^(py|js|ts|tsx|json|sh|sql)$/.test(
-                                            ext,
-                                          )
-                                        ? FileCode2
-                                        : /^(md|txt|pdf|docx)$/.test(ext)
-                                        ? FileText
-                                        : File;
                                     return (
                                       <>
-                                        <Icon size={28} aria-hidden />
+                                        {fileTreeIcon(a.path, 30)}
                                         <strong>{name}</strong>
                                         <small>
                                           {ext.toUpperCase() || "FILE"}

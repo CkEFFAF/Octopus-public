@@ -81,6 +81,8 @@ describe("sidebar expert shortcuts", () => {
     },
   );
   it("pins, restores, opens and unpins an expert without selecting the row when pinning", () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
     let view = mount();
     fireEvent.click(
       within(
@@ -91,6 +93,7 @@ describe("sidebar expert shortcuts", () => {
     const pinned = screen.getByRole("region", { name: "chat.pinnedExperts" });
     fireEvent.click(within(pinned).getByRole("button", { name: /Expert 2/ }));
     expect(view.onAgentSelect).toHaveBeenCalledWith("expert-2");
+    expect(scroll).toHaveBeenCalledWith({ block: "start", behavior: "auto" });
     view.unmount();
     view = mount();
     const restored = screen.getByRole("region", { name: "chat.pinnedExperts" });

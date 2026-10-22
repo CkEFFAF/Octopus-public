@@ -280,6 +280,9 @@ async def fetch_openai_compatible_models(
 ) -> dict[str, Any]:
     """List models via OpenAI-compatible ``GET {base}/models``."""
     url = _models_list_url(base_url)
+    zen_free = provider_name in {"opencode-zen-free", "OpenCode Zen Free (opencode2dsh)"} and (
+        base_url or ""
+    ).rstrip("/") in {"https://opencode.ai/inference/v1", "https://opencode.ai/zen/v1"}
     go_catalog = effective_provider_models(
         SimpleNamespace(name=provider_name, kind="openai", base_url=base_url)
     )
@@ -337,6 +340,11 @@ async def fetch_openai_compatible_models(
         if not isinstance(mid, str) or not mid.strip():
             continue
         mid = mid.strip()
+        if zen_free:
+            from octop.infra.agents.providers.live_catalog import is_free_zen_model
+
+            if not is_free_zen_model(mid):
+                continue
         # Official Go catalog also contains models served on other protocols.
         if go_model_ids and mid.startswith(("claude-", "gemini-")):
             continue

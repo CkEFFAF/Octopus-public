@@ -92,6 +92,7 @@ export function PresetProviderModal({
       form.resetFields();
       form.setFieldsValue({
         name: preset.name,
+        api_key: preset.auth_method === "anonymous" ? "public" : undefined,
         base_url: preset.base_url,
         kind: preset.protocol,
       });

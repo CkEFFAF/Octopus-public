@@ -1347,7 +1347,12 @@ function handleHarnessChunkBody(
       }
       break;
     case "error":
-      appendErrorBubble(state, chunk.message, chunk.error_code);
+      appendErrorBubble(
+        state,
+        chunk.message,
+        chunk.error_code,
+        chunk.diagnostic,
+      );
       break;
     case "run_phase":
       if (activeRunIds.get(state) !== chunk.run_id) {
@@ -2406,6 +2411,7 @@ function appendErrorBubble(
   state: SessionStreamState,
   message: string,
   errorCode?: string,
+  diagnostic?: Record<string, unknown>,
 ): void {
   state.messages = [
     ...state.messages,
@@ -2416,6 +2422,7 @@ function appendErrorBubble(
       errorInfo: {
         code: errorCode || "stream_error",
         source: "frontend_stream",
+        diagnostic,
       },
       status: "error",
       timestamp: Date.now(),

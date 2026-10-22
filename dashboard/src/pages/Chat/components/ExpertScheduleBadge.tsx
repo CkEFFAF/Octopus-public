@@ -23,7 +23,8 @@ export default function ExpertScheduleBadge({
     reminders: value?.schedules.filter((row) => row.self_reminder).length ?? 0,
   };
   if (!owned) return null;
-  const total = counts.schedules + counts.reminders;
+  const background = value?.background_tasks?.length ?? 0;
+  const total = counts.schedules + counts.reminders + background;
   const recent = [...(value?.schedules ?? [])]
     .sort(
       (a, b) =>
@@ -94,6 +95,15 @@ export default function ExpertScheduleBadge({
         }
       >
         <button
+          data-task-state={working ? "running" : total ? "scheduled" : "empty"}
+          title={t(
+            working
+              ? "chat.sessionWorking"
+              : total
+              ? "workspace0034.configuredTasks"
+              : "workspace0034.expertTaskPanel",
+            { count: total },
+          )}
           type="button"
           aria-label={t("workspace0034.expertTaskPanel")}
           onKeyDown={(event) => event.stopPropagation()}

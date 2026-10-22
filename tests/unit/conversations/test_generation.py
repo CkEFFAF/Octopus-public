@@ -18,7 +18,7 @@ async def test_auxiliary_call_is_tool_free_account_scoped_and_records_usage(monk
         profile = {"max_input_tokens": 16000, "max_output_tokens": 4096, "context_window": 20000}
 
         def bind(self, **kwargs):
-            assert kwargs == {"max_tokens": 1600, "timeout": 30}
+            assert kwargs == {"max_tokens": 3200, "timeout": 30}
             return self
 
         async def ainvoke(self, messages, config):
@@ -76,7 +76,7 @@ async def test_openai_auxiliary_json_disables_optional_thinking_within_existing_
     model = ChatOpenAI(api_key="synthetic-test-only", model="synthetic")
 
     async def invoke(self, messages, config, **kwargs):
-        assert kwargs["max_tokens"] == 1600
+        assert kwargs["max_tokens"] == 3200
         assert kwargs["response_format"] == {"type": "json_object"}
         assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
         assert kwargs["timeout"] == 30

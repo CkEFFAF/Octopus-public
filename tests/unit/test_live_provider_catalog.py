@@ -8,6 +8,70 @@ import pytest
 from octop.infra.agents.providers import live_catalog as catalog
 
 
+def test_zen_free_lane_keeps_new_free_ids_but_excludes_paid_and_retired(monkeypatch):
+    monkeypatch.setattr(
+        catalog,
+        "snapshot",
+        lambda: {
+            "opencode-zen": {
+                "data": {
+                    "data": [
+                        {"id": mid}
+                        for mid in ["big-pickle", "brand-new-free", "paid", "retired-free"]
+                    ]
+                }
+            },
+            "models.dev": {
+                "data": {
+                    "opencode": {
+                        "models": {
+                            "paid": {"cost": {"input": 3, "output": 5}},
+                            "retired-free": {"status": "deprecated"},
+                        }
+                    }
+                }
+            },
+        },
+    )
+    preset = {"id": "opencode-zen-free", "models": [], "protocol": "openai"}
+    assert {r["id"] for r in catalog.overlay_presets([preset])[0]["models"]} == {
+        "big-pickle",
+        "brand-new-free",
+    }
+
+
+def test_free_hub_exposes_https_setup_not_scripts_or_invalid_models(monkeypatch):
+    monkeypatch.setattr(
+        catalog,
+        "snapshot",
+        lambda: {
+            "free-models-hub": {
+                "data": {
+                    "items": [
+                        {
+                            "id": 1,
+                            "title": "Free provider",
+                            "api_base_url": "https://api.example/v1",
+                            "key_apply_url": "https://example/signup",
+                            "model_name": ["valid", "valid", "incomplete/"],
+                        },
+                        {"id": 2, "api_base_url": "javascript:alert(1)", "model_name": ["bad"]},
+                        {
+                            "id": 3,
+                            "api_base_url": "https://user:pass@example/v1",
+                            "model_name": ["bad"],
+                        },
+                    ]
+                }
+            }
+        },
+    )
+    rows = catalog.free_hub_entries()
+    assert len(rows) == 1
+    assert rows[0]["models"] == ["valid"]
+    assert rows[0]["signup_url"] == "https://example/signup"
+
+
 @pytest.mark.asyncio
 async def test_refresh_ttl_force_and_failure_keep_last_good(tmp_path, monkeypatch):
     monkeypatch.setattr(catalog, "_loaded_path", "test")
@@ -32,17 +96,30 @@ async def test_refresh_ttl_force_and_failure_keep_last_good(tmp_path, monkeypatc
             request=httpx.Request("GET", "https://example.test"),
         ),
     ]
+    original_responses = list(client.get.side_effect)
+    client.get.side_effect = original_responses + [
+        httpx.Response(
+            200,
+            json={"data": [{"id": "new-free"}]},
+            request=httpx.Request("GET", "https://example.test"),
+        ),
+        httpx.Response(
+            200,
+            json={"ok": True, "items": [], "total_pages": 1},
+            request=httpx.Request("GET", "https://example.test"),
+        ),
+    ]
     with patch.object(catalog.httpx, "AsyncClient", return_value=client):
         await catalog.refresh_catalog()
-        assert client.get.await_count == 2
+        assert client.get.await_count == 4
         await catalog.refresh_catalog()
-        assert client.get.await_count == 2
+        assert client.get.await_count == 4
         cache = tmp_path / "cache/provider-catalog.json"
         saved = cache.read_bytes()
         clock[0] += 61
         client.get.side_effect = httpx.ConnectError("secret upstream error")
         result = await catalog.refresh_catalog(force=True)
-        assert client.get.await_count == 4
+        assert client.get.await_count == 8
         assert all(row["error"] == "CATALOG_REFRESH_FAILED" for row in result["sources"])
         assert catalog._snapshot["opencode-go"]["data"]["data"][0]["id"] == "new-free"
         assert b"secret" not in cache.read_bytes()
@@ -112,4 +189,4 @@ async def test_invalid_upstream_shape_reports_failure_without_crashing(tmp_path,
     )
     with patch.object(catalog.httpx, "AsyncClient", return_value=client):
         await catalog.refresh_catalog(force=True)
-    assert client.get.await_count == 2
+    assert client.get.await_count == 4

@@ -692,6 +692,15 @@ function SessionListContent({
 }: SessionListProps) {
   const { t } = useTranslation();
   const sidebarActivity = useSidebarActivity();
+  const sectionRefs = useRef(new Map<string, HTMLDivElement>());
+  const [revealAgent, setRevealAgent] = useState<string | null>(null);
+  useEffect(() => {
+    if (!revealAgent) return;
+    sectionRefs.current
+      .get(revealAgent)
+      ?.scrollIntoView({ block: "start", behavior: "auto" });
+    setRevealAgent(null);
+  }, [revealAgent, activeAgentId]);
   const agents = initialAgents.map((agent) => ({
     ...agent,
     is_working:
@@ -806,7 +815,12 @@ function SessionListContent({
               agents={pinnedAgents}
               activeAgentId={activeAgentId}
               activePhase={activePhase}
-              onSelect={onAgentSelect}
+              onSelect={(id) => {
+                setShowingHidden(false);
+                setSearchQuery("");
+                setRevealAgent(id);
+                onAgentSelect(id);
+              }}
               onTogglePin={togglePin}
             />
           )}
@@ -888,7 +902,15 @@ function SessionListContent({
                         )}
                       </div>
                     )}
-                    {row}
+                    <div
+                      ref={(element) => {
+                        if (element)
+                          sectionRefs.current.set(agent.agent_id, element);
+                        else sectionRefs.current.delete(agent.agent_id);
+                      }}
+                    >
+                      {row}
+                    </div>
                     {!expanded &&
                       withWorkingSessions(
                         [],

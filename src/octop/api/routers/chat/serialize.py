@@ -1014,6 +1014,8 @@ def _serialize_history_message(
             entry["inbound_attachments"] = raw_att
     if additional_kwargs.get(STREAM_ERROR_FLAG):
         entry["status"] = "error"
+        if isinstance(additional_kwargs.get("octop_error_diagnostic"), dict):
+            entry["error_diagnostic"] = additional_kwargs["octop_error_diagnostic"]
         code = additional_kwargs.get(STREAM_ERROR_CODE_KEY)
         if code:
             entry["error_code"] = str(code)

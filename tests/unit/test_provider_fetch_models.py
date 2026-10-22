@@ -12,6 +12,23 @@ from octop.infra.agents.providers.probe import fetch_openai_compatible_models
 
 
 @pytest.mark.asyncio
+async def test_anonymous_zen_discovery_cannot_import_paid_models() -> None:
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.get.return_value = httpx.Response(
+        200, json={"data": [{"id": "big-pickle"}, {"id": "brand-new-free"}, {"id": "paid-model"}]}
+    )
+    with patch("octop.infra.agents.providers.probe.httpx.AsyncClient", return_value=client):
+        result = await fetch_openai_compatible_models(
+            base_url="https://opencode.ai/inference/v1",
+            api_key="public",
+            provider_name="OpenCode Zen Free (opencode2dsh)",
+        )
+    assert client.get.await_args.args[0] == "https://opencode.ai/inference/v1/models"
+    assert {row["id"] for row in result["models"]} == {"big-pickle", "brand-new-free"}
+
+
+@pytest.mark.asyncio
 async def test_go_discovery_uses_public_catalog_and_filters_protocols() -> None:
     client = AsyncMock()
     client.__aenter__.return_value = client

@@ -1,3 +1,4 @@
+import FailureDiagnostics from "../../../components/FailureDiagnostics";
 import { formatTokenUsage } from "../utils/chatUsage";
 import { memo, useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { Image, Tooltip } from "antd";
@@ -854,6 +855,13 @@ function MessageBubble({
                 {errorBodyText && (
                   <div className={styles.errorMessageBody}>{errorBodyText}</div>
                 )}
+                <FailureDiagnostics
+                  value={
+                    message.errorInfo?.diagnostic as
+                      | Record<string, unknown>
+                      | undefined
+                  }
+                />
                 {errorDebugTags.length > 0 && (
                   <div className={styles.errorDebugRow}>
                     {errorDebugTags.map((tag) => (

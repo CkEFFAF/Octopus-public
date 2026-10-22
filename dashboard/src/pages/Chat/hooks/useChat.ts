@@ -477,6 +477,7 @@ function convertCallEntries(entries: CallEntry[]): ChatMessage[] {
                   ? entry.error_code
                   : "stream_error",
               source: "history",
+              diagnostic: entry.error_diagnostic,
             }
           : undefined,
       _toolKind: tool?.kind,
@@ -688,6 +689,7 @@ export function convertHistoryMessages(
     inbound_attachments?: unknown;
     status?: string;
     error_code?: string;
+    error_diagnostic?: Record<string, unknown>;
     agent_id?: string;
     team_wrapup?: boolean;
     edited_files?: string[];
@@ -713,6 +715,7 @@ export function convertHistoryMessages(
       metadata: Object.keys(meta).length > 0 ? meta : undefined,
       status: message.status,
       error_code: message.error_code,
+      error_diagnostic: message.error_diagnostic,
       speaker_agent_id:
         typeof message.agent_id === "string" && message.agent_id.trim()
           ? message.agent_id.trim()

@@ -45,6 +45,7 @@ import styles from "./index.module.less";
 import { MediaGenerationSettingsPanel } from "../MediaGeneration";
 import { VoiceSettingsPanel } from "../Voice";
 import { SearchSettingsPanel } from "../SearchConfig";
+import FreeModelChannels from "./components/FreeModelChannels";
 import CatalogStatus from "./components/CatalogStatus";
 
 type ModelCategory = "chat" | "generation" | "voice" | "search";
@@ -257,7 +258,12 @@ export default function ModelsPage() {
         ) : null
       }
     >
-      {modelCategory === "chat" && <CatalogStatus onRefresh={fetchAll} />}
+      {modelCategory === "chat" && (
+        <>
+          <CatalogStatus onRefresh={fetchAll} />
+          <FreeModelChannels providers={providers} onSaved={fetchAll} />
+        </>
+      )}
       <Tabs
         activeKey={modelCategory}
         onChange={setModelCategory}

@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from octop.infra.conversations.models import BriefPatch, HistoryBatchRequest, MetadataSettings
+from octop.infra.conversations.models import (
+    BriefPatch,
+    GeneratedTitle,
+    HistoryBatchRequest,
+    MetadataSettings,
+)
 from octop.infra.conversations.service import ConversationService
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.pool import SqlitePool
@@ -704,3 +711,80 @@ def test_history_batch_selection_rejects_foreign_threads_and_unavailable_models(
         ),
     )
     assert value.total == 1
+
+
+@pytest.mark.asyncio
+async def test_cancelled_batch_revokes_running_lease_and_preserves_completed(environment):
+    service, repos = environment
+    batch = service.start_history_batch(1, HistoryBatchRequest(command_id="cancel-test"))
+    job = repos.conversation_metadata_repo.claim()
+    assert job is not None
+    with pytest.raises(OctopError):
+        service.cancel_history_batch(2, batch.batch_id)
+    result = service.cancel_history_batch(1, batch.batch_id)
+    assert result.cancelled == 1 and result.running == result.queued == 0
+    assert not repos.conversation_metadata_repo.renew(job)
+    assert not repos.conversation_metadata_repo.finish(job, "ready")
+    assert service.cancel_history_batch(1, batch.batch_id).cancelled == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_stops_inflight_request_and_prevents_output(environment):
+    service, repos = environment
+    job = claim(service, repos)
+    started, stopped = asyncio.Event(), asyncio.Event()
+
+    async def model(*args):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            stopped.set()
+
+    with patch("octop.infra.conversations.service.generate_json", side_effect=model):
+        task = asyncio.create_task(
+            service._call(
+                job, "provider/model", {}, GeneratedTitle.model_json_schema(), "thread_title"
+            )
+        )
+        await started.wait()
+        service.cancel_job(1, "agent", "thread", job["job_id"])
+        with pytest.raises(ValueError, match="METADATA_LEASE_LOST"):
+            await asyncio.wait_for(task, timeout=3)
+        assert stopped.is_set()
+
+
+@pytest.mark.asyncio
+async def test_invalid_model_format_retries_once_without_echoing_response(environment):
+    service, repos = environment
+    job = claim(service, repos)
+    model = AsyncMock(
+        side_effect=['{"secret-private-field": "private-source"}', '{"title":"Readable topic"}']
+    )
+    with patch("octop.infra.conversations.service.generate_json", model):
+        result = await service._call(
+            job,
+            "provider/model",
+            {"messages": []},
+            GeneratedTitle.model_json_schema(),
+            "thread_title",
+        )
+    assert result == {"title": "Readable topic"}
+    assert model.await_count == 2
+    correction = model.call_args_list[1].args[3]["format_correction"]
+    assert "private-source" not in correction and "secret-private-field" not in correction
+    assert model.call_args_list[0].args[2] == model.call_args_list[1].args[2]
+
+
+def test_output_diagnostics_keep_paths_but_strip_values_and_unknown_names():
+    from pydantic import ValidationError
+
+    from octop.infra.utils.model_diagnostics import safe_diagnostics
+
+    try:
+        GeneratedTitle.model_validate({"title": ["secret-value"], "secret-field": "secret-key"})
+    except ValidationError as exc:
+        value = safe_diagnostics(exc, code="METADATA_INVALID_OUTPUT", stage="title", job_id="job")
+    text = json.dumps(value)
+    assert "title" in text and "string_type" in text
+    assert "secret-value" not in text and "secret-field" not in text and "secret-key" not in text

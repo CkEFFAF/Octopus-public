@@ -18,6 +18,16 @@ own forwarding key. Fetch its model list, then test and enable the models needed
 Keys remain account-owned. No DSH credentials, EAC host bindings or login
 restrictions are reused or bypassed.
 
+The free-channel panel exposes the entire live standalone roster, with an
+explicit sync-and-enable-all action that retains existing model parameters.
+Untested listing does not imply availability. On a later 2026-10-23 fictional
+probe, several entries returned 429 free-usage exhaustion and direct anonymous
+Zen returned 403 FreeTierError; the earlier successful smoke is not a continuing
+availability guarantee. The app does not rotate identities or bypass these gates.
+The Zen free-only preset uses its documented public placeholder key. Free Models
+Hub is a separate public leaderboard with publisher signup links: user keys are
+stored only in account provider settings, never sent to the leaderboard.
+
 Fictional-text smoke tests from the deployment host on 2026-10-23 passed chat for
 `kilo-auto/free`, `nvidia/nemotron-3.5-lightning:free` and
 `poolside/laguna-s-2.1:free`. The latter also passed Octop's actual title and

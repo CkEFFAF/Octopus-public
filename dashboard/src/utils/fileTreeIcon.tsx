@@ -71,6 +71,26 @@ const NAME_MAP: Record<string, IconSpec> = {
 };
 
 const EXT_MAP: Record<string, IconSpec> = {
+  tex: { Icon: FileType, color: "#008080" },
+  bib: { Icon: BookOpen, color: "#008080" },
+  ipynb: { Icon: NotebookText, color: "#f37726" },
+  npy: { Icon: Database, color: "#3572a5" },
+  npz: { Icon: Database, color: "#3572a5" },
+  parquet: { Icon: Table, color: "#16a34a" },
+  h5: { Icon: Database, color: "#a16207" },
+  hdf5: { Icon: Database, color: "#a16207" },
+  pt: { Icon: Braces, color: "#ee4c2c" },
+  pth: { Icon: Braces, color: "#ee4c2c" },
+  safetensors: { Icon: Braces, color: "#ee4c2c" },
+  onnx: { Icon: Braces, color: "#ee4c2c" },
+  xmind: { Icon: Sparkles, color: "#d97706" },
+  drawio: { Icon: Palette, color: "#f08705" },
+  avif: { Icon: FileImage, color: "#8b5cf6" },
+  heic: { Icon: FileImage, color: "#8b5cf6" },
+  opus: { Icon: FileAudio, color: "#0d9488" },
+  srt: { Icon: ScrollText, color: "#7c3aed" },
+  vtt: { Icon: ScrollText, color: "#7c3aed" },
+  sqlite3: { Icon: Database, color: "#0891b2" },
   // Docs / text
   md: { Icon: NotebookText, color: "#3b82f6" },
   markdown: { Icon: NotebookText, color: "#3b82f6" },
@@ -111,7 +131,6 @@ const EXT_MAP: Record<string, IconSpec> = {
   // Python / JS / TS ecosystem
   py: { Icon: Code2, color: "#3572A5" },
   pyi: { Icon: Code2, color: "#3572A5" },
-  ipynb: { Icon: Code2, color: "#3572A5" },
   js: { Icon: Code2, color: "#eab308" },
   jsx: { Icon: Code2, color: "#eab308" },
   mjs: { Icon: Code2, color: "#eab308" },

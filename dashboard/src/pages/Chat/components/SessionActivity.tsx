@@ -10,7 +10,8 @@ import styles from "../index.module.less";
 export default function SessionActivity({ threadId }: { threadId: string }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const { working, schedules, agentId } = useSessionActivity(threadId);
+  const { working, schedules, agentId, background } =
+    useSessionActivity(threadId);
   const scheduled = schedules.some(
     (row) =>
       row.enabled &&
@@ -41,7 +42,13 @@ export default function SessionActivity({ threadId }: { threadId: string }) {
           threadId={threadId}
           open={open}
           onClose={() => setOpen(false)}
-          initialTab={recent[0]?.self_reminder ? "reminders" : "schedules"}
+          initialTab={
+            background.length
+              ? "background"
+              : recent[0]?.self_reminder
+              ? "reminders"
+              : "schedules"
+          }
         />
       )}
       {working && (
@@ -52,6 +59,20 @@ export default function SessionActivity({ threadId }: { threadId: string }) {
           <LoaderCircle size={12} aria-hidden />
           <span>{t("chat.sessionWorkingShort")}</span>
         </span>
+      )}
+      {background.length > 0 && (
+        <button
+          type="button"
+          className={styles.sessionScheduleBadge}
+          onClick={(event) => {
+            event.stopPropagation();
+            openTasks();
+          }}
+          onKeyDown={(event) => event.stopPropagation()}
+          aria-label={t("workspace0034.backgroundSummary")}
+        >
+          <Clock3 size={13} /> {background.length}
+        </button>
       )}
       {schedules.length > 0 && (
         <Tooltip

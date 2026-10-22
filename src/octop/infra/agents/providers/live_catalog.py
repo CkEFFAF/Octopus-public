@@ -9,6 +9,7 @@ import os
 import time
 from copy import deepcopy
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -17,6 +18,8 @@ from octop.infra.utils.paths import PathLayout
 SOURCES = {
     "models.dev": "https://models.dev/api.json",
     "opencode-go": "https://opencode.ai/zen/go/v1/models",
+    "opencode-zen": "https://opencode.ai/inference/v1/models",
+    "free-models-hub": "https://free-api.gd7.cn/api/models",
 }
 logger = logging.getLogger(__name__)
 TTL = 86400
@@ -94,6 +97,25 @@ async def refresh_catalog(*, force: bool = False) -> dict[str, Any]:
                             or not payload["opencode-go"]["models"]
                         ):
                             raise ValueError("invalid model catalog")
+                    elif name == "free-models-hub":
+                        if (
+                            not isinstance(payload, dict)
+                            or payload.get("ok") is not True
+                            or not isinstance(payload.get("items"), list)
+                        ):
+                            raise ValueError("invalid free leaderboard")
+                        pages = int(payload.get("total_pages", 1))
+                        if not 1 <= pages <= 50:
+                            raise ValueError("free leaderboard too large")
+                        for page in range(2, pages + 1):
+                            part = await client.get(url, params={"page": page})
+                            part.raise_for_status()
+                            more = part.json()
+                            if more.get("ok") is not True or not isinstance(
+                                more.get("items"), list
+                            ):
+                                raise ValueError("incomplete free leaderboard")
+                            payload["items"].extend(more["items"])
                     elif (
                         not isinstance(payload, dict)
                         or not isinstance(payload.get("data"), list)
@@ -143,6 +165,20 @@ def _model(value: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def is_free_zen_model(mid: str) -> bool:
+    metadata = snapshot().get("models.dev", {}).get("data", {}).get("opencode", {})
+    models = metadata.get("models", {}) if isinstance(metadata, dict) else {}
+    meta = models.get(mid, {}) if isinstance(models, dict) else {}
+    if not isinstance(meta, dict) or meta.get("status") == "deprecated":
+        return False
+    cost = meta.get("cost", {})
+    return (
+        mid.endswith("-free")
+        or mid == "big-pickle"
+        or (isinstance(cost, dict) and cost.get("input") == 0 and cost.get("output") == 0)
+    )
+
+
 def overlay_presets(presets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     data = snapshot()
     registry = data.get("models.dev", {}).get("data", {})
@@ -154,6 +190,18 @@ def overlay_presets(presets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
     for preset in presets:
         identity = preset["id"]
+        if identity == "opencode-zen-free":
+            rows = data.get("opencode-zen", {}).get("data", {}).get("data", [])
+            metadata = registry.get("opencode", {}).get("models", {})
+            preset["models"] = []
+            for row in rows:
+                mid = row.get("id") if isinstance(row, dict) else None
+                if not isinstance(mid, str):
+                    continue
+                meta = metadata.get(mid, {})
+                if is_free_zen_model(mid):
+                    preset["models"].append(_model({**meta, "id": mid}))
+            continue
         go = identity in {"opencode-go-openai", "opencode-go-anthropic"}
         upstream = registry.get("opencode-go" if go else identity, {})
         if not isinstance(upstream, dict):
@@ -206,3 +254,51 @@ def overlay_presets(presets: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if models:
             preset["models"] = models
     return presets
+
+
+def free_hub_entries() -> list[dict[str, Any]]:
+    """Public directory only: never transmit keys to its operator."""
+    result = []
+    for row in snapshot().get("free-models-hub", {}).get("data", {}).get("items", []):
+        if not isinstance(row, dict):
+            continue
+
+        def https(value: Any) -> str:
+            if not isinstance(value, str) or len(value) > 2048:
+                return ""
+            try:
+                url = urlsplit(value)
+                return (
+                    value
+                    if url.scheme == "https"
+                    and url.hostname
+                    and not url.username
+                    and not url.password
+                    else ""
+                )
+            except ValueError:
+                return ""
+
+        base, signup = https(row.get("api_base_url")), https(row.get("key_apply_url"))
+        models = row.get("model_name", [])
+        models = [models] if isinstance(models, str) else models
+        if not base or not isinstance(models, list):
+            continue
+        ids = list(
+            dict.fromkeys(
+                m.strip()
+                for m in models
+                if isinstance(m, str) and m.strip() and not m.endswith("/")
+            )
+        )[:100]
+        if ids:
+            result.append(
+                {
+                    "id": str(row.get("id", "")),
+                    "name": str(row.get("title", ""))[:100],
+                    "base_url": base,
+                    "signup_url": signup,
+                    "models": ids,
+                }
+            )
+    return result

@@ -161,6 +161,7 @@ class TurnHistoryTracker:
     _reasoning_text: str = field(default="", init=False)
     _error_message: str = field(default="", init=False)
     _error_code: str | None = field(default=None, init=False)
+    _error_diagnostic: dict[str, Any] = field(default_factory=dict, init=False)
     _finished: bool = field(default=False, init=False)
     _steering_command_ids: set[str] = field(default_factory=set, init=False)
     _steering_turn_start_id: str | None = field(default=None, init=False)
@@ -246,6 +247,8 @@ class TurnHistoryTracker:
             text = str(chunk.get("message") or chunk.get("content") or "")
             if text:
                 self._error_message = text
+            if isinstance(chunk.get("diagnostic"), dict):
+                self._error_diagnostic = chunk["diagnostic"]
             code = chunk.get("error_code")
             if code:
                 self._error_code = str(code)
@@ -262,7 +265,10 @@ class TurnHistoryTracker:
     def _error_input(self) -> ThreadMessageInput | None:
         if not self._error_message:
             return None
-        extra: dict[str, Any] = {STREAM_ERROR_FLAG: True}
+        extra: dict[str, Any] = {
+            STREAM_ERROR_FLAG: True,
+            "octop_error_diagnostic": self._error_diagnostic,
+        }
         if self._error_code:
             extra[STREAM_ERROR_CODE_KEY] = self._error_code
         return live_message_input(AIMessage(content=self._error_message, additional_kwargs=extra))

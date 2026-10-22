@@ -131,10 +131,24 @@ class ConversationMetadataRepo:
             "GROUP BY error_code",
             (owner, encoded({"batch_id": batch})),
         ).fetchall()
+        details = conn.execute(
+            "SELECT job_id,thread_id,error_code,result_json FROM thread_metadata_jobs "
+            "WHERE owner_user_id=? AND request_json=? AND status='failed' ORDER BY updated_at DESC LIMIT 20",
+            (owner, encoded({"batch_id": batch})),
+        ).fetchall()
         return {
             "batch_id": batch,
             "total": sum(counts.values()),
             "errors": {row["error_code"]: row["count"] for row in errors},
+            "failures": [
+                {
+                    "job_id": r["job_id"],
+                    "thread_id": r["thread_id"],
+                    "code": r["error_code"],
+                    "diagnostic": json.loads(r["result_json"]).get("diagnostic", {}),
+                }
+                for r in details
+            ],
             "queued": counts.get("queued", 0) + counts.get("retry", 0),
             **{key: counts.get(key, 0) for key in ("running", "ready", "failed", "cancelled")},
         }
@@ -142,6 +156,40 @@ class ConversationMetadataRepo:
     def history_batch(self, owner: int) -> dict[str, Any] | None:
         with self.db.connect() as conn:
             return self._history_batch(conn, owner)
+
+    def cancel_jobs(
+        self,
+        owner: int,
+        *,
+        batch: str | None = None,
+        thread: str | None = None,
+        identity: str | None = None,
+        automatic: bool = False,
+    ) -> None:
+        """Revoke leases transactionally; late model results cannot commit."""
+        where = "owner_user_id=? AND status IN ('queued','retry','running')"
+        values: list[Any] = [owner]
+        if batch is not None:
+            where += " AND request_json=?"
+            values.append(encoded({"batch_id": batch}))
+        if thread is not None:
+            where += " AND thread_id=?"
+            values.append(thread)
+        if identity is not None:
+            where += " AND job_id=?"
+            values.append(identity)
+        if automatic:
+            where += " AND kind='auto'"
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE thread_metadata_jobs SET status='cancelled',lease_token='',lease_until=0,updated_at=? WHERE "
+                + where,
+                (time.time(), *values),
+            )
+
+    def batch(self, owner: int, identity: str) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            return self._history_batch(conn, owner, identity)
 
     def start_history_batch(
         self, owner: int, command: str, agent: str | None, threads: list[str] | None
@@ -310,6 +358,15 @@ class ConversationMetadataRepo:
                 (identity, owner, thread),
             ).fetchone()
         return self._job(row) if row else None
+
+    def last_failure(self, owner: int, thread: str) -> dict[str, Any]:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT result_json FROM thread_metadata_jobs WHERE owner_user_id=? AND thread_id=? "
+                "AND status='failed' ORDER BY updated_at DESC LIMIT 1",
+                (owner, thread),
+            ).fetchone()
+        return json.loads(row["result_json"]).get("diagnostic", {}) if row else {}
 
     def pending(self, thread: str) -> bool:
         with self.db.connect() as conn:

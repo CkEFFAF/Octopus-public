@@ -105,9 +105,17 @@ export function useSessionActivity(threadId: string) {
     () => chatStore.getSnapshot(threadId).isStreaming,
   );
   return {
-    agentId: Object.entries(values).find(([, value]) =>
-      value.schedules.some((row) => row.thread_id === threadId),
+    agentId: Object.entries(values).find(
+      ([, value]) =>
+        value.schedules.some((row) => row.thread_id === threadId) ||
+        value.working_threads?.some((row) => row.thread_id === threadId) ||
+        value.background_tasks?.some((row) => row.thread_id === threadId),
     )?.[0],
+    background: Object.values(values).flatMap(
+      (value) =>
+        value.background_tasks?.filter((row) => row.thread_id === threadId) ??
+        [],
+    ),
     working:
       streaming ||
       Object.values(values).some((value) =>

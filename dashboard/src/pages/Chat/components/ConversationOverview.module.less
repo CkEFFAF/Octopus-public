@@ -96,6 +96,9 @@
   .artifact {
     width: 100%;
     aspect-ratio: 1;
+    height: 100%;
+    min-width: 0;
+    overflow: hidden;
     padding: 16px 12px;
     display: flex;
     flex-direction: column;
@@ -104,7 +107,12 @@
     gap: 10px;
     border-radius: 12px;
     background: var(--fn-bg-elevated, #fff);
+    > span {
+      max-width: 100%;
+      min-width: 0;
+    }
     strong {
+      display: block;
       width: 100%;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -115,7 +123,6 @@
       font-size: 11px;
     }
     svg {
-      color: var(--ant-color-primary, #ed5978);
       flex-shrink: 0;
     }
   }

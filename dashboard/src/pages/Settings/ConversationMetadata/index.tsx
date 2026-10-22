@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import FailureDiagnostics from "../../../components/FailureDiagnostics";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   App,
@@ -48,13 +49,15 @@ export default function ConversationMetadataSettings() {
   );
   const [selected, setSelected] = useState<string[]>([]);
   const [batchBusy, setBatchBusy] = useState(false);
+  const batchEpoch = useRef(0);
   const pending = Boolean(batch && (batch.queued || batch.running));
   useEffect(() => {
     let alive = true;
     const refresh = async () => {
+      const epoch = batchEpoch.current;
       try {
         const value = await conversationMetadataApi.historyBatch();
-        if (alive) {
+        if (alive && epoch === batchEpoch.current) {
           setBatch(value);
           setBatchError("");
         }
@@ -83,7 +86,7 @@ export default function ConversationMetadataSettings() {
         apiErrorMessage(err, t("conversationMetadata.generationFailed")),
       );
     }
-  }, [form]);
+  }, [form, t]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -315,6 +318,29 @@ export default function ConversationMetadataSettings() {
                 : "conversationMetadata.organizeAll",
             )}
           </Button>
+          {pending && batch && (
+            <Button
+              danger
+              loading={batchBusy}
+              onClick={async () => {
+                batchEpoch.current += 1;
+                setBatchBusy(true);
+                try {
+                  setBatch(
+                    await conversationMetadataApi.cancelHistoryBatch(
+                      batch.batch_id,
+                    ),
+                  );
+                } catch (e) {
+                  setBatchError(apiErrorMessage(e, t("common.error"), t));
+                } finally {
+                  setBatchBusy(false);
+                }
+              }}
+            >
+              {t("conversationMetadata.stopOrganizing")}
+            </Button>
+          )}
           {batchError && <Alert type="error" showIcon message={batchError} />}
           {batch && (
             <div className={styles.batchProgress} role="status">
@@ -343,6 +369,17 @@ export default function ConversationMetadataSettings() {
                   {t("conversationMetadata.batchFailureHint")}
                 </Typography.Text>
               )}
+              {batch.failures?.map((failure) => (
+                <FailureDiagnostics
+                  key={failure.job_id}
+                  value={{
+                    ...failure.diagnostic,
+                    job_id: failure.job_id,
+                    thread_id: failure.thread_id,
+                    code: failure.code,
+                  }}
+                />
+              ))}
               {Object.entries(batch.errors ?? {}).map(([code, count]) => (
                 <Typography.Paragraph key={code} type="danger">
                   {t(
