@@ -1780,7 +1780,6 @@ async def test_reload_agent_does_not_block_event_loop(
 ) -> None:
     """Harness create/remove must run off the event loop (MCP init blocks the loop)."""
     import asyncio
-    import time
     from unittest.mock import MagicMock
 
     from octop.infra.agents.manager import AgentCreateSpec, AgentManager
@@ -1803,10 +1802,13 @@ async def test_reload_agent_does_not_block_event_loop(
     rebuild_started = asyncio.Event()
     rebuild_finished = asyncio.Event()
     post_start_finished = asyncio.Event()
+    release_rebuild = threading.Event()
 
     async def slow_rebuild(*_args: object, **_kwargs: object) -> MagicMock:
         rebuild_started.set()
-        await asyncio.to_thread(time.sleep, 0.15)
+        # Keep the rebuild pending until the ticker proves the loop can run.
+        # A fixed 150 ms sleep races with scheduling on loaded Windows runners.
+        assert await asyncio.to_thread(release_rebuild.wait, 10.0)
         rebuild_finished.set()
         return fake_entry
 
@@ -1828,11 +1830,22 @@ async def test_reload_agent_does_not_block_event_loop(
         tick.set()
 
     ticker_task = asyncio.create_task(ticker())
-    await registry.update(row.agent_id, name="block-test-v2")
-    await asyncio.wait_for(tick.wait(), timeout=1.0)
-    assert not rebuild_finished.is_set()
-    await asyncio.wait_for(post_start_finished.wait(), timeout=1.0)
-    await ticker_task
+    try:
+        await registry.update(row.agent_id, name="block-test-v2")
+        # Setup/config assembly is separate from the in-progress Harness await.
+        # These are deadlock watchdogs; ordering is proved by the release gate.
+        await asyncio.wait_for(rebuild_started.wait(), timeout=10.0)
+        await asyncio.wait_for(tick.wait(), timeout=10.0)
+        assert not rebuild_finished.is_set()
+        release_rebuild.set()
+        await asyncio.wait_for(post_start_finished.wait(), timeout=10.0)
+        await ticker_task
+    finally:
+        release_rebuild.set()
+        if not ticker_task.done():
+            ticker_task.cancel()
+        await asyncio.gather(ticker_task, return_exceptions=True)
+        db.close()
 
 
 def test_build_mcp_configs_registers_gateway_without_transport(manager: AgentManager) -> None:

@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import Awaitable, Callable
 from functools import wraps
+from types import CodeType
 from typing import TYPE_CHECKING, Any, cast
 
 from langchain_core.tools import StructuredTool
 from langgraph.config import get_config
 from pydantic import BaseModel
 
+from octop.infra.agents.experts.avatar import EXPERT_AVATAR_CHARACTERS
 from octop.infra.agents.settings.profile import dump_id_list, id_list_from_row
 from octop.infra.agents.settings.tool_catalog import BUILTIN_TOOL_CATALOG, CRITICAL_TOOLS
 from octop.infra.agents.subagents.service import (
@@ -28,6 +31,11 @@ from octop.infra.utils.ulid import new_ulid
 
 if TYPE_CHECKING:
     from octop.infra.history.sharing import ThreadSharingService
+
+
+# Only the static argument models are reusable. Tools and their authenticated
+# closures must be rebuilt for each manager/expert, never cached across accounts.
+_ARGUMENT_SCHEMAS: dict[CodeType, type[BaseModel]] = {}
 
 
 def message_text(wire: Any, *, limit: int = 4000) -> tuple[str, bool]:
@@ -97,7 +105,12 @@ def build_native_management_tools(
                     repos.audit_repo.write(
                         actor=f"agent:{agent_id}:user:{user.id}",
                         action=func.__name__,
-                        target=str(value.get("agent_id") or value.get("thread_id") or agent_id),
+                        target=str(
+                            value.get("instance_id")
+                            or value.get("agent_id")
+                            or value.get("thread_id")
+                            or agent_id
+                        ),
                         payload=json.dumps({"status": "saved" if writes else "read"}),
                     )
                     return json.dumps(value, ensure_ascii=False)
@@ -112,12 +125,41 @@ def build_native_management_tools(
                     envelope = (
                         exc.to_envelope() if isinstance(exc, OctopError) else {"error": str(exc)}
                     )
+                    if func.__name__.startswith("octop_connector_"):
+                        from octop.infra.connectors.credentials import redact_credential_values
+
+                        kind = kwargs.get("kind") or ""
+                        instance = repos.connector_repo.get(kwargs.get("instance_id") or "")
+                        if instance is not None and instance.user_id == cfg.get("user"):
+                            kind = instance.kind
+                            envelope = redact_credential_values(
+                                envelope,
+                                manager._connector_svc.decrypt(instance.instance_id),
+                                kind=kind,
+                            )
+                        envelope = redact_credential_values(
+                            envelope, kwargs.get("credentials") or {}, kind=kind
+                        )
+                    if func.__name__.startswith("octop_mcp_"):
+                        from octop.infra.agents.native_extension_tools import redact_mcp_result
+
+                        user = repos.user_repo.get(int(cfg.get("user") or 0))
+                        if user is not None and not user.disabled:
+                            stored = manager._connector_svc.get_custom_servers(user.id).get(
+                                kwargs.get("name")
+                            )
+                            if isinstance(stored, dict):
+                                envelope = redact_mcp_result(envelope, stored)
+                        envelope = redact_mcp_result(envelope, kwargs.get("server") or {})
                     return json.dumps(envelope, ensure_ascii=False)
 
-            tool = StructuredTool.from_function(coroutine=invoke)
-            schema = cast(type[BaseModel], tool.args_schema)
-            schema.model_config["extra"] = "forbid"
-            schema.model_rebuild(force=True)
+            schema = _ARGUMENT_SCHEMAS.get(func.__code__)
+            tool = StructuredTool.from_function(coroutine=invoke, args_schema=schema)
+            if schema is None:
+                schema = cast(type[BaseModel], tool.args_schema)
+                schema.model_config["extra"] = "forbid"
+                schema.model_rebuild(force=True)
+                _ARGUMENT_SCHEMAS[func.__code__] = schema
             tools.append(tool)
             return invoke
 
@@ -160,6 +202,17 @@ def build_native_management_tools(
             "description": row.description,
             "state": row.last_state,
             "enabled": bool(row.enabled),
+            "icon_name": row.icon_name,
+            "icon_url": row.icon_url,
+            "avatar_character": next(
+                (
+                    name
+                    for name in EXPERT_AVATAR_CHARACTERS
+                    if row.icon_url == f"/expert-animations/{name}.webp"
+                ),
+                None,
+            ),
+            "color": row.color,
             "writable": writable,
             **visible_expert_defaults(row, identity().id, repos.device_repo),
         }
@@ -200,10 +253,31 @@ def build_native_management_tools(
             "mcp_servers",
             "tools_disabled",
             "device_binding",
+            "avatar_character",
+            "icon_name",
+            "icon_url",
+            "color",
         }
         fields = {
             key: value for key, value in values.items() if key in allowed and value is not None
         }
+        if "avatar_character" in fields:
+            character = fields.pop("avatar_character").strip().lower()
+            if character not in EXPERT_AVATAR_CHARACTERS:
+                raise ValueError(
+                    f"avatar_character must be one of: {', '.join(EXPERT_AVATAR_CHARACTERS)}"
+                )
+            icon_url = f"/expert-animations/{character}.webp"
+            if fields.get("icon_url") and fields["icon_url"].strip() != icon_url:
+                raise ValueError("supply avatar_character or icon_url, not conflicting values")
+            fields["icon_url"] = icon_url
+        if "color" in fields:
+            color = fields["color"].strip()
+            if color and not re.fullmatch(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?", color):
+                raise ValueError("color must be #RGB or #RRGGBB; use an empty string to reset")
+            if len(color) == 4:
+                color = "#" + "".join(ch * 2 for ch in color[1:])
+            fields["color"] = color.lower() or None
         if "device_binding" in fields:
             if execution is None:
                 raise OctopError(ErrorCode.FORBIDDEN, "execution service unavailable")
@@ -317,9 +391,26 @@ def build_native_management_tools(
             "rules": "Only owned resources can be changed. Ask/Plan are read-only. Device selection affects later turns. Team members are dispatched with ask_agent. Foreign shared members support text collaboration only; cross-account device execution is unsupported. Publish a conversation snapshot only when the user explicitly requests external sharing; preview the exact public text first and use its digest. Never publish automatically.",
         }
 
+    from octop.infra.agents.native_connector_tools import register_connector_tools
+
+    register_connector_tools(
+        manager, repos, agent_id, identity=identity, owned=owned, operation=operation
+    )
+
+    from octop.infra.agents.native_extension_tools import register_extension_tools
+
+    register_extension_tools(
+        manager, repos, agent_id, identity=identity, owned=owned, operation=operation
+    )
+
     @operation()
     async def octop_resource_list() -> dict[str, Any]:
-        """Find valid model, skill package, knowledge base, connector and tool references without credentials."""
+        """Find model, skill, knowledge, connector and tool references without credentials.
+
+        Connector availability means configured, not verified upstream login.
+        QQ Mail uses an IMAP/SMTP app password, not browser OAuth. The Agently
+        mail cron source is a different connector and cannot diagnose QQ login.
+        """
         user = identity()
         store = manager.providers_for_user(user.id)
         models = [
@@ -330,6 +421,8 @@ def build_native_management_tools(
         ]
         return {
             "models": models[:200],
+            "avatar_characters": list(EXPERT_AVATAR_CHARACTERS),
+            "avatar_color_format": "#RRGGBB",
             "skill_packages": [
                 {"id": row.id, "name": row.name}
                 for row in repos.skill_package_repo.list_all()[:200]
@@ -369,6 +462,10 @@ def build_native_management_tools(
         default_model: str | None = None,
         system_prompt: str = "",
         welcome_message: str = "",
+        avatar_character: str | None = None,
+        color: str | None = None,
+        icon_name: str | None = None,
+        icon_url: str | None = None,
         skill_package_ids: list[str] | None = None,
         knowledge_base_ids: list[str] | None = None,
         mcp_servers: list[str] | None = None,
@@ -376,6 +473,11 @@ def build_native_management_tools(
         device_binding: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create an expert. device_binding sets its owned device/local default.
+
+        avatar_character chooses swallow, fox, owl, rabbit, beaver, cat,
+        redpanda, penguin, corgi or raccoon. color sets the avatar background
+        accent as #RRGGBB (for example #f97316). Alternatively use icon_url
+        for an image URL and icon_name for a fallback icon.
 
         For example {"target_kind":"device","device_id":"id","working_dir":"/work"}.
         To dispatch using that default choose ask_agent(target_policy="member_default");
@@ -398,6 +500,10 @@ def build_native_management_tools(
         default_model: str | None = None,
         system_prompt: str | None = None,
         welcome_message: str | None = None,
+        avatar_character: str | None = None,
+        color: str | None = None,
+        icon_name: str | None = None,
+        icon_url: str | None = None,
         skill_package_ids: list[str] | None = None,
         knowledge_base_ids: list[str] | None = None,
         mcp_servers: list[str] | None = None,
@@ -406,7 +512,11 @@ def build_native_management_tools(
     ) -> dict[str, Any]:
         """Configure your expert. device_binding sets its owned device/local default; {} clears it.
 
-        Omitted fields stay. Defaults affect later turns. For a peer dispatch on
+        avatar_character and color choose an animal and #RRGGBB background
+        accent just as in octop_expert_create. An empty icon_url or color resets it.
+
+        Omitted fields stay. Connector changes to this expert also apply to the
+        current conversation at its next model request. Device defaults affect later turns. For a peer dispatch on
         this device use ask_agent(target_policy="member_default") or "explicit";
         the default "inherit" deliberately keeps the caller's target.
         """
@@ -436,9 +546,17 @@ def build_native_management_tools(
             if key in fields:
                 fields[key] = dump_id_list(fields[key])
         updated = await manager.update(row.agent_id, **fields)
+        capability_update = None
+        if mcp_servers is not None:
+            from octop.infra.agents.middleware.live_configuration import remember_self_update
+
+            names = id_list_from_row(updated, "mcp_servers")
+            if remember_self_update(manager, row.agent_id, names):
+                capability_update = {"mcp_servers": names, "effective": "next_model_request"}
         return {
             **expert_payload(updated, detail=True),
             "saved": True,
+            "current_conversation_update": capability_update,
             **reload_status(row.agent_id),
         }
 

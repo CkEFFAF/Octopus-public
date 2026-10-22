@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
 import {
   Alert,
   Button,
@@ -306,6 +307,10 @@ export default function TaskActivity({
   const { t } = useTranslation();
   const timezone = useServerTimezone();
   const [scheduleScope, setScheduleScope] = useState("thread");
+  const route = useParams<{ agentId: string; threadId: string }>();
+  const [search, setSearch] = useSearchParams();
+  const requestedSection = search.get("task_view");
+  const matchesRoute = route.agentId === agentId && route.threadId === threadId;
   const schedules = useSchedules(agentId, threadId);
   const navSchedules = useSchedules(
     agentId,
@@ -326,6 +331,20 @@ export default function TaskActivity({
     return () => query.removeEventListener("change", changed);
   }, []);
   const [section, setSection] = useState("live");
+  useEffect(() => {
+    if (
+      !matchesRoute ||
+      !["schedules", "reminders"].includes(requestedSection ?? "")
+    ) {
+      setOpen(false);
+      return;
+    }
+    clearTimeout(clickTimer.current);
+    setSummary(false);
+    setScheduleScope("thread");
+    setSection(requestedSection!);
+    setOpen(true);
+  }, [matchesRoute, requestedSection, agentId, threadId]);
   const [filter, setFilter] = useState("all");
   const [view, setView] = useState("auto");
   const [selected, setSelected] = useState("");
@@ -484,6 +503,11 @@ export default function TaskActivity({
   }
   function close() {
     setOpen(false);
+    if (matchesRoute && search.has("task_view")) {
+      const next = new URLSearchParams(search);
+      next.delete("task_view");
+      setSearch(next, { replace: true });
+    }
     entry.current?.focus();
   }
   async function loadOlder() {

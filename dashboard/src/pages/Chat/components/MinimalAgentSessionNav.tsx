@@ -1,3 +1,10 @@
+import SessionActivity from "./SessionActivity";
+import {
+  SidebarActivityProvider,
+  useSessionActivity,
+  useSidebarActivity,
+  withWorkingSessions,
+} from "../hooks/useSidebarActivity";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -15,14 +22,21 @@ import {
   MessageSquarePlus,
 } from "lucide-react";
 import type { OctopAgent } from "../../../context/AgentContext";
-import { ExpertIcon } from "../../Experts/components/iconForName";
-import { lifecyclePhase } from "../../../components/AnimatedExpertAvatar/model";
+import type { ExpertPhase } from "../../../components/AnimatedExpertAvatar/model";
+import ExpertAgentAvatar from "./ExpertAgentAvatar";
+import {
+  ExpertPinButton,
+  ExpertStatusLabel,
+  PinnedExperts,
+  sidebarExpertPhase,
+} from "./SidebarExpert";
+import { usePinnedExperts } from "../hooks/usePinnedExperts";
 import { octopThreadsApi } from "../../../api/modules/octopThreads";
 import { showConfirmModal } from "../../../utils/confirmModal";
 import { isAgentChatReady } from "../../../utils/agentError";
 import { sortSessions, toSession, type Session } from "../hooks/useSessions";
 import { formatThreadTitle } from "../utils/threadTitle";
-import { onSessionEvent, onStreamEvent } from "../hooks/chatStore";
+import { onSessionEvent } from "../hooks/chatStore";
 import SharedExpertHint from "./SharedExpertHint";
 import RemoteExpertHint from "./RemoteExpertHint";
 import TeamChatBadge from "./TeamChatBadge";
@@ -57,6 +71,7 @@ function saveCollapsedFolders(collapsed: Set<string>) {
 
 interface MinimalAgentSessionNavProps {
   agents: OctopAgent[];
+  activePhase?: ExpertPhase;
   activeId: string | null;
   activeAgentId: string | null;
   /** Live sessions for the currently active agent (keeps nav in sync). */
@@ -90,7 +105,6 @@ function AgentUnreadBadge({ count }: { count: number }) {
 const PreviewSessionRow = memo(function PreviewSessionRow({
   session,
   isActive,
-  working,
   onSelect,
   onDelete,
   onRename,
@@ -102,7 +116,6 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
 }: {
   session: Session;
   isActive: boolean;
-  working: boolean;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
@@ -112,6 +125,7 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
   forkDisabled?: boolean;
   forkDisabledHint?: string;
 }) {
+  const { working } = useSessionActivity(session.id);
   const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(session.name);
@@ -216,7 +230,9 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
     <div
       className={`${styles.sessionRow} ${styles.sessionRowCompact} ${
         isActive ? styles.sessionRowActive : ""
-      } ${session.pinned ? styles.sessionRowPinned : ""}`}
+      } ${session.pinned ? styles.sessionRowPinned : ""} ${
+        working ? styles.sessionRowWorking : ""
+      }`}
       onClick={() => {
         if (!isEditing) onSelect(session.id);
       }}
@@ -244,14 +260,8 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
         />
       ) : (
         <>
-          {working ? (
-            <span
-              className={styles.sessionRowWorkingDot}
-              title={t("chat.sessionWorking")}
-              aria-label={t("chat.sessionWorking")}
-            />
-          ) : null}
           <span className={styles.sessionRowTitle}>{session.name}</span>
+          <SessionActivity threadId={session.id} />
           {session.pinned ? (
             <span
               className={styles.sessionRowPinIndicator}
@@ -280,8 +290,9 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
   );
 });
 
-export default function MinimalAgentSessionNav({
-  agents,
+function MinimalAgentSessionNavContent({
+  agents: initialAgents,
+  activePhase,
   activeId,
   activeAgentId,
   activeSessions,
@@ -297,9 +308,16 @@ export default function MinimalAgentSessionNav({
   activeForkDisabledHint,
 }: MinimalAgentSessionNavProps) {
   const { t } = useTranslation();
+  const sidebarActivity = useSidebarActivity();
+  const agents = initialAgents.map((agent) => ({
+    ...agent,
+    is_working:
+      agent.is_working ||
+      !!sidebarActivity[agent.agent_id]?.working_threads.length,
+  }));
   const navigate = useNavigate();
+  const { pinnedIds, togglePin } = usePinnedExperts();
   const [byAgent, setByAgent] = useState<Record<string, Session[]>>({});
-  const [workingIds, setWorkingIds] = useState<ReadonlySet<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() =>
     loadCollapsedFolders(),
@@ -424,21 +442,6 @@ export default function MinimalAgentSessionNav({
     }));
   }, [activeAgentId, activeSessions]);
 
-  // Turns streamed by this browser tab keep running after the user navigates
-  // away, so the nav marks those threads as busy until the stream ends.
-  useEffect(() => {
-    return onStreamEvent((event) => {
-      setWorkingIds((prev) => {
-        const busy = event.kind !== "streamEnd";
-        if (busy === prev.has(event.sessionId)) return prev;
-        const next = new Set(prev);
-        if (busy) next.add(event.sessionId);
-        else next.delete(event.sessionId);
-        return next;
-      });
-    });
-  }, []);
-
   useEffect(() => {
     return onSessionEvent((event) => {
       if (event.kind === "sessionDeleted") {
@@ -538,32 +541,41 @@ export default function MinimalAgentSessionNav({
 
   return (
     <div className={`${styles.sessionList} ${styles.minimalAgentNav}`}>
+      <PinnedExperts
+        agents={pinnedIds.flatMap((id) =>
+          agents.filter((agent) => agent.agent_id === id),
+        )}
+        activeAgentId={activeAgentId}
+        activePhase={activePhase}
+        onSelect={openFolderAndSelect}
+        onTogglePin={togglePin}
+      />
       {sortedAgents.map((agent) => {
-        const list = byAgent[agent.agent_id] ?? [];
+        const list = withWorkingSessions(
+          byAgent[agent.agent_id] ?? [],
+          sidebarActivity[agent.agent_id],
+        );
         const ready = isAgentChatReady(agent.state);
         const expanded = !collapsedFolders.has(agent.agent_id);
+        const phase = sidebarExpertPhase(
+          agent,
+          agent.agent_id === activeAgentId ? activePhase : undefined,
+        );
 
         return (
           <section key={agent.agent_id} className={styles.minimalAgentSection}>
             <div className={styles.minimalAgentHeader}>
               <span className={styles.minimalAgentIconSlot}>
-                <span
+                <ExpertAgentAvatar
                   className={styles.minimalAgentAvatar}
-                  style={{
-                    color: agent.color || "var(--fn-text-tertiary)",
-                    background: `${agent.color || "#6366f1"}14`,
-                  }}
-                  aria-hidden
-                >
-                  <ExpertIcon
-                    phase={lifecyclePhase(
-                      agent.state,
-                      agent.bridge_disconnected,
-                    )}
-                    iconUrl={agent.icon_url}
-                    iconName={agent.icon_name}
-                    size={agent.icon_url?.trim() ? 22 : 14}
-                  />
+                  phase={phase}
+                  iconUrl={agent.icon_url}
+                  iconName={agent.icon_name}
+                  color={agent.color}
+                  size={44}
+                />
+                <span className={styles.minimalAgentUnread}>
+                  <AgentUnreadBadge count={agent.unread_count ?? 0} />
                 </span>
                 <button
                   type="button"
@@ -589,14 +601,22 @@ export default function MinimalAgentSessionNav({
                 className={styles.minimalAgentFolderBtn}
                 onClick={() => openFolderAndSelect(agent.agent_id)}
               >
-                <span className={styles.agentNameCluster}>
-                  <span className={styles.minimalAgentName}>{agent.name}</span>
-                  <TeamChatBadge agent={agent} />
-                  <SharedExpertHint agent={agent} />
-                  <RemoteExpertHint agent={agent} />
+                <span className={styles.minimalAgentInfo}>
+                  <span className={styles.agentNameCluster}>
+                    <span className={styles.minimalAgentName}>
+                      {agent.name}
+                    </span>
+                    <TeamChatBadge agent={agent} />
+                    <SharedExpertHint agent={agent} />
+                    <RemoteExpertHint agent={agent} />
+                  </span>
+                  <ExpertStatusLabel phase={phase} />
                 </span>
-                <AgentUnreadBadge count={agent.unread_count ?? 0} />
               </button>
+              <ExpertPinButton
+                pinned={pinnedIds.includes(agent.agent_id)}
+                onClick={() => togglePin(agent.agent_id)}
+              />
               <button
                 type="button"
                 className={styles.minimalAgentNewChatBtn}
@@ -628,7 +648,6 @@ export default function MinimalAgentSessionNav({
                       key={session.id}
                       session={session}
                       isActive={session.id === activeId}
-                      working={workingIds.has(session.id)}
                       onSelect={(id) => onSelect(id, agent.agent_id)}
                       onDelete={(id) => void handleDelete(agent.agent_id, id)}
                       onRename={(id, name) =>
@@ -660,5 +679,15 @@ export default function MinimalAgentSessionNav({
         );
       })}
     </div>
+  );
+}
+
+export default function MinimalAgentSessionNav(
+  props: MinimalAgentSessionNavProps,
+) {
+  return (
+    <SidebarActivityProvider agents={props.agents}>
+      <MinimalAgentSessionNavContent {...props} />
+    </SidebarActivityProvider>
   );
 }

@@ -414,7 +414,9 @@ async def probe_connector(
         try:
             await asyncio.to_thread(probe_gateway_credentials, entry.kind, cred_payload)
         except Exception as exc:
-            logger.info("gateway credential probe failed for %s: %s", entry.kind, exc)
+            logger.info(
+                "gateway credential probe failed for %s (%s)", entry.kind, type(exc).__name__
+            )
             return {"ok": False, "error": str(exc)}
         resp = handle_mcp_request(
             kind=entry.kind,

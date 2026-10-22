@@ -605,9 +605,22 @@
   text-align: left;
   color: var(--fn-text-primary);
 
+  @media (max-width: 767px) {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+  }
+
   &:hover .queuedMessageText {
     color: var(--fn-color-brand);
   }
+}
+
+.queuedMessageStatus {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--fn-text-secondary);
 }
 
 .queuedMessageText {

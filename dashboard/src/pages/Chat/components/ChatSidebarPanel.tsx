@@ -6,6 +6,7 @@ import MinimalAgentSessionNav from "./MinimalAgentSessionNav";
 import type { Session } from "../hooks/useSessions";
 import type { OctopAgent } from "../../../context/AgentContext";
 import RailEdgeControl from "../../../components/RailEdgeControl";
+import type { ExpertPhase } from "../../../components/AnimatedExpertAvatar/model";
 import styles from "../index.module.less";
 
 /** Dispatched when the chat history rail expand control is clicked. */
@@ -18,6 +19,7 @@ interface ChatSidebarPanelProps {
   isSidebarResizing?: boolean;
   sidebarElRef?: RefObject<HTMLDivElement>;
   agents: OctopAgent[];
+  activePhase?: ExpertPhase;
   sessions: Session[];
   activeThreadId: string | null;
   resolvedAgentId: string | null | undefined;
@@ -55,6 +57,7 @@ export default function ChatSidebarPanel({
   isSidebarResizing = false,
   sidebarElRef,
   agents,
+  activePhase,
   sessions,
   activeThreadId,
   resolvedAgentId,
@@ -93,6 +96,7 @@ export default function ChatSidebarPanel({
   const sessionList = navEmbedded ? (
     <MinimalAgentSessionNav
       agents={agents}
+      activePhase={activePhase}
       activeId={activeThreadId}
       activeAgentId={resolvedAgentId ?? null}
       activeSessions={sessions}
@@ -110,6 +114,7 @@ export default function ChatSidebarPanel({
   ) : (
     <SessionList
       agents={agents}
+      activePhase={activePhase}
       sessions={sessions}
       activeId={activeThreadId}
       activeAgentId={resolvedAgentId ?? null}

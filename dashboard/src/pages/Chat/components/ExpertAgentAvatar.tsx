@@ -66,6 +66,28 @@ export default function ExpertAgentAvatar({
         color: accent,
         background: muted ? "rgba(148, 163, 184, 0.14)" : `${accent}1a`,
       }}
+      data-working={
+        animated &&
+        !muted &&
+        [
+          "speaking",
+          "thinking",
+          "planning",
+          "searching",
+          "reading",
+          "writing",
+          "coding",
+          "drawing",
+          "analyzing",
+          "running",
+          "verifying",
+          "collaborating",
+          "handoff",
+          "uploading",
+          "downloading",
+          "recovering",
+        ].includes(phase)
+      }
       aria-hidden
     >
       {character || !iconUrl ? (

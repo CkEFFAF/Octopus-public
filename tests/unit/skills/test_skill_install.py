@@ -12,7 +12,11 @@ from octop.infra.skills.install import (
     commit_skill_install,
     prepare_skillhub_package,
 )
-from octop.infra.skills.skill_packages import ResolvedSkillPackage, resolve_skill_package
+from octop.infra.skills.skill_packages import (
+    ResolvedSkillPackage,
+    SkillPackageError,
+    resolve_skill_package,
+)
 
 
 @dataclass
@@ -96,3 +100,18 @@ def test_prepare_skillhub_package_adds_presentation_metadata() -> None:
     assert "display_name: 展示名" in text
     assert "icon_url: https://example.com/icon.png" in text
     assert "source: skillhub" in text
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        b"# No manifest",
+        b"---\nname: demo\n---\nbody",
+        b"---\nname: demo\ndescription: 123\n---\nbody",
+        b"<!-- leading comment -->\n---\nname: demo\ndescription: x\n---\nbody",
+        b"\xff",
+    ],
+)
+def test_skillhub_rejects_manifests_the_runtime_cannot_load(manifest: bytes) -> None:
+    with pytest.raises(SkillPackageError, match="SKILL.md"):
+        prepare_skillhub_package("demo", [("SKILL.md", manifest)])

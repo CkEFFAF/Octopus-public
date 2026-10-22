@@ -78,6 +78,109 @@ def enqueue(setup, command="one"):
     )
 
 
+def test_input_list_recovers_application_only_from_exact_canonical_message(setup_queue):
+    from octop.infra.db.repos.thread_messages import ThreadMessageInput
+
+    queue, repos, owner, *_ = setup_queue
+    queue.steer(owner, "agent", "thread", "applied-but-unreported", "run", "direction")
+    queue.steer(owner, "agent", "thread", "unconfirmed", "run", "different")
+    repos.thread_message_repo.append_legacy_interval(
+        "thread",
+        [
+            ThreadMessageInput("steer:applied-but-unreported", "human", "{}", 1),
+            ThreadMessageInput("steer:unconfirmed", "ai", "{}", 1),
+        ],
+    )
+    repos.thread_repo.insert(
+        thread_id="other-thread",
+        agent_id="agent",
+        user_id=owner,
+        channel_type="dashboard",
+        session_key="other-session",
+    )
+    repos.thread_message_repo.append_legacy_interval(
+        "other-thread", [ThreadMessageInput("steer:unconfirmed", "human", "{}", 1)]
+    )
+    items = queue.list(owner, "agent", "thread")["inputs"]
+    assert {item["payload"]["command_id"]: item["status"] for item in items} == {
+        "applied-but-unreported": "applied",
+        "unconfirmed": "accepted",
+    }
+
+
+def test_dismiss_unconfirmed_receipt_never_dispatches_or_deletes_payload(setup_queue):
+    queue, repos, owner, other, *_ = setup_queue
+    queue.steer(owner, "agent", "thread", "old", "run", "keep audit")
+    with pytest.raises(ValueError, match="input_not_dismissible"):
+        queue.dismiss(owner, "agent", "thread", "old")
+    repos.chat_input_repo.finish_run(owner, "agent", "thread", "run")
+    before = repos.chat_input_repo.get(owner, "old")
+    with pytest.raises(OctopError):
+        queue.dismiss(other, "agent", "thread", "old")
+    first = queue.dismiss(owner, "agent", "thread", "old")
+    assert first["status"] == "dismissed"
+    assert first["payload"] == before["payload"]
+    assert queue.dismiss(owner, "agent", "thread", "old")["status"] == "dismissed"
+    assert repos.chat_input_repo.ready() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fails", [False, True])
+async def test_self_reminder_updates_insert_receipt_and_finishes_dashboard_stream(
+    setup_queue, fails
+):
+    from octop.infra.cron.delivery import CronDeliveryCommand, CronDeliveryService
+    from octop.infra.gateway.gateway import Gateway
+    from octop.infra.gateway.ws.ws_hub import WebSocketHub
+
+    queue, repos, owner, *_ = setup_queue
+    queue.steer(owner, "agent", "thread", "insert", "run", "direction")
+    gateway = Gateway.__new__(Gateway)
+    gateway._inputs = queue
+    gateway._ws_hub = WebSocketHub()
+    gateway._ws_hub.push_to_thread = AsyncMock()
+    gateway.push_session_text = AsyncMock()
+    gateway.notify_dashboard_push = AsyncMock()
+
+    async def stream(*args):
+        yield {"type": "run_phase", "run_id": "run", "phase": "llm_running"}
+        assert gateway._ws_hub.is_turn_active("thread")
+        yield {"type": "token", "content": "before insertion"}
+        yield {"type": "steering_applied", "command_id": "insert", "run_id": "run"}
+        yield {"type": "user", "command_id": "insert", "content": "direction"}
+        yield {"type": "token", "content": "after insertion"}
+        if fails:
+            raise RuntimeError("synthetic model failure")
+        yield {"type": "run_phase", "run_id": "run", "phase": "completed"}
+
+    command = CronDeliveryCommand(
+        "cron", "reminder", "agent", owner, "session", "continue", False, "agent", None, ()
+    )
+    session = SimpleNamespace(channel_type="dashboard", thread_id="thread", user_id=owner)
+    service = CronDeliveryService(
+        gateway=gateway, agent_manager=SimpleNamespace(stream=stream), repos=repos
+    )
+    service._build_agent_request = AsyncMock(return_value={"thread_id": "thread", "messages": []})
+    if fails:
+        with pytest.raises(RuntimeError, match="synthetic model failure"):
+            await service._deliver_agent(command, session)
+    else:
+        assert await service._deliver_agent(command, session) == "after insertion"
+        gateway.push_session_text.assert_awaited_once()
+        assert gateway.push_session_text.await_args.args[1] == "after insertion"
+    assert repos.chat_input_repo.get(owner, "insert")["status"] == "applied"
+    frames = [call.args[1] for call in gateway._ws_hub.push_to_thread.await_args_list]
+    assert any(
+        frame.get("type") == "user" and frame.get("command_id") == "insert" for frame in frames
+    )
+    assert frames[-1]["type"] == "done"
+    assert not gateway._ws_hub.is_turn_active("thread")
+    assert any(
+        frame.get("type") == "token" and frame.get("content") == "before insertion"
+        for frame in frames
+    )
+
+
 def test_fifo_idempotency_capacity_and_scope(setup_queue):
     queue, repos, owner, other, *_ = setup_queue
     first = enqueue(setup_queue)
@@ -232,6 +335,33 @@ def test_explicit_steering_rejection_restores_the_original_queue_item(setup_queu
     assert restored["run_id"] == "keep-queued"
     assert restored["payload"] == queued["payload"]
     assert [item["event_id"] for item in repos.chat_input_repo.ready()] == [queued["event_id"]]
+
+
+@pytest.mark.parametrize("accepted", [True, False])
+def test_immediate_promotion_preserves_mode_and_rejection_restores_queue(setup_queue, accepted):
+    queue, repos, owner, *_ = setup_queue
+    queued = enqueue(setup_queue, "immediate")
+    if not accepted:
+        queue.agents.steer_stream.return_value = {"status": "stale_run", "phase": "idle"}
+        with pytest.raises(ValueError, match="steering_stale_run"):
+            queue.promote_to_steer(owner, "agent", "thread", "immediate", "run", cancel_tools=True)
+        restored = repos.chat_input_repo.get(owner, "immediate")
+        assert restored["status"] == "queued"
+        assert restored["payload"] == queued["payload"]
+    else:
+        first = queue.promote_to_steer(
+            owner, "agent", "thread", "immediate", "run", cancel_tools=True
+        )
+        retry = queue.promote_to_steer(
+            owner, "agent", "thread", "immediate", "run", cancel_tools=True
+        )
+        assert first["payload"]["cancel_tools"] is True
+        assert first["event_id"] == retry["event_id"]
+        with pytest.raises(ValueError, match="command_conflict"):
+            queue.promote_to_steer(owner, "agent", "thread", "immediate", "run")
+    queue.agents.steer_stream.assert_called_once_with(
+        "agent", "thread", "immediate", "immediate", run_id="run", cancel_tools=True
+    )
 
 
 def test_uncertain_promotion_stays_unknown_and_is_not_replayed(setup_queue):

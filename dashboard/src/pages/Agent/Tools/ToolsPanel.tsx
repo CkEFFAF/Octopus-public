@@ -13,6 +13,7 @@ import {
   type ToolSettingsItem,
 } from "../../../api/modules/agentTools";
 import { pluginsApi, type AgentPlugin } from "../../../api/modules/plugins";
+import { useNativeCapabilityRefresh } from "../../../hooks/useNativeCapabilityRefresh";
 import { builtinToolIcon } from "../../../utils/builtinToolIcons";
 import { PluginIconView } from "../../Admin/Plugins/PluginIconView";
 import { PluginGroupTag } from "../../Admin/Plugins/PluginGroupTag";
@@ -160,6 +161,8 @@ export default function ToolsPanel({
       setLoading(false);
     }
   }, [agentId, applyPluginMeta, applyTools, source, t]);
+
+  useNativeCapabilityRefresh(agentId, "tools", load);
 
   useEffect(() => {
     void load();

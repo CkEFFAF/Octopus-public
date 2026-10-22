@@ -7,7 +7,12 @@ export type ChatInputReceipt<Snapshot = Record<string, unknown>> = {
   kind: string;
   run_id: string;
   created_at: number;
-  payload: { command_id: string; snapshot?: Snapshot; text?: string };
+  payload: {
+    command_id: string;
+    snapshot?: Snapshot;
+    text?: string;
+    cancel_tools?: boolean;
+  };
 };
 export type ChatInputSnapshot<Snapshot = Record<string, unknown>> = {
   inputs: ChatInputReceipt<Snapshot>[];
@@ -39,10 +44,24 @@ export const chatInputsApi = {
       `${path(agent, thread)}/${encodeURIComponent(id)}`,
       { method: "DELETE" },
     ),
-  promote: (agent: string, thread: string, id: string, runId: string) =>
+  dismiss: (agent: string, thread: string, id: string) =>
+    request<ChatInputReceipt>(
+      `${path(agent, thread)}/${encodeURIComponent(id)}/dismiss`,
+      { method: "POST" },
+    ),
+  promote: (
+    agent: string,
+    thread: string,
+    id: string,
+    runId: string,
+    cancelTools = false,
+  ) =>
     request<ChatInputReceipt>(
       `${path(agent, thread)}/${encodeURIComponent(id)}/steer`,
-      { method: "POST", body: JSON.stringify({ run_id: runId }) },
+      {
+        method: "POST",
+        body: JSON.stringify({ run_id: runId, cancel_tools: cancelTools }),
+      },
     ),
   steer: (
     agent: string,

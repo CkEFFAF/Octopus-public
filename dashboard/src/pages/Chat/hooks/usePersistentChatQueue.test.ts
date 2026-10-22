@@ -14,6 +14,7 @@ vi.mock("../../../api/modules/chatInputs", () => ({
     withdraw: vi.fn(),
     steer: vi.fn(),
     promote: vi.fn(),
+    dismiss: vi.fn(),
   },
 }));
 vi.mock("./chatStore", () => ({
@@ -29,6 +30,24 @@ const empty = {
   capabilities: { queue: true, steer: true },
 };
 describe("durable chat input acknowledgement", () => {
+  it("dismisses only a terminal receipt and refreshes without resending", async () => {
+    const { result, unmount } = mount();
+    await waitFor(() => expect(result.current.runtime?.run_id).toBe("run"));
+    vi.mocked(chatInputsApi.dismiss).mockResolvedValue({
+      status: "dismissed",
+    } as never);
+    await act(async () => {
+      expect(await result.current.dismiss("old-status")).toBe(true);
+    });
+    expect(chatInputsApi.dismiss).toHaveBeenCalledExactlyOnceWith(
+      "agent",
+      "thread",
+      "old-status",
+    );
+    expect(chatInputsApi.queue).not.toHaveBeenCalled();
+    expect(chatInputsApi.promote).not.toHaveBeenCalled();
+    unmount();
+  });
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(chatInputsApi.list).mockResolvedValue(empty);
@@ -54,9 +73,44 @@ describe("durable chat input acknowledgement", () => {
       "thread",
       "queued-id",
       "run",
+      false,
     );
     expect(chatInputsApi.withdraw).not.toHaveBeenCalled();
     expect(chatInputsApi.steer).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("forwards immediate mode and shows acknowledged interruption state", async () => {
+    const { result, unmount } = mount();
+    await waitFor(() => expect(result.current.runtime?.run_id).toBe("run"));
+    vi.mocked(chatInputsApi.promote).mockImplementation(async () => {
+      vi.mocked(chatInputsApi.list).mockResolvedValue({
+        ...empty,
+        inputs: [
+          {
+            kind: "chat_steer",
+            status: "accepted",
+            payload: {
+              command_id: "queued-id",
+              text: "now",
+              cancel_tools: true,
+            },
+          },
+        ],
+      } as never);
+      return { status: "accepted" } as never;
+    });
+    await act(async () => {
+      expect(await result.current.promote("queued-id", true)).toBe(true);
+    });
+    expect(chatInputsApi.promote).toHaveBeenCalledExactlyOnceWith(
+      "agent",
+      "thread",
+      "queued-id",
+      "run",
+      true,
+    );
+    expect(result.current.items[0].status).toBe("interrupting");
     unmount();
   });
 

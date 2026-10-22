@@ -8,6 +8,7 @@
  */
 
 import { getApiUrl } from "../../../api/config";
+import i18n from "../../../i18n";
 import { getAuthToken } from "../../../api/request";
 import type { TokenUsage } from "../../../api/types";
 import { buildDashboardChatWsUrl } from "../../../api/modules/wsChat";
@@ -285,6 +286,7 @@ export interface ToolEvent {
   sessionId: string;
   toolName: string;
   toolId: string;
+  result?: string;
 }
 export type StreamEventKind = "streamStart" | "streamEnd" | "streamResume";
 export interface StreamEvent {
@@ -1312,7 +1314,9 @@ function handleHarnessChunkBody(
     case "tool_result":
       // Keep the speaker live across the tool→next-token gap.
       markSpeakerLive(state, speaker);
-      closeToolCall(state, chunk.messages, sessionId, speaker);
+      for (const result of chunk.messages) {
+        closeToolCall(state, [result], sessionId, speaker);
+      }
       break;
     case "done":
       if (!chunk.team_wrapup) {
@@ -2090,7 +2094,18 @@ function closeToolCall(
   }
   if (toolIdx < 0) return;
   const target = state.messages[toolIdx];
-  const output = extractToolResultOutput(messages);
+  const interrupted = messages.some((raw) => {
+    if (!raw || typeof raw !== "object") return false;
+    const kwargs = (raw as Record<string, unknown>).additional_kwargs;
+    return Boolean(
+      kwargs &&
+        typeof kwargs === "object" &&
+        (kwargs as Record<string, unknown>).octop_interrupted,
+    );
+  });
+  const output = interrupted
+    ? i18n.t("chat.steer.toolInterrupted")
+    : extractToolResultOutput(messages);
   const artifact = extractToolResultArtifact(messages);
   const explicitToolError = messages.some(
     (raw) =>
@@ -2132,6 +2147,7 @@ function closeToolCall(
     sessionId: sessionId ?? "",
     toolName: target.toolData?.name ?? "",
     toolId: target.toolData?.callId ?? "",
+    result: output,
   });
 }
 

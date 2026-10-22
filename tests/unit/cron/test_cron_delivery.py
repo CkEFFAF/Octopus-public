@@ -102,6 +102,7 @@ async def test_text_dashboard_appends_checkpoint_before_push() -> None:
         order.append("toast")
 
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
     gateway.push_session_text = push
@@ -129,6 +130,7 @@ async def test_text_checkpoint_failure_skips_push() -> None:
     agent_manager.get_agent.return_value = harness
 
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
     gateway.push_session_text = AsyncMock()
@@ -159,6 +161,7 @@ async def test_text_projection_and_toast_failure_still_pushes() -> None:
     agent_manager.get_agent.return_value = harness
 
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
     gateway.push_session_text = AsyncMock()
@@ -178,6 +181,7 @@ async def test_text_im_skips_checkpoint() -> None:
     session = _session(channel_type="feishu")
     agent_manager = MagicMock()
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
     gateway.push_session_text = AsyncMock()
@@ -209,6 +213,7 @@ async def test_agent_hitl_does_not_push() -> None:
     agent_manager.get_row = MagicMock(return_value=None)
 
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
     gateway.push_session_text = AsyncMock()
@@ -241,6 +246,7 @@ async def test_agent_empty_reply_does_not_push() -> None:
     agent_manager.get_row = MagicMock(return_value=None)
 
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
     gateway.push_session_text = AsyncMock()
@@ -275,6 +281,7 @@ async def test_agent_strips_orphan_thinking_prefix() -> None:
     agent_manager.get_row = MagicMock(return_value=None)
 
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
     gateway.push_session_text = AsyncMock()
@@ -302,6 +309,7 @@ async def test_fresh_thread_checks_authority_before_reset_and_reloads_session() 
         return session
 
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.thread_registry.reset_by_session_key = reset
     gateway.require_session = require
@@ -321,6 +329,7 @@ async def test_wrong_user_rejects_session() -> None:
     session = _session(channel_type="dashboard")
     session.user_id = 9
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
     gateway.push_session_text = AsyncMock()
@@ -350,6 +359,7 @@ async def test_dashboard_text_projects_into_real_sqlite(tmp_path: Path) -> None:
     agent_manager.get_agent.return_value = harness
 
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
     gateway.push_session_text = AsyncMock()
@@ -388,6 +398,7 @@ async def test_agent_failure_projects_the_prompt(tmp_path: Path) -> None:
     agent_manager.get_row = MagicMock(return_value=None)
 
     gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
     gateway.run_in_session = _run_locked
     gateway.require_session = MagicMock(return_value=session)
     gateway.push_session_text = AsyncMock()

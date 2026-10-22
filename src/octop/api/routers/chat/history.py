@@ -9,10 +9,15 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 
-from octop.api.common.agent import require_agent_row
+from octop.api.common.agent import require_agent_row, user_owns_agent
 from octop.api.common.agent_workspace import resolve_agent_workspace_dir
 from octop.api.deps import current_user, get_server
-from octop.api.routers.chat.models import ForkThreadBody, RebindSessionBody, RenameThreadBody
+from octop.api.routers.chat.models import (
+    ForkThreadBody,
+    RebindSessionBody,
+    RenameThreadBody,
+    SidebarStatus,
+)
 from octop.api.routers.chat.serialize import (
     HISTORY_DEFAULT_LIMIT,
     _backfill_thread_projection,
@@ -26,6 +31,7 @@ from octop.infra.agents.threads.fork import fork_dashboard_thread
 from octop.infra.agents.workspace.dir import agent_facing_workspace_dir_from_config
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.hitl.coordinator import pending_hitl_payload
+from octop.infra.gateway.sidebar import sidebar_status
 from octop.infra.gateway.threads import ThreadRegistry, thread_row_has_messages
 from octop.infra.history.service import HistoryArchive
 from octop.infra.history.trajectory.service import TrajectoryService
@@ -94,6 +100,29 @@ def _require_thread(
     if row.user_id != effective_uid:
         raise OctopError(ErrorCode.FORBIDDEN, "thread not owned by user")
     return row
+
+
+@router.get(
+    "/agents/{agent_id}/sidebar-status",
+    summary="Sidebar conversation activity and schedules",
+    response_model=SidebarStatus,
+)
+async def get_sidebar_status(
+    agent_id: str,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> SidebarStatus:
+    """Observe this user's running conversations and authorized task associations."""
+    row = require_agent_row(agent_id, user=user, as_user=None, server=server)
+    return SidebarStatus.model_validate(
+        sidebar_status(
+            gateway=server.app_runtime.gateway,
+            cron_manager=server.app_runtime.cron_manager,
+            agent_id=agent_id,
+            user_id=user.id,
+            include_schedules=user_owns_agent(row, user),
+        )
+    )
 
 
 @router.get("/agents/{agent_id}/threads", summary="List threads")

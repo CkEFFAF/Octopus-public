@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from octop.infra.connectors import mail_servers
+from octop.infra.connectors.builder import validate_create_credentials
 from octop.infra.connectors.gateway.adapters import qq_mail
 from octop.infra.connectors.mail_servers import (
     correct_netease_imap_host,
@@ -117,3 +118,51 @@ def test_imap_login_skips_id_for_qq() -> None:
 
     fake_imap._simple_command.assert_not_called()
     fake_imap.login.assert_called_once_with("user@qq.com", "auth-code")
+
+
+@pytest.mark.parametrize("port", [465, 587])
+def test_custom_mail_smtp_uses_matching_tls_transport(port: int) -> None:
+    with (
+        patch.object(qq_mail.smtplib, "SMTP_SSL") as implicit,
+        patch.object(qq_mail.smtplib, "SMTP") as starttls,
+    ):
+        qq_mail._email_send(
+            {
+                "email": "user@university.example",
+                "password": "synthetic",
+                "smtp_host": "smtp.university.example",
+                "smtp_port": port,
+            },
+            {"to": "recipient@example.test", "subject": "Synthetic", "body": "No real delivery"},
+        )
+        used, unused = (implicit, starttls) if port == 465 else (starttls, implicit)
+        unused.assert_not_called()
+        used.assert_called_once_with(
+            "smtp.university.example", port, timeout=mail_servers.IMAP_CONNECT_TIMEOUT
+        )
+        connection = used.return_value.__enter__.return_value
+        assert connection.starttls.call_count == (0 if port == 465 else 1)
+        connection.login.assert_called_once_with("user@university.example", "synthetic")
+        connection.send_message.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {},
+        {"imap_host": "imap.example.test"},
+        {"imap_host": "imap.example.test", "smtp_host": "smtp.example.test", "imap_port": 0},
+        {"imap_host": "imap.example.test", "smtp_host": "smtp.example.test", "smtp_port": 65536},
+    ],
+)
+def test_custom_mail_requires_explicit_hosts_and_valid_ports(fields: dict[str, Any]) -> None:
+    with pytest.raises(ValueError):
+        validate_create_credentials(
+            "qq-mail",
+            {
+                "email": "user@university.example",
+                "password": "synthetic",
+                "mail_provider": "custom",
+                **fields,
+            },
+        )

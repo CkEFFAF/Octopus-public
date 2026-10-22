@@ -1,0 +1,160 @@
+--- a/src/octop_harness/agent.py
++++ b/src/octop_harness/agent.py
+@@ -413,15 +413,17 @@
+         if event := self._cancel_events.get(thread_id):
+             event.set()
+ 
+-    def steer_message(self, thread_id: str, command_id: str, text: str, *, run_id: str) -> dict[str, str]:
+-        """Insert into the identified active run without interrupting tool work."""
++    def steer_message(
++        self, thread_id: str, command_id: str, text: str, *, run_id: str, cancel_tools: bool = False
++    ) -> dict[str, str]:
++        """Insert into the identified run, optionally interrupting current tool waits."""
+         control = self._steering_runs.get(thread_id)
+         if control is None:
+             return {"status": "inactive", "phase": "idle"}
+         if control.run_id != run_id:
+             return {"status": "stale_run", "phase": control.phase, "run_id": control.run_id}
+         return {
+-            "status": control.request(command_id, text),
++            "status": control.request(command_id, text, cancel_tools=cancel_tools),
+             "phase": control.phase,
+             "run_id": control.run_id,
+         }
+--- a/src/octop_harness/manager.py
++++ b/src/octop_harness/manager.py
+@@ -393,10 +393,11 @@
+         text: str,
+         *,
+         run_id: str,
++        cancel_tools: bool = False,
+     ) -> dict[str, str]:
+-        """Request a safe-boundary user-message insertion into an active stream."""
++        """Request insertion into an active stream, optionally interrupting tool waits."""
+         entry = self._registry[agent_id]
+-        return entry.agent.steer_message(thread_id, command_id, text, run_id=run_id)
++        return entry.agent.steer_message(thread_id, command_id, text, run_id=run_id, cancel_tools=cancel_tools)
+ 
+     def steering_status(self, agent_id: str, thread_id: str) -> dict[str, str] | None:
+         """Inspect the active steerable invocation for reconnecting clients."""
+--- a/src/octop_harness/steering.py
++++ b/src/octop_harness/steering.py
+@@ -21,6 +21,7 @@
+ class SteeringCommand:
+     command_id: str
+     text: str
++    cancel_tools: bool = False
+ 
+ 
+ @dataclass
+@@ -29,24 +30,30 @@
+ 
+     run_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+     wake: asyncio.Event = field(default_factory=asyncio.Event)
++    interrupt_tools: asyncio.Event = field(default_factory=asyncio.Event)
+     phase: str = "llm_before"
+     pending: SteeringCommand | None = None
+     partial_text: str = ""
+     command_status: dict[str, str] = field(default_factory=dict)
+     command_text: dict[str, str] = field(default_factory=dict)
++    command_cancel_tools: dict[str, bool] = field(default_factory=dict)
+     active_tools: int = 0
+     interrupted_model: bool = False
+ 
+-    def request(self, command_id: str, text: str) -> str:
++    def request(self, command_id: str, text: str, *, cancel_tools: bool = False) -> str:
+         if command_id in self.command_status:
+-            return self.command_status[command_id] if self.command_text[command_id] == text else "conflict"
++            same = self.command_text[command_id] == text and self.command_cancel_tools[command_id] == cancel_tools
++            return self.command_status[command_id] if same else "conflict"
+         if self.phase in {"paused", "completed", "failed", "cancelled"}:
+             return "inactive"
+         if self.pending is not None:
+             return "busy"
+-        self.pending = SteeringCommand(command_id=command_id, text=text)
++        self.pending = SteeringCommand(command_id=command_id, text=text, cancel_tools=cancel_tools)
+         self.command_status[command_id] = "accepted"
+         self.command_text[command_id] = text
++        self.command_cancel_tools[command_id] = cancel_tools
++        if cancel_tools:
++            self.interrupt_tools.set()
+         self.wake.set()
+         return "accepted"
+ 
+@@ -66,15 +73,25 @@
+ 
+ 
+ class LiveSteeringMiddleware(AgentMiddleware[Any, Any]):
+-    """Cancel only a model handler; admit tools atomically and let them finish.
++    """Insert at a boundary, optionally interrupting admitted tool handlers.
+ 
+     After-model updates jump back to the model so superseded tool calls never
+     run. Requests admitted during tool execution are consumed by before-model
+-    once the tools superstep has completed. No graph iterator is cancelled.
++    once the tools superstep has completed. Explicit immediate insertion cancels
++    tool handlers and supplies paired interruption results. The graph iterator
++    is never cancelled or replayed by insertion.
+     """
+ 
+     def __init__(self, controls: dict[str, StreamSteering]) -> None:
+         self.controls = controls
++        self._interrupted_tools: set[asyncio.Future[Any]] = set()
++
++    def _tool_done(self, task: asyncio.Future[Any]) -> None:
++        self._interrupted_tools.discard(task)
++        # A backend may ignore cancellation. Consume its eventual result/error;
++        # it must never become a second tool result or update this checkpoint.
++        with contextlib.suppress(asyncio.CancelledError, Exception):
++            task.result()
+ 
+     def _control(self) -> tuple[str, StreamSteering] | None:
+         cfg = get_config().get("configurable") or {}
+@@ -134,6 +151,7 @@
+         updates.append(HumanMessage(content=command.text, id=f"steer:{command.command_id}"))
+         control.pending = None
+         control.wake.clear()
++        control.interrupt_tools.clear()
+         control.command_status[command.command_id] = "applied"
+         self._emit(
+             {
+@@ -235,9 +253,39 @@
+             )
+         control.active_tools += 1
+         self._phase(thread_id, control, "tool_running")
++        tool_task = asyncio.ensure_future(handler(request))
++        interrupt_task = asyncio.create_task(control.interrupt_tools.wait())
++        cancel_requested = False
+         try:
+-            return await handler(request)
++            done, _ = await asyncio.wait({tool_task, interrupt_task}, return_when=asyncio.FIRST_COMPLETED)
++            if tool_task in done:
++                return await tool_task
++            self._phase(thread_id, control, "tool_interrupting")
++            tool_task.cancel()
++            cancel_requested = True
++            # Bound cancellation cleanup: even a backend ignoring cancellation
++            # must not keep the new user instruction behind a sleep/poll call.
++            await asyncio.wait({tool_task}, timeout=0.1)
++            return ToolMessage(
++                content=(
++                    "Tool call interrupted by the user to insert a new instruction. "
++                    "Stopped waiting for this call; its result is unconfirmed. "
++                    "An external or background operation may still be running. "
++                    "Do not automatically retry or report that it was stopped."
++                ),
++                tool_call_id=request.tool_call["id"],
++                name=request.tool_call["name"],
++                status="error",
++                additional_kwargs={"octop_interrupted": True},
++            )
+         finally:
++            interrupt_task.cancel()
++            with contextlib.suppress(asyncio.CancelledError):
++                await interrupt_task
++            if not tool_task.done() and not cancel_requested:
++                tool_task.cancel()
++            self._interrupted_tools.add(tool_task)
++            tool_task.add_done_callback(self._tool_done)
+             control.active_tools -= 1
+             if not control.active_tools:
+                 self._phase(thread_id, control, "tool_after")

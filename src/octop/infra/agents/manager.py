@@ -1423,14 +1423,26 @@ class AgentManager:
             self._harness_manager.cancel(agent_id, thread_id)
 
     def steer_stream(
-        self, agent_id: str, thread_id: str, command_id: str, text: str, *, run_id: str
+        self,
+        agent_id: str,
+        thread_id: str,
+        command_id: str,
+        text: str,
+        *,
+        run_id: str,
+        cancel_tools: bool = False,
     ) -> dict[str, str]:
         """Insert only into the identified invocation at a runtime-owned boundary."""
         if self._harness_manager is None:
             return {"status": "inactive", "phase": "idle"}
         try:
             return self._harness_manager.steer_message(
-                agent_id, thread_id, command_id, text, run_id=run_id
+                agent_id,
+                thread_id,
+                command_id,
+                text,
+                run_id=run_id,
+                **({"cancel_tools": True} if cancel_tools else {}),
             )
         except KeyError:
             return {"status": "inactive", "phase": "idle"}
@@ -2273,8 +2285,8 @@ class AgentManager:
         )
         self.sync_skill_package_dirs(agent_id)
 
-    def sync_skill_package_dirs(self, agent_id: str) -> None:
-        """Hot-update ``skills_dir`` on the running harness agent (no rebuild)."""
+    def sync_skill_package_dirs(self, agent_id: str, *, refresh_graph: bool = True) -> None:
+        """Sync skill mounts; model boundaries can skip refreshing the compiled graph."""
         try:
             agent = self.get_agent(agent_id)
         except OctopError:
@@ -2297,6 +2309,8 @@ class AgentManager:
             config = getattr(agent, "_config", None)
         if config is not None and hasattr(config, "skills_dir"):
             config.skills_dir = skill_dirs or None
+        if not refresh_graph:
+            return
         reload = getattr(agent, "reload_subagents", None)
         if callable(reload):
             reload()
@@ -3612,6 +3626,7 @@ class AgentManager:
         from octop.infra.agents.middleware.binary_read_guard import BinaryReadGuardMiddleware
         from octop.infra.agents.middleware.browser_profile import BrowserProfileMiddleware
         from octop.infra.agents.middleware.device_target import DeviceTargetMiddleware
+        from octop.infra.agents.middleware.live_configuration import LiveConfigurationMiddleware
         from octop.infra.agents.middleware.octop_ui_offload import OctopUiOffloadMiddleware
         from octop.infra.agents.middleware.reasoning import ReasoningRequestMiddleware
         from octop.infra.agents.middleware.task_results import TaskResultAvailabilityMiddleware
@@ -3639,6 +3654,7 @@ class AgentManager:
                 usage_repo=self._repos.usage_repo,
             ),
             ReasoningRequestMiddleware(),
+            LiveConfigurationMiddleware(self, row.agent_id),
             TaskResultAvailabilityMiddleware(self, row.agent_id),
             WorkModeMiddleware(WorkModeService(self._repos), row.agent_id),
             DeviceTargetMiddleware(

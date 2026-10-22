@@ -1644,6 +1644,11 @@
     "path_outside_root": "The file path is outside this expert's storage root, so it cannot be read or written. Use a path under the storage root, or widen the storage root in expert settings (on Windows, set an explicit drive path such as D:/octop-data)."
   },
   "chat": {
+    "capabilitySaved": "Saved",
+    "capabilityAfterTurn": "Saved; applies after this turn",
+    "capabilityNextRequest": "Applies on the next model request",
+    "capabilityFailed": "Operation failed",
+    "capabilityTestPassed": "Probe passed",
     "resizeComposer": "Resize message input height",
     "contextInspect": {
       "sourceTypes": {
@@ -1949,6 +1954,10 @@
       "label": "Queued messages",
       "action": "Queue",
       "withdraw": "Withdraw and edit",
+      "dismiss": "Dismiss this status",
+      "dismissHint": "Hide this status only. Keep its history; do not stop work or resend the message.",
+      "unconfirmedHint": "The prior insertion outcome is unconfirmed and will not be retried automatically. This record does not mean work is still waiting.",
+      "dismissFailed": "Could not dismiss this status. Please retry shortly.",
       "remove": "Remove from queue",
       "reclaim": "Edit queued message",
       "reclaimOverwriteTitle": "Replace current draft?",
@@ -1963,6 +1972,7 @@
         "dispatching": "Submitting",
         "requested": "Requested",
         "accepted": "Waiting for a safe point",
+        "interrupting": "Interrupting tools and inserting",
         "unknown": "Outcome unconfirmed",
         "failed": "Failed",
         "rejected": "Not accepted"
@@ -1970,7 +1980,11 @@
       "withdrawFailed": "The message is already dispatching or cannot be withdrawn. Refresh its status and retry."
     },
     "steer": {
-      "action": "Interrupt and insert (waits for running tools)",
+      "action": "Insert after tools finish",
+      "immediateAction": "Interrupt and insert now",
+      "immediateHint": "Stop waiting for current tools and handle this message now. External or background operations may continue running.",
+      "interrupting": "Immediate insertion received; interrupting current tool calls.",
+      "toolInterrupted": "Tool call interrupted by the user. The agent will handle the inserted message. External or background operations may still be running; their stop status is unconfirmed.",
       "promoteFailed": "Could not insert. Check the latest message status; messages still queued are retained.",
       "attachmentsQueue": "Direct insertion does not support attachments yet. Queue this message instead.",
       "waiting": "Insertion received; waiting for a safe point in the current run.",
@@ -1989,7 +2003,8 @@
         "llm_running": "Generating; insert will stop this generation",
         "llm_after": "Model finished; handling instructions",
         "tool_before": "Preparing tools",
-        "tool_running": "Tools running; insert waits for completion",
+        "tool_running": "Tools running; insert after completion or interrupt and insert now",
+        "tool_interrupting": "Interrupting tools; handling inserted message next",
         "tool_after": "Tools finished; handling instructions"
       }
     },
@@ -2069,6 +2084,10 @@
     "subagentPickerManage": "Manage subagents",
     "modelPickerManage": "Manage models",
     "sessionWorking": "Working",
+    "sessionWorkingShort": "Working",
+    "sessionSchedules": "{{count}} scheduled task(s)",
+    "sessionScheduleLastRun": "Last fired",
+    "sessionScheduleOpenWorkbench": "{{count}} tasks · Click to open task workbench",
     "composerContextLabel": "Message context",
     "contextWindow": {
       "tooltip": "Context {{used}} / {{max}} · {{percent}}% (last model request)",
@@ -2432,7 +2451,12 @@
         "compare": "Compare evidence",
         "synthesize": "Synthesize"
       }
-    }
+    },
+    "pinExpert": "Pin expert",
+    "unpinExpert": "Unpin expert",
+    "pinnedExperts": "Pinned",
+    "pinnedSessions": "Pinned chats",
+    "recentSessions": "Recent chats"
   },
   "tools": {
     "get_conversation_brief": "Read conversation overview",
@@ -2496,6 +2520,26 @@
     "octop_expert_get": "Read expert configuration",
     "octop_expert_create": "Create expert",
     "octop_expert_update": "Configure expert",
+    "octop_connector_catalog": "Discover connector configuration",
+    "octop_connector_list": "List connections",
+    "octop_connector_get": "Inspect connection settings",
+    "octop_connector_create": "Create connection",
+    "octop_connector_update": "Update connection",
+    "octop_connector_test": "Test connection",
+    "octop_connector_attach": "Attach connection",
+    "octop_skill_list": "List skills",
+    "octop_skill_search": "Search skills",
+    "octop_skill_install": "Install skill",
+    "octop_skill_save": "Save skill",
+    "octop_skill_set_enabled": "Toggle skill",
+    "octop_plugin_catalog": "Discover plugins",
+    "octop_plugin_install": "Install plugin",
+    "octop_plugin_set_enabled": "Toggle expert plugin",
+    "octop_tool_list": "List tools",
+    "octop_tool_set_enabled": "Toggle tool",
+    "octop_mcp_list": "List MCP servers",
+    "octop_mcp_upsert": "Configure MCP server",
+    "octop_mcp_test": "Test MCP server",
     "octop_subagent_catalog": "Find subagent templates",
     "octop_subagent_list": "List subagents",
     "octop_subagent_get": "Read subagent",
@@ -6558,6 +6602,9 @@
     }
   },
   "connectors": {
+    "agentConfigurationHint": "Ask your Agent to configure connectors or MCP in chat; saved changes refresh this list. OAuth consent still takes place on the provider’s page.",
+    "imapPort": "IMAP TLS port",
+    "smtpPort": "SMTP TLS port (465 / 587)",
     "tabMine": "My connections",
     "loadFailed": "Failed to load connectors",
     "tabCatalog": "Catalog",

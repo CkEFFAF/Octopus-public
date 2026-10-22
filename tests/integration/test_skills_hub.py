@@ -247,7 +247,7 @@ async def test_hub_install_falls_back_to_cli_on_http_failure(
         return "/fake/skillhub"
 
     async def fake_upgrade(_skillhub_bin: str) -> bool:
-        return False
+        raise AssertionError("Marketplace fallback must not upgrade the host CLI")
 
     async def fake_run(
         _skillhub_bin: str,
@@ -257,10 +257,11 @@ async def test_hub_install_falls_back_to_cli_on_http_failure(
     ) -> tuple[int, str, str]:
         assert timeout == 120
         assert args[-1] == "fallback-skill"
-        install_dir = Path(args[1]) / "cli-output"
+        assert "--skip-self-upgrade" in args
+        install_dir = Path(args[args.index("--dir") + 1]) / "cli-output"
         install_dir.mkdir(parents=True)
         (install_dir / "SKILL.md").write_text(
-            "---\nname: fallback-skill\n---\n\n# Body\n",
+            "---\nname: fallback-skill\ndescription: Synthetic fallback skill\n---\n\n# Body\n",
             encoding="utf-8",
         )
         return 0, "", ""

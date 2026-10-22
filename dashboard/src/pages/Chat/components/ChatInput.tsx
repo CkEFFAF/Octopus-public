@@ -93,7 +93,11 @@ interface ChatInputProps {
     item: EnqueueChatItemInput,
   ) => "ok" | "empty" | "full" | Promise<"ok" | "empty" | "full">;
   /** Promote an already queued message into the active turn. */
-  onSteerQueued?: (id: string) => boolean | Promise<boolean>;
+  onSteerQueued?: (
+    id: string,
+    cancelTools?: boolean,
+  ) => boolean | Promise<boolean>;
+  onDismissQueued?: (id: string) => boolean | Promise<boolean>;
   queuedItems?: QueuedChatItem[];
   onReclaimQueued?: (
     id: string,
@@ -165,6 +169,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       onSend,
       onQueue,
       onSteerQueued,
+      onDismissQueued,
       runtimePhase,
       queuedItems = [],
       onReclaimQueued,
@@ -878,6 +883,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             items={queuedItems}
             onReclaim={handleReclaimQueued}
             onSteer={isTeam ? undefined : onSteerQueued}
+            onDismiss={onDismissQueued}
             canSteer={isStreaming && !composerDisabled}
             disabled={
               composerDisabled || uploading || recording || transcribing

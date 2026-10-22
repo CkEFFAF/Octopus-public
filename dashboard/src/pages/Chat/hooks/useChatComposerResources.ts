@@ -9,7 +9,10 @@ import {
   type KnowledgeCapability,
 } from "../../../api/modules/knowledgeBases";
 import type { ResolvedModel } from "../../../api/types";
-import { CONNECTORS_CHANGED_EVENT } from "../../Agent/Connectors/customMcpUtils";
+import {
+  CONNECTORS_CHANGED_EVENT,
+  notifyConnectorsChanged,
+} from "../../Agent/Connectors/customMcpUtils";
 import { useCurrentUser } from "../../../hooks/useCurrentUser";
 import { useAgent } from "../../../context/AgentContext";
 import { activeModelToRef } from "./useChatContextWindow";
@@ -132,6 +135,52 @@ export function useChatComposerResources(
   useEffect(() => {
     if (isNewSession) composerTouchedRef.current = false;
   }, [isNewSession]);
+
+  useEffect(() => {
+    return chatStore.onToolEvent((event) => {
+      if (
+        event.kind !== "toolDone" ||
+        event.sessionId !== activeThreadId ||
+        ![
+          "octop_expert_update",
+          "octop_connector_create",
+          "octop_connector_update",
+          "octop_connector_attach",
+          "octop_mcp_upsert",
+        ].includes(event.toolName ?? "") ||
+        !event.result
+      )
+        return;
+      let result: Record<string, unknown>;
+      try {
+        result = JSON.parse(event.result) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+      if (
+        !result ||
+        result.saved !== true ||
+        result.agent_id !== resolvedAgentId
+      )
+        return;
+      if (
+        event.toolName?.startsWith("octop_connector_") ||
+        event.toolName === "octop_mcp_upsert"
+      )
+        notifyConnectorsChanged();
+      const update = result.current_conversation_update;
+      if (!update || typeof update !== "object") return;
+      const names = (update as Record<string, unknown>).mcp_servers;
+      if (
+        !Array.isArray(names) ||
+        !names.every((name) => typeof name === "string")
+      )
+        return;
+      composerTouchedRef.current = true;
+      setSelectedConnectors(names);
+      if (resolvedAgentId) saveConnectors(resolvedAgentId, names);
+    });
+  }, [activeThreadId, resolvedAgentId]);
 
   // Auto = omit turn model; backend applies the expert default.
   useEffect(() => {

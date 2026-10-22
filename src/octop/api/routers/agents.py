@@ -203,6 +203,8 @@ def _row_dict(
             payload["member_ids"] = []
     if bootstrap_pending is not None:
         payload["bootstrap_pending"] = bootstrap_pending
+    if server is not None and server.app_runtime is not None:
+        payload["is_working"] = server.app_runtime.agent_registry.is_agent_active(row.agent_id)
     return payload
 
 

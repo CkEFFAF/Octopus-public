@@ -1,0 +1,334 @@
+.pinnedExperts {
+  padding: 4px 2px 12px;
+  border-bottom: 1px solid var(--fn-border-secondary);
+  margin-bottom: 6px;
+}
+
+.expertSectionTitle,
+.sessionGroupTitle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 8px 8px;
+  color: var(--fn-text-tertiary);
+  font-size: 11px;
+}
+
+.sessionGroupTitle {
+  padding: 8px 12px 4px;
+}
+
+.pinnedExpertGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.pinnedExpertCard {
+  position: relative;
+  min-width: 0;
+  border-radius: 12px;
+  background: transparent;
+
+  &:hover {
+    background: var(--fn-bg-hover);
+  }
+}
+
+.pinnedExpertActive {
+  background: var(--fn-sidebar-item-active);
+}
+
+.pinnedExpertSelect {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 14px 6px 10px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--fn-text-primary);
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--fn-color-brand);
+    outline-offset: -2px;
+  }
+}
+
+.pinnedExpertName {
+  width: 100%;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.pinnedExpertUnread {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  border-radius: 10px;
+  padding: 1px 5px;
+  color: #fff;
+  background: var(--fn-color-brand);
+  font-size: 10px;
+}
+
+.expertPinButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fn-text-tertiary);
+  cursor: pointer;
+
+  &:hover,
+  &[aria-pressed="true"] {
+    color: var(--fn-color-brand);
+    background: var(--fn-bg-hover);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--fn-color-brand);
+  }
+}
+
+.pinnedExpertCard > .expertPinButton {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
+.expertStatusLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  color: var(--fn-text-secondary);
+  background: var(--fn-bg-secondary);
+  border-radius: 5px;
+  padding: 1px 5px;
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+
+  &[data-phase="running"],
+  &[data-phase="thinking"],
+  &[data-phase="coding"],
+  &[data-phase="searching"],
+  &[data-phase="reading"],
+  &[data-phase="writing"],
+  &[data-phase="planning"],
+  &[data-phase="verifying"],
+  &[data-phase="speaking"],
+  &[data-phase="analyzing"],
+  &[data-phase="collaborating"],
+  &[data-phase="handoff"],
+  &[data-phase="uploading"],
+  &[data-phase="downloading"],
+  &[data-phase="drawing"] {
+    color: var(--fn-color-brand);
+    background: color-mix(in srgb, var(--fn-color-brand) 9%, transparent);
+  }
+
+  &[data-phase="waiting_user"],
+  &[data-phase="waiting_permission"],
+  &[data-phase="paused"] {
+    color: #a16207;
+  }
+  &[data-phase="error"],
+  &[data-phase="offline"] {
+    color: var(--fn-color-danger);
+  }
+}
+
+.expertStatusDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.expertStatusText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.expertRowStatus {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.agentCardProfile,
+.agentRow {
+  gap: 10px;
+}
+.agentCardNameRow,
+.agentRowNameRow {
+  margin-bottom: 3px;
+}
+.minimalAgentHeader {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.minimalAgentUnread {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.minimalAgentInfo > .expertStatusLabel {
+  max-width: 100%;
+}
+
+.expertAgentAvatar[data-working="true"] {
+  outline: 2px solid var(--fn-color-brand);
+  outline-offset: 2px;
+  animation: expertWorkingGlow 1.8s ease-in-out infinite;
+}
+
+@keyframes expertWorkingGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 4px
+      color-mix(in srgb, var(--fn-color-brand) 8%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px
+      color-mix(in srgb, var(--fn-color-brand) 20%, transparent);
+  }
+}
+
+.sessionRow.sessionRowWorking {
+  background: color-mix(
+    in srgb,
+    var(--fn-color-brand) 7%,
+    var(--fn-bg-elevated)
+  );
+  box-shadow: inset 3px 0 0 var(--fn-color-brand);
+}
+
+.sessionActivity {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.backgroundSessionShortcut {
+  width: calc(100% - 28px);
+  margin-left: 28px;
+  border: 0;
+  color: var(--fn-text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sessionWorkingBadge,
+.sessionScheduleBadge {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 3px;
+  color: var(--fn-color-brand);
+  font-size: 10px;
+  line-height: 18px;
+}
+
+.sessionScheduleTooltip {
+  max-width: min(300px, calc(100vw - 24px));
+}
+
+.sessionSchedulePreview {
+  width: 264px;
+  max-width: calc(100vw - 50px);
+  font-size: 12px;
+  line-height: 1.5;
+
+  ul {
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+  li + li {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--fn-border-secondary);
+  }
+  strong {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    font-weight: 500;
+  }
+  li > span,
+  small {
+    display: block;
+    color: var(--fn-text-secondary);
+    margin-top: 3px;
+  }
+  small {
+    font-size: 10px;
+    color: var(--fn-text-tertiary);
+  }
+  footer {
+    margin-top: 10px;
+    color: var(--fn-color-brand);
+    font-size: 11px;
+  }
+}
+
+.sessionWorkingBadge > svg {
+  animation: sessionWorkingSpin 1.3s linear infinite;
+}
+@keyframes sessionWorkingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sessionScheduleBadge {
+  padding: 1px 3px;
+  border-radius: 4px;
+  color: var(--fn-text-tertiary);
+  background: var(--fn-bg-secondary);
+
+  &[data-scheduled="true"] {
+    color: #a16207;
+    background: color-mix(in srgb, #eab308 12%, transparent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--fn-color-brand);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .expertAgentAvatar[data-working="true"],
+  .sessionWorkingBadge > svg {
+    animation: none;
+  }
+}
