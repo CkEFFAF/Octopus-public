@@ -6,6 +6,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
+from octop.i18n.domains.stream import format_stream_error
 from octop.infra.cron.delivery import CronDeliveryCommand
 from octop.infra.cron.task_type import normalize_cron_task_type
 from octop.infra.db.repos.audit import ACTOR_SYSTEM
@@ -107,7 +108,7 @@ class CronJob:
         except Exception as exc:
             METRICS.inc("cron_errors_total")
             logger.exception("cron job %s failed", self._cron_id)
-            err = str(exc)
+            err = format_stream_error(exc, "en")
             self._cron_repo.set_run_status(self._cron_id, ts=ts, status="error", error=err)
             self._audit_repo.write(
                 actor=ACTOR_SYSTEM,

@@ -103,7 +103,9 @@ install_harness_hitl_compat()
 def _stream_error(exc: Exception, locale: str) -> tuple[str, str | None]:
     if isinstance(exc, OctopError):
         return exc.localized_message(locale), exc.code.value
-    return format_stream_error(exc, locale), None
+    from octop.i18n.domains.stream import classify_model_error
+
+    return format_stream_error(exc, locale), classify_model_error(exc)
 
 
 def _overwrite_last_user_text(request: dict[str, Any], text: str) -> None:
@@ -1686,14 +1688,21 @@ class GlobalProcessor:
         from octop.infra.metrics import METRICS as _M  # noqa: PLC0415
 
         _M.inc("stream_errors_total")
-        logger.exception("agent.stream failed for agent %s", agent_id)
+        from octop.i18n.domains.stream import MODEL_CALL_FAILED, classify_model_error
+
+        code = exc.code.value if isinstance(exc, OctopError) else classify_model_error(exc)
+        code = code or MODEL_CALL_FAILED
+        status = getattr(exc, "status_code", None)
+        status = status if isinstance(status, int) else None
+        diagnostic = f"code={code} exception={type(exc).__name__} http_status={status}"
+        logger.warning("agent.stream failed for agent %s: %s", agent_id, diagnostic)
         user_row = self._user_repo.get(user_id)
         actor = user_row.username if user_row else str(user_id)
         self._audit_repo.write(
             actor=actor,
             action="agent.stream.error",
             target=agent_id,
-            payload=str(exc),
+            payload=diagnostic,
         )
 
     def _touch_thread_after_turn(self, thread_id: str, title_source: str | None) -> None:

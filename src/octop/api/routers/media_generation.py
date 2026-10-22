@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from octop.api.deps import get_server, require_permission
@@ -15,6 +15,7 @@ from octop.infra.agents.settings.media_generation import (
     MediaProviderSettings,
     MediaProviderUpdate,
 )
+from octop.infra.utils.locale import resolve_request_locale
 
 router = APIRouter()
 
@@ -185,6 +186,7 @@ async def put_media_generation_settings(
     response_model=MediaGenerationTestResponse,
 )
 async def test_media_generation_provider(
+    request: Request,
     body: MediaGenerationTestBody,
     _: Any = Depends(require_permission("providers")),
     server: Any = Depends(get_server),
@@ -192,9 +194,11 @@ async def test_media_generation_provider(
     store = server.app_runtime.agent_registry.media_generation
     provider = body.provider.to_domain()
     if body.kind == "credentials":
-        result = await store.test_connection(provider)
+        result = await store.test_connection(provider, locale=resolve_request_locale(request))
     else:
-        result = await store.test_model(provider, kind=body.kind)
+        result = await store.test_model(
+            provider, kind=body.kind, locale=resolve_request_locale(request)
+        )
     return MediaGenerationTestResponse(
         ok=bool(result.get("ok")),
         error=str(result["error"]) if result.get("error") else None,

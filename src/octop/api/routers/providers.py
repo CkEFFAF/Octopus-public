@@ -153,6 +153,20 @@ async def list_provider_presets(
     return load_provider_presets()
 
 
+@router.get("/catalog", summary="Public provider catalog synchronization status")
+async def provider_catalog_status(_: Any = Depends(current_user)) -> dict[str, Any]:
+    from octop.infra.agents.providers.live_catalog import catalog_status
+
+    return catalog_status()
+
+
+@router.post("/catalog/refresh", summary="Refresh public provider model catalogs")
+async def refresh_provider_catalog(_: Any = Depends(current_user)) -> dict[str, Any]:
+    from octop.infra.agents.providers.live_catalog import refresh_catalog
+
+    return await refresh_catalog(force=True)
+
+
 @router.get("/resolved")
 async def list_resolved_models(
     user: Any = Depends(current_user),

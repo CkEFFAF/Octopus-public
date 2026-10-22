@@ -1000,7 +1000,9 @@ async def test_model_retry_exhaustion_fails_background_job(
     # Exhausted retries become a model-visible prompt, not a raised exception.
     response = await retry.awrap_model_call(None, fail)
     text = str(response.result[0].content)
-    assert "provider unavailable" in text
+    assert any(
+        key in text for key in ("stream_errors.model_call_failed", "stream_errors.timeout_network")
+    )
     assert "[model_call_failed]" in text
     assert attempts == cfg.model_retry_max_retries + 1
     attempts = 0
@@ -1033,7 +1035,7 @@ async def test_model_retry_exhaustion_fails_background_job(
     assert msg.status == "failed"
     event = processor.on_reply.call_args.args[0]
     assert event.status == "failed"
-    assert "provider unavailable" in event.error_text
+    assert "[model_call_failed]" in event.error_text
     assert processor.compose_followup.call_args.kwargs["result_text"] is None
     assert processor.compose_followup.call_args.kwargs["error_text"] == event.error_text
 
@@ -1048,7 +1050,7 @@ def test_model_retry_sync_failure_and_recovery(manager: AgentManager) -> None:
     failure = TypeError("model failed")
     handler = MagicMock(side_effect=failure)
     exhausted = retry.wrap_model_call(None, handler)
-    assert "model failed" in str(exhausted.result[0].content)
+    assert "stream_errors.model_call_failed" in str(exhausted.result[0].content)
     assert "[model_call_failed]" in str(exhausted.result[0].content)
     assert handler.call_count == cfg.model_retry_max_retries + 1
     response = ModelResponse(result=[AIMessage(content="recovered")])

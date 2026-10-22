@@ -205,64 +205,72 @@ export default function ConversationMetadataSettings() {
                 message={t("conversationMetadata.modelUnavailableHint")}
               />
             )}
-            <Form.Item
-              name="title_enabled"
-              valuePropName="checked"
-              label={t("conversationMetadata.autoTitle")}
-            >
-              <Switch aria-label={t("conversationMetadata.autoTitle")} />
-            </Form.Item>
-            <Form.Item
-              name="title_model"
-              label={t("conversationMetadata.titleModel")}
-              rules={[{ required: true }]}
-              extra={t("conversationMetadata.titlePolicy")}
-            >
-              <Select
-                options={modelOptions}
-                showSearch
-                optionFilterProp="label"
-                aria-label={t("conversationMetadata.titleModel")}
-              />
-            </Form.Item>
-            <Typography.Paragraph type="secondary">
-              {t("conversationMetadata.effectiveModel", {
-                model:
-                  settings.resolved_title_model ||
-                  t("conversationMetadata.unconfigured"),
-              })}
-            </Typography.Paragraph>
-            <div className={styles.divider} />
-            <Form.Item
-              name="brief_enabled"
-              valuePropName="checked"
-              label={t("conversationMetadata.autoBrief")}
-            >
-              <Switch aria-label={t("conversationMetadata.autoBrief")} />
-            </Form.Item>
-            <Form.Item
-              name="brief_model"
-              label={t("conversationMetadata.briefModel")}
-              rules={[{ required: true }]}
-              extra={t("conversationMetadata.briefPolicy")}
-            >
-              <Select
-                options={[
-                  { value: "same", label: t("conversationMetadata.sameTitle") },
-                  ...modelOptions,
-                ]}
-                showSearch
-                optionFilterProp="label"
-                aria-label={t("conversationMetadata.briefModel")}
-              />
-            </Form.Item>
-            <Typography.Paragraph type="secondary">
-              {t("conversationMetadata.effectiveModel", {
-                model:
-                  settings.resolved_brief_model ||
-                  t("conversationMetadata.unconfigured"),
-              })}
-            </Typography.Paragraph>
+            <div className={styles.modelGrid}>
+              <section className={styles.modelCard}>
+                <Form.Item
+                  name="title_enabled"
+                  valuePropName="checked"
+                  label={t("conversationMetadata.autoTitle")}
+                >
+                  <Switch aria-label={t("conversationMetadata.autoTitle")} />
+                </Form.Item>
+                <Form.Item
+                  name="title_model"
+                  label={t("conversationMetadata.titleModel")}
+                  rules={[{ required: true }]}
+                  extra={t("conversationMetadata.titlePolicy")}
+                >
+                  <Select
+                    options={modelOptions}
+                    showSearch
+                    optionFilterProp="label"
+                    aria-label={t("conversationMetadata.titleModel")}
+                  />
+                </Form.Item>
+                <Typography.Paragraph type="secondary">
+                  {t("conversationMetadata.effectiveModel", {
+                    model:
+                      settings.resolved_title_model ||
+                      t("conversationMetadata.unconfigured"),
+                  })}
+                </Typography.Paragraph>
+              </section>
+              <section className={styles.modelCard}>
+                <Form.Item
+                  name="brief_enabled"
+                  valuePropName="checked"
+                  label={t("conversationMetadata.autoBrief")}
+                >
+                  <Switch aria-label={t("conversationMetadata.autoBrief")} />
+                </Form.Item>
+                <Form.Item
+                  name="brief_model"
+                  label={t("conversationMetadata.briefModel")}
+                  rules={[{ required: true }]}
+                  extra={t("conversationMetadata.briefPolicy")}
+                >
+                  <Select
+                    options={[
+                      {
+                        value: "same",
+                        label: t("conversationMetadata.sameTitle"),
+                      },
+                      ...modelOptions,
+                    ]}
+                    showSearch
+                    optionFilterProp="label"
+                    aria-label={t("conversationMetadata.briefModel")}
+                  />
+                </Form.Item>
+                <Typography.Paragraph type="secondary">
+                  {t("conversationMetadata.effectiveModel", {
+                    model:
+                      settings.resolved_brief_model ||
+                      t("conversationMetadata.unconfigured"),
+                  })}
+                </Typography.Paragraph>
+              </section>
+            </div>
             <Alert
               className={styles.notice}
               type="info"
@@ -335,6 +343,15 @@ export default function ConversationMetadataSettings() {
                   {t("conversationMetadata.batchFailureHint")}
                 </Typography.Text>
               )}
+              {Object.entries(batch.errors ?? {}).map(([code, count]) => (
+                <Typography.Paragraph key={code} type="danger">
+                  {t(
+                    `conversationMetadata.errors.${code}`,
+                    t("conversationMetadata.generationFailed"),
+                  )}{" "}
+                  × {count}
+                </Typography.Paragraph>
+              ))}
             </div>
           )}
         </section>

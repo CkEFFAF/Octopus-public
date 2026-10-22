@@ -271,6 +271,20 @@ def load_provider_presets() -> list[dict[str, Any]]:
             len(out),
         )
         out.insert(insert_at, onnx_preset)
+    from octop.infra.agents.providers.live_catalog import overlay_presets
+
+    out.append(
+        {
+            "id": "our-free-model",
+            "name": "Our Free Model",
+            "protocol": "openai",
+            "base_url": "http://127.0.0.1:18900/v1",
+            "api_key_prefix": "",
+            "models": [],
+            "logo_id": "openai",
+        }
+    )
+    out = overlay_presets(out)
     for preset in out:
         provider_id = str(preset.get("id") or "")
         for model in preset.get("models") or []:

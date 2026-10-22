@@ -194,7 +194,7 @@ def test_model_retry_failure_prompt_is_specific_and_model_visible() -> None:
     )
     assert prompt.startswith(MODEL_RETRY_FAILURE_MARK)
     assert "context" in prompt.lower()
-    assert "128000" in prompt
+    assert "128000" not in prompt
     assert "Do not pretend the task succeeded" in prompt
 
 
@@ -214,5 +214,33 @@ def test_exception_display_message_empty_falls_back_to_type() -> None:
 def test_format_stream_error_empty_exception_still_localized() -> None:
     text = format_stream_error(TimeoutError(), "zh")
     assert text
-    assert "模型调用失败" in text
-    assert "TimeoutError" in text
+    assert "重试" in text
+    assert "TimeoutError" not in text
+
+
+def test_structured_provider_failure_is_shared_and_safe() -> None:
+    from octop.i18n.domains.stream import classify_model_error
+    from octop.infra.conversations.errors import generation_error_code
+
+    class ProviderError(Exception):
+        status_code = 403
+        body = {"error": {"type": "RegionError", "message": "not available in your country"}}
+
+    exc = ProviderError("secret sk-should-never-appear")
+    assert classify_model_error(exc) == "octop:stream_errors.region_restricted"
+    assert generation_error_code(exc) == "METADATA_REGION_RESTRICTED"
+    assert "地区" in format_stream_error(exc, "zh")
+    assert "sk-" not in format_stream_error(exc, "en")
+    assert "sk-" not in model_retry_failure_prompt(exc, "en")
+
+
+def test_gateway_402_is_not_reported_as_insufficient_balance() -> None:
+    message = "Error code: 402 - {'error': {'message': 'Endpoint is unavailable.'}}"
+    assert classify_stream_error_message(message) == "octop:stream_errors.provider_unavailable"
+
+
+def test_unknown_provider_json_is_never_shown() -> None:
+    message = '{"error":{"message":"opaque failure", "token":"secret"}}'
+    assert "secret" not in format_stream_error(message)
+    assert "secret" not in stream_error_message(message)
+    assert "opaque failure" not in model_retry_failure_prompt(RuntimeError(message))

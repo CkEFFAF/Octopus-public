@@ -1,4 +1,8 @@
 import type { TFunction } from "i18next";
+import {
+  classifyChatStreamError,
+  formatChatStreamError,
+} from "./chatStreamError";
 
 export interface ParsedApiError {
   code?: string;
@@ -71,6 +75,13 @@ export function apiErrorMessage(
   t?: TFunction,
 ): string {
   const parsed = parseApiError(error);
+  const raw =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+      ? error
+      : "";
+  if (t && classifyChatStreamError(raw)) return formatChatStreamError(raw, t);
   if (parsed?.code && t) {
     const key = `apiErrors.${parsed.code}`;
     const translated = t(key, parsed.details ?? {});
@@ -119,6 +130,7 @@ export function wsStreamErrorMessage(
     const translated = t(key, { ...(error.details ?? {}), defaultValue: "" });
     if (translated && translated !== key) return translated;
   }
-  if (error.message.trim()) return error.message;
+  if (error.message.trim())
+    return t ? formatChatStreamError(error.message, t) : error.message;
   return fallback;
 }

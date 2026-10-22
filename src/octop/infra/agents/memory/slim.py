@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from octop.i18n import tr
+from octop.i18n.domains.stream import format_stream_error
 from octop.infra.errors import OctopError
 
 if TYPE_CHECKING:
@@ -246,7 +247,7 @@ class MemorySlimCoordinator:
             self._update(
                 {
                     "phase": "failed",
-                    "error": tr("memory_slim.error_detail", locale, detail=str(exc)),
+                    "error": format_stream_error(exc, locale),
                 }
             )
         finally:

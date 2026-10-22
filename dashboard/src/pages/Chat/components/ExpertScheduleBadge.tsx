@@ -1,6 +1,7 @@
-import { CalendarClock } from "lucide-react";
+import { useState } from "react";
+import SidebarTaskDialog from "./SidebarTaskDialog";
+import { CalendarClock, LoaderCircle } from "lucide-react";
 import { Tooltip } from "antd";
-import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useSidebarActivity } from "../hooks/useSidebarActivity";
 import { formatServerDateTime } from "../../../utils/formatMessageTime";
@@ -15,7 +16,8 @@ export default function ExpertScheduleBadge({
 }) {
   const value = useSidebarActivity()[agentId];
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const working = Boolean(value?.working_threads?.length);
   const counts = value?.schedule_counts ?? {
     schedules: value?.schedules.filter((row) => !row.self_reminder).length ?? 0,
     reminders: value?.schedules.filter((row) => row.self_reminder).length ?? 0,
@@ -31,9 +33,38 @@ export default function ExpertScheduleBadge({
     .slice(0, 3);
   return (
     <span className={styles.expertScheduleBadges}>
+      {working && (
+        <span
+          className={styles.sessionWorkingBadge}
+          title={t("chat.sessionWorking")}
+        >
+          <LoaderCircle size={12} aria-hidden />
+          <span>{t("chat.sessionWorkingShort")}</span>
+        </span>
+      )}
+      <SidebarTaskDialog
+        agentId={agentId}
+        open={open}
+        onClose={() => setOpen(false)}
+        initialTab={
+          counts.schedules === 0 && counts.reminders > 0
+            ? "reminders"
+            : "schedules"
+        }
+      />
       <Tooltip
+        trigger={["hover", "focus"]}
+        placement="right"
+        color="var(--fn-bg-elevated)"
+        overlayClassName={styles.sessionScheduleTooltip}
+        overlayInnerStyle={{
+          padding: 12,
+          border: "1px solid var(--fn-border-secondary)",
+          color: "var(--fn-text-primary)",
+          boxShadow: "0 6px 24px rgb(0 0 0 / 12%)",
+        }}
         title={
-          <div className={styles.expertTaskPreview}>
+          <div className={styles.sessionSchedulePreview}>
             <strong>{t("workspace0034.expertTaskPanel")}</strong>
             <p>{t("workspace0034.scheduleSummary", counts)}</p>
             {recent.length > 0 ? (
@@ -68,11 +99,7 @@ export default function ExpertScheduleBadge({
           onKeyDown={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation();
-            const tab =
-              counts.schedules === 0 && counts.reminders > 0
-                ? "reminders"
-                : "schedules";
-            navigate(`/tasks?agent=${encodeURIComponent(agentId)}&tab=${tab}`);
+            setOpen(true);
           }}
         >
           <CalendarClock size={13} />

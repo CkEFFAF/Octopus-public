@@ -15,6 +15,8 @@ export interface Session {
   name: string;
   metadata?: {
     one_liner: string;
+    stage?: string;
+    recent_events?: string[];
     display_state?: string;
     work_state: string;
     freshness: string;

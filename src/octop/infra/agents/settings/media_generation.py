@@ -11,6 +11,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from octop.i18n.domains.stream import format_stream_error
 from octop.infra.connectors.crypto import decrypt_credentials, encrypt_credentials
 from octop.infra.db.repos.secrets import SecretRepo
 from octop.infra.db.repos.settings import SettingsRepo
@@ -237,6 +238,7 @@ async def verify_media_credentials(
     *,
     base_url: str,
     client: httpx.AsyncClient | None = None,
+    locale: str = "en",
 ) -> dict[str, object]:
     """Run a non-generation authenticated probe for one built-in provider."""
 
@@ -253,14 +255,12 @@ async def verify_media_credentials(
             async with httpx.AsyncClient(timeout=10, follow_redirects=True) as http:
                 response = await _request(http)
     except httpx.HTTPError as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": format_stream_error(exc, locale)}
 
-    if response.status_code in {401, 403}:
-        return {"ok": False, "error": "Media provider authentication failed"}
     if response.is_error:
         return {
             "ok": False,
-            "error": f"Media provider probe returned HTTP {response.status_code}",
+            "error": format_stream_error(f"HTTP {response.status_code}: {response.text}", locale),
         }
     with suppress(ValueError):
         payload = response.json()
@@ -273,10 +273,12 @@ async def verify_media_credentials(
             }:
                 return {
                     "ok": False,
-                    "error": str(base_resp.get("status_msg") or base_resp),
+                    "error": format_stream_error(
+                        str(base_resp.get("status_msg") or base_resp), locale
+                    ),
                 }
             if payload.get("code") and payload.get("message"):
-                return {"ok": False, "error": str(payload["message"])}
+                return {"ok": False, "error": format_stream_error(str(payload["message"]), locale)}
     return {"ok": True}
 
 
@@ -285,6 +287,7 @@ async def verify_media_model(
     api_key: str,
     *,
     kind: MediaTestKind,
+    locale: str = "en",
 ) -> dict[str, object]:
     """Submit one provider-neutral model probe through the harness adapter."""
     from octop_harness import MediaProviderConfig  # noqa: PLC0415
@@ -329,7 +332,7 @@ async def verify_media_model(
         if submission.task is not None:
             await provider.cancel(submission.task)
     except (MediaGenerationError, ValueError) as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": format_stream_error(exc, locale)}
     return {"ok": True}
 
 
@@ -538,6 +541,8 @@ class MediaGenerationSettingsStore:
     async def test_connection(
         self,
         item: MediaProviderUpdate,
+        *,
+        locale: str = "en",
     ) -> dict[str, object]:
         normalized = _normalized_update(item)
         _validate_provider(normalized)
@@ -548,6 +553,7 @@ class MediaGenerationSettingsStore:
             normalized.provider,
             key,
             base_url=normalized.base_url,
+            locale=locale,
         )
 
     async def test_model(
@@ -555,6 +561,7 @@ class MediaGenerationSettingsStore:
         item: MediaProviderUpdate,
         *,
         kind: MediaTestKind,
+        locale: str = "en",
     ) -> dict[str, object]:
         normalized = _normalized_update(item)
         _validate_provider(normalized)
@@ -563,7 +570,7 @@ class MediaGenerationSettingsStore:
         key = normalized.api_key or self.api_key(normalized.id)
         if not key:
             raise _bad_args(f"API key is required for provider {normalized.id!r}")
-        return await verify_media_model(normalized, key, kind=kind)
+        return await verify_media_model(normalized, key, kind=kind, locale=locale)
 
     def harness_config(self) -> MediaGenerationConfig | None:
         """Build the runtime-only harness config, including decrypted keys."""

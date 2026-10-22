@@ -1,14 +1,15 @@
+import { useState } from "react";
+import SidebarTaskDialog from "./SidebarTaskDialog";
 import { Clock3, LoaderCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Tooltip } from "antd";
-import { useNavigate } from "react-router-dom";
 import { useSessionActivity } from "../hooks/useSidebarActivity";
 import { formatServerDateTime } from "../../../utils/formatMessageTime";
 import styles from "../index.module.less";
 
 export default function SessionActivity({ threadId }: { threadId: string }) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
   const { working, schedules, agentId } = useSessionActivity(threadId);
   const scheduled = schedules.some(
     (row) =>
@@ -30,16 +31,19 @@ export default function SessionActivity({ threadId }: { threadId: string }) {
     })
     .slice(0, 2);
   const openTasks = () => {
-    if (!agentId) return;
-    const tab = recent[0]?.self_reminder ? "reminders" : "schedules";
-    navigate(
-      `/chat/${encodeURIComponent(agentId)}/${encodeURIComponent(
-        threadId,
-      )}?task_view=${tab}`,
-    );
+    if (agentId) setOpen(true);
   };
   return (
     <span className={styles.sessionActivity}>
+      {agentId && (
+        <SidebarTaskDialog
+          agentId={agentId}
+          threadId={threadId}
+          open={open}
+          onClose={() => setOpen(false)}
+          initialTab={recent[0]?.self_reminder ? "reminders" : "schedules"}
+        />
+      )}
       {working && (
         <span
           className={styles.sessionWorkingBadge}

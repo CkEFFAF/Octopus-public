@@ -200,3 +200,34 @@ async def test_verify_media_credentials_uses_provider_probe(
         "url": expected_url,
         "auth": "Bearer provider-test-key",
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,body,expected",
+    [
+        (
+            403,
+            {
+                "error": {
+                    "type": "RegionError",
+                    "message": "not available in your country; api_key=secret",
+                }
+            },
+            "地区",
+        ),
+        (410, {"error": "ModelDeprecated secret"}, "下架"),
+        (503, {"error": "secret"}, "服务"),
+    ],
+)
+async def test_media_probe_localizes_safe_provider_errors(status, body, expected):
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(status, json=body))
+    ) as client:
+        result = await verify_media_credentials(
+            "volcengine", "fictional", base_url="https://example.test", client=client, locale="zh"
+        )
+    assert result["ok"] is False
+    assert expected in result["error"]
+    assert "secret" not in result["error"]
+    assert "{" not in result["error"]

@@ -1,6 +1,7 @@
 /** Translate agent ``last_error`` values stored with an ``octop:`` prefix. */
 
 import type { TFunction } from "i18next";
+import { formatChatStreamError } from "./chatStreamError";
 
 const MODEL_CONFIG_KEYS = new Set([
   "octop:agent_errors.no_models_configured",
@@ -54,7 +55,7 @@ export function formatAgentError(
   if (isRawNoModelsError(error)) {
     return t("agent_errors.no_models_configured");
   }
-  return error;
+  return formatChatStreamError(error, t);
 }
 
 /** Expert harness runtime is loaded (`running`); not storage-backend config.

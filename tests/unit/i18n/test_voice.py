@@ -17,15 +17,15 @@ def test_tencent_secret_id_is_localized() -> None:
 
 def test_unknown_provider_text_is_kept() -> None:
     exc = RuntimeError("SomeVendor.NewCode: unexplained boom")
-    assert format_voice_probe_error(exc, "zh") == "SomeVendor.NewCode: unexplained boom"
+    assert "SomeVendor.NewCode: unexplained boom" in format_voice_probe_error(exc, "zh")
 
 
 def test_http_and_network_errors_are_localized() -> None:
     request = httpx.Request("POST", "https://asr.tencentcloudapi.com/")
     response = httpx.Response(500, request=request)
     status = httpx.HTTPStatusError("server error", request=request, response=response)
-    assert format_voice_probe_error(status, "zh") == "服务商返回 HTTP 500"
-    assert format_voice_probe_error(httpx.ConnectError("boom"), "zh") == "网络错误：ConnectError"
+    assert "稍后" in format_voice_probe_error(status, "zh")
+    assert "网络" in format_voice_probe_error(httpx.ConnectError("boom"), "zh")
 
 
 def test_tencent_api_language_header() -> None:

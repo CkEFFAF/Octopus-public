@@ -9,6 +9,10 @@ vi.mock("../hooks/useSidebarActivity", () => ({
   }),
 }));
 
+vi.mock("../../../components/ScheduleBrowser", () => ({
+  default: () => <div>schedule-browser</div>,
+}));
+
 function Location() {
   const value = useLocation();
   return <output>{value.pathname + value.search}</output>;
@@ -28,9 +32,10 @@ describe("expert schedule shortcuts", () => {
       screen.getByRole("button", { name: "workspace0034.expertTaskPanel" }),
     );
     expect(select).not.toHaveBeenCalled();
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "/tasks?agent=expert&tab=schedules",
-    );
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("schedule-browser"));
+    expect(select).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent("/");
   });
   it("keeps the task button available for an expert without schedules", () => {
     render(

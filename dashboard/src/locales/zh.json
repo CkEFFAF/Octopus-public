@@ -1639,7 +1639,11 @@
     "recursion_limit": "智能体已达到最大迭代次数（递归上限），任务尚未完成。请前往「运行配置」调高「最大迭代次数」后重试。",
     "timeout_network": "连接模型服务超时或网络异常。请检查网络后重试；若使用代理或自建服务，请确认其可达。",
     "provider_unavailable": "模型服务暂时不可用。请稍后重试，或切换其他模型。",
-    "model_call_failed": "模型调用多次重试后仍失败。请稍后重试；若持续失败，请检查模型配置或更换模型。",
+    "model_unavailable": "模型或接口不存在。请刷新模型目录，检查接口地址及所选模型是否受支持。",
+    "region_restricted": "服务商不支持当前服务器所在地区。请在模型设置中更换可用模型或服务商。",
+    "model_retired": "该模型已下架或停止服务。请刷新模型目录，并重新选择可用模型。",
+    "access_denied": "服务商拒绝访问该模型。请检查账号权限、API 密钥和模型访问范围，或更换模型。",
+    "model_call_failed": "模型调用失败，任务未完成。请稍后重试；若持续失败，请检查模型配置或更换模型。",
     "model_call_failed_detail": "模型调用失败：{{detail}}",
     "path_outside_root": "文件路径超出当前专家的存储根目录，无法读写。请改用存储根目录内的路径，或在专家设置中扩大存储根目录（Windows 上请显式指定盘符路径，例如 D:/octop-data）。"
   },
@@ -3875,6 +3879,12 @@
     "stepActive": "生效"
   },
   "models": {
+    "catalogTitle": "模型目录同步",
+    "catalogDescription": "每天从 Models.dev 与 OpenCode Go 官方目录更新；同步失败时保留最近成功版本。",
+    "catalogNever": "尚未同步",
+    "catalogStale": "目录已过期或同步失败，正在使用最近成功版本",
+    "catalogFailed": "同步失败，请检查网络后重试。",
+    "catalogRefresh": "立即同步上游目录",
     "llmConfiguration": "大语言模型配置",
     "providersTitle": "模型提供商",
     "providersDescription": "为每个模型提供商配置 API 密钥和接入端点。",
@@ -7934,7 +7944,16 @@
       "METADATA_MODEL_UNAVAILABLE": "整理模型不可用，请在设置中选择可用模型。",
       "METADATA_INPUT_BUDGET": "内容超过本次安全处理上限，请选择更短的区间或更大上下文模型。",
       "METADATA_INVALID_OUTPUT": "模型返回的整理结果格式无效，原有内容已保留。",
-      "METADATA_GENERATION_FAILED": "整理服务暂时失败，原有内容已保留。"
+      "METADATA_GENERATION_FAILED": "整理服务暂时失败，原有内容已保留。",
+      "METADATA_INSUFFICIENT_BALANCE": "服务商余额或额度不足，请检查额度或更换模型。",
+      "METADATA_REGION_RESTRICTED": "Provider 不允许服务器所在地区使用此模型，请选择其他可用模型。",
+      "METADATA_MODEL_RETIRED": "此模型已被 Provider 下线，请更新模型目录并重新选择。",
+      "METADATA_AUTH_FAILED": "Provider 凭据无效或已过期，请检查 API Key。",
+      "METADATA_ACCESS_DENIED": "Provider 拒绝访问该模型，请检查账号权限或订阅。",
+      "METADATA_PROVIDER_UNAVAILABLE": "Provider 上游端点不可用或未提供配额，请测试其他模型。",
+      "METADATA_RATE_LIMITED": "Provider 请求限流或配额不足，请稍后重试或检查额度。",
+      "METADATA_TIMEOUT": "模型请求超时，请稍后重试。",
+      "METADATA_CONNECTION_FAILED": "无法连接 Provider，请检查服务器网络与接口地址。"
     }
   }
 }

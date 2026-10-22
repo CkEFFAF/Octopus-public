@@ -1,5 +1,6 @@
 .content {
-  max-width: 720px;
+  width: 100%;
+  max-width: 1200px;
 }
 .notice {
   margin-bottom: 20px;
@@ -21,4 +22,30 @@
 }
 .batchProgress {
   margin-top: 16px;
+}
+
+.modelGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 20px;
+}
+.modelCard {
+  border: 1px solid var(--ant-color-border-secondary, #e8e8e8);
+  padding: 20px;
+  border-radius: 12px;
+  min-width: 0;
+  :global(.ant-form-item),
+  :global(.octop-form-item) {
+    margin-bottom: 16px;
+  }
+  :global(.ant-typography),
+  :global(.octop-typography) {
+    margin-bottom: 0;
+    overflow-wrap: anywhere;
+  }
+}
+@media (max-width: 760px) {
+  .modelGrid {
+    grid-template-columns: 1fr;
+  }
 }
