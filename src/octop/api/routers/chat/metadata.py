@@ -16,6 +16,8 @@ from octop.infra.conversations.models import (
     DigestRequest,
     DigestResult,
     EventPage,
+    HistoryBatchRequest,
+    HistoryBatchView,
     JobView,
     MetadataJobRequest,
     SettingsPut,
@@ -174,6 +176,37 @@ async def get_metadata_job(
 
 class BatchRequest(MetadataJobRequest):
     thread_ids: list[str] = Field(min_length=1, max_length=50)
+
+
+@router.get(
+    "/settings/conversation-metadata/batch",
+    summary="Latest account history organization progress",
+    response_model=HistoryBatchView | None,
+)
+async def history_batch_status(
+    user: Any = Depends(current_user), server: Any = Depends(get_server)
+) -> HistoryBatchView | None:
+    return await asyncio.to_thread(conversation_service(server).history_batch, user.id)
+
+
+@router.post(
+    "/settings/conversation-metadata/batch",
+    summary="Organize all account history or an optional selection",
+    description="Omit agent_id and thread_ids for all accessible account conversations, without a recent-history cap. Reuses an active batch and preserves manual titles.",
+    response_model=HistoryBatchView,
+    status_code=202,
+)
+async def start_history_batch(
+    body: HistoryBatchRequest,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> HistoryBatchView:
+    service = conversation_service(server)
+    if body.agent_id and body.thread_ids:
+        for thread in body.thread_ids:
+            await asyncio.to_thread(service.scope, user.id, body.agent_id, thread)
+            await ensure_legacy_history(server, user, body.agent_id, thread)
+    return await asyncio.to_thread(service.start_history_batch, user.id, body)
 
 
 @router.post(

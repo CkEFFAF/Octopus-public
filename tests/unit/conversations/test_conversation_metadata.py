@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from octop.infra.conversations.models import BriefPatch, MetadataSettings
+from octop.infra.conversations.models import BriefPatch, HistoryBatchRequest, MetadataSettings
 from octop.infra.conversations.service import ConversationService
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.pool import SqlitePool
@@ -620,3 +620,84 @@ async def test_explicit_digest_retry_recovers_failed_range_without_new_sources(
     await service.process(repos.conversation_metadata_repo.claim())
     assert service.job(1, "agent", "thread", request.job_id).status == "ready"
     assert not service.brief(1, "agent", "thread").provenance["last_error"]
+
+
+def test_all_history_batch_crosses_fifty_and_preserves_owner_scope_and_idempotency(environment):
+    service, repos = environment
+    repos.agent_repo.create(agent_id="second", user_id=1, name="Second")
+    repos.agent_repo.create(agent_id="shared", user_id=2, name="Shared")
+    repos.agent_repo.set_shared("shared", True)
+    repos.agent_repo.create(agent_id="private", user_id=2, name="Private")
+    for i in range(65):
+        repos.thread_repo.insert(
+            thread_id=f"old-{i}",
+            agent_id="agent" if i < 55 else "second",
+            user_id=1,
+            channel_type="dashboard",
+            session_key=f"old-{i}",
+        )
+    for thread, agent, owner in [
+        ("own-shared", "shared", 1),
+        ("other-shared", "shared", 2),
+        ("no-access", "private", 1),
+    ]:
+        repos.thread_repo.insert(
+            thread_id=thread,
+            agent_id=agent,
+            user_id=owner,
+            channel_type="dashboard",
+            session_key=thread,
+        )
+    repos.thread_repo.update_title("thread", "人工命名")
+    with repos.db.transaction() as conn:
+        conn.execute("UPDATE thread_metadata SET auto_enrolled=0")
+    service.patch(1, "agent", "thread", BriefPatch(expected_revision=0, objective="人工目标"))
+    first = service.start_history_batch(1, HistoryBatchRequest(command_id="all-history"))
+    assert first.total == first.queued == 67
+    assert (
+        service.start_history_batch(1, HistoryBatchRequest(command_id="duplicate-click")) == first
+    )
+    assert service.start_history_batch(1, HistoryBatchRequest(command_id="all-history")) == first
+    assert service.history_batch(2) is None
+    assert repos.conversation_metadata_repo.get("thread")["manual"]["objective"] == "人工目标"
+    assert repos.thread_repo.get("thread").title == "人工命名"
+    assert repos.conversation_metadata_repo.get("own-shared")["auto_enrolled"] == 1
+    assert repos.conversation_metadata_repo.get("other-shared")["auto_enrolled"] == 0
+    assert repos.conversation_metadata_repo.get("no-access")["auto_enrolled"] == 0
+    # Claim/finish uses the existing durable worker; constructing a new service restores progress.
+    job = repos.conversation_metadata_repo.claim()
+    assert job is not None
+    # An automatic job from the manual patch can be first; finish it before claiming the batch.
+    while job["request"].get("batch_id") != "all-history":
+        repos.conversation_metadata_repo.finish(job, "ready")
+        job = repos.conversation_metadata_repo.claim()
+        assert job is not None
+    assert service.history_batch(1).running == 1
+    repos.conversation_metadata_repo.finish(job, "failed", error="METADATA_MODEL_UNAVAILABLE")
+    restored = ConversationService(service.manager).history_batch(1)
+    assert restored.total == 67 and restored.failed == 1 and restored.queued == 66
+
+
+def test_history_batch_selection_rejects_foreign_threads_and_unavailable_models(environment):
+    service, repos = environment
+    with pytest.raises(OctopError):
+        service.start_history_batch(
+            1, HistoryBatchRequest(command_id="missing-agent", thread_ids=["thread"])
+        )
+    with pytest.raises(OctopError):
+        service.start_history_batch(
+            1, HistoryBatchRequest(command_id="foreign", agent_id="agent", thread_ids=["missing"])
+        )
+    assert service.history_batch(1) is None
+    repos.settings_repo.set_active_model(1, "missing", "model")
+    with pytest.raises(OctopError):
+        service.start_history_batch(1, HistoryBatchRequest(command_id="bad-model"))
+    assert service.history_batch(1) is None
+    repos.settings_repo.set_active_model(1, "provider", "model")
+    value = service.start_history_batch(
+        1,
+        HistoryBatchRequest(
+            command_id="selected", agent_id="agent", thread_ids=["thread", "thread"]
+        ),
+    )
+    assert value.total == 1
