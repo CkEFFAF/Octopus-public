@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from itertools import count
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -83,7 +85,15 @@ def advance(
     )
 
 
-def test_debug_stages_require_real_scope_and_post_fix_verification(workflow: Any) -> None:
+def test_debug_stages_require_real_scope_and_post_fix_verification(
+    workflow: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # These assertions require a strict temporal boundary; Windows wall clocks
+    # can otherwise give the old receipt and fix report the same timestamp.
+    clock = count(1_700_000_000, 0.01)
+    controlled_time = SimpleNamespace(time=lambda: next(clock))
+    monkeypatch.setattr("octop.infra.execution.work_mode.time", controlled_time)
+    monkeypatch.setattr("octop.infra.db.repos.run_events.time", controlled_time)
     service, owner, other = workflow
     cfg = config(owner, "debug")
     event = service.begin(owner, "expert", cfg)

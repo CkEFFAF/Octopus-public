@@ -587,6 +587,9 @@
     "preflight_failed_summary": "One or more preflight checks failed"
   },
   "tools": {
+    "get_conversation_brief": "Read conversation overview",
+    "list_conversation_events": "Read conversation events",
+    "read_conversation_source": "Read conversation source",
     "unknown": "Unknown tool",
     "read_file": "Read file",
     "write_file": "Write file",

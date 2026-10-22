@@ -73,6 +73,21 @@ class HistoryStore:
                 row = conn.execute("SELECT version, identity FROM archive_meta").fetchone()
                 if row is None or row["version"] != 1 or row["identity"] != identity:
                     raise ValueError("History archive version or control-plane identity mismatch")
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS conversation_metadata_outbox(thread_id TEXT PRIMARY KEY,revision INTEGER NOT NULL,first_seq INTEGER NOT NULL DEFAULT 1,acknowledged_revision INTEGER NOT NULL DEFAULT 0)"
+                )
+                columns = {
+                    r["name"]
+                    for r in conn.execute("PRAGMA table_info(conversation_metadata_outbox)")
+                }
+                if "first_seq" not in columns:
+                    conn.execute(
+                        "ALTER TABLE conversation_metadata_outbox ADD COLUMN first_seq INTEGER NOT NULL DEFAULT 1"
+                    )
+                if "acknowledged_revision" not in columns:
+                    conn.execute(
+                        "ALTER TABLE conversation_metadata_outbox ADD COLUMN acknowledged_revision INTEGER NOT NULL DEFAULT 0"
+                    )
             marker.write_text(
                 "History archive required; do not remove independently.\n", encoding="utf-8"
             )
@@ -111,6 +126,73 @@ class HistoryStore:
                 (thread_id,),
             ).fetchone()
         return dict(row) if row is not None else None
+
+    def metadata_changes(self) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            return [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT thread_id,revision,first_seq FROM conversation_metadata_outbox WHERE revision>acknowledged_revision LIMIT 100"
+                )
+            ]
+
+    def acknowledge_metadata(self, thread: str, revision: int) -> None:
+        with self.transaction() as conn:
+            conn.execute(
+                "UPDATE conversation_metadata_outbox SET acknowledged_revision=revision WHERE thread_id=? AND revision=?",
+                (thread, revision),
+            )
+
+    def metadata_revision(self, thread: str) -> int:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT revision FROM conversation_metadata_outbox WHERE thread_id=?", (thread,)
+            ).fetchone()
+        return int(row["revision"]) if row else 0
+
+    def metadata_messages(
+        self,
+        thread: str,
+        after: int = 0,
+        limit: int = 80,
+        identities: list[int] | None = None,
+        *,
+        stable: bool = False,
+    ) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT d.*,t.finished_at,t.started_at FROM documents d JOIN turns t ON t.id=d.turn_id "
+                "WHERE d.thread_id=? AND d.kind='message' "
+                + (
+                    f"AND d.seq IN ({','.join('?' for _ in identities)}) "
+                    if identities
+                    else "AND d.seq>? "
+                )
+                + ("AND t.status<>'active' " if stable else "")
+                + "ORDER BY d.seq LIMIT ?",
+                [thread, *(identities if identities else [after]), limit],
+            ).fetchall()
+            result = []
+            for row in rows:
+                wire = self._decode(conn, json.loads(row["data"]))
+                result.append(
+                    {
+                        "seq": row["seq"],
+                        "ref_id": f"archive:{row['seq']}",
+                        "role": wire.get("type", ""),
+                        "message_json": json.dumps(wire, ensure_ascii=False),
+                        "created_at": row["started_at"],
+                    }
+                )
+        return result
+
+    def metadata_head(self, thread: str) -> int:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(d.seq),0) FROM documents d JOIN turns t ON t.id=d.turn_id WHERE d.thread_id=? AND d.kind='message' AND t.status<>'active'",
+                (thread,),
+            ).fetchone()
+        return int(row[0])
 
     def put_document(
         self,

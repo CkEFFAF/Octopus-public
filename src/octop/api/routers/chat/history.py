@@ -113,10 +113,16 @@ async def list_threads(
         ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=effective_uid)
     )
     workspace_dir = _agent_facing_workspace_dir(server, agent_id)
+    metadata = server.services.repos.conversation_metadata_repo.list_briefs(
+        effective_uid, agent_id, [r.thread_id for r in rows]
+    )
     return [
         {
             "thread_id": r.thread_id,
             "title": r.title,
+            "title_source": r.title_source,
+            "title_revision": r.title_revision,
+            "metadata": metadata.get(r.thread_id),
             "channel_type": r.channel_type,
             "session_key": r.session_key,
             "last_active": r.last_active,
@@ -489,6 +495,7 @@ async def fork_thread(
         locale=resolve_request_locale(request),
         thread_message_repo=server.services.thread_message_repo,
         history_archive=getattr(server.app_runtime, "history_archive", None),
+        conversation_metadata_repo=server.services.repos.conversation_metadata_repo,
     )
 
 

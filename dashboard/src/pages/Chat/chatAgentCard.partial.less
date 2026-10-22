@@ -312,6 +312,21 @@
   text-overflow: ellipsis;
 }
 
+.sessionRowCopy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sessionRowSummary {
+  font-size: 11px;
+  color: var(--fn-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .sessionRowActive .sessionRowTitle {
   font-size: 13px;
   font-weight: 400;
@@ -534,6 +549,18 @@
 
 .sessionTime {
   display: none;
+}
+.sessionRowHeading {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  align-items: baseline;
+}
+.sessionRowTime {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--fn-color-text-tertiary);
+  font-size: 10px;
 }
 
 .sessionActions {

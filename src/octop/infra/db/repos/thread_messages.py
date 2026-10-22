@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos._base import DbRow, now_ts
+from octop.infra.db.repos.conversation_metadata import mark_metadata_dirty
 
 
 @dataclass(frozen=True)
@@ -125,6 +126,8 @@ class ThreadMessageRepo:
                     ),
                 )
                 count += 1
+            if count:
+                mark_metadata_dirty(conn, thread_id, "message")
         return count
 
     def projection_status(self, thread_id: str) -> str:
@@ -150,6 +153,8 @@ class ThreadMessageRepo:
                 "status = excluded.status, updated_at = excluded.updated_at, error = excluded.error",
                 (thread_id, status, now_ts(), error),
             )
+            if status == "ready":
+                mark_metadata_dirty(conn, thread_id, "message")
 
     def migration_summary(self, *, agent_id: str, user_id: int) -> ThreadProjectionSummary:
         """Count legacy threads that still need a history projection."""
@@ -277,6 +282,8 @@ class ThreadMessageRepo:
                     ),
                 )
                 inserted += 1
+            if inserted:
+                mark_metadata_dirty(conn, thread_id, "message")
         return inserted
 
     def replace_all(
@@ -296,6 +303,16 @@ class ThreadMessageRepo:
                     (thread_id,),
                 ).fetchone()
             conn.execute("DELETE FROM thread_messages WHERE thread_id = ?", (thread_id,))
+            conn.execute(
+                "DELETE FROM thread_semantic_events WHERE thread_id=? AND (source_key LIKE 'message:%' OR source_key LIKE 'semantic:%')",
+                (thread_id,),
+            )
+            conn.execute("DELETE FROM thread_digests WHERE thread_id=?", (thread_id,))
+            conn.execute(
+                "UPDATE thread_metadata SET snapshot_json='{}',generated_source_revision=-1 WHERE thread_id=?",
+                (thread_id,),
+            )
+            mark_metadata_dirty(conn, thread_id, "message")
         batch_size = 200
         for start in range(0, len(messages), batch_size):
             with self._db.transaction() as conn:

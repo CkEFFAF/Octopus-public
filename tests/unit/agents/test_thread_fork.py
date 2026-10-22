@@ -144,6 +144,7 @@ async def test_fork_dashboard_thread_copies_through_assistant_and_rebinds() -> N
         created_at=8,
     )
     registry.rebind = rebind
+    metadata_repo = MagicMock()
 
     out = await fork_dashboard_thread(
         thread_registry=registry,
@@ -153,9 +154,11 @@ async def test_fork_dashboard_thread_copies_through_assistant_and_rebinds() -> N
         message_id="a1",
         content="ok",
         assistant_turns_from_end=2,
+        conversation_metadata_repo=metadata_repo,
     )
 
     assert out["thread_id"] == "thr_fork"
+    metadata_repo.record_fork.assert_called_once_with(7, "thr_fork", source_id)
     assert out["source_thread_id"] == source_id
     assert out["copied_messages"] == 2
     assert [m.id for m in store["thr_fork"]] == ["h1", "a1"]

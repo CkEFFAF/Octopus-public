@@ -243,6 +243,9 @@ export default function ModelsPage() {
       actions={
         modelCategory === "chat" ? (
           <Space>
+            <Button href="/settings/conversation-metadata">
+              {t("conversationMetadata.settingsTitle")}
+            </Button>
             <Button
               icon={<RefreshCw size={14} />}
               onClick={() => void fetchAll()}

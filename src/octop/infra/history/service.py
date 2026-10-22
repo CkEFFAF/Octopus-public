@@ -136,6 +136,15 @@ class HistoryArchive:
                     "UPDATE turns SET status=?,error=?,finished_at=? WHERE id=?",
                     (status, error, None if status == "paused" else time.time(), turn_id),
                 )
+                conn.execute(
+                    "INSERT INTO conversation_metadata_outbox(thread_id,revision,first_seq) "
+                    "SELECT s.thread_id,1,COALESCE((SELECT MIN(seq) FROM documents d WHERE d.turn_id=t.id AND d.kind='message'),1) "
+                    "FROM turns t JOIN segments s ON s.id=t.segment_id WHERE t.id=? "
+                    "ON CONFLICT(thread_id) DO UPDATE SET revision=conversation_metadata_outbox.revision+1,"
+                    "first_seq=CASE WHEN conversation_metadata_outbox.revision>conversation_metadata_outbox.acknowledged_revision "
+                    "THEN MIN(conversation_metadata_outbox.first_seq,excluded.first_seq) ELSE excluded.first_seq END",
+                    (turn_id,),
+                )
         finally:
             with self._turn_lock:
                 self._owned_turns.discard(turn_id)
@@ -188,6 +197,7 @@ class HistoryArchive:
                 (thread_id,),
             )
             conn.execute("DELETE FROM segments WHERE thread_id=?", (thread_id,))
+            conn.execute("DELETE FROM conversation_metadata_outbox WHERE thread_id=?", (thread_id,))
             for digest in refs:
                 conn.execute(
                     "DELETE FROM bodies WHERE digest=? AND NOT EXISTS (SELECT 1 FROM body_refs WHERE digest=?)",

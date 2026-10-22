@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos._base import DbRow, bool_int, map_rows, now_ts
+from octop.infra.db.repos.conversation_metadata import mark_metadata_dirty
 from octop.infra.utils.thread_artifact import (
     MAX_THREAD_ARTIFACTS,
     ThreadArtifact,
@@ -47,9 +48,13 @@ class ThreadRow:
     conversation_mode: str | None = None
     pending_plan_path: str | None = None
     hitl_policy: str | None = None
+    title_source: str = "legacy_unknown"
+    title_revision: int = 0
+    title_updated_at: float = 0
 
     @classmethod
     def from_row(cls, r: DbRow) -> ThreadRow:
+        columns = set(r.keys())
         try:
             raw_artifacts = r["artifacts"]
         except (KeyError, IndexError):
@@ -84,6 +89,9 @@ class ThreadRow:
             conversation_mode=str(conversation_mode) if conversation_mode else None,
             pending_plan_path=str(pending_plan_path) if pending_plan_path else None,
             hitl_policy=str(hitl_policy) if hitl_policy else None,
+            title_source=str(r["title_source"]) if "title_source" in columns else "legacy_unknown",
+            title_revision=int(r["title_revision"]) if "title_revision" in columns else 0,
+            title_updated_at=float(r["title_updated_at"]) if "title_updated_at" in columns else 0,
         )
 
 
@@ -183,6 +191,14 @@ class ThreadRepo:
                 "INSERT INTO thread_history_projection(thread_id, status, updated_at, error) "
                 "VALUES (?, 'ready', ?, NULL) ON CONFLICT(thread_id) DO NOTHING",
                 (thread_id, ts),
+            )
+            conn.execute(
+                "UPDATE threads SET title_source=?,title_updated_at=? WHERE thread_id=?",
+                ("user" if title else "fallback", ts, thread_id),
+            )
+            conn.execute(
+                "INSERT INTO thread_metadata(thread_id,auto_enrolled) VALUES (?,1) ON CONFLICT(thread_id) DO NOTHING",
+                (thread_id,),
             )
 
     def get(self, thread_id: str) -> ThreadRow | None:
@@ -285,15 +301,15 @@ class ThreadRepo:
     def set_title_if_null(self, thread_id: str, title: str) -> None:
         with self._db.transaction() as conn:
             conn.execute(
-                "UPDATE threads SET title = ? WHERE thread_id = ? AND title IS NULL",
-                (clip_thread_title(title), thread_id),
+                "UPDATE threads SET title = ?,title_source='fallback',title_revision=title_revision+1,title_updated_at=? WHERE thread_id = ? AND title IS NULL",
+                (clip_thread_title(title), now_ts(), thread_id),
             )
 
     def update_title(self, thread_id: str, title: str) -> None:
         with self._db.transaction() as conn:
             conn.execute(
-                "UPDATE threads SET title = ? WHERE thread_id = ?",
-                (clip_thread_title(title), thread_id),
+                "UPDATE threads SET title = ?,title_source='user',title_revision=title_revision+1,title_updated_at=? WHERE thread_id = ?",
+                (clip_thread_title(title), now_ts(), thread_id),
             )
 
     def set_pinned(self, thread_id: str, pinned: bool) -> None:
@@ -377,6 +393,7 @@ class ThreadRepo:
                     thread_id,
                 ),
             )
+            mark_metadata_dirty(conn, thread_id, "artifact")
 
     def delete(self, thread_id: str) -> None:
         with self._db.transaction() as conn:

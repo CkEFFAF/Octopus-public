@@ -40,6 +40,7 @@ export const NAV_PERMISSIONS = {
   acp: "admin",
   "admin-users": PERM.usersPage,
   models: "authenticated",
+  "conversation-metadata": "authenticated",
   "admin-storage": PERM.storage,
   "admin-plugins": PERM.plugins,
   "admin-security": PERM.securityPage,
@@ -129,7 +130,11 @@ export function pathPermissionKeys(pathname: string): PermissionKeys | null {
   if (pathname.startsWith("/admin/users") || pathname === "/admin/sso") {
     return PERM.usersPage;
   }
-  if (pathname.startsWith("/admin/models") || pathname === "/models") {
+  if (
+    pathname.startsWith("/admin/models") ||
+    pathname === "/models" ||
+    pathname === "/settings/conversation-metadata"
+  ) {
     return "authenticated";
   }
   if (pathname.startsWith("/admin/voice")) {

@@ -532,6 +532,10 @@ class OctopServer:
         hitl_session_store = gateway.processor.hitl_coordinator.session_policies
         hitl_session_store.replace_repo(self.services.repos.thread_repo)
         registry.set_hitl_session_store(hitl_session_store)
+        registry._conversation_runtime = {
+            "turn_active": gateway.ws_hub.is_turn_active,
+            "pending": gateway.processor.hitl_coordinator.store.list_pending_for_session,
+        }
 
         care_service = ProactiveCareService(
             gateway=gateway,
@@ -559,6 +563,14 @@ class OctopServer:
             sharing=ThreadSharingService(self.services.repos, config, registry, history_archive),
         )
         await registry.boot()
+        from octop.infra.conversations.service import ConversationService
+
+        conversations = ConversationService(
+            registry, config.default_timezone, gateway.ws_hub.push_to_user
+        )
+        cron_mgr.schedule_system_job(
+            "conversation-metadata", trigger="interval:2", func=conversations.tick
+        )
         cron_mgr.schedule_system_job("task-board-tick", trigger="interval:15", func=task_board.tick)
         cron_mgr.schedule_system_job(
             "execution-reconcile", trigger="interval:15", func=execution_reconciler.tick

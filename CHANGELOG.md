@@ -8,6 +8,8 @@
 
 ### 新增
 
+- 会话整理（0035）：按账号独立选择标题与摘要模型，异步生成短标题并保护人工命名；提供用户与 Agent 共用的目标、进度、来源和时段回顾，支持人工修正及独立验证/验收记录。新增数据库迁移 033，升级前备份数据；回滚需同时恢复旧程序与迁移前数据。
+
 - 0025 S0：设备 `capability_policy_json` 能力策略包；MCP resolve 在 apply_defaults 时并入「专家 ∪ 设备包 ∪ 账号 default_open」，Dashboard `[]` 同时退出账号与设备默认；Device Manager 可编辑并告警缺失 MCP；提供 seed API/脚本（不改写专家名单）。
 - 数据面韧性（0026 S0）：备份 integrity sidecar（sha256）、异地 hook/rsync、失败 webhook 告警、`octop backup verify` / `health-check` / `drill`、本地 auto retention 默认 14、生产 `OCTOP_HOME`/`OctopData` 文档统一。
 - 0028 S0 执行隔离：team host 无 MCP hard invariant 回归（含模拟设备包/default_open/显式名单）；Linux 非根 `root_dir` 的 bwrap 门禁（`OCTOP_REQUIRE_BWRAP` / 生产默认）；开发/生产 `OCTOP_HOME` 标记与启动检查；管理端 egress 允许名单骨架与 ops 文档。

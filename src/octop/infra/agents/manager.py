@@ -392,6 +392,7 @@ class AgentManager:
         self._proactive_scheduler: ProactiveCareScheduler | None = None
         self._team_processor: Any | None = None
         self._hitl_session_store: HitlSessionPolicyStore | None = None
+        self._conversation_runtime: dict[str, Any] = {}
         from octop.infra.agents.teams import TeamJobTracker, TeamService
 
         self._team_jobs = TeamJobTracker()
@@ -3664,6 +3665,10 @@ class AgentManager:
             ),
             OctopUiOffloadMiddleware(),
         ]
+        from octop.infra.conversations.middleware import ConversationBriefMiddleware
+        from octop.infra.conversations.tools import build_conversation_tools
+
+        agent_middleware.insert(4, ConversationBriefMiddleware(self, row.agent_id))
 
         merged_tools: list[Any] = [
             *board_tools,
@@ -3696,6 +3701,7 @@ class AgentManager:
         from octop.infra.documents.tools import build_resource_tools
 
         merged_tools.extend(build_resource_tools(self, row.agent_id))
+        merged_tools.extend(build_conversation_tools(self, row.agent_id))
         if cron_tools:
             merged_tools.extend(cron_tools)
         merged_tools.extend(knowledge_tools)

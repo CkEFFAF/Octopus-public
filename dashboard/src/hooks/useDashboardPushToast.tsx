@@ -145,6 +145,24 @@ export function useDashboardPushToast(): void {
           return;
         }
         const parsed = parseDashboardPushFrame(raw);
+        if (
+          raw &&
+          typeof raw === "object" &&
+          (raw as { type?: string }).type === "thread_metadata.updated"
+        ) {
+          const frame = raw as { thread_id?: unknown; agent_id?: unknown };
+          if (
+            typeof frame.thread_id === "string" &&
+            typeof frame.agent_id === "string"
+          ) {
+            emitSessionEvent({
+              kind: "sessionsChanged",
+              sessionId: frame.thread_id,
+              agentId: frame.agent_id,
+            });
+          }
+          return;
+        }
         if (!parsed) return;
         void refreshRef.current({ silent: true });
         // A proactive run wrote to this thread outside the chat socket. Stale it

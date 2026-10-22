@@ -16,6 +16,7 @@ from octop.infra.db.repos.channels import ChannelRepo
 from octop.infra.db.repos.chat_inputs import ChatInputRepo
 from octop.infra.db.repos.collaboration import CollaborationRepo
 from octop.infra.db.repos.connectors import ConnectorRepo
+from octop.infra.db.repos.conversation_metadata import ConversationMetadataRepo
 from octop.infra.db.repos.cron import CronJobRepo
 from octop.infra.db.repos.cron_attempts import CronAttemptRepo
 from octop.infra.db.repos.devices import DeviceRepo
@@ -24,6 +25,7 @@ from octop.infra.db.repos.knowledge import KnowledgeRepo
 from octop.infra.db.repos.proactive_care_config import ProactiveCareConfigRepo
 from octop.infra.db.repos.providers import ProviderRepo
 from octop.infra.db.repos.published_experts import PublishedExpertRepo
+from octop.infra.db.repos.run_events import RunEventRepo
 from octop.infra.db.repos.secrets import SecretRepo
 from octop.infra.db.repos.sessions import SessionRepo
 from octop.infra.db.repos.settings import SettingsRepo
@@ -80,6 +82,14 @@ class RepoBundle:
     @property
     def chat_input_repo(self) -> ChatInputRepo:
         return ChatInputRepo(self.db)
+
+    @property
+    def conversation_metadata_repo(self) -> ConversationMetadataRepo:
+        return ConversationMetadataRepo(self.db)
+
+    @property
+    def run_event_repo(self) -> RunEventRepo:
+        return RunEventRepo(self.db)
 
     @property
     def cron_attempt_repo(self) -> CronAttemptRepo:

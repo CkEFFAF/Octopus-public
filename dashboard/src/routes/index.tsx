@@ -22,6 +22,9 @@ const RemoteDesktopPage = lazy(() => import("../pages/Control/RemoteDesktop"));
 
 // Lazy-loaded pages — Settings
 const ModelsPage = lazy(() => import("../pages/Settings/Models"));
+const ConversationMetadataPage = lazy(
+  () => import("../pages/Settings/ConversationMetadata"),
+);
 
 // Lazy-loaded pages — Admin
 const OctopAdminUsersPage = lazy(() => import("../pages/Admin/Users"));
@@ -94,6 +97,7 @@ export const pathToKey: Record<string, string> = {
   "/memory": "personalization",
   // Admin
   "/admin/models": "models",
+  "/settings/conversation-metadata": "conversation-metadata",
   // Admin
   "/admin/users": "admin-users",
   "/admin/backend": "admin-storage",
@@ -227,6 +231,10 @@ export const routeConfigs: RouteConfig[] = [
   // Settings
   { path: "/settings/thread-shares", element: <ThreadSharesPage /> },
   { path: "/admin/models", element: <ModelsPage /> },
+  {
+    path: "/settings/conversation-metadata",
+    element: <ConversationMetadataPage />,
+  },
 
   // Admin (RequirePermission wrapper applied in MainLayout)
   { path: "/admin/users", element: <OctopAdminUsersPage /> },

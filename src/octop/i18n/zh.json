@@ -587,6 +587,9 @@
     "preflight_failed_summary": "一项或多项预检未通过"
   },
   "tools": {
+    "get_conversation_brief": "读取会话概览",
+    "list_conversation_events": "读取会话事件",
+    "read_conversation_source": "读取会话来源",
     "unknown": "未知工具",
     "read_file": "读取文件",
     "write_file": "写入文件",

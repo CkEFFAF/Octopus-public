@@ -13,6 +13,13 @@ import { parseHitlSessionPolicy } from "../utils/hitlSessionPolicy";
 export interface Session {
   id: string;
   name: string;
+  metadata?: {
+    one_liner: string;
+    display_state?: string;
+    work_state: string;
+    freshness: string;
+    generated_at: number;
+  } | null;
   threadId: string;
   updatedAt: string | null;
   channelType: string;
@@ -34,6 +41,7 @@ export type ThreadProbeResult = "found" | "missing" | "unknown";
 export function toSession(row: {
   thread_id: string;
   title: string | null;
+  metadata?: Session["metadata"];
   last_active: number;
   created_at?: number;
   channel_type?: string;
@@ -62,6 +70,7 @@ export function toSession(row: {
   return {
     id: row.thread_id,
     name: formatThreadTitle(row.title) || "New Chat",
+    metadata: row.metadata,
     threadId: row.thread_id,
     updatedAt: sortTs > 0 ? new Date(sortTs * 1000).toISOString() : null,
     channelType: row.channel_type ?? "dashboard",

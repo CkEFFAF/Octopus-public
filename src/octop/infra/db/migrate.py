@@ -2004,6 +2004,10 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
             conn.execute("UPDATE _schema_version SET version = ?", (version,))
         return
     sql = path.read_text(encoding="utf-8")
+    if version == 33:
+        for column, ddl in re.findall(r"ALTER TABLE threads ADD COLUMN (\w+) ([^;]+);", sql):
+            _ensure_column(db, "threads", column, ddl)
+        sql = re.sub(r"ALTER TABLE threads ADD COLUMN \w+ [^;]+;", "", sql)
     if version == 26:
         # Restored databases may have a lower watermark with these columns already present.
         additions = re.findall(r"ALTER TABLE devices ADD COLUMN (\w+) ([^;]+);", sql)

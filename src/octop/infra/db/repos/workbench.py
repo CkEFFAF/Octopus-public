@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from octop.infra.db.pool import DatabasePool
+from octop.infra.db.repos.conversation_metadata import mark_metadata_dirty, record_semantic_event
 
 
 class WorkbenchRepo:
@@ -66,4 +67,20 @@ class WorkbenchRepo:
                     "UPDATE workbench_records SET revision=?,payload_json=?,updated_at=? WHERE owner_user_id=? AND record_id=? AND agent_id=? AND thread_id=? AND kind=? AND revision=?",
                     (expected + 1, encoded, now, owner, identity, agent, thread, kind, expected),
                 )
+            if result.rowcount and kind == "plan":
+                record_semantic_event(
+                    conn,
+                    thread,
+                    f"plan:{identity}:{expected + 1}",
+                    "plan",
+                    {
+                        "plan_id": identity,
+                        "revision": expected + 1,
+                        "tasks": payload.get("tasks", []),
+                        "source_refs": [{"kind": "plan", "id": identity, "revision": expected + 1}],
+                        "author_kind": "agent",
+                    },
+                    now,
+                )
+                mark_metadata_dirty(conn, thread, "activity")
         return bool(result.rowcount)

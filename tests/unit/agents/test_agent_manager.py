@@ -379,6 +379,9 @@ def test_build_harness_config_includes_cronjob_tools_when_cron_manager_set(
     assert cfg.tools is not None
     names = {t.name for t in cfg.tools}
     assert names == {
+        "get_conversation_brief",
+        "list_conversation_events",
+        "read_conversation_source",
         "read_attachment",
         "publish_artifact",
         "deliver_resource",
@@ -406,6 +409,9 @@ def test_build_harness_config_includes_search_knowledge_without_cron(
     cfg = manager._build_harness_config(_row(agent_id="AGT001"))
     assert cfg.tools is not None
     assert {t.name for t in cfg.tools} == {
+        "get_conversation_brief",
+        "list_conversation_events",
+        "read_conversation_source",
         "read_attachment",
         "publish_artifact",
         "deliver_resource",
