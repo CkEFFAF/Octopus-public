@@ -14,6 +14,7 @@ import httpx
 import pytest
 
 import octop.infra.voice.adapters as voice_adapters
+from octop.i18n.domains.stream import format_stream_error
 from octop.infra.db.repos.voice_providers import VoiceProviderRow
 from octop.infra.voice.adapters import STTResult
 from octop.infra.voice.adapters import test_stt as probe_stt
@@ -102,7 +103,7 @@ async def test_edge_success_and_failure(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(voice_adapters, "synthesize_edge", _stream(b"a", b"bb"))
     assert await probe_tts(None, "edge") == {"ok": True, "bytes": 3}
     monkeypatch.setattr(voice_adapters, "synthesize_edge", _raising(RuntimeError("edge down")))
-    assert await probe_tts(None, "edge") == {"ok": False, "error": "edge down"}
+    assert await probe_tts(None, "edge") == {"ok": False, "error": format_stream_error("edge down")}
 
 
 @pytest.mark.asyncio
@@ -148,7 +149,10 @@ async def test_tencent_provider_error_is_reported_not_raised(
 async def test_tencent_network_errors_are_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     row = _row(kind="tencent", api_key="sid:sk", extra=TENCENT_EXTRA)
     monkeypatch.setattr(voice_adapters, "synthesize_tencent", _raising(httpx.ConnectError("boom")))
-    assert await probe_tts(row, "tencent") == {"ok": False, "error": "network error: ConnectError"}
+    assert await probe_tts(row, "tencent") == {
+        "ok": False,
+        "error": format_stream_error("ConnectionError"),
+    }
 
     request = httpx.Request("POST", "https://tts.tencentcloudapi.com/")
     response = httpx.Response(500, request=request)
@@ -157,7 +161,10 @@ async def test_tencent_network_errors_are_reported(monkeypatch: pytest.MonkeyPat
         "synthesize_tencent",
         _raising(httpx.HTTPStatusError("server error", request=request, response=response)),
     )
-    assert await probe_tts(row, "tencent") == {"ok": False, "error": "provider returned HTTP 500"}
+    assert await probe_tts(row, "tencent") == {
+        "ok": False,
+        "error": format_stream_error("HTTP 500"),
+    }
 
 
 @pytest.mark.asyncio

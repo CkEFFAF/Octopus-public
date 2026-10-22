@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from octop.i18n.domains.stream import format_stream_error
 from octop.infra.cron.job import CronJob
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.pool import SqlitePool
@@ -148,7 +149,7 @@ async def test_run_records_error_on_failure(setup) -> None:
     await job.run()
     row = cron_repo.get(cid)
     assert row.last_status == "error"
-    assert row.last_error == "nope"
+    assert row.last_error == format_stream_error("nope")
     rows = audit.query(action="cron.run_failed")
     assert rows
 

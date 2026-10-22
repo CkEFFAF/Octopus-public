@@ -19,6 +19,21 @@ import { toSession } from "../hooks/useSessions";
 import SessionList from "./SessionList";
 import MinimalAgentSessionNav from "./MinimalAgentSessionNav";
 
+vi.mock("../../../components/ScheduleBrowser", () => ({
+  default: ({
+    agentId,
+    threadId,
+    reminder,
+  }: {
+    agentId: string;
+    threadId?: string;
+    reminder?: boolean;
+  }) => (
+    <div data-testid="task-scope">
+      {agentId}:{threadId}:{reminder ? "reminders" : "schedules"}
+    </div>
+  ),
+}));
 let userId = 1;
 vi.mock("../../../hooks/useCurrentUser", () => ({
   useCurrentUser: () => ({ id: userId }),
@@ -166,9 +181,8 @@ it("shows background activity and schedule states without treating selection as 
   common.onSelect.mockClear();
   fireEvent.keyDown(scheduled, { key: "Enter" });
   expect(common.onSelect).not.toHaveBeenCalled();
-  expect(screen.getByTestId("location")).toHaveTextContent(
-    "/chat/expert/old-background?task_view=schedules",
-  );
+  expect(screen.getByRole("dialog")).toBeInTheDocument();
+  expect(screen.getByTestId("location")).toHaveTextContent("/");
   const selected = screen
     .getByText("Selected idle chat")
     .closest('[role="button"]') as HTMLElement;
@@ -188,7 +202,7 @@ it("shows background activity and schedule states without treating selection as 
   view.unmount();
 });
 
-it("limits hover to the two nearest schedules and clicks through to this chat's workbench", async () => {
+it("limits hover to the two nearest schedules and opens this chat's task dialog", async () => {
   vi.mocked(octopThreadsApi.sidebarStatus).mockResolvedValue({
     working_threads: [],
     schedules: [
@@ -232,12 +246,11 @@ it("limits hover to the two nearest schedules and clicks through to this chat's 
   common.onSelect.mockClear();
   fireEvent.click(badge);
   expect(common.onSelect).not.toHaveBeenCalled();
-  expect(screen.getByTestId("location")).toHaveTextContent(
-    "/chat/expert/selected?task_view=schedules",
-  );
+  expect(screen.getByRole("dialog")).toBeInTheDocument();
+  expect(screen.getByTestId("location")).toHaveTextContent("/");
 });
 
-it("previews the latest past reminders with actual fire times and opens the reminders page", async () => {
+it("previews the latest past reminders with actual fire times and opens the reminders dialog", async () => {
   vi.mocked(octopThreadsApi.sidebarStatus).mockResolvedValue({
     working_threads: [],
     schedules: Array.from({ length: 8 }, (_, i) => ({
@@ -263,9 +276,7 @@ it("previews the latest past reminders with actual fire times and opens the remi
   expect(preview).toHaveTextContent("2023");
   expect(preview).toHaveTextContent("chat.sessionScheduleLastRun");
   fireEvent.keyDown(badge, { key: " " });
-  expect(screen.getByTestId("location")).toHaveTextContent(
-    "/chat/expert/selected?task_view=reminders",
-  );
+  expect(screen.getByTestId("location")).toHaveTextContent("/");
 });
 
 it("also exposes an older running conversation in minimal previews", async () => {

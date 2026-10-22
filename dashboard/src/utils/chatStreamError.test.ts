@@ -93,7 +93,7 @@ describe("classifyChatStreamError", () => {
       "stream_errors.model_call_failed",
     );
     expect(formatChatStreamError(msg, t)).toBe(
-      "translated:stream_errors.model_call_failed_detail",
+      "translated:stream_errors.model_call_failed",
     );
   });
 
@@ -130,4 +130,25 @@ describe("classifyChatStreamError", () => {
       ),
     ).toBe("stream_errors.rate_limit");
   });
+});
+
+it("uses safe common categories for region, retirement and opaque payloads", () => {
+  expect(
+    formatChatStreamError(
+      "HTTP 403: RegionError: not available in your country",
+      t,
+    ),
+  ).toBe("translated:stream_errors.region_restricted");
+  expect(formatChatStreamError("HTTP 410 ModelDeprecated", t)).toBe(
+    "translated:stream_errors.model_retired",
+  );
+  expect(
+    formatChatStreamError('HTTP 402 {"error":"Endpoint is unavailable"}', t),
+  ).toBe("translated:stream_errors.provider_unavailable");
+  expect(formatChatStreamError('{"error":"secret sk-key"}', t)).toBe(
+    "translated:stream_errors.model_call_failed",
+  );
+  expect(formatChatStreamError("octop:stream_errors.access_denied", t)).toBe(
+    "translated:stream_errors.access_denied",
+  );
 });

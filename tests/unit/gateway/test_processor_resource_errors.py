@@ -31,6 +31,23 @@ def test_stream_error_preserves_resource_error_code() -> None:
     assert "12/10" in message
 
 
+@pytest.mark.asyncio
+async def test_stream_error_audit_and_log_never_store_provider_body(caplog) -> None:
+    processor = object.__new__(GlobalProcessor)
+    processor._user_repo = MagicMock()
+    processor._user_repo.get.return_value.username = "fictional-user"
+    processor._audit_repo = MagicMock()
+    error = RuntimeError(
+        'HTTP 403 {"error":"RegionError", "api_key":"private-key", "prompt":"private-prompt"}'
+    )
+    await processor._record_stream_error(user_id=1, agent_id="fictional-agent", exc=error)
+    payload = processor._audit_repo.write.call_args.kwargs["payload"]
+    assert "octop:stream_errors.region_restricted" in payload
+    assert "RuntimeError" in payload
+    assert "private-key" not in payload + caplog.text
+    assert "private-prompt" not in payload + caplog.text
+
+
 def _processor_with_stream(
     stream: Callable[..., AsyncIterator[dict[str, Any]]],
 ) -> tuple[GlobalProcessor, InboundMessage, list[list[Any]]]:

@@ -135,6 +135,7 @@ export interface ConversationSource {
 }
 export interface HistoryBatch {
   batch_id: string;
+  errors?: Record<string, number>;
   total: number;
   queued: number;
   running: number;

@@ -125,9 +125,16 @@ class ConversationMetadataRepo:
         if not rows:
             return None
         counts = {row["status"]: row["count"] for row in rows}
+        errors = conn.execute(
+            "SELECT error_code,COUNT(*) AS count FROM thread_metadata_jobs "
+            "WHERE owner_user_id=? AND request_json=? AND status='failed' "
+            "GROUP BY error_code",
+            (owner, encoded({"batch_id": batch})),
+        ).fetchall()
         return {
             "batch_id": batch,
             "total": sum(counts.values()),
+            "errors": {row["error_code"]: row["count"] for row in errors},
             "queued": counts.get("queued", 0) + counts.get("retry", 0),
             **{key: counts.get(key, 0) for key in ("running", "ready", "failed", "cancelled")},
         }
@@ -647,6 +654,8 @@ class ConversationMetadataRepo:
             )
             result[str(row["thread_id"])] = {
                 "one_liner": brief.get("one_liner", ""),
+                "stage": brief.get("stage", ""),
+                "recent_events": [item["text"] for item in brief.get("events", [])[-3:]],
                 "work_state": work,
                 "display_state": display,
                 "freshness": "unavailable"

@@ -27,12 +27,14 @@ def format_voice_probe_error(exc: BaseException, locale: str | Locale) -> str:
     """Map probe-time exceptions to localized copy; unknown text stays as-is."""
     import httpx
 
-    if isinstance(exc, httpx.HTTPStatusError):
-        return tr("voice.probe.http_status", locale, status=exc.response.status_code)
+    from octop.i18n.domains.stream import classify_model_error, format_stream_error
+
+    if classify_model_error(exc):
+        return format_stream_error(exc, locale)
     if isinstance(exc, httpx.HTTPError):
-        return tr("voice.probe.network_error", locale, name=type(exc).__name__)
+        return format_stream_error("ConnectionError", locale)
     raw = str(exc).strip() or type(exc).__name__
     code, sep, _message = raw.partition(": ")
     if sep and lookup(f"voice.tencent.{code}", locale) is not None:
         return tr(f"voice.tencent.{code}", locale)
-    return raw
+    return format_stream_error(exc, locale)

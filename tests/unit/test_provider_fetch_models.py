@@ -22,6 +22,7 @@ async def test_go_discovery_uses_public_catalog_and_filters_protocols() -> None:
                 {"id": "mimo-v2.6-pro"},
                 {"id": "grok-4.7"},
                 {"id": "step-5-preview"},
+                {"id": "brand-new-free"},
                 {"id": "claude-haiku-5-5"},
                 {"id": "gemini-4-argon-contributor"},
             ]
@@ -35,7 +36,12 @@ async def test_go_discovery_uses_public_catalog_and_filters_protocols() -> None:
         )
     assert client.get.await_args.args[0] == "https://opencode.ai/inference/go/v1/models"
     assert result["ok"] is True
-    assert {m["id"] for m in result["models"]} == {"mimo-v2.6-pro", "grok-4.7", "step-5-preview"}
+    assert {m["id"] for m in result["models"]} == {
+        "mimo-v2.6-pro",
+        "grok-4.7",
+        "step-5-preview",
+        "brand-new-free",
+    }
 
 
 @pytest.mark.asyncio

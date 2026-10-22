@@ -106,6 +106,7 @@ class HistoryBatchRequest(Contract):
 
 
 class HistoryBatchView(Contract):
+    errors: dict[str, int] = Field(default_factory=dict)
     batch_id: str
     total: int = 0
     queued: int = 0

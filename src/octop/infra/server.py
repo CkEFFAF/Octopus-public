@@ -563,7 +563,12 @@ class OctopServer:
             sharing=ThreadSharingService(self.services.repos, config, registry, history_archive),
         )
         await registry.boot()
+        from octop.infra.agents.providers.live_catalog import refresh_catalog
         from octop.infra.conversations.service import ConversationService
+
+        cron_mgr.schedule_system_job(
+            "provider-catalog", trigger="interval:60", func=refresh_catalog
+        )
 
         conversations = ConversationService(
             registry, config.default_timezone, gateway.ws_hub.push_to_user

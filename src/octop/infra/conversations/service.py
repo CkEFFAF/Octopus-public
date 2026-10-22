@@ -12,8 +12,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from pydantic import ValidationError
-
+from octop.infra.conversations.errors import generation_error_code
 from octop.infra.conversations.generation import generate_json
 from octop.infra.conversations.models import (
     BriefPatch,
@@ -653,15 +652,7 @@ class ConversationService:
                 "APITimeoutError",
                 "InternalServerError",
             }
-            code = (
-                "METADATA_MODEL_UNAVAILABLE"
-                if isinstance(exc, ValueError) and str(exc) == "METADATA_MODEL_UNAVAILABLE"
-                else "METADATA_INPUT_BUDGET"
-                if isinstance(exc, ValueError) and str(exc) == "METADATA_INPUT_BUDGET"
-                else "METADATA_INVALID_OUTPUT"
-                if isinstance(exc, (ValidationError, json.JSONDecodeError, ValueError))
-                else "METADATA_GENERATION_FAILED"
-            )
+            code = generation_error_code(exc)
             retry = retryable and job["attempts"] < 3
             delay = 5 if job["attempts"] == 1 else 30
             response = getattr(exc, "response", None)
@@ -671,7 +662,13 @@ class ConversationService:
             self.repos.conversation_metadata_repo.finish(
                 job, "retry" if retry else "failed", error=code, delay=delay
             )
-            logger.warning("Conversation metadata generation status=%s job=%s", code, job["job_id"])
+            logger.warning(
+                "Conversation metadata generation status=%s exception=%s http_status=%s job=%s",
+                code,
+                type(exc).__name__,
+                getattr(exc, "status_code", None),
+                job["job_id"],
+            )
 
     def _chunk(self, thread: str, meta: dict[str, Any]) -> tuple[list[dict[str, Any]], Coverage]:
         previous = meta["snapshot"]

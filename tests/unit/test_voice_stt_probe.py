@@ -15,6 +15,7 @@ import httpx
 import pytest
 
 import octop.infra.voice.adapters as voice_adapters
+from octop.i18n.domains.stream import format_stream_error
 from octop.infra.db.repos.voice_providers import VoiceProviderRow
 from octop.infra.voice.adapters import STTResult, _probe_tone_wav
 from octop.infra.voice.adapters import test_stt as probe_stt
@@ -127,7 +128,10 @@ async def test_provider_error_is_reported_not_raised(monkeypatch: pytest.MonkeyP
 async def test_network_errors_are_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     row = _row(kind="mimo")
     monkeypatch.setattr(voice_adapters, "transcribe_mimo", _stt_raising(httpx.ConnectError("boom")))
-    assert await probe_stt(row, "mimo") == {"ok": False, "error": "network error: ConnectError"}
+    assert await probe_stt(row, "mimo") == {
+        "ok": False,
+        "error": format_stream_error("ConnectionError"),
+    }
 
     request = httpx.Request("POST", "https://api.openai.com/v1/audio/transcriptions")
     response = httpx.Response(503, request=request)
@@ -136,4 +140,4 @@ async def test_network_errors_are_reported(monkeypatch: pytest.MonkeyPatch) -> N
         "transcribe_openai",
         _stt_raising(httpx.HTTPStatusError("down", request=request, response=response)),
     )
-    assert await probe_stt(row, "openai") == {"ok": False, "error": "provider returned HTTP 503"}
+    assert await probe_stt(row, "openai") == {"ok": False, "error": format_stream_error("HTTP 503")}

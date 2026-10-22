@@ -158,10 +158,9 @@ def _embeddings_url(base_url: str | None) -> str:
 
 def _friendly_probe_error(exc: BaseException | str, *, locale: str) -> str:
     """Map raw provider exceptions / HTTP bodies to localized guidance when known."""
-    from octop.i18n.domains.stream import exception_display_message, stream_error_message
+    from octop.i18n.domains.stream import format_stream_error
 
-    raw = exception_display_message(exc)
-    return stream_error_message(raw, locale) or raw
+    return format_stream_error(exc, locale)
 
 
 async def _probe_embedding_endpoint(
@@ -338,7 +337,8 @@ async def fetch_openai_compatible_models(
         if not isinstance(mid, str) or not mid.strip():
             continue
         mid = mid.strip()
-        if go_model_ids and mid not in go_model_ids:
+        # Official Go catalog also contains models served on other protocols.
+        if go_model_ids and mid.startswith(("claude-", "gemini-")):
             continue
         if mid in seen:
             continue

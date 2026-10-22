@@ -22,6 +22,10 @@ RECURSION_LIMIT = f"{_PREFIX}stream_errors.recursion_limit"
 TIMEOUT_NETWORK = f"{_PREFIX}stream_errors.timeout_network"
 PROVIDER_UNAVAILABLE = f"{_PREFIX}stream_errors.provider_unavailable"
 MODEL_CALL_FAILED = f"{_PREFIX}stream_errors.model_call_failed"
+REGION_RESTRICTED = f"{_PREFIX}stream_errors.region_restricted"
+MODEL_RETIRED = f"{_PREFIX}stream_errors.model_retired"
+MODEL_UNAVAILABLE = f"{_PREFIX}stream_errors.model_unavailable"
+ACCESS_DENIED = f"{_PREFIX}stream_errors.access_denied"
 PATH_OUTSIDE_ROOT = f"{_PREFIX}stream_errors.path_outside_root"
 
 __all__ = [
@@ -36,6 +40,7 @@ __all__ = [
     "RECURSION_LIMIT",
     "STREAM_STALL",
     "TIMEOUT_NETWORK",
+    "classify_model_error",
     "classify_stream_error_message",
     "exception_display_message",
     "format_stream_error",
@@ -96,6 +101,8 @@ def classify_stream_error_message(message: str) -> str | None:
     msg = unwrap_model_retry_message(message)
     if not msg:
         return None
+    if msg.startswith("octop:stream_errors.") and lookup(msg.removeprefix(_PREFIX), "en"):
+        return msg
     lower = msg.lower()
     compact = lower.replace("_", "").replace(" ", "")
 
@@ -109,6 +116,21 @@ def classify_stream_error_message(message: str) -> str | None:
         or "stream_chunk_timeout" in lower
     ):
         return STREAM_STALL
+
+    if "regionerror" in compact or "not available in your country" in lower:
+        return REGION_RESTRICTED
+    if (
+        "modeldeprecated" in compact
+        or "has been deprecated" in lower
+        or re.search(r"(?:http|error code:)\s*410\b", lower)
+    ):
+        return MODEL_RETIRED
+    if re.search(r"(?:http|error code:)\s*404\b", lower):
+        return MODEL_UNAVAILABLE
+    if "endpoint is unavailable" in lower:
+        return PROVIDER_UNAVAILABLE
+    if re.search(r"(?:http|error code:)\s*403\b", lower) or "permissiondeniederror" in compact:
+        return ACCESS_DENIED
 
     if (
         "error code: 429" in lower
@@ -178,7 +200,10 @@ def classify_stream_error_message(message: str) -> str | None:
         return PROVIDER_UNAVAILABLE
 
     if (
-        "request timed out" in lower
+        "timeouterror" in compact
+        or "connectionerror" in compact
+        or "timed out" in lower
+        or "request timed out" in lower
         or "timed out or interrupted" in lower
         or "connection error" in lower
         or "apitimeouterror" in compact
@@ -191,6 +216,59 @@ def classify_stream_error_message(message: str) -> str | None:
         return MODEL_CALL_FAILED
 
     return None
+
+
+def classify_model_error(exc: BaseException | str) -> str | None:
+    """Shared category for SDK exceptions, HTTP errors and legacy persisted strings.
+
+    Inspect structured status/body first: SDK messages may be empty, and a 402
+    from an upstream gateway does not necessarily mean the user's balance is low.
+    Never return provider body text as user-facing diagnostics.
+    """
+    if isinstance(exc, BaseException):
+        kind = type(exc).__name__.lower()
+        if isinstance(exc, TimeoutError) or "timeout" in kind:
+            return TIMEOUT_NETWORK
+        if isinstance(exc, ConnectionError) or kind in {"connecterror", "apiconnectionerror"}:
+            return TIMEOUT_NETWORK
+    body = getattr(exc, "body", None)
+    status = getattr(exc, "status_code", None)
+    response = getattr(exc, "response", None)
+    if status is None and response is not None:
+        status = getattr(response, "status_code", None)
+    error = body.get("error", body) if isinstance(body, dict) else {}
+    if isinstance(error, dict):
+        kind = str(error.get("type") or error.get("code") or "")
+        message = str(error.get("message") or "")
+        category = classify_stream_error_message(f"{kind}: {message}")
+        if category:
+            return category
+    category = classify_stream_error_message(exception_display_message(exc))
+    if category:
+        return category
+    return (
+        {
+            404: MODEL_UNAVAILABLE,
+            401: AUTH,
+            402: INSUFFICIENT_BALANCE,
+            403: ACCESS_DENIED,
+            410: MODEL_RETIRED,
+            429: RATE_LIMIT,
+            500: PROVIDER_UNAVAILABLE,
+            502: PROVIDER_UNAVAILABLE,
+            503: PROVIDER_UNAVAILABLE,
+            504: TIMEOUT_NETWORK,
+        }.get(status)
+        if isinstance(status, int)
+        else None
+    )
+
+
+def _provider_payload(message: str) -> bool:
+    """Recognize opaque provider payloads, including Python dict reprs."""
+    return ("{" in message and "}" in message) or bool(
+        re.search(r"(?:HTTP\s+[45]\d\d|error code:|api[_ ]?key|bearer\s+|sk-)", message, re.I)
+    )
 
 
 def exception_display_message(exc: BaseException | str) -> str:
@@ -225,6 +303,8 @@ def stream_error_message(error: str | None, locale: str | Locale = "en") -> str:
     classified = classify_stream_error_message(error)
     if classified is not None:
         return tr(classified.removeprefix(_PREFIX), locale)
+    if _provider_payload(error):
+        return tr(MODEL_CALL_FAILED.removeprefix(_PREFIX), locale)
     return error
 
 
@@ -236,12 +316,19 @@ def format_stream_error(exc: BaseException | str, locale: str | Locale = "en") -
     """
     message = exception_display_message(exc)
     inner = unwrap_model_retry_message(message)
-    classified = classify_stream_error_message(inner)
+    classified = classify_model_error(exc)
     if classified is not None and classified != MODEL_CALL_FAILED:
         return tr(classified.removeprefix(_PREFIX), locale)
     if _looks_like_send_file_tool_error(message) or _looks_like_send_file_tool_error(inner):
         return message if _looks_like_send_file_tool_error(message) else inner
-    if inner:
+    if (
+        inner
+        and not _provider_payload(inner)
+        and not (
+            MODEL_RETRY_FAILURE_MARK in message
+            or _RETRY_WRAPPER_RE.search(_normalize_message(message))
+        )
+    ):
         return _format_template("stream_errors.model_call_failed_detail", locale, detail=inner)
     return tr(MODEL_CALL_FAILED.removeprefix(_PREFIX), locale)
 
@@ -252,16 +339,12 @@ def model_retry_failure_prompt(exc: Exception, locale: str | Locale = "en") -> s
     Used as ``ModelRetryMiddleware.on_failure`` so the agent continues with a
     specific cause instead of raising a generic retry-exhausted exception.
     """
-    detail = unwrap_model_retry_message(exception_display_message(exc))
-    classified = classify_stream_error_message(detail)
-    if classified is not None:
-        guidance = tr(classified.removeprefix(_PREFIX), locale)
-    else:
-        guidance = _format_template("stream_errors.model_call_failed_detail", locale, detail=detail)
+    classified = classify_model_error(exc) or MODEL_CALL_FAILED
+    guidance = tr(classified.removeprefix(_PREFIX), locale)
     body = _format_template(
         "stream_errors.model_retry_prompt",
         locale,
         guidance=guidance,
-        detail=detail,
+        detail=classified,
     )
     return f"{MODEL_RETRY_FAILURE_MARK}\n{body}"

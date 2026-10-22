@@ -72,7 +72,7 @@ async def test_media_generation_model_test_dispatches_provider_configuration(
     assert response.status_code == 200, response.text
     assert response.json() == {"ok": True, "error": None}
     call = test_model.await_args
-    assert call.kwargs == {"kind": "image"}
+    assert call.kwargs == {"kind": "image", "locale": "zh"}
     assert call.args[0].id == "ark-main"
     assert call.args[0].provider == "volcengine"
     assert call.args[0].image_model == "seedream-test"

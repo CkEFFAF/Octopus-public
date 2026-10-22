@@ -6,6 +6,10 @@ const _STREAM_ERROR_KEYS = [
   "stream_errors.stream_stall",
   "stream_errors.rate_limit",
   "stream_errors.auth",
+  "stream_errors.model_unavailable",
+  "stream_errors.region_restricted",
+  "stream_errors.model_retired",
+  "stream_errors.access_denied",
   "stream_errors.insufficient_balance",
   "stream_errors.context_length",
   "stream_errors.recursion_limit",
@@ -28,6 +32,17 @@ const TECHNICAL_DETAIL_RE = /technical detail:\s*([\s\S]+)$/i;
 
 const STREAM_ERROR_ACTIONS: Partial<Record<StreamErrorKey, StreamErrorAction>> =
   {
+    ...Object.fromEntries(
+      [
+        "region_restricted",
+        "model_retired",
+        "access_denied",
+        "model_unavailable",
+      ].map((key) => [
+        `stream_errors.${key}`,
+        { path: "/admin/models", labelKey: "modelConfig.configureButton" },
+      ]),
+    ),
     "stream_errors.auth": {
       path: "/admin/models",
       labelKey: "modelConfig.configureButton",
@@ -76,6 +91,10 @@ export function classifyChatStreamError(
   const raw = normalizeMessage(message);
   const msg = unwrapModelRetryMessage(message);
   if (!msg && !raw) return null;
+  const stableKey = msg.replace(/^octop:/, "");
+  if ((_STREAM_ERROR_KEYS as readonly string[]).includes(stableKey)) {
+    return stableKey as StreamErrorKey;
+  }
   const lower = msg.toLowerCase();
   const compact = lower.replace(/[_\s]/g, "");
 
@@ -92,6 +111,30 @@ export function classifyChatStreamError(
     lower.includes("stream_chunk_timeout")
   ) {
     return "stream_errors.stream_stall";
+  }
+
+  if (
+    compact.includes("regionerror") ||
+    lower.includes("not available in your country")
+  ) {
+    return "stream_errors.region_restricted";
+  }
+  if (
+    compact.includes("modeldeprecated") ||
+    lower.includes("has been deprecated") ||
+    /(?:http|error code:)\s*410\b/.test(lower)
+  ) {
+    return "stream_errors.model_retired";
+  }
+  if (/(?:http|error code:)\s*404\b/.test(lower))
+    return "stream_errors.model_unavailable";
+  if (lower.includes("endpoint is unavailable"))
+    return "stream_errors.provider_unavailable";
+  if (
+    /(?:http|error code:)\s*403\b/.test(lower) ||
+    compact.includes("permissiondeniederror")
+  ) {
+    return "stream_errors.access_denied";
   }
 
   if (
@@ -168,6 +211,8 @@ export function classifyChatStreamError(
   }
 
   if (
+    compact.includes("timeouterror") ||
+    compact.includes("connectionerror") ||
     lower.includes("request timed out") ||
     lower.includes("timed out or interrupted") ||
     lower.includes("connection error") ||
@@ -208,17 +253,15 @@ export function formatChatStreamError(
 ): string {
   if (!message) return "";
   const key = classifyChatStreamError(message);
-  const detail = unwrapModelRetryMessage(message);
-  if (key && key !== "stream_errors.model_call_failed") {
-    return t(key, { defaultValue: message });
+  if (key) return t(key);
+  // Old persisted errors may contain SDK dict reprs or JSON, even after the
+  // backend has been upgraded. Never display opaque provider payloads.
+  if (
+    (message.includes("{") && message.includes("}")) ||
+    /error code:|api[_ ]?key|bearer\s+|sk-/i.test(message)
+  ) {
+    return t("stream_errors.model_call_failed");
   }
-  if (detail && detail !== normalizeMessage(message)) {
-    return t("stream_errors.model_call_failed_detail", {
-      detail,
-      defaultValue: detail,
-    });
-  }
-  if (key) return t(key, { defaultValue: message });
   return message;
 }
 

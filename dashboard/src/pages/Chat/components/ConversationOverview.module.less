@@ -19,7 +19,11 @@
   margin: 12px 0;
 }
 .section {
-  margin: 20px 0;
+  margin: 12px 0;
+  padding: 16px;
+  border: 1px solid var(--fn-border-secondary, #e8e8e8);
+  background: var(--fn-bg-elevated, #fff);
+  border-radius: 12px;
   h3 {
     font-size: 14px;
     margin: 0 0 8px;
@@ -78,4 +82,53 @@
   height: auto;
   max-width: 100%;
   padding-inline: 0;
+}
+
+.artifactGrid {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 128px), 1fr));
+  gap: 12px;
+  li {
+    min-width: 0;
+  }
+  .artifact {
+    width: 100%;
+    aspect-ratio: 1;
+    padding: 16px 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 10px;
+    border-radius: 12px;
+    background: var(--fn-bg-elevated, #fff);
+    strong {
+      width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    small {
+      color: var(--fn-text-secondary, #737780);
+      font-size: 11px;
+    }
+    svg {
+      color: var(--ant-color-primary, #ed5978);
+      flex-shrink: 0;
+    }
+  }
+}
+
+.sourceChip {
+  margin: 3px 6px 3px 0;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.content :global(.ant-descriptions),
+.content :global(.octop-descriptions) {
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--fn-bg-secondary, #f7f8fa);
 }

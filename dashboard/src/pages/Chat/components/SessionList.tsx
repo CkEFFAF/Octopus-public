@@ -17,7 +17,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { Dropdown } from "antd";
+import { Dropdown, Tooltip } from "antd";
 import type { MenuProps } from "antd";
 import {
   Pencil,
@@ -233,37 +233,88 @@ const SessionItem = memo(function SessionItem({
         />
       ) : (
         <>
-          <span className={styles.sessionRowCopy}>
-            <span className={styles.sessionRowHeading}>
-              <span className={styles.sessionRowTitle}>{session.name}</span>
-              {session.updatedAt && (
-                <time
-                  className={styles.sessionRowTime}
-                  dateTime={session.updatedAt}
-                >
-                  {formatMessageTime(
-                    new Date(session.updatedAt).getTime(),
-                    timezone,
-                  )}
-                </time>
+          <Tooltip
+            trigger={["hover", "focus"]}
+            placement="right"
+            color="var(--fn-bg-elevated)"
+            overlayClassName={styles.sessionScheduleTooltip}
+            overlayInnerStyle={{
+              padding: 12,
+              border: "1px solid var(--fn-border-secondary)",
+              color: "var(--fn-text-primary)",
+              boxShadow: "0 6px 24px rgb(0 0 0 / 12%)",
+            }}
+            title={
+              <div className={styles.sessionSchedulePreview}>
+                <strong>{session.name}</strong>
+                <p>
+                  {session.metadata?.one_liner ||
+                    t("conversationMetadata.notGenerated")}
+                </p>
+                {session.metadata?.display_state && (
+                  <p>
+                    {t(
+                      `conversationMetadata.states.${session.metadata.display_state}`,
+                      session.metadata.display_state,
+                    )}
+                  </p>
+                )}
+                {session.metadata?.stage && <p>{session.metadata.stage}</p>}
+                {session.metadata?.recent_events?.length ? (
+                  <ul>
+                    {session.metadata.recent_events.map((event, index) => (
+                      <li key={index}>{event}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {working && <p>{t("chat.sessionWorking")}</p>}
+                {session.metadata?.freshness === "stale" && (
+                  <small>{t("conversationMetadata.freshness.stale")}</small>
+                )}
+                {session.metadata?.generated_at ? (
+                  <small>
+                    {t("conversationMetadata.overviewTitle")} ·{" "}
+                    {formatMessageTime(
+                      session.metadata.generated_at * 1000,
+                      timezone,
+                    )}
+                  </small>
+                ) : null}
+              </div>
+            }
+          >
+            <span className={styles.sessionRowCopy}>
+              <span className={styles.sessionRowHeading}>
+                <span className={styles.sessionRowTitle}>{session.name}</span>
+                {session.updatedAt && (
+                  <time
+                    className={styles.sessionRowTime}
+                    dateTime={session.updatedAt}
+                  >
+                    {formatMessageTime(
+                      new Date(session.updatedAt).getTime(),
+                      timezone,
+                    )}
+                  </time>
+                )}
+              </span>
+              {session.metadata?.one_liner && (
+                <span className={styles.sessionRowSummary}>
+                  {session.metadata.display_state &&
+                    session.metadata.display_state !== "unknown" && (
+                      <span>
+                        {t(
+                          `conversationMetadata.states.${session.metadata.display_state}`,
+                          session.metadata.display_state,
+                        )}{" "}
+                        ·{" "}
+                      </span>
+                    )}
+                  {session.metadata.one_liner}
+                </span>
               )}
             </span>
-            {session.metadata?.one_liner && (
-              <span className={styles.sessionRowSummary}>
-                {session.metadata.display_state &&
-                  session.metadata.display_state !== "unknown" && (
-                    <span>
-                      {t(
-                        `conversationMetadata.states.${session.metadata.display_state}`,
-                        session.metadata.display_state,
-                      )}{" "}
-                      ·{" "}
-                    </span>
-                  )}
-                {session.metadata.one_liner}
-              </span>
-            )}
-          </span>
+          </Tooltip>
           <SessionActivity threadId={session.id} />
           {session.pinned ? (
             <span

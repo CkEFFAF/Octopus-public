@@ -17,7 +17,14 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { FileText, RefreshCw } from "lucide-react";
+import {
+  FileText,
+  FileCode2,
+  FileImage,
+  FileSpreadsheet,
+  File,
+  RefreshCw,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useIsMobile } from "../../../hooks/useIsMobile";
 import { useServerTimezone } from "../../../hooks/useServerTimezone";
@@ -311,8 +318,9 @@ export default function ConversationOverview({
   const references = (refs: ConversationSourceRef[]) =>
     refs.map((ref, index) => (
       <Button
-        type="link"
+        type="default"
         size="small"
+        className={styles.sourceChip}
         key={`${ref.kind}:${ref.id}`}
         onClick={() => void readSource(ref)}
       >
@@ -817,14 +825,16 @@ export default function ConversationOverview({
                       <section className={styles.section}>
                         <h3>{t("conversationMetadata.artifacts")}</h3>
                         {brief.artifact_refs.length ? (
-                          <ul className={styles.list}>
+                          <ul className={styles.artifactGrid}>
                             {brief.artifact_refs.map((a) => (
                               <li
                                 key={`${a.agent_id}:${a.path}`}
                                 className={styles.path}
                               >
                                 <Button
-                                  type="link"
+                                  type="default"
+                                  title={a.path}
+                                  aria-label={a.path}
                                   className={styles.artifact}
                                   onClick={() => {
                                     setOpen(false);
@@ -832,7 +842,34 @@ export default function ConversationOverview({
                                   }}
                                   disabled={!onOpenArtifact}
                                 >
-                                  {a.path}
+                                  {(() => {
+                                    const name =
+                                      a.path.split(/[\\/]/).pop() || a.path;
+                                    const ext =
+                                      name.split(".").pop()?.toLowerCase() ||
+                                      "";
+                                    const Icon =
+                                      /^(png|jpg|jpeg|gif|webp|svg)$/.test(ext)
+                                        ? FileImage
+                                        : /^(csv|xlsx|xls)$/.test(ext)
+                                        ? FileSpreadsheet
+                                        : /^(py|js|ts|tsx|json|sh|sql)$/.test(
+                                            ext,
+                                          )
+                                        ? FileCode2
+                                        : /^(md|txt|pdf|docx)$/.test(ext)
+                                        ? FileText
+                                        : File;
+                                    return (
+                                      <>
+                                        <Icon size={28} aria-hidden />
+                                        <strong>{name}</strong>
+                                        <small>
+                                          {ext.toUpperCase() || "FILE"}
+                                        </small>
+                                      </>
+                                    );
+                                  })()}
                                 </Button>
                               </li>
                             ))}

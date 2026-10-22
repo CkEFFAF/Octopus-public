@@ -182,7 +182,9 @@ async def test_embedding_probe_reports_empty_404_with_url() -> None:
         result = await probe_provider_row(row, model_id="bge-large-zh-v1.5")
 
     assert result["ok"] is False
-    assert result["error"] == "HTTP 404 POST https://api.model.haihub.cn/v1/embeddings"
+    assert "endpoint" in result["error"]
+    assert "not found" in result["error"]
+    assert "https://" not in result["error"]
 
 
 @pytest.mark.asyncio
@@ -238,7 +240,8 @@ async def test_chat_probe_empty_exception_message_returns_type_name(
         result = await probe_provider_row(row, model_id="gpt-4o-mini", locale="zh")
 
     assert result["ok"] is False
-    assert result["error"] == "TimeoutError"
+    assert "重试" in result["error"]
+    assert "TimeoutError" not in result["error"]
     assert any(
         "provider probe failed for Agnes AI" in r.message and "TimeoutError" in r.message
         for r in caplog.records
@@ -266,7 +269,7 @@ async def test_chat_probe_empty_exception_with_cause_includes_root_type() -> Non
         result = await probe_provider_row(row, model_id="gpt-4o-mini")
 
     assert result["ok"] is False
-    assert result["error"] == "RuntimeError <- ConnectionError"
+    assert "network" in result["error"].lower()
 
 
 @pytest.mark.asyncio
@@ -279,11 +282,11 @@ async def test_embedding_probe_empty_exception_message_returns_type_name() -> No
         result = await probe_provider_row(_embedding_row(), locale="en")
 
     assert result["ok"] is False
-    assert result["error"] == "OSError"
+    assert "failed" in result["error"].lower()
 
 
 def test_friendly_probe_error_empty_string_passthrough() -> None:
     from octop.infra.agents.providers.probe import _friendly_probe_error
 
-    assert _friendly_probe_error("", locale="en") == "unknown error"
-    assert _friendly_probe_error(TimeoutError(), locale="zh") == "TimeoutError"
+    assert "failed" in _friendly_probe_error("", locale="en").lower()
+    assert "重试" in _friendly_probe_error(TimeoutError(), locale="zh")

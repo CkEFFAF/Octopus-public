@@ -639,10 +639,16 @@ function MessageBubble({
   const isStreaming = message.status === "streaming";
   const hasToolData = !!message.toolData;
   const isError = message.status === "error";
+  const errorCode = message.errorInfo?.code;
+  const modelError =
+    typeof errorCode === "string" &&
+    errorCode.startsWith("octop:stream_errors.")
+      ? errorCode
+      : textContent;
   const errorBodyText = isError
-    ? formatChatStreamError(textContent, t)
+    ? formatChatStreamError(modelError, t)
     : textContent;
-  const errorAction = isError ? chatStreamErrorAction(textContent) : null;
+  const errorAction = isError ? chatStreamErrorAction(modelError) : null;
   const attachments = message.attachments || [];
   const imageAttachments = attachments.filter(
     (attachment) =>
