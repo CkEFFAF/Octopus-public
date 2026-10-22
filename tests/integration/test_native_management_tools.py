@@ -45,6 +45,63 @@ async def call(tools: Any, tool_name: str, **args: Any) -> dict[str, Any]:
     return json.loads(await tools[tool_name].ainvoke(args))
 
 
+async def test_expert_animal_avatar_and_color_persist_through_native_tools(native: Any) -> None:
+    client, server, auth, _aid, _uid, tools = native
+    created = await call(
+        tools, "octop_expert_create", name="Animal expert", avatar_character="fox", color="#F93"
+    )
+    assert created["saved"] is True, created
+    aid = created["agent_id"]
+    assert created["avatar_character"] == "fox"
+    assert created["icon_url"] == "/expert-animations/fox.webp"
+    assert created["color"] == "#ff9933"
+    persisted = (await client.get(f"/api/agents/{aid}", headers=auth)).json()
+    assert persisted["icon_url"] == created["icon_url"]
+    assert persisted["color"] == created["color"]
+
+    updated = await call(
+        tools,
+        "octop_expert_update",
+        target_agent_id=aid,
+        avatar_character="rabbit",
+        color="#4b74fa",
+    )
+    assert updated["saved"] is True, updated
+    persisted = (await client.get(f"/api/agents/{aid}", headers=auth)).json()
+    assert persisted["icon_url"] == "/expert-animations/rabbit.webp"
+    assert persisted["color"] == "#4b74fa"
+    for invalid in (
+        {"avatar_character": "dragon"},
+        {"color": "broken"},
+        {"avatar_character": "fox", "icon_url": "/expert-animations/cat.webp"},
+    ):
+        rejected = await call(
+            tools, "octop_expert_update", target_agent_id=aid, name="Must not persist", **invalid
+        )
+        assert "error" in rejected
+        row = server.app_runtime.agent_registry.get_row(aid)
+        assert row.name == "Animal expert"
+        assert row.icon_url == "/expert-animations/rabbit.webp"
+        assert row.color == "#4b74fa"
+
+    resources = await call(tools, "octop_resource_list")
+    assert "fox" in resources["avatar_characters"]
+    assert "rabbit" in resources["avatar_characters"]
+
+
+async def test_agent_list_reports_invocation_activity_not_just_running_state(native: Any) -> None:
+    client, server, auth, aid, _uid, _tools = native
+    registry = server.app_runtime.agent_registry
+    registry._active_invocations[aid] = 1
+    try:
+        rows = (await client.get("/api/agents", headers=auth)).json()
+        assert next(row for row in rows if row["agent_id"] == aid)["is_working"] is True
+    finally:
+        registry._active_invocations.pop(aid, None)
+    rows = (await client.get("/api/agents", headers=auth)).json()
+    assert next(row for row in rows if row["agent_id"] == aid)["is_working"] is False
+
+
 async def test_owned_expert_device_defaults_create_update_clear_and_reject(native, tmp_path):
     _c, srv, _auth, _aid, uid, tools = native
     devices = srv.app_runtime.devices

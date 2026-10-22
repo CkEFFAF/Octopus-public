@@ -65,6 +65,31 @@ export interface OctopThread {
   artifact_refs?: ThreadArtifact[];
 }
 
+export interface SidebarSchedule {
+  thread_id: string;
+  id: string;
+  name: string;
+  enabled: boolean;
+  scheduler_state: string;
+  next_run_at: number | null;
+  timezone: string;
+}
+
+export interface SidebarStatus {
+  working_threads: Array<
+    Pick<
+      OctopThread,
+      | "thread_id"
+      | "title"
+      | "channel_type"
+      | "last_active"
+      | "created_at"
+      | "pinned"
+    >
+  >;
+  schedules: SidebarSchedule[];
+}
+
 export interface OctopThreadHistory {
   thread_id: string;
   messages: Array<{
@@ -154,6 +179,11 @@ export interface HistoryMigrationStatus {
 export const CHAT_HISTORY_PAGE_SIZE = 25;
 
 export const octopThreadsApi = {
+  sidebarStatus: (agentId: string) =>
+    request<SidebarStatus>(
+      `/agents/${encodeURIComponent(agentId)}/sidebar-status`,
+    ),
+
   list: (agentId: string, limit = 50) =>
     request<OctopThread[]>(
       `/agents/${encodeURIComponent(agentId)}/threads?limit=${limit}`,

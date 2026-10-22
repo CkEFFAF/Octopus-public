@@ -13,6 +13,34 @@ _MAX_DECISIONS = 16
 _MAX_DECISION_MESSAGE_CHARS = 8000
 
 
+class SidebarWorkingThread(BaseModel):
+    thread_id: str
+    title: str | None
+    channel_type: str
+    last_active: float
+    created_at: float
+    pinned: bool
+
+
+class SidebarSchedule(BaseModel):
+    thread_id: str
+    id: str
+    name: str
+    enabled: bool
+    scheduler_state: str
+    next_run_at: float | None
+    timezone: str
+
+
+class SidebarStatus(BaseModel):
+    working_threads: list[SidebarWorkingThread] = Field(
+        description="Actual running turns owned by this user, independent of the selected chat."
+    )
+    schedules: list[SidebarSchedule] = Field(
+        description="Authorized scheduled tasks associated with their current conversation."
+    )
+
+
 class HitlSessionPolicyBody(BaseModel):
     """Dashboard chat bypass for tool approval (does not change global HITL)."""
 

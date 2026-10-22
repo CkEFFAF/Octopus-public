@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import Awaitable, Callable
 from functools import wraps
 from types import CodeType
@@ -13,6 +14,7 @@ from langchain_core.tools import StructuredTool
 from langgraph.config import get_config
 from pydantic import BaseModel
 
+from octop.infra.agents.experts.avatar import EXPERT_AVATAR_CHARACTERS
 from octop.infra.agents.settings.profile import dump_id_list, id_list_from_row
 from octop.infra.agents.settings.tool_catalog import BUILTIN_TOOL_CATALOG, CRITICAL_TOOLS
 from octop.infra.agents.subagents.service import (
@@ -200,6 +202,17 @@ def build_native_management_tools(
             "description": row.description,
             "state": row.last_state,
             "enabled": bool(row.enabled),
+            "icon_name": row.icon_name,
+            "icon_url": row.icon_url,
+            "avatar_character": next(
+                (
+                    name
+                    for name in EXPERT_AVATAR_CHARACTERS
+                    if row.icon_url == f"/expert-animations/{name}.webp"
+                ),
+                None,
+            ),
+            "color": row.color,
             "writable": writable,
             **visible_expert_defaults(row, identity().id, repos.device_repo),
         }
@@ -240,10 +253,31 @@ def build_native_management_tools(
             "mcp_servers",
             "tools_disabled",
             "device_binding",
+            "avatar_character",
+            "icon_name",
+            "icon_url",
+            "color",
         }
         fields = {
             key: value for key, value in values.items() if key in allowed and value is not None
         }
+        if "avatar_character" in fields:
+            character = fields.pop("avatar_character").strip().lower()
+            if character not in EXPERT_AVATAR_CHARACTERS:
+                raise ValueError(
+                    f"avatar_character must be one of: {', '.join(EXPERT_AVATAR_CHARACTERS)}"
+                )
+            icon_url = f"/expert-animations/{character}.webp"
+            if fields.get("icon_url") and fields["icon_url"].strip() != icon_url:
+                raise ValueError("supply avatar_character or icon_url, not conflicting values")
+            fields["icon_url"] = icon_url
+        if "color" in fields:
+            color = fields["color"].strip()
+            if color and not re.fullmatch(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?", color):
+                raise ValueError("color must be #RGB or #RRGGBB; use an empty string to reset")
+            if len(color) == 4:
+                color = "#" + "".join(ch * 2 for ch in color[1:])
+            fields["color"] = color.lower() or None
         if "device_binding" in fields:
             if execution is None:
                 raise OctopError(ErrorCode.FORBIDDEN, "execution service unavailable")
@@ -387,6 +421,8 @@ def build_native_management_tools(
         ]
         return {
             "models": models[:200],
+            "avatar_characters": list(EXPERT_AVATAR_CHARACTERS),
+            "avatar_color_format": "#RRGGBB",
             "skill_packages": [
                 {"id": row.id, "name": row.name}
                 for row in repos.skill_package_repo.list_all()[:200]
@@ -426,6 +462,10 @@ def build_native_management_tools(
         default_model: str | None = None,
         system_prompt: str = "",
         welcome_message: str = "",
+        avatar_character: str | None = None,
+        color: str | None = None,
+        icon_name: str | None = None,
+        icon_url: str | None = None,
         skill_package_ids: list[str] | None = None,
         knowledge_base_ids: list[str] | None = None,
         mcp_servers: list[str] | None = None,
@@ -433,6 +473,11 @@ def build_native_management_tools(
         device_binding: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create an expert. device_binding sets its owned device/local default.
+
+        avatar_character chooses swallow, fox, owl, rabbit, beaver, cat,
+        redpanda, penguin, corgi or raccoon. color sets the avatar background
+        accent as #RRGGBB (for example #f97316). Alternatively use icon_url
+        for an image URL and icon_name for a fallback icon.
 
         For example {"target_kind":"device","device_id":"id","working_dir":"/work"}.
         To dispatch using that default choose ask_agent(target_policy="member_default");
@@ -455,6 +500,10 @@ def build_native_management_tools(
         default_model: str | None = None,
         system_prompt: str | None = None,
         welcome_message: str | None = None,
+        avatar_character: str | None = None,
+        color: str | None = None,
+        icon_name: str | None = None,
+        icon_url: str | None = None,
         skill_package_ids: list[str] | None = None,
         knowledge_base_ids: list[str] | None = None,
         mcp_servers: list[str] | None = None,
@@ -462,6 +511,9 @@ def build_native_management_tools(
         device_binding: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Configure your expert. device_binding sets its owned device/local default; {} clears it.
+
+        avatar_character and color choose an animal and #RRGGBB background
+        accent just as in octop_expert_create. An empty icon_url or color resets it.
 
         Omitted fields stay. Connector changes to this expert also apply to the
         current conversation at its next model request. Device defaults affect later turns. For a peer dispatch on

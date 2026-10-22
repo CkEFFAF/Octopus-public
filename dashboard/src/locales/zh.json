@@ -2084,6 +2084,8 @@
     "subagentPickerManage": "管理子智能体",
     "modelPickerManage": "管理模型",
     "sessionWorking": "正在回复",
+    "sessionWorkingShort": "工作中",
+    "sessionSchedules": "{{count}} 个定时任务",
     "composerContextLabel": "消息附加上下文",
     "contextWindow": {
       "tooltip": "上下文占用 {{used}} / {{max}} · {{percent}}%（最近一次模型请求）",
@@ -2447,7 +2449,12 @@
         "compare": "证据比较",
         "synthesize": "研究结论"
       }
-    }
+    },
+    "pinExpert": "置顶专家",
+    "unpinExpert": "取消置顶专家",
+    "pinnedExperts": "置顶",
+    "pinnedSessions": "置顶会话",
+    "recentSessions": "最近会话"
   },
   "tools": {
     "unknown": "未知工具",
@@ -7396,7 +7403,7 @@
       "coding": "编程",
       "drawing": "设计",
       "analyzing": "分析",
-      "running": "执行中",
+      "running": "工作中",
       "verifying": "检查",
       "collaborating": "协作",
       "handoff": "交接",

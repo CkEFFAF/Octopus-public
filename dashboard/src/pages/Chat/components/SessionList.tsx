@@ -1,3 +1,10 @@
+import SessionActivity from "./SessionActivity";
+import {
+  SidebarActivityProvider,
+  useSessionActivity,
+  useSidebarActivity,
+  withWorkingSessions,
+} from "../hooks/useSidebarActivity";
 import {
   Fragment,
   memo,
@@ -28,7 +35,15 @@ import type { Session } from "../hooks/useSessions";
 import type { OctopAgent } from "../../../context/AgentContext";
 import { isAgentChatReady } from "../../../utils/agentError";
 import { showConfirmModal } from "../../../utils/confirmModal";
-import { ExpertIcon } from "../../Experts/components/iconForName";
+import ExpertAgentAvatar from "./ExpertAgentAvatar";
+import type { ExpertPhase } from "../../../components/AnimatedExpertAvatar/model";
+import { usePinnedExperts } from "../hooks/usePinnedExperts";
+import {
+  ExpertPinButton,
+  ExpertStatusLabel,
+  PinnedExperts,
+  sidebarExpertPhase,
+} from "./SidebarExpert";
 import { useHiddenSharedExperts } from "../hooks/useHiddenSharedExperts";
 import SessionChannelIcon from "./SessionChannelIcon";
 import SharedExpertHint from "./SharedExpertHint";
@@ -74,6 +89,7 @@ const SessionItem = memo(function SessionItem({
   forkDisabled,
   forkDisabledHint,
 }: SessionItemProps) {
+  const { working } = useSessionActivity(session.id);
   const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(session.name);
@@ -178,7 +194,9 @@ const SessionItem = memo(function SessionItem({
     <div
       className={`${styles.sessionRow} ${
         isActive ? styles.sessionRowActive : ""
-      } ${session.pinned ? styles.sessionRowPinned : ""}`}
+      } ${session.pinned ? styles.sessionRowPinned : ""} ${
+        working ? styles.sessionRowWorking : ""
+      }`}
       onClick={() => {
         if (!isEditing) onSelect(session.id);
       }}
@@ -212,6 +230,7 @@ const SessionItem = memo(function SessionItem({
       ) : (
         <>
           <span className={styles.sessionRowTitle}>{session.name}</span>
+          <SessionActivity threadId={session.id} />
           {session.pinned ? (
             <span
               className={styles.sessionRowPinIndicator}
@@ -242,6 +261,9 @@ const SessionItem = memo(function SessionItem({
 
 interface AgentCardProps {
   agent: OctopAgent;
+  phase: ExpertPhase;
+  pinned: boolean;
+  onTogglePin: () => void;
   sessions: Session[];
   activeId: string | null;
   searchQuery: string;
@@ -263,6 +285,9 @@ interface AgentCardProps {
 
 function ActiveAgentCard({
   agent,
+  phase,
+  pinned,
+  onTogglePin,
   sessions,
   activeId,
   searchQuery,
@@ -282,7 +307,6 @@ function ActiveAgentCard({
   onHide,
 }: AgentCardProps) {
   const { t } = useTranslation();
-  const accent = agent.color || "#6366f1";
 
   const filteredSessions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -311,20 +335,13 @@ function ActiveAgentCard({
         className={styles.agentCardProfile}
         title={agent.description || undefined}
       >
-        <div
-          className={styles.agentCardAvatar}
-          style={{
-            color: accent,
-            background: `${accent}14`,
-            boxShadow: `0 0 0 1px ${accent}22`,
-          }}
-        >
-          <ExpertIcon
-            iconUrl={agent.icon_url}
-            iconName={agent.icon_name}
-            size={agent.icon_url?.trim() ? 28 : 16}
-          />
-        </div>
+        <ExpertAgentAvatar
+          iconUrl={agent.icon_url}
+          iconName={agent.icon_name}
+          color={agent.color}
+          size={44}
+          phase={phase}
+        />
         <div className={styles.agentCardInfo}>
           <div className={styles.agentCardNameRow}>
             <div className={styles.agentNameCluster}>
@@ -334,6 +351,10 @@ function ActiveAgentCard({
               <RemoteExpertHint agent={agent} />
             </div>
             <AgentUnreadBadge count={agent.unread_count ?? 0} />
+          </div>
+          <div className={styles.expertRowStatus}>
+            <ExpertStatusLabel phase={phase} />
+            <ExpertPinButton pinned={pinned} onClick={onTogglePin} />
             <button
               type="button"
               className={styles.agentNewChatBtn}
@@ -379,26 +400,37 @@ function ActiveAgentCard({
           </div>
         ) : (
           <>
-            {filteredSessions.map((s) => (
-              <SessionItem
-                key={s.id}
-                session={s}
-                isActive={activeId === s.id}
-                onSelect={(id) => onSelect(id, agent.agent_id)}
-                onDelete={onDelete}
-                onRename={onRename}
-                onPin={onPin}
-                onFork={onFork}
-                onShare={
-                  onShare ? (id) => onShare(id, agent.agent_id) : undefined
-                }
-                forkDisabled={
-                  activeId === s.id ? activeForkDisabled : undefined
-                }
-                forkDisabledHint={
-                  activeId === s.id ? activeForkDisabledHint : undefined
-                }
-              />
+            {filteredSessions.map((s, index) => (
+              <Fragment key={s.id}>
+                {(index === 0 ||
+                  Boolean(s.pinned) !==
+                    Boolean(filteredSessions[index - 1].pinned)) && (
+                  <div className={styles.sessionGroupTitle}>
+                    {t(
+                      s.pinned ? "chat.pinnedSessions" : "chat.recentSessions",
+                    )}
+                  </div>
+                )}
+                <SessionItem
+                  key={s.id}
+                  session={s}
+                  isActive={activeId === s.id}
+                  onSelect={(id) => onSelect(id, agent.agent_id)}
+                  onDelete={onDelete}
+                  onRename={onRename}
+                  onPin={onPin}
+                  onFork={onFork}
+                  onShare={
+                    onShare ? (id) => onShare(id, agent.agent_id) : undefined
+                  }
+                  forkDisabled={
+                    activeId === s.id ? activeForkDisabled : undefined
+                  }
+                  forkDisabledHint={
+                    activeId === s.id ? activeForkDisabledHint : undefined
+                  }
+                />
+              </Fragment>
             ))}
             {showExpandMore ? (
               <button
@@ -421,6 +453,9 @@ function ActiveAgentCard({
 
 interface AgentRowProps {
   agent: OctopAgent;
+  phase: ExpertPhase;
+  pinned?: boolean;
+  onTogglePin?: () => void;
   onSelect: () => void;
   onNewChat?: () => void;
   onHide?: () => void;
@@ -429,13 +464,15 @@ interface AgentRowProps {
 
 function InactiveAgentRow({
   agent,
+  phase,
+  pinned = false,
+  onTogglePin,
   onSelect,
   onNewChat,
   onHide,
   onUnhide,
 }: AgentRowProps) {
   const { t } = useTranslation();
-  const accent = agent.color || "#6366f1";
 
   return (
     <div className={styles.agentRowWrap}>
@@ -452,16 +489,13 @@ function InactiveAgentRow({
           }
         }}
       >
-        <div
-          className={styles.agentRowAvatar}
-          style={{ color: accent, background: `${accent}12` }}
-        >
-          <ExpertIcon
-            iconUrl={agent.icon_url}
-            iconName={agent.icon_name}
-            size={agent.icon_url?.trim() ? 26 : 14}
-          />
-        </div>
+        <ExpertAgentAvatar
+          iconUrl={agent.icon_url}
+          iconName={agent.icon_name}
+          color={agent.color}
+          size={44}
+          phase={phase}
+        />
         <div className={styles.agentRowInfo}>
           <div className={styles.agentRowNameRow}>
             <div className={styles.agentNameCluster}>
@@ -471,6 +505,12 @@ function InactiveAgentRow({
               <RemoteExpertHint agent={agent} />
             </div>
             <AgentUnreadBadge count={agent.unread_count ?? 0} />
+          </div>
+          <div className={styles.expertRowStatus}>
+            <ExpertStatusLabel phase={phase} />
+            {onTogglePin && (
+              <ExpertPinButton pinned={pinned} onClick={onTogglePin} />
+            )}
             {onNewChat ? (
               <button
                 type="button"
@@ -516,6 +556,7 @@ function InactiveAgentRow({
 
 interface SessionListProps {
   agents: OctopAgent[];
+  activePhase?: ExpertPhase;
   sessions: Session[];
   activeId: string | null;
   activeAgentId: string | null;
@@ -535,9 +576,10 @@ interface SessionListProps {
   activeForkDisabledHint?: string;
 }
 
-export default function SessionList({
-  agents,
-  sessions,
+function SessionListContent({
+  agents: initialAgents,
+  activePhase,
+  sessions: initialSessions,
   activeId,
   activeAgentId,
   hasMore,
@@ -556,9 +598,21 @@ export default function SessionList({
   activeForkDisabledHint,
 }: SessionListProps) {
   const { t } = useTranslation();
+  const sidebarActivity = useSidebarActivity();
+  const agents = initialAgents.map((agent) => ({
+    ...agent,
+    is_working:
+      agent.is_working ||
+      !!sidebarActivity[agent.agent_id]?.working_threads.length,
+  }));
+  const sessions = withWorkingSessions(
+    initialSessions,
+    sidebarActivity[activeAgentId ?? ""],
+  );
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [showingHidden, setShowingHidden] = useState(false);
+  const { pinnedIds, togglePin } = usePinnedExperts();
   const { filterVisible, pickHidden, hide, unhide, canHide } =
     useHiddenSharedExperts();
 
@@ -597,6 +651,10 @@ export default function SessionList({
     [sortedAgents, expandedAgentId],
   );
   const showSessions = isAgentChatReady(activeAgent?.state);
+  const pinnedAgents = pinnedIds.flatMap((id) => {
+    const agent = sortedAgents.find((item) => item.agent_id === id);
+    return agent && matchesAgent(agent) ? [agent] : [];
+  });
 
   return (
     <div className={styles.sessionList}>
@@ -650,11 +708,21 @@ export default function SessionList({
         </div>
       ) : (
         <div className={styles.sessionItems}>
+          {!viewingHidden && (
+            <PinnedExperts
+              agents={pinnedAgents}
+              activeAgentId={activeAgentId}
+              activePhase={activePhase}
+              onSelect={onAgentSelect}
+              onTogglePin={togglePin}
+            />
+          )}
           {viewingHidden
             ? hiddenAgents.map((agent) => (
                 <InactiveAgentRow
                   key={agent.agent_id}
                   agent={agent}
+                  phase={sidebarExpertPhase(agent)}
                   onSelect={() => {
                     unhide(agent.agent_id);
                     setShowingHidden(false);
@@ -669,6 +737,9 @@ export default function SessionList({
                   <ActiveAgentCard
                     key={agent.agent_id}
                     agent={agent}
+                    phase={sidebarExpertPhase(agent, activePhase)}
+                    pinned={pinnedIds.includes(agent.agent_id)}
+                    onTogglePin={() => togglePin(agent.agent_id)}
                     sessions={sessions}
                     activeId={activeId}
                     searchQuery={matchesAgent(agent) ? "" : searchQuery}
@@ -693,6 +764,9 @@ export default function SessionList({
                   <InactiveAgentRow
                     key={agent.agent_id}
                     agent={agent}
+                    phase={sidebarExpertPhase(agent)}
+                    pinned={pinnedIds.includes(agent.agent_id)}
+                    onTogglePin={() => togglePin(agent.agent_id)}
                     onSelect={() => onAgentSelect(agent.agent_id)}
                     onNewChat={() => onNewChat(agent.agent_id)}
                     onHide={
@@ -722,6 +796,23 @@ export default function SessionList({
                       </div>
                     )}
                     {row}
+                    {!expanded &&
+                      withWorkingSessions(
+                        [],
+                        sidebarActivity[agent.agent_id],
+                      ).map((session) => (
+                        <button
+                          key={session.id}
+                          type="button"
+                          className={`${styles.sessionRow} ${styles.sessionRowWorking} ${styles.backgroundSessionShortcut}`}
+                          onClick={() => onSelect(session.id, agent.agent_id)}
+                        >
+                          <span className={styles.sessionRowTitle}>
+                            {session.name}
+                          </span>
+                          <SessionActivity threadId={session.id} />
+                        </button>
+                      ))}
                   </Fragment>
                 );
               })}
@@ -739,5 +830,13 @@ export default function SessionList({
         </div>
       )}
     </div>
+  );
+}
+
+export default function SessionList(props: SessionListProps) {
+  return (
+    <SidebarActivityProvider agents={props.agents}>
+      <SessionListContent {...props} />
+    </SidebarActivityProvider>
   );
 }

@@ -2084,6 +2084,8 @@
     "subagentPickerManage": "Manage subagents",
     "modelPickerManage": "Manage models",
     "sessionWorking": "Working",
+    "sessionWorkingShort": "Working",
+    "sessionSchedules": "{{count}} scheduled task(s)",
     "composerContextLabel": "Message context",
     "contextWindow": {
       "tooltip": "Context {{used}} / {{max}} · {{percent}}% (last model request)",
@@ -2447,7 +2449,12 @@
         "compare": "Compare evidence",
         "synthesize": "Synthesize"
       }
-    }
+    },
+    "pinExpert": "Pin expert",
+    "unpinExpert": "Unpin expert",
+    "pinnedExperts": "Pinned",
+    "pinnedSessions": "Pinned chats",
+    "recentSessions": "Recent chats"
   },
   "tools": {
     "unknown": "Unknown tool",
