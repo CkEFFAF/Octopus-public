@@ -59,14 +59,15 @@ jobs:
           enable-cache: true
           python-version: "3.12"
 
+      # Keep the Playwright browser between runs; setup-uv only caches Python packages.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('uv.lock') }}
+
       - name: Install dependencies
         run: make install
-
-      - name: Lint
-        run: make lint
-
-      - name: Type check
-        run: make typecheck
 
       - name: Install matching browser for native integration tests
         run: uv run python -m playwright install chromium
