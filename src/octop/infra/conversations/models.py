@@ -99,16 +99,45 @@ class MetadataJobRequest(Contract):
     command_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
 
 
+OrganizationAge = Literal["all", "never", "d1", "d3", "d5", "d7", "older"]
+OrganizationStatus = Literal["all", "never", "active", "ready", "failed", "cancelled"]
+
+
+class OrganizationRecord(Contract):
+    thread_id: str
+    agent_id: str
+    title: str | None
+    agent_name: str
+    last_success_at: float
+    last_attempt_at: float
+    status: str
+    error_code: str
+    job_id: str | None
+    diagnostic: dict[str, Any] = Field(default_factory=dict)
+
+
+class OrganizationPage(Contract):
+    items: list[OrganizationRecord]
+    total: int
+    offset: int
+    limit: int
+
+
 class HistoryBatchRequest(Contract):
     command_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
     agent_id: str | None = Field(default=None, min_length=1, max_length=300)
     thread_ids: list[str] | None = Field(default=None, min_length=1, max_length=50)
+    age_filter: OrganizationAge = "all"
+    status_filter: OrganizationStatus = "all"
 
 
 class HistoryBatchView(Contract):
     failures: list[dict[str, Any]] = Field(default_factory=list)
     errors: dict[str, int] = Field(default_factory=dict)
     batch_id: str
+    started_at: float = 0
+    updated_at: float = 0
+    finished_at: float = 0
     total: int = 0
     queued: int = 0
     running: int = 0

@@ -19,6 +19,7 @@ export interface ScheduleQuery {
   thread_id?: string;
   reminder?: boolean;
   category?: "once" | "repeat" | "ended";
+  lifecycle?: "active" | "completed" | "failed" | "inactive";
   search?: string;
 }
 export interface SchedulePage {
@@ -28,6 +29,7 @@ export interface SchedulePage {
   has_more: boolean;
   next_offset: number | null;
   counts: { schedules: number; reminders: number };
+  lifecycle_counts?: Record<string, number>;
 }
 
 export const octopCronApi = {

@@ -56,33 +56,35 @@ export default function ExpertScheduleBadge({
           boxShadow: "0 6px 24px rgb(0 0 0 / 12%)",
         }}
         title={
-          <div className={styles.sessionSchedulePreview}>
-            <strong>{t("workspace0034.expertTaskPanel")}</strong>
-            <p>{t("workspace0034.scheduleSummary", counts)}</p>
-            {recent.length > 0 ? (
-              <ul>
-                {recent.map((row) => (
-                  <li key={row.id}>
-                    <span>{row.name}</span>
-                    <small>
-                      {row.next_run_at
-                        ? t("workspace0034.nextAt", {
-                            time: formatServerDateTime(
-                              row.next_run_at,
-                              row.timezone,
-                            ),
-                          })
-                        : t(
-                            `workspace0034.scheduleState.${row.scheduler_state}`,
-                          )}
-                    </small>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              !total && <p>{t("workspace0034.scheduleEmpty")}</p>
-            )}
-          </div>
+          !open && (
+            <div className={styles.sessionSchedulePreview}>
+              <strong>{t("workspace0034.expertTaskPanel")}</strong>
+              <p>{t("workspace0034.scheduleSummary", counts)}</p>
+              {recent.length > 0 ? (
+                <ul>
+                  {recent.map((row) => (
+                    <li key={row.id}>
+                      <span>{row.name}</span>
+                      <small>
+                        {row.next_run_at
+                          ? t("workspace0034.nextAt", {
+                              time: formatServerDateTime(
+                                row.next_run_at,
+                                row.timezone,
+                              ),
+                            })
+                          : t(
+                              `workspace0034.scheduleState.${row.scheduler_state}`,
+                            )}
+                      </small>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                !total && <p>{t("workspace0034.scheduleEmpty")}</p>
+              )}
+            </div>
+          )
         }
       >
         <button

@@ -1,4 +1,55 @@
 {
+  "taskFilters": {
+    "label": "Task status",
+    "recordLabel": "Observation status",
+    "active": "Active",
+    "completed": "Completed",
+    "failed": "Failed",
+    "inactive": "Stopped / unconfirmed",
+    "all": "All",
+    "empty": "No tasks in this category",
+    "activeHint": "Shows running, scheduled or waiting tasks. Select Completed to inspect finished work.",
+    "detailHint": "Select a card to inspect task content and execution records.",
+    "summary": "{{count}} conversations · {{jobs}} background tasks"
+  },
+  "organizationHistory": {
+    "title": "Conversation organization history",
+    "timeHint": "Filter by the last successful organization. Failed attempts do not reset that time; each operation retains its latest state and timestamp.",
+    "never": "No record yet",
+    "ageFilter": "Time since last success",
+    "statusFilter": "Organization status",
+    "ages": {
+      "all": "Any time",
+      "never": "Never successfully organized",
+      "d1": "Less than 1 day",
+      "d3": "1–3 days since success",
+      "d5": "3–5 days since success",
+      "d7": "5–7 days since success",
+      "older": "At least 7 days since success"
+    },
+    "status": {
+      "all": "All states",
+      "never": "Not attempted",
+      "active": "Processing / queued",
+      "ready": "Succeeded",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "matchCount": "{{count}} matching conversations",
+    "empty": "No matching conversations",
+    "lastSuccess": "Last successful organization",
+    "lastAttempt": "Latest operation",
+    "retry": "Retry conversation",
+    "update": "Organize again",
+    "queued": "Added to the organization queue",
+    "organizeFiltered": "Organize matching conversations",
+    "viewFailed": "View failed conversations",
+    "batchStarted": "Batch started:",
+    "batchFinished": "Batch finished:",
+    "appliedFilters": "Selection:",
+    "filteredScope": "Conversations matching these filters",
+    "filteredHint": "Organize only conversations matching the time and status filters below. Manual titles and corrections are preserved. Model usage applies."
+  },
   "sessionPreview": {
     "progress": "Latest progress",
     "blocker": "Blocker",

@@ -32,7 +32,37 @@ export interface ActivitySnapshot {
     completed: number;
   };
 }
+export interface BackgroundJobPage {
+  items: Array<{
+    id: string;
+    thread_id: string;
+    title: string | null;
+    status: string;
+    updated_at: number;
+    lifecycle: string;
+  }>;
+  counts: Record<string, number>;
+  total: number;
+  offset: number;
+  limit: number;
+}
 export const activityApi = {
+  backgroundJobs: (
+    agent: string,
+    lifecycle: string,
+    thread?: string,
+    offset = 0,
+  ) => {
+    const query = new URLSearchParams({
+      lifecycle,
+      offset: String(offset),
+      limit: "20",
+    });
+    if (thread) query.set("thread_id", thread);
+    return request<BackgroundJobPage>(
+      `/agents/${encodeURIComponent(agent)}/background-jobs?${query}`,
+    );
+  },
   snapshot: (a: string, t: string, before?: number) =>
     request<ActivitySnapshot>(
       `${fileScope(a, t)}/activity${before ? `?before=${before}` : ""}`,

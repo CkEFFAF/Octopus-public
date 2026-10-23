@@ -17,6 +17,46 @@ from octop.infra.gateway.ws.ws_hub import WebSocketHub
 rig = sidebar_rig
 
 
+def test_background_history_filters_owner_threads_and_omits_commands(rig: Any):
+    repo = rig.repos.run_event_repo
+    for index, state in enumerate(("running", "completed", "failed", "cancelled")):
+        repo.save(
+            event_id=f"history-{index}",
+            owner=rig.owner,
+            agent_id="parent",
+            thread_id="root",
+            run_id="",
+            context_id=None,
+            kind="job",
+            status=state,
+            payload={"command": "secret command", "job_id": "raw-job-id", "output": "secret log"},
+        )
+    page = repo.background_page(
+        rig.owner, "parent", lifecycle="active", thread=None, offset=0, limit=20
+    )
+    assert page["total"] == 1 and page["items"][0]["status"] == "running"
+    assert page["counts"] == {"active": 1, "completed": 1, "failed": 1, "inactive": 1}
+    assert "secret" not in str(page) and "raw-job-id" not in str(page)
+    assert (
+        repo.background_page(
+            rig.owner, "parent", lifecycle="completed", thread=None, offset=0, limit=20
+        )["items"][0]["id"]
+        == "history-1"
+    )
+    assert (
+        repo.background_page(
+            rig.outsider, "parent", lifecycle="all", thread=None, offset=0, limit=20
+        )["total"]
+        == 0
+    )
+    assert (
+        repo.background_page(
+            rig.owner, "parent", lifecycle="all", thread="foreign", offset=0, limit=20
+        )["total"]
+        == 0
+    )
+
+
 @pytest.mark.asyncio
 async def test_activity_and_schedules_follow_actual_owned_threads(rig: Any) -> None:
     repos = rig.repos

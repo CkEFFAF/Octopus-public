@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from octop.api.common.agent import require_agent_row, user_owns_agent
 from octop.api.common.agent_workspace import resolve_agent_workspace_dir
@@ -133,6 +133,28 @@ async def get_sidebar_status(
     for item in status["working_threads"]:
         item["metadata"] = metadata.get(item["thread_id"])
     return SidebarStatus.model_validate(status)
+
+
+@router.get("/agents/{agent_id}/background-jobs", summary="Browse owned background jobs by state")
+async def background_jobs(
+    agent_id: str,
+    lifecycle: Literal["active", "completed", "failed", "inactive", "all"] = "active",
+    thread_id: str | None = None,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=100),
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    require_agent_row(agent_id, user=user, as_user=None, server=server)
+    return await asyncio.to_thread(
+        server.services.repos.run_event_repo.background_page,
+        user.id,
+        agent_id,
+        lifecycle=lifecycle,
+        thread=thread_id,
+        offset=offset,
+        limit=limit,
+    )
 
 
 @router.get("/agents/{agent_id}/threads", summary="List threads")

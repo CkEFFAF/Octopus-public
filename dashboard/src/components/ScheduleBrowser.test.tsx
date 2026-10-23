@@ -33,6 +33,31 @@ const row = (id: string) =>
   }) as OctopCronRow;
 
 describe("bounded schedule browsing", () => {
+  it("requests active schedules initially and completed schedules only on selection", async () => {
+    vi.mocked(octopCronApi.page).mockImplementation(async (query) => ({
+      items:
+        query.lifecycle === "completed"
+          ? [{ ...row("Finished reminder"), agent_id: "main" }]
+          : [],
+      total: query.lifecycle === "completed" ? 1 : 0,
+      has_more: false,
+      next_offset: null,
+      counts: { schedules: 0, reminders: 1 },
+      lifecycle_counts: { active: 0, completed: 1, failed: 0, inactive: 0 },
+    }));
+    render(
+      <MemoryRouter>
+        <ScheduleBrowser agentId="main" reminder compact />
+      </MemoryRouter>,
+    );
+    await screen.findByText("workspace0034.scheduleEmpty");
+    expect(screen.queryByText("Finished reminder")).toBeNull();
+    expect(vi.mocked(octopCronApi.page).mock.lastCall?.[0].lifecycle).toBe(
+      "active",
+    );
+    fireEvent.click(screen.getByText("taskFilters.completed 1"));
+    expect(await screen.findByText("Finished reminder")).toBeVisible();
+  });
   it("uses a full card list in dialogs and opens details with a way back", async () => {
     vi.mocked(octopCronApi.page).mockResolvedValue({
       items: [{ ...row("Reminder card"), agent_id: "main" }],
@@ -110,7 +135,7 @@ describe("bounded schedule browsing", () => {
     await screen.findByText("Task 4");
     expect(screen.queryByText("Task 5")).toBeNull();
     expect(octopCronApi.page).toHaveBeenLastCalledWith(
-      { agent_id: "main", reminder: false, search: "" },
+      { agent_id: "main", reminder: false, search: "", lifecycle: "active" },
       0,
       5,
     );
@@ -122,7 +147,7 @@ describe("bounded schedule browsing", () => {
     );
     await screen.findByText("Task 9");
     expect(octopCronApi.page).toHaveBeenLastCalledWith(
-      { agent_id: "main", reminder: false, search: "" },
+      { agent_id: "main", reminder: false, search: "", lifecycle: "active" },
       5,
       5,
     );

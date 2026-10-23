@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import ExpertScheduleBadge from "./ExpertScheduleBadge";
@@ -18,7 +18,7 @@ function Location() {
   return <output>{value.pathname + value.search}</output>;
 }
 describe("expert schedule shortcuts", () => {
-  it("opens the expert's task panel without selecting the expert row", () => {
+  it("opens the expert's task panel without selecting the expert row", async () => {
     const select = vi.fn();
     render(
       <MemoryRouter>
@@ -28,9 +28,13 @@ describe("expert schedule shortcuts", () => {
         </div>
       </MemoryRouter>,
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "workspace0034.expertTaskPanel" }),
-    );
+    const shortcut = screen.getByRole("button", {
+      name: "workspace0034.expertTaskPanel",
+    });
+    fireEvent.focus(shortcut);
+    await screen.findByRole("tooltip");
+    fireEvent.click(shortcut);
+    await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
     expect(select).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(

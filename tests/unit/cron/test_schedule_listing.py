@@ -83,6 +83,49 @@ def test_frequency_uses_actual_cron_and_interval_triggers() -> None:
     assert schedule_frequency("agently:mail", "Asia/Shanghai", now) == float("inf")
 
 
+def test_lifecycle_filter_counts_and_pagination_exclude_finished_work_by_default_choice(
+    rig: Any, monkeypatch
+):
+    manager = seed(rig)
+    original = manager.public_view
+    states = {
+        "once": "scheduled",
+        "minute": "running",
+        "hour": "paused",
+        "daily": "unregistered",
+        "weekly": "waiting_event",
+        "ended": "exhausted",
+    }
+    monkeypatch.setattr(
+        manager,
+        "public_view",
+        lambda row: {
+            **original(row),
+            "scheduler_state": states.get(row.cron_id, "paused"),
+            "last_status": "error" if row.cron_id == "daily" else "ok",
+        },
+    )
+    active = manager.list_page(user_id=rig.owner, lifecycle="active", limit=1)
+    assert active["total"] == 3 and len(active["items"]) == 1 and active["has_more"]
+    assert active["lifecycle_counts"] == {"active": 3, "completed": 1, "failed": 1, "inactive": 1}
+    assert (
+        manager.list_page(user_id=rig.owner, lifecycle="completed", reminder=True)["items"][0]["id"]
+        == "ended"
+    )
+    assert manager.list_page(user_id=rig.owner, lifecycle="failed")["items"][0]["id"] == "daily"
+    assert (
+        manager.list_page(user_id=rig.owner, lifecycle="completed", category="repeat")["total"] == 1
+    )
+    assert (
+        manager.list_page(user_id=rig.owner, lifecycle="completed", category="once")["total"] == 0
+    )
+    assert manager.list_page(user_id=rig.owner, lifecycle="inactive")["items"][0]["id"] == "hour"
+    assert (
+        manager.list_page(user_id=rig.owner, lifecycle="completed", thread_id="foreign")["total"]
+        == 0
+    )
+
+
 def test_next_fire_summary_includes_tasks_outside_the_visible_page(
     rig: Any, monkeypatch: Any
 ) -> None:

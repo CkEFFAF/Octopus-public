@@ -6,6 +6,10 @@
 .summary {
   display: grid;
   gap: 12px;
+  :global(.octop-segmented-group),
+  :global(.ant-segmented-group) {
+    flex-wrap: wrap;
+  }
 }
 .summaryCount {
   margin: 0;
@@ -68,6 +72,10 @@
 .observations {
   max-height: 65vh;
   overflow: auto;
+  :global(.octop-segmented-group),
+  :global(.ant-segmented-group) {
+    flex-wrap: wrap;
+  }
 }
 .counts {
   display: flex;
