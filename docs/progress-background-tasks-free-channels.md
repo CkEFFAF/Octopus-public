@@ -1,7 +1,10 @@
 # Background tasks, free channels and overview refinement
 
 Implementation complete on fix/background-tasks-free-channels, based on d92a8525.
-Release pending normal commit hook, PR checks/merge and verified deployment.
+PR #50 merged as cd0e3a28 after Linux CI, builds and CodeQL passed. Production
+activated that source with a full private backup and preserved existing resources.
+Final configuration verification found the Free Models Hub route duplicated its
+provider mount prefix; a follow-up release is required for that entry point.
 
 1. Metadata: same-model bounded format repair, compact output, truncation
    detection, safe copied diagnostics (field paths/types, HTTP/request/retry
@@ -51,3 +54,8 @@ several tested models return 429, with Free usage limit reached. Direct Zen
 returns 403 FreeTierError. Directory membership is not a working-call claim.
 Free Models Hub currently returns 9 channel entries; keys require user signup.
 No real chat text sent to new provider smoke tests and no paid fallback used.
+
+Release follow-up: the actual /api/providers/free-hub integration test reproduced
+404 before the one-line route correction, then provider API/catalog tests passed
+(12 tests). The regression checks the dashboard path through build_app and its
+authentication boundary. Final commit/PR/deployment checks remain in progress.
