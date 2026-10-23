@@ -3,6 +3,23 @@
 from __future__ import annotations
 
 
+async def test_free_models_hub_uses_provider_mount(env, monkeypatch):
+    """The dashboard path works through the real router mount and requires auth."""
+    client, _, auth = env
+    entries = [{"name": "Example", "url": "https://example.com"}]
+    monkeypatch.setattr(
+        "octop.infra.agents.providers.live_catalog.free_hub_entries", lambda: entries
+    )
+    monkeypatch.setattr(
+        "octop.infra.agents.providers.live_catalog.catalog_status", lambda: {"sources": []}
+    )
+
+    response = await client.get("/api/providers/free-hub", headers=auth)
+    assert response.status_code == 200
+    assert response.json() == {"items": entries, "sources": []}
+    assert (await client.get("/api/providers/free-hub")).status_code == 401
+
+
 async def test_list_providers(env):
     """GET /providers returns all providers (read-only endpoint for any user)."""
     c, _, auth = env
