@@ -28,11 +28,13 @@ export default function OrganizationHistory({
   status,
   onFilter,
   pending,
+  batchId,
 }: {
   age: OrganizationAge;
   status: OrganizationStatus;
   onFilter: (age: OrganizationAge, status: OrganizationStatus) => void;
   pending: boolean;
+  batchId?: string;
 }) {
   const { t } = useTranslation();
   const translate = useRef(t);
@@ -47,7 +49,7 @@ export default function OrganizationHistory({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [revision, setRevision] = useState(0);
-  const key = `${age}:${status}:${offset}`;
+  const key = `${batchId ?? "latest"}:${age}:${status}:${offset}`;
   const current = page?.key === key ? page.value : null;
   useEffect(() => setOffset(0), [age, status]);
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
@@ -58,7 +60,7 @@ export default function OrganizationHistory({
       if (inFlight) return;
       inFlight = true;
       try {
-        const value = await api.organizationPage(age, status, offset);
+        const value = await api.organizationPage(age, status, offset, batchId);
         if (alive) {
           if (offset > 0 && offset >= value.total) {
             setOffset(Math.floor(Math.max(0, value.total - 1) / 20) * 20);
@@ -88,7 +90,7 @@ export default function OrganizationHistory({
       alive = false;
       window.clearInterval(timer);
     };
-  }, [age, status, offset, key, revision]);
+  }, [age, status, offset, key, revision, batchId]);
   const date = (value: number) =>
     value
       ? formatServerDateTime(value, timezone)
@@ -96,41 +98,51 @@ export default function OrganizationHistory({
   return (
     <section className={styles.organizationHistory}>
       <h3>{t("organizationHistory.title")}</h3>
-      <p className={styles.historyHint}>{t("organizationHistory.timeHint")}</p>
+      <p className={styles.historyHint}>
+        {t(
+          batchId
+            ? "organizationHistory.batchFailuresHint"
+            : "organizationHistory.timeHint",
+        )}
+      </p>
       <Space wrap className={styles.historyFilters}>
-        <Select
-          value={age}
-          aria-label={t("organizationHistory.ageFilter")}
-          onChange={(value) => {
-            setOffset(0);
-            onFilter(value, status);
-          }}
-          options={["all", "never", "d1", "d3", "d5", "d7", "older"].map(
-            (value) => ({
-              value,
-              label: t(`organizationHistory.ages.${value}`),
-            }),
-          )}
-        />
-        <Select
-          value={status}
-          aria-label={t("organizationHistory.statusFilter")}
-          onChange={(value) => {
-            setOffset(0);
-            onFilter(age, value);
-          }}
-          options={[
-            "all",
-            "never",
-            "active",
-            "ready",
-            "failed",
-            "cancelled",
-          ].map((value) => ({
-            value,
-            label: t(`organizationHistory.status.${value}`),
-          }))}
-        />
+        {!batchId && (
+          <>
+            <Select
+              value={age}
+              aria-label={t("organizationHistory.ageFilter")}
+              onChange={(value) => {
+                setOffset(0);
+                onFilter(value, status);
+              }}
+              options={["all", "never", "d1", "d3", "d5", "d7", "older"].map(
+                (value) => ({
+                  value,
+                  label: t(`organizationHistory.ages.${value}`),
+                }),
+              )}
+            />
+            <Select
+              value={status}
+              aria-label={t("organizationHistory.statusFilter")}
+              onChange={(value) => {
+                setOffset(0);
+                onFilter(age, value);
+              }}
+              options={[
+                "all",
+                "never",
+                "active",
+                "ready",
+                "failed",
+                "cancelled",
+              ].map((value) => ({
+                value,
+                label: t(`organizationHistory.status.${value}`),
+              }))}
+            />
+          </>
+        )}
         <Button onClick={refresh}>{t("common.refresh")}</Button>
         {current && (
           <span>
@@ -156,7 +168,11 @@ export default function OrganizationHistory({
       <div className={styles.organizationRows}>
         {current?.items.map((row) => {
           const failed = row.status === "failed";
-          const active = ["queued", "retry", "running"].includes(row.status);
+          const latestStatus = batchId
+            ? row.latest_status ?? row.status
+            : row.status;
+          const recovered = Boolean(batchId && latestStatus === "ready");
+          const active = ["queued", "retry", "running"].includes(latestStatus);
           const reason = failed
             ? t(
                 `conversationMetadata.errors.${row.error_code}`,
@@ -192,6 +208,11 @@ export default function OrganizationHistory({
                     }`,
                   )}
                 </Tag>
+                {recovered && (
+                  <Tag color="success">
+                    {t("organizationHistory.recovered")}
+                  </Tag>
+                )}
               </header>
               <dl>
                 <div>
@@ -220,7 +241,7 @@ export default function OrganizationHistory({
                 <Button
                   size="small"
                   loading={busy === row.thread_id}
-                  disabled={pending || active || Boolean(busy)}
+                  disabled={pending || active || recovered || Boolean(busy)}
                   onClick={async () => {
                     setBusy(row.thread_id);
                     try {
@@ -240,6 +261,7 @@ export default function OrganizationHistory({
                                     ? {
                                         ...item,
                                         status: job.status,
+                                        latest_status: job.status,
                                         job_id: job.job_id,
                                       }
                                     : item,
@@ -258,7 +280,9 @@ export default function OrganizationHistory({
                   }}
                 >
                   {t(
-                    failed
+                    recovered
+                      ? "organizationHistory.recovered"
+                      : failed
                       ? "organizationHistory.retry"
                       : "organizationHistory.update",
                   )}

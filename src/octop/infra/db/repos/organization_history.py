@@ -8,8 +8,21 @@ from typing import Any
 
 
 def selection(
-    owner: int, age: str = "all", status: str = "all", agent: str | None = None
+    owner: int,
+    age: str = "all",
+    status: str = "all",
+    agent: str | None = None,
+    *,
+    batch: str | None = None,
 ) -> tuple[str, list[Any]]:
+    job_join = "LEFT JOIN thread_metadata_jobs j ON j.id=x.latest_id "
+    values: list[Any] = [owner]
+    if batch is not None:
+        job_join = (
+            "JOIN thread_metadata_jobs j ON j.thread_id=t.thread_id "
+            "AND j.owner_user_id=? AND j.request_json=? "
+        )
+        values.extend([owner, json.dumps({"batch_id": batch}, separators=(",", ":"))])
     sql = (
         "WITH last_jobs AS (SELECT thread_id,MAX(id) AS latest_id,"
         "MAX(CASE WHEN status='ready' THEN updated_at ELSE 0 END) AS succeeded_at "
@@ -20,14 +33,16 @@ def selection(
         "COALESCE(j.status,CASE WHEN m.generated_at>0 THEN 'ready' ELSE 'never' END) AS status,"
         "COALESCE(j.updated_at,0) AS last_attempt_at,COALESCE(j.error_code,'') AS error_code,"
         "COALESCE(j.result_json,'{}') AS result_json,j.job_id "
+        ",COALESCE(c.status,CASE WHEN m.generated_at>0 THEN 'ready' ELSE 'never' END) AS latest_status "
         "FROM threads t JOIN agents a ON a.agent_id=t.agent_id "
         "LEFT JOIN thread_metadata m ON m.thread_id=t.thread_id "
         "LEFT JOIN last_jobs x ON x.thread_id=t.thread_id "
-        "LEFT JOIN thread_metadata_jobs j ON j.id=x.latest_id "
-        "WHERE t.user_id=? AND (a.user_id=? OR a.is_shared=1)) "
+        "LEFT JOIN thread_metadata_jobs c ON c.id=x.latest_id "
+        + job_join
+        + "WHERE t.user_id=? AND (a.user_id=? OR a.is_shared=1)) "
         "SELECT * FROM records WHERE 1=1"
     )
-    values: list[Any] = [owner, owner, owner]
+    values.extend([owner, owner])
     if agent is not None:
         sql += " AND agent_id=?"
         values.append(agent)
@@ -52,9 +67,17 @@ def selection(
 
 
 def list_page(
-    db: Any, owner: int, *, age: str, status: str, agent: str | None, offset: int, limit: int
+    db: Any,
+    owner: int,
+    *,
+    age: str,
+    status: str,
+    agent: str | None,
+    offset: int,
+    limit: int,
+    batch: str | None = None,
 ) -> dict[str, Any]:
-    sql, values = selection(owner, age, status, agent)
+    sql, values = selection(owner, age, status, agent, batch=batch)
     with db.connect() as conn:
         total = conn.execute(f"SELECT COUNT(*) FROM ({sql}) selected", values).fetchone()[0]
         rows = conn.execute(

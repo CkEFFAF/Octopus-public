@@ -142,6 +142,15 @@ class ConversationMetadataRepo:
             "FROM thread_metadata_jobs WHERE owner_user_id=? AND request_json=?",
             (owner, encoded({"batch_id": batch})),
         ).fetchone()
+        recovered = conn.execute(
+            "SELECT COUNT(*) FROM thread_metadata_jobs f "
+            "JOIN thread_metadata_jobs latest ON latest.id=(SELECT MAX(id) "
+            "FROM thread_metadata_jobs WHERE owner_user_id=f.owner_user_id "
+            "AND thread_id=f.thread_id AND kind IN ('auto','brief')) "
+            "WHERE f.owner_user_id=? AND f.request_json=? AND f.status='failed' "
+            "AND latest.status='ready' AND latest.updated_at>f.updated_at",
+            (owner, encoded({"batch_id": batch})),
+        ).fetchone()[0]
         return {
             "batch_id": batch,
             "started_at": timing["started_at"],
@@ -150,6 +159,7 @@ class ConversationMetadataRepo:
             if any(counts.get(s) for s in ("queued", "retry", "running"))
             else timing["updated_at"],
             "total": sum(counts.values()),
+            "recovered": recovered,
             "errors": {row["error_code"]: row["count"] for row in errors},
             "failures": [
                 {
@@ -169,10 +179,25 @@ class ConversationMetadataRepo:
             return self._history_batch(conn, owner)
 
     def organization_page(
-        self, owner: int, *, age: str, status: str, agent: str | None, offset: int, limit: int
+        self,
+        owner: int,
+        *,
+        age: str,
+        status: str,
+        agent: str | None,
+        offset: int,
+        limit: int,
+        batch: str | None = None,
     ) -> dict[str, Any]:
         return list_page(
-            self.db, owner, age=age, status=status, agent=agent, offset=offset, limit=limit
+            self.db,
+            owner,
+            age=age,
+            status=status,
+            agent=agent,
+            offset=offset,
+            limit=limit,
+            batch=batch,
         )
 
     def cancel_jobs(

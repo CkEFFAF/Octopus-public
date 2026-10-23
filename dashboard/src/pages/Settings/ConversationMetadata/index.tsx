@@ -36,6 +36,8 @@ import { formatServerDateTime } from "../../../utils/formatMessageTime";
 
 export default function ConversationMetadataSettings() {
   const { t } = useTranslation();
+  const translate = useRef(t);
+  translate.current = t;
   const timezone = useServerTimezone();
   const [ageFilter, setAgeFilter] = useState<OrganizationAge>("all");
   const [statusFilter, setStatusFilter] = useState<OrganizationStatus>("all");
@@ -44,9 +46,14 @@ export default function ConversationMetadataSettings() {
   const { agents } = useAgent();
   const [form] = Form.useForm<MetadataSettings>();
   const [settings, setSettings] = useState<MetadataSettingsView | null>(null);
+  const confirmedSettings = useRef<MetadataSettingsView | null>(null);
+  const nextSettings = useRef<MetadataSettings | null>(null);
+  const applying = useRef(false);
+  const [applyError, setApplyError] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
+  const [failedBatch, setFailedBatch] = useState<string | null>(null);
   const [batchScope, setBatchScope] = useState<"all" | "selected">("all");
   const [batch, setBatch] = useState<HistoryBatch | null>(null);
   const [batchError, setBatchError] = useState("");
@@ -59,6 +66,8 @@ export default function ConversationMetadataSettings() {
   const [batchBusy, setBatchBusy] = useState(false);
   const batchEpoch = useRef(0);
   const pending = Boolean(batch && (batch.queued || batch.running));
+  const recovered = batch?.recovered ?? 0;
+  const unresolved = Math.max(0, (batch?.failed ?? 0) - recovered);
   useEffect(() => {
     let alive = true;
     const refresh = async () => {
@@ -72,7 +81,10 @@ export default function ConversationMetadataSettings() {
       } catch (err) {
         if (alive)
           setBatchError(
-            apiErrorMessage(err, t("conversationMetadata.generationFailed")),
+            apiErrorMessage(
+              err,
+              translate.current("conversationMetadata.generationFailed"),
+            ),
           );
       }
     };
@@ -82,19 +94,23 @@ export default function ConversationMetadataSettings() {
       alive = false;
       window.clearInterval(timer);
     };
-  }, [t]);
+  }, []);
   const load = useCallback(async () => {
     try {
       setError("");
       const value = await conversationMetadataApi.settings();
+      confirmedSettings.current = value;
       setSettings(value);
       form.setFieldsValue(value);
     } catch (err) {
       setError(
-        apiErrorMessage(err, t("conversationMetadata.generationFailed")),
+        apiErrorMessage(
+          err,
+          translate.current("conversationMetadata.generationFailed"),
+        ),
       );
     }
-  }, [form, t]);
+  }, [form]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -131,28 +147,41 @@ export default function ConversationMetadataSettings() {
     };
   }, [batchOpen, batchScope, batchAgent, message, t]);
   const save = async (values: MetadataSettings) => {
-    if (!settings) return;
+    if (!confirmedSettings.current) return;
+    nextSettings.current = values;
+    if (applying.current) return;
+    applying.current = true;
     setSaving(true);
+    setApplyError("");
     try {
-      const value = await conversationMetadataApi.saveSettings({
-        revision: settings.revision,
-        title_enabled: values.title_enabled,
-        brief_enabled: values.brief_enabled,
-        title_model: values.title_model,
-        brief_model: values.brief_model,
-      });
-      setSettings(value);
-      form.setFieldsValue(value);
-      message.success(t("conversationMetadata.saved"));
+      while (nextSettings.current) {
+        const desired = nextSettings.current;
+        nextSettings.current = null;
+        const value = await conversationMetadataApi.saveSettings({
+          revision: confirmedSettings.current.revision,
+          title_enabled: desired.title_enabled,
+          brief_enabled: desired.brief_enabled,
+          title_model: desired.title_model,
+          brief_model: desired.brief_model,
+        });
+        confirmedSettings.current = value;
+        setSettings(value);
+        if (!nextSettings.current) form.setFieldsValue(value);
+      }
     } catch (err) {
-      message.error(
-        apiErrorMessage(err, t("conversationMetadata.generationFailed")),
+      nextSettings.current = null;
+      // A failed automatic write must not leave controls pretending to be applied.
+      form.setFieldsValue(confirmedSettings.current);
+      setApplyError(
+        apiErrorMessage(err, t("conversationMetadata.generationFailed"), t),
       );
     } finally {
+      applying.current = false;
       setSaving(false);
     }
   };
   const enqueue = async () => {
+    if (applying.current) return;
     setBatchBusy(true);
     try {
       const value = await conversationMetadataApi.startHistoryBatch({
@@ -208,8 +237,34 @@ export default function ConversationMetadataSettings() {
           <Form
             form={form}
             layout="vertical"
-            onFinish={(values) => void save(values)}
+            onValuesChange={(_changed, values) => void save(values)}
           >
+            <div className={styles.applyStatus} aria-live="polite">
+              {saving
+                ? t("conversationMetadata.applying")
+                : applyError
+                ? t("conversationMetadata.applyFailed")
+                : t("conversationMetadata.applied")}
+            </div>
+            {applyError && (
+              <Alert
+                type="error"
+                showIcon
+                className={styles.notice}
+                message={t("conversationMetadata.applyFailed")}
+                description={applyError}
+                action={
+                  <Button
+                    onClick={() => {
+                      setApplyError("");
+                      void load();
+                    }}
+                  >
+                    {t("common.refresh")}
+                  </Button>
+                }
+              />
+            )}
             {(!settings.title_available || !settings.brief_available) && (
               <Alert
                 type="info"
@@ -290,18 +345,6 @@ export default function ConversationMetadataSettings() {
               message={t("conversationMetadata.manualPriority")}
               description={t("conversationMetadata.historyPolicy")}
             />
-            <Space wrap>
-              <Button type="primary" htmlType="submit" loading={saving}>
-                {t("common.save")}
-              </Button>
-              <Button
-                onClick={() => {
-                  form.setFieldsValue(settings);
-                }}
-              >
-                {t("common.cancel")}
-              </Button>
-            </Space>
           </Form>
         )}
         <section
@@ -316,7 +359,7 @@ export default function ConversationMetadataSettings() {
           </Typography.Paragraph>
           <Button
             type="primary"
-            disabled={!settings || pending}
+            disabled={!settings || pending || saving}
             onClick={() => {
               setBatchScope("all");
               setBatchOpen(true);
@@ -368,14 +411,27 @@ export default function ConversationMetadataSettings() {
                 status={
                   pending
                     ? "active"
-                    : batch.failed || batch.cancelled
+                    : unresolved || batch.cancelled
                     ? "exception"
                     : "success"
                 }
               />
               <Typography.Paragraph>
+                {t("organizationHistory.batchResult")} ·{" "}
                 {t("conversationMetadata.batchProgress", { ...batch })}
               </Typography.Paragraph>
+              <p className={styles.historyHint}>
+                {t("organizationHistory.batchSnapshotHint")}
+              </p>
+              {recovered > 0 && (
+                <Alert
+                  type="success"
+                  showIcon
+                  message={t("organizationHistory.recoveredCount", {
+                    count: recovered,
+                  })}
+                />
+              )}
               {Boolean(batch.started_at) && (
                 <p className={styles.historyHint}>
                   {t("organizationHistory.batchStarted")}{" "}
@@ -389,50 +445,50 @@ export default function ConversationMetadataSettings() {
                   )}
                 </p>
               )}
-              {Boolean(batch.failed || batch.cancelled) && (
+              {Boolean(unresolved || batch.cancelled) && (
                 <Typography.Text type="warning">
                   {t("conversationMetadata.batchFailureHint")}
                 </Typography.Text>
               )}
-              {Object.entries(batch.errors ?? {}).map(([code, count]) => {
-                const reason = t(
-                  `conversationMetadata.errors.${code}`,
-                  t("conversationMetadata.generationFailed"),
-                );
-                return (
-                  <Alert
-                    key={code}
-                    type="warning"
-                    showIcon
-                    className={styles.failureRow}
-                    message={`${reason} · ${t(
-                      "conversationMetadata.failureCount",
-                      { count },
-                    )}`}
-                    action={
-                      <FailureDiagnostics
-                        summary={reason}
-                        value={{
-                          code,
-                          failed_count: count,
-                          samples: batch.failures?.filter(
-                            (item) => item.code === code,
-                          ),
-                        }}
-                      />
-                    }
-                  />
-                );
-              })}
+              {unresolved > 0 &&
+                Object.entries(batch.errors ?? {}).map(([code, count]) => {
+                  const reason = t(
+                    `conversationMetadata.errors.${code}`,
+                    t("conversationMetadata.generationFailed"),
+                  );
+                  return (
+                    <Alert
+                      key={code}
+                      type="warning"
+                      showIcon
+                      className={styles.failureRow}
+                      message={`${reason} · ${t(
+                        "conversationMetadata.failureCount",
+                        { count },
+                      )}`}
+                      action={
+                        <FailureDiagnostics
+                          summary={reason}
+                          value={{
+                            code,
+                            failed_count: count,
+                            samples: batch.failures?.filter(
+                              (item) => item.code === code,
+                            ),
+                          }}
+                        />
+                      }
+                    />
+                  );
+                })}
               {Boolean(batch.failed) && (
                 <Button
                   size="small"
                   onClick={() => {
-                    setAgeFilter("all");
-                    setStatusFilter("failed");
+                    setFailedBatch(batch.batch_id);
                   }}
                 >
-                  {t("organizationHistory.viewFailed")}
+                  {t("organizationHistory.viewBatchFailures")}
                 </Button>
               )}
             </div>
@@ -449,6 +505,24 @@ export default function ConversationMetadataSettings() {
         </section>
       </div>
       <Modal
+        open={Boolean(failedBatch)}
+        title={t("organizationHistory.viewBatchFailures")}
+        footer={null}
+        width={800}
+        destroyOnClose
+        onCancel={() => setFailedBatch(null)}
+      >
+        {failedBatch && (
+          <OrganizationHistory
+            batchId={failedBatch}
+            age="all"
+            status="failed"
+            pending={pending}
+            onFilter={() => undefined}
+          />
+        )}
+      </Modal>
+      <Modal
         open={batchOpen}
         title={t("conversationMetadata.organizeHistory")}
         onCancel={() => setBatchOpen(false)}
@@ -457,6 +531,7 @@ export default function ConversationMetadataSettings() {
         okButtonProps={{
           disabled:
             pending ||
+            saving ||
             (batchScope === "selected" && (!batchAgent || !selected.length)) ||
             !settings?.brief_available ||
             (settings.title_enabled && !settings.title_available),

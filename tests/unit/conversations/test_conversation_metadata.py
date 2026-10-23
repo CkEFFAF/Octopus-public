@@ -100,6 +100,67 @@ def fake_output(purpose: str, payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def test_batch_failures_survive_later_success_with_pagination_and_owner_scope(environment):
+    service, repos = environment
+    repo = repos.conversation_metadata_repo
+    for i in range(24):
+        repos.thread_repo.insert(
+            thread_id=f"history-{i}",
+            agent_id="agent",
+            user_id=1,
+            channel_type="dashboard",
+            session_key=f"history-{i}",
+        )
+    batch = service.start_history_batch(1, HistoryBatchRequest(command_id="recovery"))
+    with repos.db.transaction() as conn:
+        conn.execute(
+            "UPDATE thread_metadata_jobs SET status='failed',error_code='METADATA_INVALID_OUTPUT',updated_at=100 WHERE owner_user_id=1"
+        )
+    later = repo.enqueue(1, "agent", "thread", "brief", {}, "later-success")
+    with repos.db.transaction() as conn:
+        conn.execute(
+            "UPDATE thread_metadata_jobs SET status='ready',updated_at=200 WHERE job_id=?",
+            (later["job_id"],),
+        )
+    restored = service.history_batch(1)
+    assert restored.failed == 25 and restored.recovered == 1
+    # Historical totals remain immutable; latest failure selection excludes recovery.
+    current = repo.organization_page(1, age="all", status="failed", agent=None, offset=0, limit=100)
+    assert current["total"] == 24
+    pages = [
+        repo.organization_page(
+            1, age="all", status="failed", agent=None, offset=offset, limit=20, batch=batch.batch_id
+        )
+        for offset in (0, 20)
+    ]
+    assert [len(p["items"]) for p in pages] == [20, 5]
+    assert all(p["total"] == 25 for p in pages)
+    row = next(r for p in pages for r in p["items"] if r["thread_id"] == "thread")
+    assert row["status"] == "failed" and row["latest_status"] == "ready"
+    assert row["last_attempt_at"] == 100 and row["last_success_at"] == 200
+    assert row["error_code"] == "METADATA_INVALID_OUTPUT"
+    assert (
+        repo.organization_page(
+            2, age="all", status="all", agent=None, offset=0, limit=100, batch=batch.batch_id
+        )["total"]
+        == 0
+    )
+    assert (
+        repo.organization_page(
+            1, age="all", status="all", agent=None, offset=0, limit=100, batch="missing"
+        )["total"]
+        == 0
+    )
+    # A new failure makes the conversation unresolved again.
+    retry = repo.enqueue(1, "agent", "thread", "brief", {}, "new-failure")
+    with repos.db.transaction() as conn:
+        conn.execute(
+            "UPDATE thread_metadata_jobs SET status='failed',updated_at=300 WHERE job_id=?",
+            (retry["job_id"],),
+        )
+    assert service.history_batch(1).recovered == 0
+
+
 def test_organization_age_buckets_failures_and_atomic_selection(environment, monkeypatch):
     service, repos = environment
     now = 2_000_000_000.0
@@ -877,3 +938,19 @@ def test_output_diagnostics_keep_paths_but_strip_values_and_unknown_names():
     text = json.dumps(value)
     assert "title" in text and "string_type" in text
     assert "secret-value" not in text and "secret-field" not in text and "secret-key" not in text
+
+
+def test_json_syntax_diagnostics_include_position_without_response_text():
+    from octop.infra.utils.model_diagnostics import safe_diagnostics
+
+    try:
+        json.loads('{"private-source": secret-value}')
+    except json.JSONDecodeError as exc:
+        value = safe_diagnostics(exc, code="METADATA_INVALID_OUTPUT", stage="brief", job_id="job")
+        assert value["json_position"] == {
+            "line": exc.lineno,
+            "column": exc.colno,
+            "offset": exc.pos,
+        }
+    assert value["format_failure"] == "invalid_json"
+    assert "private-source" not in json.dumps(value) and "secret-value" not in json.dumps(value)
