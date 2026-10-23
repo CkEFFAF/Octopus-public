@@ -136,6 +136,9 @@ export interface ConversationSource {
   details: Record<string, unknown>;
 }
 export interface HistoryBatch {
+  started_at?: number;
+  updated_at?: number;
+  finished_at?: number;
   failures?: Array<{
     job_id: string;
     thread_id: string;
@@ -151,6 +154,39 @@ export interface HistoryBatch {
   failed: number;
   cancelled: number;
 }
+export type OrganizationAge =
+  | "all"
+  | "never"
+  | "d1"
+  | "d3"
+  | "d5"
+  | "d7"
+  | "older";
+export type OrganizationStatus =
+  | "all"
+  | "never"
+  | "active"
+  | "ready"
+  | "failed"
+  | "cancelled";
+export interface OrganizationRecord {
+  thread_id: string;
+  agent_id: string;
+  agent_name: string;
+  title: string | null;
+  status: string;
+  last_success_at: number;
+  last_attempt_at: number;
+  error_code: string;
+  diagnostic: Record<string, unknown>;
+  job_id: string | null;
+}
+export interface OrganizationPage {
+  items: OrganizationRecord[];
+  total: number;
+  offset: number;
+  limit: number;
+}
 const scope = (agent: string, thread: string) =>
   `/agents/${encodeURIComponent(agent)}/threads/${encodeURIComponent(thread)}`;
 export const metadataCommandId = () =>
@@ -158,6 +194,19 @@ export const metadataCommandId = () =>
   `metadata_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
 export const conversationMetadataApi = {
+  organizationPage: (
+    age_filter: OrganizationAge,
+    status_filter: OrganizationStatus,
+    offset = 0,
+  ) =>
+    request<OrganizationPage>(
+      `/settings/conversation-metadata/conversations?${new URLSearchParams({
+        age_filter,
+        status_filter,
+        offset: String(offset),
+        limit: "20",
+      })}`,
+    ),
   cancelHistoryBatch: (batchId: string) =>
     request<HistoryBatch>(
       `/settings/conversation-metadata/batch/${encodeURIComponent(
@@ -178,6 +227,8 @@ export const conversationMetadataApi = {
     command_id: string;
     agent_id?: string;
     thread_ids?: string[];
+    age_filter?: OrganizationAge;
+    status_filter?: OrganizationStatus;
   }) =>
     request<HistoryBatch>("/settings/conversation-metadata/batch", {
       method: "POST",

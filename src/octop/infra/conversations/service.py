@@ -208,7 +208,12 @@ class ConversationService:
             raise OctopError(ErrorCode.SLASH_BAD_ARGS, "METADATA_MODEL_UNAVAILABLE")
         return HistoryBatchView(
             **self.repos.conversation_metadata_repo.start_history_batch(
-                owner, body.command_id, body.agent_id, body.thread_ids
+                owner,
+                body.command_id,
+                body.agent_id,
+                body.thread_ids,
+                body.age_filter,
+                body.status_filter,
             )
         )
 

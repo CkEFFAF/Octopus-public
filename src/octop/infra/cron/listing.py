@@ -24,6 +24,16 @@ def schedule_category(value: dict[str, Any]) -> str:
     return "once" if value["trigger"].startswith("date:") else "repeat"
 
 
+def schedule_lifecycle(value: dict[str, Any]) -> str:
+    if value["scheduler_state"] in {"running", "scheduled", "waiting_event"}:
+        return "active"
+    if value.get("last_status") == "error":
+        return "failed"
+    if value["scheduler_state"] in {"exhausted", "ended"}:
+        return "completed"
+    return "inactive"
+
+
 def schedule_frequency(trigger: str, timezone: str, now: datetime) -> float:
     """Compare recurring schedules by the gap between their next two fires."""
     try:
@@ -50,6 +60,7 @@ def list_schedule_page(
     search: str,
     offset: int,
     limit: int,
+    lifecycle: str | None = None,
 ) -> dict[str, Any]:
     agents = repos.agent_repo.list_by_user(user_id)
     now = datetime.now(UTC)
@@ -91,8 +102,19 @@ def list_schedule_page(
         value
         for value in values
         if (reminder is None or bool(value["self_reminder"]) == reminder)
-        and (category is None or value["category"] == category)
+        and (
+            category is None
+            or (category == "ended" and value["category"] == "ended")
+            or (category == "once" and value["trigger"].startswith("date:"))
+            or (category == "repeat" and not value["trigger"].startswith("date:"))
+        )
     ]
+    lifecycle_counts = {
+        state: sum(schedule_lifecycle(v) == state for v in values)
+        for state in ("active", "completed", "failed", "inactive")
+    }
+    if lifecycle:
+        values = [value for value in values if schedule_lifecycle(value) == lifecycle]
     frequencies: dict[str, float] = {}
 
     def order(value: dict[str, Any]) -> tuple[Any, ...]:
@@ -130,4 +152,5 @@ def list_schedule_page(
         "has_more": end < len(values),
         "next_offset": end if end < len(values) else None,
         "counts": counts,
+        "lifecycle_counts": lifecycle_counts,
     }

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { activityApi } from "../../../api/modules/activity";
 import ExpertTaskSummary from "./ExpertTaskSummary";
 
@@ -29,8 +29,23 @@ vi.mock("react-i18next", () => ({
     i18n: { resolvedLanguage: "zh" },
   }),
 }));
+afterEach(() => vi.restoreAllMocks());
 
 it("keeps IDs and event streams out of the summary, with bounded details in place", async () => {
+  vi.spyOn(activityApi, "backgroundJobs").mockResolvedValue({
+    items: Array.from({ length: 3 }, (_, i) => ({
+      id: String(i),
+      thread_id: "chat",
+      title: "实验迁移结果",
+      status: "running",
+      updated_at: 1,
+      lifecycle: "active",
+    })),
+    total: 3,
+    counts: { active: 3, completed: 0 },
+    offset: 0,
+    limit: 20,
+  });
   const snapshot = vi.spyOn(activityApi, "snapshot").mockResolvedValue({
     nodes: Array.from({ length: 30 }, (_, i) => ({
       id: `${i}`,
@@ -59,6 +74,8 @@ it("keeps IDs and event streams out of the summary, with bounded details in plac
     screen.getByRole("button", { name: "sessionPreview.taskDetails" }),
   );
   const dialog = await screen.findByRole("dialog");
+  expect(within(dialog).queryByText("sessionPreview.toolCommand")).toBeNull();
+  fireEvent.click(within(dialog).getByText("taskFilters.completed"));
   expect(
     within(dialog).getAllByText("sessionPreview.toolCommand"),
   ).toHaveLength(8);
@@ -70,4 +87,63 @@ it("keeps IDs and event streams out of the summary, with bounded details in plac
     within(dialog).getAllByText("sessionPreview.toolCommand"),
   ).toHaveLength(16);
   snapshot.mockRestore();
+});
+
+it("opens completed observations directly when inspecting a completed task group", async () => {
+  vi.spyOn(activityApi, "backgroundJobs").mockImplementation(
+    async (_agent, state) => ({
+      items: [
+        {
+          id: "job",
+          thread_id: "chat",
+          title: "实验迁移结果",
+          status: state === "completed" ? "completed" : "running",
+          updated_at: 1,
+          lifecycle: state,
+        },
+      ],
+      total: 1,
+      counts: { active: 1, completed: 2 },
+      offset: 0,
+      limit: 20,
+    }),
+  );
+  vi.spyOn(activityApi, "snapshot").mockResolvedValue({
+    nodes: [
+      {
+        id: "done",
+        type: "tool",
+        name: "command.run",
+        status: "completed",
+        updated_at: 1,
+        dependencies_known: false,
+      },
+      {
+        id: "active",
+        type: "tool",
+        name: "execute",
+        status: "running",
+        updated_at: 2,
+        dependencies_known: false,
+      },
+    ],
+    edges: [],
+    observed_at: 2,
+    scope_truncated: false,
+    next_before: null,
+    counts: { jobs: 1, subagents: 0, parallel: null, completed: 1 },
+  });
+  render(
+    <MemoryRouter>
+      <ExpertTaskSummary agentId="expert" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByText("taskFilters.completed 2"));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "sessionPreview.taskDetails" }),
+  );
+  const dialog = await screen.findByRole("dialog");
+  expect(
+    within(dialog).getAllByText("sessionPreview.toolCommand"),
+  ).toHaveLength(1);
 });

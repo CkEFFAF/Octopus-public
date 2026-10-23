@@ -100,6 +100,92 @@ def fake_output(purpose: str, payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def test_organization_age_buckets_failures_and_atomic_selection(environment, monkeypatch):
+    service, repos = environment
+    now = 2_000_000_000.0
+    monkeypatch.setattr("octop.infra.db.repos.organization_history.time.time", lambda: now)
+    for name, age in (("recent", 0.5), ("one", 1), ("three", 3), ("five", 5), ("seven", 7)):
+        repos.thread_repo.insert(
+            thread_id=name, agent_id="agent", user_id=1, channel_type="dashboard", session_key=name
+        )
+        with repos.db.transaction() as conn:
+            conn.execute(
+                "UPDATE thread_metadata SET generated_at=? WHERE thread_id=?",
+                (now - age * 86400, name),
+            )
+    repo = repos.conversation_metadata_repo
+    for age, expected in (
+        ("never", "thread"),
+        ("d1", "recent"),
+        ("d3", "one"),
+        ("d5", "three"),
+        ("d7", "five"),
+        ("older", "seven"),
+    ):
+        page = repo.organization_page(1, age=age, status="all", agent=None, offset=0, limit=20)
+        assert [r["thread_id"] for r in page["items"]] == [expected]
+    job = repo.enqueue(1, "agent", "seven", "brief", {}, "failed-attempt")
+    with repos.db.transaction() as conn:
+        conn.execute(
+            "UPDATE thread_metadata_jobs SET status='failed',error_code='METADATA_INVALID_OUTPUT',updated_at=? WHERE job_id=?",
+            (now, job["job_id"]),
+        )
+    page = repo.organization_page(1, age="older", status="failed", agent=None, offset=0, limit=20)
+    assert page["total"] == 1
+    assert page["items"][0]["last_success_at"] == now - 7 * 86400
+    assert page["items"][0]["last_attempt_at"] == now
+    batch = service.start_history_batch(
+        1, HistoryBatchRequest(command_id="old-failed", age_filter="older", status_filter="failed")
+    )
+    assert batch.total == 1 and batch.started_at == now and batch.finished_at == 0
+    with repos.db.connect() as conn:
+        rows = conn.execute(
+            "SELECT thread_id FROM thread_metadata_jobs WHERE dedup_key LIKE 'batch:%'"
+        ).fetchall()
+    assert [r["thread_id"] for r in rows] == ["seven"]
+    assert (
+        repo.organization_page(2, age="all", status="all", agent=None, offset=0, limit=20)["total"]
+        == 0
+    )
+
+
+def test_organization_lists_all_failed_conversations_with_success_time_preserved(environment):
+    _, repos = environment
+    repo = repos.conversation_metadata_repo
+    for index in range(25):
+        thread = f"failed-{index:02d}"
+        repos.thread_repo.insert(
+            thread_id=thread,
+            agent_id="agent",
+            user_id=1,
+            channel_type="dashboard",
+            session_key=thread,
+        )
+        repos.thread_repo.update_title(thread, f"Experiment {index}")
+        job = repo.enqueue(1, "agent", thread, "brief", {}, thread)
+        with repos.db.transaction() as conn:
+            conn.execute(
+                "UPDATE thread_metadata_jobs SET status='failed',error_code='METADATA_INVALID_OUTPUT',result_json=? WHERE job_id=?",
+                (
+                    json.dumps(
+                        {"diagnostic": {"issues": [{"path": "one_liner", "type": "missing"}]}}
+                    ),
+                    job["job_id"],
+                ),
+            )
+    first = repo.organization_page(1, age="never", status="failed", agent=None, offset=0, limit=20)
+    second = repo.organization_page(
+        1, age="never", status="failed", agent=None, offset=20, limit=20
+    )
+    assert first["total"] == second["total"] == 25
+    assert len(first["items"]) == 20 and len(second["items"]) == 5
+    assert len({r["thread_id"] for r in first["items"] + second["items"]}) == 25
+    assert all(
+        r["title"].startswith("Experiment") and r["last_success_at"] == 0 for r in first["items"]
+    )
+    assert first["items"][0]["diagnostic"]["issues"][0]["path"] == "one_liner"
+
+
 @pytest.mark.asyncio
 async def test_real_wire_messages_generate_title_and_attributed_brief(environment, monkeypatch):
     service, repos = environment

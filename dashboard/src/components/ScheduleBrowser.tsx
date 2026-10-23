@@ -623,6 +623,7 @@ export default function ScheduleBrowser({
 }) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
+  const [lifecycle, setLifecycle] = useState("active");
   const [scope, setScope] = useState("thread");
   const [category, setCategory] = useState<
     "once" | "repeat" | "ended" | undefined
@@ -642,12 +643,17 @@ export default function ScheduleBrowser({
     loadingMore,
     loadMore,
     refresh,
+    lifecycle_counts,
   } = useSchedulePage({
     agent_id: agentId,
     thread_id: scope === "thread" ? threadId : undefined,
     reminder,
     category,
     search: query,
+    lifecycle:
+      lifecycle === "all"
+        ? undefined
+        : (lifecycle as "active" | "completed" | "failed" | "inactive"),
   });
   const [selected, setSelected] = useState("");
   const current = rows.find((i) => `${i.agent_id}:${i.id}` === selected);
@@ -687,6 +693,26 @@ export default function ScheduleBrowser({
             : t("workspace0034.scheduleTotal", { count: total })}
         </small>
       </div>
+      <div className={styles.lifecycleFilters}>
+        <Segmented
+          value={lifecycle}
+          aria-label={t("taskFilters.label")}
+          onChange={(value) => {
+            setLifecycle(String(value));
+            setSelected("");
+          }}
+          options={["active", "completed", "failed", "inactive", "all"].map(
+            (value) => ({
+              value,
+              label: `${t(`taskFilters.${value}`)}${
+                lifecycle_counts?.[value] !== undefined
+                  ? ` ${lifecycle_counts[value]}`
+                  : ""
+              }`,
+            }),
+          )}
+        />
+      </div>
       <div className={styles.filters}>
         <Input.Search
           allowClear
@@ -695,24 +721,34 @@ export default function ScheduleBrowser({
           placeholder={t("workspace0034.searchSchedules")}
           aria-label={t("workspace0034.searchSchedules")}
         />
-        <Select
-          value={category ?? "all"}
-          aria-label={t("workspace0034.filterCategory")}
-          onChange={(value) => {
-            setCategory(
-              value === "all"
-                ? undefined
-                : (value as "once" | "repeat" | "ended"),
-            );
-            setSelected("");
-          }}
-          options={["all", "once", "repeat", "ended"].map((value) => ({
-            value,
-            label: t(`workspace0034.category.${value}`),
-          }))}
-        />
+        {!compact && (
+          <Select
+            value={category ?? "all"}
+            aria-label={t("workspace0034.filterCategory")}
+            onChange={(value) => {
+              setCategory(
+                value === "all"
+                  ? undefined
+                  : (value as "once" | "repeat" | "ended"),
+              );
+              setSelected("");
+            }}
+            options={["all", "once", "repeat"].map((value) => ({
+              value,
+              label: t(`workspace0034.category.${value}`),
+            }))}
+          />
+        )}
       </div>
-      <p className={styles.sortHint}>{t("workspace0034.sortHint")}</p>
+      <p className={styles.sortHint}>
+        {t(
+          lifecycle === "all"
+            ? "workspace0034.sortHint"
+            : lifecycle === "active"
+            ? "taskFilters.activeHint"
+            : "taskFilters.detailHint",
+        )}
+      </p>
       {error && (
         <Alert
           type="warning"

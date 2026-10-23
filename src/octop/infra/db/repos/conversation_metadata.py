@@ -8,6 +8,7 @@ import time
 from typing import Any, Literal
 
 from octop.infra.db.pool import DatabasePool
+from octop.infra.db.repos.organization_history import list_page, selection
 from octop.infra.utils.ulid import new_ulid
 
 
@@ -136,8 +137,18 @@ class ConversationMetadataRepo:
             "WHERE owner_user_id=? AND request_json=? AND status='failed' ORDER BY updated_at DESC LIMIT 20",
             (owner, encoded({"batch_id": batch})),
         ).fetchall()
+        timing = conn.execute(
+            "SELECT MIN(created_at) AS started_at,MAX(updated_at) AS updated_at "
+            "FROM thread_metadata_jobs WHERE owner_user_id=? AND request_json=?",
+            (owner, encoded({"batch_id": batch})),
+        ).fetchone()
         return {
             "batch_id": batch,
+            "started_at": timing["started_at"],
+            "updated_at": timing["updated_at"],
+            "finished_at": 0
+            if any(counts.get(s) for s in ("queued", "retry", "running"))
+            else timing["updated_at"],
             "total": sum(counts.values()),
             "errors": {row["error_code"]: row["count"] for row in errors},
             "failures": [
@@ -156,6 +167,13 @@ class ConversationMetadataRepo:
     def history_batch(self, owner: int) -> dict[str, Any] | None:
         with self.db.connect() as conn:
             return self._history_batch(conn, owner)
+
+    def organization_page(
+        self, owner: int, *, age: str, status: str, agent: str | None, offset: int, limit: int
+    ) -> dict[str, Any]:
+        return list_page(
+            self.db, owner, age=age, status=status, agent=agent, offset=offset, limit=limit
+        )
 
     def cancel_jobs(
         self,
@@ -192,7 +210,13 @@ class ConversationMetadataRepo:
             return self._history_batch(conn, owner, identity)
 
     def start_history_batch(
-        self, owner: int, command: str, agent: str | None, threads: list[str] | None
+        self,
+        owner: int,
+        command: str,
+        agent: str | None,
+        threads: list[str] | None,
+        age: str = "all",
+        status: str = "all",
     ) -> dict[str, Any]:
         # One transaction snapshots the full account scope, without a recent-list cap.
         with self.db.transaction() as conn:
@@ -215,13 +239,9 @@ class ConversationMetadataRepo:
                 )
                 assert current is not None
                 return current
-            where = "t.user_id=? AND (a.user_id=? OR a.is_shared=1)"
-            values: list[Any] = [owner, owner]
-            if agent is not None:
-                where += " AND t.agent_id=?"
-                values.append(agent)
+            selected, values = selection(owner, age, status, agent)
             if threads is not None:
-                where += f" AND t.thread_id IN ({','.join('?' for _ in threads)})"
+                selected += f" AND thread_id IN ({','.join('?' for _ in threads)})"
                 values.extend(threads)
             now = time.time()
             prefix = f"batch:{owner}:{command}:"
@@ -229,7 +249,7 @@ class ConversationMetadataRepo:
                 "INSERT INTO thread_metadata_jobs(job_id,dedup_key,owner_user_id,agent_id,thread_id,"
                 "kind,request_json,created_at,updated_at) "
                 "SELECT ? || t.thread_id,? || t.thread_id,t.user_id,t.agent_id,t.thread_id,'brief',?,?,? "
-                f"FROM threads t JOIN agents a ON a.agent_id=t.agent_id WHERE {where} "
+                f"FROM ({selected}) t WHERE 1=1 "
                 "ON CONFLICT(dedup_key) DO NOTHING",
                 (prefix, prefix, encoded({"batch_id": command}), now, now, *values),
             )

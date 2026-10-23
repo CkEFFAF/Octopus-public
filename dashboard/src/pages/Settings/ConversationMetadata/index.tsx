@@ -24,13 +24,21 @@ import {
   type HistoryBatch,
   type MetadataSettings,
   type MetadataSettingsView,
+  type OrganizationAge,
+  type OrganizationStatus,
 } from "../../../api/modules/conversationMetadata";
 import { octopThreadsApi } from "../../../api/modules/octopThreads";
 import { apiErrorMessage } from "../../../utils/apiError";
 import styles from "./index.module.less";
+import OrganizationHistory from "./OrganizationHistory";
+import { useServerTimezone } from "../../../hooks/useServerTimezone";
+import { formatServerDateTime } from "../../../utils/formatMessageTime";
 
 export default function ConversationMetadataSettings() {
   const { t } = useTranslation();
+  const timezone = useServerTimezone();
+  const [ageFilter, setAgeFilter] = useState<OrganizationAge>("all");
+  const [statusFilter, setStatusFilter] = useState<OrganizationStatus>("all");
   const { message } = App.useApp();
   const navigate = useNavigate();
   const { agents } = useAgent();
@@ -149,6 +157,8 @@ export default function ConversationMetadataSettings() {
     try {
       const value = await conversationMetadataApi.startHistoryBatch({
         command_id: commandId,
+        ...(ageFilter !== "all" ? { age_filter: ageFilter } : {}),
+        ...(statusFilter !== "all" ? { status_filter: statusFilter } : {}),
         ...(batchScope === "selected"
           ? { agent_id: batchAgent, thread_ids: selected }
           : {}),
@@ -315,6 +325,8 @@ export default function ConversationMetadataSettings() {
             {t(
               pending
                 ? "conversationMetadata.batchInProgress"
+                : ageFilter !== "all" || statusFilter !== "all"
+                ? "organizationHistory.organizeFiltered"
                 : "conversationMetadata.organizeAll",
             )}
           </Button>
@@ -364,6 +376,19 @@ export default function ConversationMetadataSettings() {
               <Typography.Paragraph>
                 {t("conversationMetadata.batchProgress", { ...batch })}
               </Typography.Paragraph>
+              {Boolean(batch.started_at) && (
+                <p className={styles.historyHint}>
+                  {t("organizationHistory.batchStarted")}{" "}
+                  {formatServerDateTime(batch.started_at!, timezone)}
+                  {Boolean(batch.finished_at) && (
+                    <>
+                      {" "}
+                      · {t("organizationHistory.batchFinished")}{" "}
+                      {formatServerDateTime(batch.finished_at!, timezone)}
+                    </>
+                  )}
+                </p>
+              )}
               {Boolean(batch.failed || batch.cancelled) && (
                 <Typography.Text type="warning">
                   {t("conversationMetadata.batchFailureHint")}
@@ -399,8 +424,28 @@ export default function ConversationMetadataSettings() {
                   />
                 );
               })}
+              {Boolean(batch.failed) && (
+                <Button
+                  size="small"
+                  onClick={() => {
+                    setAgeFilter("all");
+                    setStatusFilter("failed");
+                  }}
+                >
+                  {t("organizationHistory.viewFailed")}
+                </Button>
+              )}
             </div>
           )}
+          <OrganizationHistory
+            age={ageFilter}
+            status={statusFilter}
+            pending={pending}
+            onFilter={(age, status) => {
+              setAgeFilter(age);
+              setStatusFilter(status);
+            }}
+          />
         </section>
       </div>
       <Modal
@@ -423,7 +468,13 @@ export default function ConversationMetadataSettings() {
           onChange={(event) => setBatchScope(event.target.value)}
           aria-label={t("conversationMetadata.historyScope")}
         >
-          <Radio value="all">{t("conversationMetadata.allHistory")}</Radio>
+          <Radio value="all">
+            {t(
+              ageFilter !== "all" || statusFilter !== "all"
+                ? "organizationHistory.filteredScope"
+                : "conversationMetadata.allHistory",
+            )}
+          </Radio>
           <Radio value="selected">
             {t("conversationMetadata.selectedHistory")}
           </Radio>
@@ -431,10 +482,21 @@ export default function ConversationMetadataSettings() {
         <p>
           {t(
             batchScope === "all"
-              ? "conversationMetadata.historyAllHint"
+              ? ageFilter !== "all" || statusFilter !== "all"
+                ? "organizationHistory.filteredHint"
+                : "conversationMetadata.historyAllHint"
               : "conversationMetadata.historySelectionHint",
           )}
         </p>
+        {(ageFilter !== "all" || statusFilter !== "all") && (
+          <Alert
+            type="info"
+            showIcon
+            message={`${t("organizationHistory.appliedFilters")} ${t(
+              `organizationHistory.ages.${ageFilter}`,
+            )} · ${t(`organizationHistory.status.${statusFilter}`)}`}
+          />
+        )}
         {(!settings?.brief_available ||
           (settings.title_enabled && !settings.title_available)) && (
           <Alert

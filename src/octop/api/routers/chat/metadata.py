@@ -20,6 +20,9 @@ from octop.infra.conversations.models import (
     HistoryBatchView,
     JobView,
     MetadataJobRequest,
+    OrganizationAge,
+    OrganizationPage,
+    OrganizationStatus,
     SettingsPut,
     SettingsView,
     SourceView,
@@ -217,6 +220,33 @@ async def history_batch_status(
     user: Any = Depends(current_user), server: Any = Depends(get_server)
 ) -> HistoryBatchView | None:
     return await asyncio.to_thread(conversation_service(server).history_batch, user.id)
+
+
+@router.get(
+    "/settings/conversation-metadata/conversations",
+    summary="Conversation organization results, timestamps and retry selection",
+    response_model=OrganizationPage,
+)
+async def organization_conversations(
+    age_filter: OrganizationAge = "all",
+    status_filter: OrganizationStatus = "all",
+    agent_id: str | None = None,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=100),
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> OrganizationPage:
+    return OrganizationPage(
+        **await asyncio.to_thread(
+            server.services.repos.conversation_metadata_repo.organization_page,
+            user.id,
+            age=age_filter,
+            status=status_filter,
+            agent=agent_id,
+            offset=offset,
+            limit=limit,
+        )
+    )
 
 
 @router.post(

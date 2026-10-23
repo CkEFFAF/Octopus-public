@@ -77,40 +77,42 @@ export default function SessionActivity({ threadId }: { threadId: string }) {
       {schedules.length > 0 && (
         <Tooltip
           title={
-            <div className={styles.sessionSchedulePreview}>
-              <ul>
-                {recent.map((row) => (
-                  <li key={row.id}>
-                    <strong>{row.name}</strong>
-                    <span>
-                      {upcoming(row)
-                        ? t("octopus.nextRun")
-                        : row.last_run_at
-                        ? t("chat.sessionScheduleLastRun")
-                        : t(
-                            `workspace0034.scheduleState.${row.scheduler_state}`,
-                          )}
-                      {(upcoming(row) ? row.next_run_at : row.last_run_at)
-                        ? ` · ${formatServerDateTime(
-                            (upcoming(row)
-                              ? row.next_run_at
-                              : row.last_run_at)!,
-                            row.timezone,
-                          )}`
-                        : ""}
-                    </span>
-                    {(row.next_run_at || row.last_run_at) && (
-                      <small>{row.timezone}</small>
-                    )}
-                  </li>
-                ))}
-              </ul>
-              <footer>
-                {t("chat.sessionScheduleOpenWorkbench", {
-                  count: schedules.length,
-                })}
-              </footer>
-            </div>
+            !open && (
+              <div className={styles.sessionSchedulePreview}>
+                <ul>
+                  {recent.map((row) => (
+                    <li key={row.id}>
+                      <strong>{row.name}</strong>
+                      <span>
+                        {upcoming(row)
+                          ? t("octopus.nextRun")
+                          : row.last_run_at
+                          ? t("chat.sessionScheduleLastRun")
+                          : t(
+                              `workspace0034.scheduleState.${row.scheduler_state}`,
+                            )}
+                        {(upcoming(row) ? row.next_run_at : row.last_run_at)
+                          ? ` · ${formatServerDateTime(
+                              (upcoming(row)
+                                ? row.next_run_at
+                                : row.last_run_at)!,
+                              row.timezone,
+                            )}`
+                          : ""}
+                      </span>
+                      {(row.next_run_at || row.last_run_at) && (
+                        <small>{row.timezone}</small>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <footer>
+                  {t("chat.sessionScheduleOpenWorkbench", {
+                    count: schedules.length,
+                  })}
+                </footer>
+              </div>
+            )
           }
           trigger={["hover", "focus"]}
           placement="right"

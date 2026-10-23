@@ -16,6 +16,8 @@ vi.mock("../../../api/modules/conversationMetadata", () => ({
     historyBatch: vi.fn(),
     startHistoryBatch: vi.fn(),
     cancelHistoryBatch: vi.fn(),
+    organizationPage: vi.fn(),
+    generate: vi.fn(),
   },
 }));
 
@@ -23,6 +25,12 @@ describe("account conversation models", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(api.historyBatch).mockResolvedValue(null);
+    vi.mocked(api.organizationPage).mockResolvedValue({
+      items: [],
+      total: 0,
+      offset: 0,
+      limit: 20,
+    });
   });
   const settings = {
     revision: 3,
@@ -167,6 +175,52 @@ describe("account conversation models", () => {
       }),
     ).toBeDisabled();
     expect(api.startHistoryBatch).not.toHaveBeenCalled();
+  });
+  it("confirms the filtered scope and sends the same age and failure conditions", async () => {
+    vi.mocked(api.settings).mockResolvedValue(settings);
+    vi.mocked(api.startHistoryBatch).mockResolvedValue(batch);
+    render(
+      <MemoryRouter>
+        <App>
+          <Settings />
+        </App>
+      </MemoryRouter>,
+    );
+    await screen.findByRole("switch", {
+      name: "conversationMetadata.autoTitle",
+    });
+    fireEvent.mouseDown(
+      screen.getByRole("combobox", { name: "organizationHistory.ageFilter" }),
+    );
+    fireEvent.click(await screen.findByText("organizationHistory.ages.older"));
+    fireEvent.mouseDown(
+      screen.getByRole("combobox", {
+        name: "organizationHistory.statusFilter",
+      }),
+    );
+    fireEvent.click(
+      await screen.findByText("organizationHistory.status.failed"),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "organizationHistory.organizeFiltered",
+      }),
+    );
+    expect(
+      screen.getByRole("radio", { name: "organizationHistory.filteredScope" }),
+    ).toBeChecked();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "conversationMetadata.startOrganizing",
+      }),
+    );
+    await waitFor(() =>
+      expect(api.startHistoryBatch).toHaveBeenCalledWith({
+        command_id: "batch-command",
+        age_filter: "older",
+        status_filter: "failed",
+      }),
+    );
   });
   it("saves independent switches and the account revision without changing model choices", async () => {
     const settings = {

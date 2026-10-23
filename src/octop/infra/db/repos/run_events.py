@@ -168,6 +168,54 @@ class RunEventRepo:
             for r in rows
         ]
 
+    def background_page(
+        self,
+        owner: int,
+        agent: str,
+        *,
+        lifecycle: str,
+        thread: str | None,
+        offset: int,
+        limit: int,
+    ) -> dict[str, Any]:
+        cutoff = time.time() - 45
+        sql = (
+            "SELECT r.event_id AS id,r.thread_id,t.title,r.status,r.updated_at,"
+            "CASE WHEN r.status IN ('running','started','accepted','waiting') "
+            "THEN CASE WHEN r.updated_at>=? THEN 'active' ELSE 'inactive' END "
+            "WHEN r.status='completed' THEN 'completed' WHEN r.status='failed' THEN 'failed' "
+            "ELSE 'inactive' END AS lifecycle "
+            "FROM run_events r JOIN threads t ON t.thread_id=r.thread_id "
+            "AND t.user_id=r.owner_user_id AND t.agent_id=r.agent_id "
+            "WHERE r.owner_user_id=? AND r.agent_id=? AND r.kind='job'"
+        )
+        values: list[Any] = [cutoff, owner, agent]
+        if thread:
+            sql += " AND r.thread_id=?"
+            values.append(thread)
+        with self.db.connect() as conn:
+            counts = {
+                r["lifecycle"]: r["n"]
+                for r in conn.execute(
+                    f"SELECT lifecycle,COUNT(*) AS n FROM ({sql}) jobs GROUP BY lifecycle", values
+                ).fetchall()
+            }
+            selected = f"SELECT * FROM ({sql}) jobs"
+            if lifecycle != "all":
+                selected += " WHERE lifecycle=?"
+                values.append(lifecycle)
+            total = sum(counts.values()) if lifecycle == "all" else counts.get(lifecycle, 0)
+            rows = conn.execute(
+                selected + " ORDER BY updated_at DESC,id LIMIT ? OFFSET ?", [*values, limit, offset]
+            ).fetchall()
+        return {
+            "items": [dict(r) for r in rows],
+            "counts": counts,
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+        }
+
     def due_jobs(self, before: float, *, limit: int = 64) -> list[dict[str, Any]]:
         """Recover pending observations after restart; oldest checks run first."""
         with self.db.connect() as conn:

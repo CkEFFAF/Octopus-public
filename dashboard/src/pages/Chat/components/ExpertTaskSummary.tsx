@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Empty, Modal, Tag } from "antd";
+import { Alert, Button, Empty, Modal, Tag, Segmented, Pagination } from "antd";
 import { Terminal, MessageSquare, ArrowLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSidebarActivity } from "../hooks/useSidebarActivity";
@@ -7,6 +7,7 @@ import {
   activityApi,
   type ActivityNode,
   type ActivitySnapshot,
+  type BackgroundJobPage,
 } from "../../../api/modules/activity";
 import { ActivityStatus, NodeDetail } from "./TaskActivity";
 import { apiErrorMessage } from "../../../utils/apiError";
@@ -23,6 +24,8 @@ export default function ExpertTaskSummary({
   threadId?: string;
 }) {
   const { t, i18n } = useTranslation();
+  const translate = useRef(t);
+  translate.current = t;
   const timezone = useServerTimezone();
   const status = useSidebarActivity()[agentId];
   const [detail, setDetail] = useState<{
@@ -33,6 +36,58 @@ export default function ExpertTaskSummary({
   const [limit, setLimit] = useState(8);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  const [lifecycle, setLifecycle] = useState("active");
+  const [recordState, setRecordState] = useState("active");
+  const [offset, setOffset] = useState(0);
+  const [jobPage, setJobPage] = useState<{
+    key: string;
+    value: BackgroundJobPage;
+  } | null>(null);
+  const pageKey = `${agentId}:${threadId ?? ""}:${lifecycle}:${offset}`;
+  const page = jobPage?.key === pageKey ? jobPage.value : null;
+  useEffect(() => {
+    let alive = true;
+    let inFlight = false;
+    async function refresh() {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const value = await activityApi.backgroundJobs(
+          agentId,
+          lifecycle,
+          threadId,
+          offset,
+        );
+        if (alive) {
+          if (offset > 0 && offset >= value.total) {
+            setOffset(Math.floor(Math.max(0, value.total - 1) / 20) * 20);
+            return;
+          }
+          setJobPage({ key: pageKey, value });
+          setError("");
+        }
+      } catch (e) {
+        if (alive)
+          setError(
+            apiErrorMessage(
+              e,
+              translate.current("common.error"),
+              translate.current,
+            ),
+          );
+      } finally {
+        inFlight = false;
+      }
+    }
+    void refresh();
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refresh();
+    }, 5000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [agentId, threadId, lifecycle, offset, pageKey]);
   const epoch = useRef(0);
   useEffect(
     () => () => {
@@ -42,12 +97,28 @@ export default function ExpertTaskSummary({
   );
   const threads = new Map(
     (status?.working_threads ?? [])
-      .filter((r) => !threadId || r.thread_id === threadId)
+      .filter(
+        (r) =>
+          lifecycle === "active" && (!threadId || r.thread_id === threadId),
+      )
       .map((r) => [r.thread_id, r]),
   );
-  const jobs = (status?.background_tasks ?? []).filter(
-    (r) => !threadId || r.thread_id === threadId,
-  );
+  const jobs =
+    page?.items ??
+    (lifecycle === "active"
+      ? (status?.background_tasks ?? []).filter(
+          (r) => !r.stale && (!threadId || r.thread_id === threadId),
+        )
+      : []);
+  if (page) {
+    for (const [id] of threads) {
+      if (
+        status?.background_tasks?.some((job) => job.thread_id === id) &&
+        !jobs.some((job) => job.thread_id === id)
+      )
+        threads.delete(id);
+    }
+  }
   const ids = new Set([...threads.keys(), ...jobs.map((job) => job.thread_id)]);
   const nodes = [...(detail?.value.nodes ?? [])].sort(
     (a, b) =>
@@ -55,6 +126,21 @@ export default function ExpertTaskSummary({
       b.updated_at - a.updated_at,
   );
   const chosen = nodes.find((node) => node.id === selected);
+  const group = (node: ActivityNode) =>
+    node.observed_status === "stale"
+      ? "inactive"
+      : ["running", "waiting", "queued", "pending", "accepted"].includes(
+          node.status,
+        )
+      ? "active"
+      : node.status === "completed"
+      ? "completed"
+      : node.status === "failed"
+      ? "failed"
+      : "inactive";
+  const visibleNodes = nodes.filter(
+    (node) => recordState === "all" || group(node) === recordState,
+  );
   const nodeName = (node: ActivityNode, index: number) => {
     if (["command.run", "execute"].includes(node.name))
       return t("sessionPreview.toolCommand");
@@ -66,11 +152,32 @@ export default function ExpertTaskSummary({
   };
   return (
     <div className={styles.summary}>
+      <Segmented
+        value={lifecycle}
+        aria-label={t("taskFilters.label")}
+        onChange={(value) => {
+          setLifecycle(String(value));
+          setOffset(0);
+        }}
+        options={["active", "completed", "failed", "inactive", "all"].map(
+          (value) => ({
+            value,
+            label: `${t(`taskFilters.${value}`)}${
+              page?.counts[value] !== undefined ? ` ${page.counts[value]}` : ""
+            }`,
+          }),
+        )}
+      />
       <p className={styles.summaryCount}>
-        {t("workspace0034.runningSummary", {
-          count: ids.size,
-          jobs: jobs.length,
-        })}
+        {t(
+          lifecycle === "active"
+            ? "workspace0034.runningSummary"
+            : "taskFilters.summary",
+          {
+            count: ids.size,
+            jobs: jobs.length,
+          },
+        )}
       </p>
       {error && <Alert type="error" showIcon message={error} />}
       {!ids.size && (
@@ -97,12 +204,18 @@ export default function ExpertTaskSummary({
               <MessageSquare size={16} />
               <strong>
                 {previewText(
-                  topic || thread?.title || t("sessionPreview.taskFallback"),
+                  topic ||
+                    thread?.title ||
+                    page?.items.find((job) => job.thread_id === id)?.title ||
+                    t("sessionPreview.taskFallback"),
                   80,
                 )}
               </strong>
             </header>
             <div className={styles.cardState}>
+              {lifecycle !== "active" && (
+                <Tag>{t(`taskFilters.${lifecycle}`)}</Tag>
+              )}
               {threads.has(id) && (
                 <Tag color="processing">{t("chat.sessionWorkingShort")}</Tag>
               )}
@@ -116,7 +229,7 @@ export default function ExpertTaskSummary({
               )}
             </div>
             {progress && <p className={styles.progress}>{progress}</p>}
-            {related.some((job) => job.stale) && (
+            {related.some((job) => "stale" in job && job.stale) && (
               <p className={styles.muted}>
                 {t("workspace0034.observationStale")}
               </p>
@@ -132,6 +245,7 @@ export default function ExpertTaskSummary({
                   const value = await activityApi.snapshot(agentId, id);
                   if (request !== epoch.current) return;
                   setSelected("");
+                  setRecordState(lifecycle);
                   setLimit(8);
                   setDetail({ thread: id, value });
                 } catch (e) {
@@ -147,6 +261,16 @@ export default function ExpertTaskSummary({
           </section>
         );
       })}
+      {page && page.total > 20 && (
+        <Pagination
+          size="small"
+          current={offset / 20 + 1}
+          pageSize={20}
+          total={page.total}
+          showSizeChanger={false}
+          onChange={(value) => setOffset((value - 1) * 20)}
+        />
+      )}
       <Modal
         open={Boolean(detail)}
         onCancel={() => setDetail(null)}
@@ -193,14 +317,32 @@ export default function ExpertTaskSummary({
                     })}
                   </Tag>
                 </div>
+                <Segmented
+                  value={recordState}
+                  aria-label={t("taskFilters.recordLabel")}
+                  onChange={(value) => {
+                    setRecordState(String(value));
+                    setLimit(8);
+                  }}
+                  options={[
+                    "active",
+                    "completed",
+                    "failed",
+                    "inactive",
+                    "all",
+                  ].map((value) => ({
+                    value,
+                    label: t(`taskFilters.${value}`),
+                  }))}
+                />
                 {detail.value.scope_truncated && (
                   <Alert type="info" message={t("workspace0034.truncated")} />
                 )}
-                {!nodes.length && (
-                  <Empty description={t("sessionPreview.recordsEmpty")} />
+                {!visibleNodes.length && (
+                  <Empty description={t("taskFilters.empty")} />
                 )}
                 <div className={styles.recordList}>
-                  {nodes.slice(0, limit).map((node, index) => (
+                  {visibleNodes.slice(0, limit).map((node, index) => (
                     <button
                       key={node.id}
                       className={styles.record}
@@ -214,10 +356,10 @@ export default function ExpertTaskSummary({
                     </button>
                   ))}
                 </div>
-                {nodes.length > limit && (
+                {visibleNodes.length > limit && (
                   <Button block onClick={() => setLimit((n) => n + 8)}>
                     {t("sessionPreview.olderRecords", {
-                      count: nodes.length - limit,
+                      count: visibleNodes.length - limit,
                     })}
                   </Button>
                 )}
