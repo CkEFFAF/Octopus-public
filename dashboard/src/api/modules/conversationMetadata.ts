@@ -136,6 +136,7 @@ export interface ConversationSource {
   details: Record<string, unknown>;
 }
 export interface HistoryBatch {
+  recovered?: number;
   started_at?: number;
   updated_at?: number;
   finished_at?: number;
@@ -175,6 +176,7 @@ export interface OrganizationRecord {
   agent_name: string;
   title: string | null;
   status: string;
+  latest_status?: string;
   last_success_at: number;
   last_attempt_at: number;
   error_code: string;
@@ -198,6 +200,7 @@ export const conversationMetadataApi = {
     age_filter: OrganizationAge,
     status_filter: OrganizationStatus,
     offset = 0,
+    batch_id?: string,
   ) =>
     request<OrganizationPage>(
       `/settings/conversation-metadata/conversations?${new URLSearchParams({
@@ -205,6 +208,7 @@ export const conversationMetadataApi = {
         status_filter,
         offset: String(offset),
         limit: "20",
+        ...(batch_id ? { batch_id } : {}),
       })}`,
     ),
   cancelHistoryBatch: (batchId: string) =>

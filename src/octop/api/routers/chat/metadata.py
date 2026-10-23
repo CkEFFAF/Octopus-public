@@ -225,12 +225,14 @@ async def history_batch_status(
 @router.get(
     "/settings/conversation-metadata/conversations",
     summary="Conversation organization results, timestamps and retry selection",
+    description="Defaults to the latest result per conversation. batch_id shows historical batch results alongside each conversation's latest status; ownership and pagination apply to both views.",
     response_model=OrganizationPage,
 )
 async def organization_conversations(
     age_filter: OrganizationAge = "all",
     status_filter: OrganizationStatus = "all",
     agent_id: str | None = None,
+    batch_id: str | None = Query(default=None, min_length=1, max_length=100),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
     user: Any = Depends(current_user),
@@ -245,6 +247,7 @@ async def organization_conversations(
             agent=agent_id,
             offset=offset,
             limit=limit,
+            batch=batch_id,
         )
     )
 

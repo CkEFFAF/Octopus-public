@@ -222,7 +222,7 @@ describe("account conversation models", () => {
       }),
     );
   });
-  it("saves independent switches and the account revision without changing model choices", async () => {
+  it("automatically applies changes without Save or Cancel buttons", async () => {
     const settings = {
       revision: 3,
       title_enabled: true,
@@ -256,7 +256,8 @@ describe("account conversation models", () => {
     expect(
       screen.getByRole("switch", { name: "conversationMetadata.autoBrief" }),
     ).toHaveAttribute("aria-checked", "true");
-    fireEvent.click(screen.getByRole("button", { name: "common.save" }));
+    expect(screen.queryByRole("button", { name: "common.save" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "common.cancel" })).toBeNull();
     await waitFor(() =>
       expect(api.saveSettings).toHaveBeenCalledWith({
         revision: 3,
@@ -266,6 +267,144 @@ describe("account conversation models", () => {
         brief_model: "same",
       }),
     );
-    expect(await screen.findByText("conversationMetadata.saved")).toBeTruthy();
+    expect(
+      await screen.findByText("conversationMetadata.applied"),
+    ).toBeVisible();
+  });
+  it("serializes rapid edits using the confirmed revision and delays batch execution", async () => {
+    vi.mocked(api.settings).mockResolvedValue(settings);
+    let complete!: (value: typeof settings) => void;
+    vi.mocked(api.saveSettings)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            complete = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        ...settings,
+        revision: 5,
+        title_enabled: false,
+        brief_enabled: false,
+      });
+    render(
+      <MemoryRouter>
+        <App>
+          <Settings />
+        </App>
+      </MemoryRouter>,
+    );
+    fireEvent.click(
+      await screen.findByRole("switch", {
+        name: "conversationMetadata.autoTitle",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("switch", { name: "conversationMetadata.autoBrief" }),
+    );
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("conversationMetadata.applying")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "conversationMetadata.organizeAll" }),
+    ).toBeDisabled();
+    complete({ ...settings, revision: 4, title_enabled: false });
+    await waitFor(() =>
+      expect(api.saveSettings).toHaveBeenNthCalledWith(2, {
+        revision: 4,
+        title_enabled: false,
+        brief_enabled: false,
+        title_model: "p/title",
+        brief_model: "same",
+      }),
+    );
+    await screen.findByText("conversationMetadata.applied");
+    expect(
+      screen.getByRole("switch", { name: "conversationMetadata.autoBrief" }),
+    ).toHaveAttribute("aria-checked", "false");
+  });
+  it("restores confirmed settings and explains an automatic apply failure", async () => {
+    vi.mocked(api.settings).mockResolvedValue(settings);
+    vi.mocked(api.saveSettings).mockRejectedValueOnce(new Error("Unavailable"));
+    render(
+      <MemoryRouter>
+        <App>
+          <Settings />
+        </App>
+      </MemoryRouter>,
+    );
+    const toggle = await screen.findByRole("switch", {
+      name: "conversationMetadata.autoTitle",
+    });
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+    expect(
+      screen.getAllByText("conversationMetadata.applyFailed").length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText("conversationMetadata.applied")).toBeNull();
+  });
+  it("opens historical batch failures even after the conversation has recovered", async () => {
+    vi.mocked(api.settings).mockResolvedValue(settings);
+    vi.mocked(api.historyBatch).mockResolvedValue({
+      ...batch,
+      total: 1,
+      ready: 0,
+      queued: 0,
+      running: 0,
+      failed: 1,
+      recovered: 1,
+      errors: { METADATA_INVALID_OUTPUT: 1 },
+    });
+    vi.mocked(api.organizationPage).mockImplementation(
+      async (_a, _s, _o, batchId) => ({
+        items: batchId
+          ? [
+              {
+                thread_id: "recovered-thread",
+                agent_id: "expert",
+                agent_name: "Expert",
+                title: "Recovered topic",
+                status: "failed",
+                latest_status: "ready",
+                last_success_at: 200,
+                last_attempt_at: 100,
+                error_code: "METADATA_INVALID_OUTPUT",
+                diagnostic: {},
+                job_id: "old-job",
+              },
+            ]
+          : [],
+        total: batchId ? 1 : 0,
+        offset: 0,
+        limit: 20,
+      }),
+    );
+    render(
+      <MemoryRouter>
+        <App>
+          <Settings />
+        </App>
+      </MemoryRouter>,
+    );
+    await screen.findByText("organizationHistory.recoveredCount");
+    expect(
+      screen.queryByText("conversationMetadata.batchFailureHint"),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "organizationHistory.viewBatchFailures",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Recovered topic")).toBeVisible(),
+    );
+    expect(api.organizationPage).toHaveBeenCalledWith(
+      "all",
+      "failed",
+      0,
+      "batch-command",
+    );
+    expect(
+      screen.getByRole("button", { name: "organizationHistory.recovered" }),
+    ).toBeDisabled();
   });
 });

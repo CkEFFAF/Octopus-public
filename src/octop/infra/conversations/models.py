@@ -111,6 +111,7 @@ class OrganizationRecord(Contract):
     last_success_at: float
     last_attempt_at: float
     status: str
+    latest_status: str = "never"
     error_code: str
     job_id: str | None
     diagnostic: dict[str, Any] = Field(default_factory=dict)
@@ -132,6 +133,7 @@ class HistoryBatchRequest(Contract):
 
 
 class HistoryBatchView(Contract):
+    recovered: int = 0
     failures: list[dict[str, Any]] = Field(default_factory=list)
     errors: dict[str, int] = Field(default_factory=dict)
     batch_id: str

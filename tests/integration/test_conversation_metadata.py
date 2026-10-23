@@ -45,6 +45,16 @@ async def test_account_history_batch_http_restores_progress_and_isolates_users(
     )
     assert invalid.status_code == 403
     assert "HistoryBatchRequest" in client._octop_app.openapi()["components"]["schemas"]
+    history_url = "/api/settings/conversation-metadata/conversations"
+    with repos.db.transaction() as conn:
+        conn.execute(
+            "UPDATE thread_metadata_jobs SET status='failed',error_code='METADATA_INVALID_OUTPUT' WHERE thread_id='batch-http-0'"
+        )
+    params = {"batch_id": "all-http", "status_filter": "failed"}
+    assert (await client.get(history_url, params=params)).status_code == 401
+    page = (await client.get(history_url, headers=auth, params=params)).json()
+    assert page["total"] == 1 and page["items"][0]["thread_id"] == "batch-http-0"
+    assert (await client.get(history_url, headers=other, params=params)).json()["total"] == 0
 
 
 @pytest.mark.asyncio

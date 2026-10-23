@@ -111,7 +111,12 @@ it("sends age and status filters to the server before pagination", async () => {
   );
   fireEvent.click(await screen.findByText("organizationHistory.ages.d3"));
   await waitFor(() =>
-    expect(api.organizationPage).toHaveBeenCalledWith("d3", "failed", 0),
+    expect(api.organizationPage).toHaveBeenCalledWith(
+      "d3",
+      "failed",
+      0,
+      undefined,
+    ),
   );
 });
 

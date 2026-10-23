@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -84,4 +85,6 @@ def safe_diagnostics(exc: Exception, *, code: str, stage: str, job_id: str) -> d
             if type(exc).__name__ == "JSONDecodeError"
             else "invalid_source_reference_or_shape"
         )
+        if isinstance(exc, json.JSONDecodeError):
+            result["json_position"] = {"line": exc.lineno, "column": exc.colno, "offset": exc.pos}
     return result
