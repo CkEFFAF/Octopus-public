@@ -2,6 +2,7 @@ import { Modal, Tabs } from "antd";
 import { useTranslation } from "react-i18next";
 import ScheduleBrowser from "../../../components/ScheduleBrowser";
 import ExpertTaskSummary from "./ExpertTaskSummary";
+import styles from "./ExpertTaskSummary.module.less";
 
 /** Keep sidebar inspection in place, without selecting another conversation. */
 export default function SidebarTaskDialog({
@@ -28,6 +29,7 @@ export default function SidebarTaskDialog({
         onCancel={onClose}
         footer={null}
         width={840}
+        className={styles.taskDialog}
         destroyOnHidden
         title={t("workspace0034.expertTaskPanel")}
       >
@@ -47,6 +49,7 @@ export default function SidebarTaskDialog({
                 label: t(`workspace0034.${tab}`),
                 children: (
                   <ScheduleBrowser
+                    compact
                     agentId={agentId}
                     threadId={threadId}
                     reminder={tab === "reminders"}

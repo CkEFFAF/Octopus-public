@@ -20,6 +20,7 @@ class SidebarWorkingThread(BaseModel):
     last_active: float
     created_at: float
     pinned: bool
+    metadata: dict[str, Any] | None = None
 
 
 class SidebarSchedule(BaseModel):

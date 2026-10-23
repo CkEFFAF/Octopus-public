@@ -610,6 +610,7 @@ export default function ScheduleBrowser({
   global = false,
   onManage,
   onNavigate,
+  compact = false,
 }: {
   agentId?: string;
   threadId?: string;
@@ -618,6 +619,7 @@ export default function ScheduleBrowser({
   global?: boolean;
   onManage?: (item: OctopCronRow) => void;
   onNavigate?: () => void;
+  compact?: boolean;
 }) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
@@ -654,7 +656,7 @@ export default function ScheduleBrowser({
     setScope("thread");
   }, [agentId, threadId, reminder]);
   return (
-    <div className={styles.browser}>
+    <div className={`${styles.browser} ${compact ? styles.compact : ""}`}>
       <div className={styles.scope}>
         {threadId ? (
           <Segmented
@@ -738,6 +740,8 @@ export default function ScheduleBrowser({
         <div
           className={`${styles.columns} ${
             isMobile && current ? styles.mobileDetail : ""
+          } ${compact && !current ? styles.cardList : ""} ${
+            compact && current ? styles.compactDetail : ""
           }`}
         >
           <nav
@@ -847,14 +851,14 @@ export default function ScheduleBrowser({
                 onBack={() => setSelected("")}
               />
             </div>
-          ) : (
+          ) : !compact ? (
             <div className={styles.empty}>
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
                 description={t("workspace0034.selectSchedule")}
               />
             </div>
-          )}
+          ) : null}
         </div>
       )}
     </div>

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import Any
 
@@ -67,8 +68,20 @@ async def test_activity_and_schedules_follow_actual_owned_threads(rig: Any) -> N
     owner = SimpleNamespace(id=rig.owner, is_admin=True)
     await manager.boot()
     try:
+        with repos.db.transaction() as conn:
+            conn.execute("INSERT OR IGNORE INTO thread_metadata(thread_id) VALUES ('root')")
+            conn.execute(
+                "UPDATE thread_metadata SET snapshot_json=? WHERE thread_id='root'",
+                (
+                    json.dumps(
+                        {"brief": {"one_liner": "检查实验", "in_progress": [{"text": "正在验证"}]}}
+                    ),
+                ),
+            )
         result = await get_sidebar_status("parent", user=owner, server=server)
         assert [row.thread_id for row in result.working_threads] == ["root"]
+        assert result.working_threads[0].metadata["one_liner"] == "检查实验"
+        assert result.working_threads[0].metadata["current_progress"] == "正在验证"
         schedules = {row.id: row for row in result.schedules}
         assert set(schedules) == {"daily", "paused", "reminder"}
         assert schedules["daily"].next_run_at is not None

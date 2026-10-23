@@ -712,6 +712,11 @@ class ConversationMetadataRepo:
             result[str(row["thread_id"])] = {
                 "one_liner": brief.get("one_liner", ""),
                 "stage": brief.get("stage", ""),
+                "current_progress": next(
+                    (item["text"] for item in brief.get("in_progress", [])), ""
+                ),
+                "blocker": next((item["text"] for item in brief.get("blockers", [])), ""),
+                "next_action": next((item["text"] for item in brief.get("next_actions", [])), ""),
                 "recent_events": [item["text"] for item in brief.get("events", [])[-3:]],
                 "work_state": work,
                 "display_state": display,

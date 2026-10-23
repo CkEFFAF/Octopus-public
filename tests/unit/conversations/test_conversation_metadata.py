@@ -125,6 +125,9 @@ async def test_real_wire_messages_generate_title_and_attributed_brief(environmen
     preview = repos.conversation_metadata_repo.list_briefs(1, "agent", ["thread"])["thread"]
     assert preview["recent_events"] == ["提出会话整理需求"]
     assert "stage" in preview
+    assert preview["next_action"] == "补充验收证据"
+    assert preview["current_progress"] == ""
+    assert preview["blocker"] == ""
 
 
 @pytest.mark.asyncio

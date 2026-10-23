@@ -114,18 +114,25 @@ async def get_sidebar_status(
 ) -> SidebarStatus:
     """Observe this user's running conversations and authorized task associations."""
     row = require_agent_row(agent_id, user=user, as_user=None, server=server)
-    return SidebarStatus.model_validate(
-        sidebar_status(
-            gateway=server.app_runtime.gateway,
-            cron_manager=server.app_runtime.cron_manager,
-            agent_id=agent_id,
-            user_id=user.id,
-            include_schedules=user_owns_agent(row, user),
-            background_tasks=await asyncio.to_thread(
-                server.services.repos.run_event_repo.sidebar_jobs, user.id, agent_id
-            ),
-        )
+    status = sidebar_status(
+        gateway=server.app_runtime.gateway,
+        cron_manager=server.app_runtime.cron_manager,
+        agent_id=agent_id,
+        user_id=user.id,
+        include_schedules=user_owns_agent(row, user),
+        background_tasks=await asyncio.to_thread(
+            server.services.repos.run_event_repo.sidebar_jobs, user.id, agent_id
+        ),
     )
+    metadata = await asyncio.to_thread(
+        server.services.repos.conversation_metadata_repo.list_briefs,
+        user.id,
+        agent_id,
+        [item["thread_id"] for item in status["working_threads"]],
+    )
+    for item in status["working_threads"]:
+        item["metadata"] = metadata.get(item["thread_id"])
+    return SidebarStatus.model_validate(status)
 
 
 @router.get("/agents/{agent_id}/threads", summary="List threads")

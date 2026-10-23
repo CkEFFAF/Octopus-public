@@ -39,7 +39,10 @@ vi.mock("../../../hooks/useCurrentUser", () => ({
   useCurrentUser: () => ({ id: userId }),
 }));
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string) => key,
+    i18n: { resolvedLanguage: "zh" },
+  }),
 }));
 const agent = {
   id: 1,
@@ -160,6 +163,51 @@ it("exposes working chats under other experts without switching experts first", 
   expect(common.onSelect).toHaveBeenCalledWith("old-background", "other");
 });
 
+it("previews cached progress on another expert's working shortcut without changing chats", async () => {
+  const other = { ...agent, id: 2, agent_id: "other", name: "Other expert" };
+  vi.mocked(octopThreadsApi.sidebarStatus).mockResolvedValue({
+    ...status,
+    working_threads: [
+      {
+        ...status.working_threads[0],
+        metadata: {
+          one_liner: "实验迁移结果分析",
+          current_progress: "已完成三组对照，正在检查差异",
+          blocker: "",
+          next_action: "汇总验证结果",
+          work_state: "in_progress",
+          freshness: "stale",
+          generated_at: 1,
+        },
+      },
+    ],
+  });
+  common.onSelect.mockClear();
+  render(
+    <MemoryRouter>
+      <SessionList
+        {...common}
+        agents={[agent, other]}
+        sessions={[idle]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        onFetchAllSessions={vi.fn()}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onPin={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  const titles = await screen.findAllByText("Older background chat");
+  fireEvent.mouseOver(titles.at(-1)!);
+  const tooltip = await screen.findByRole("tooltip");
+  expect(tooltip).toHaveTextContent("实验迁移结果分析");
+  expect(tooltip).toHaveTextContent("已完成三组对照，正在检查差异");
+  expect(tooltip).toHaveTextContent("汇总验证结果");
+  expect(common.onSelect).not.toHaveBeenCalled();
+});
+
 it("shows background activity and schedule states without treating selection as work", async () => {
   const view = render(classic());
   const row = (await screen.findByText("Older background chat")).closest(
@@ -200,6 +248,44 @@ it("shows background activity and schedule states without treating selection as 
   );
   expect(screen.queryByLabelText("chat.sessionSchedules")).toBeNull();
   view.unmount();
+});
+
+it("does not dump old English reports and stage identifiers into Chinese previews", async () => {
+  render(
+    <MemoryRouter>
+      <SessionList
+        {...common}
+        sessions={[
+          {
+            ...idle,
+            metadata: {
+              one_liner:
+                "Experiment results on retrieval robustness and relationship intervention analysis",
+              stage: "target_set_construction",
+              current_progress:
+                "Completed analysis of four way relationship intervention",
+              work_state: "in_progress",
+              freshness: "stale",
+              generated_at: 1,
+            },
+          },
+        ]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        onFetchAllSessions={vi.fn()}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onPin={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  fireEvent.mouseOver(screen.getByText("Selected idle chat"));
+  const tooltip = await screen.findByRole("tooltip");
+  expect(tooltip).toHaveTextContent("sessionPreview.languageHint");
+  expect(tooltip).not.toHaveTextContent("retrieval robustness");
+  expect(tooltip).not.toHaveTextContent("target_set_construction");
+  expect(tooltip).not.toHaveTextContent("Completed analysis");
 });
 
 it("limits hover to the two nearest schedules and opens this chat's task dialog", async () => {

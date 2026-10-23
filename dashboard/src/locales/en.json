@@ -1,4 +1,24 @@
 {
+  "sessionPreview": {
+    "progress": "Latest progress",
+    "blocker": "Blocker",
+    "next": "Next step",
+    "runningNoSummary": "Running; no new progress summary yet",
+    "noProgress": "No progress recorded yet",
+    "languageHint": "Update the overview to match your language",
+    "backgroundCount": "{{count}} background",
+    "backgroundTask": "Background task {{index}}",
+    "taskObservations": "Run observations",
+    "olderRecords": "Earlier records ({{count}})",
+    "recordsEmpty": "No run observations yet",
+    "activeCount": "{{count}} active",
+    "completedCount": "{{count}} completed",
+    "failedCount": "{{count}} failed",
+    "taskFallback": "Active conversation",
+    "taskDetails": "Inspect run details",
+    "toolCommand": "Run command",
+    "toolReminder": "Set self-reminder"
+  },
   "devices": {
     "native": {
       "files": "Files",

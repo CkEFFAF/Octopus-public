@@ -105,6 +105,9 @@ export function useSessionActivity(threadId: string) {
     () => chatStore.getSnapshot(threadId).isStreaming,
   );
   return {
+    metadata: Object.values(values)
+      .flatMap((value) => value.working_threads)
+      .find((row) => row.thread_id === threadId)?.metadata,
     agentId: Object.entries(values).find(
       ([, value]) =>
         value.schedules.some((row) => row.thread_id === threadId) ||
