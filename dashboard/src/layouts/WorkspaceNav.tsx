@@ -19,6 +19,7 @@ import { useCurrentUser } from "../hooks/useCurrentUser";
 import { useServerCapabilities } from "../hooks/useServerCapabilities";
 import { buildNavSections, type NavItem } from "./sidebarNav";
 import AvatarDropdown from "../components/AvatarDropdown";
+import { useChatSidebarOpen } from "../pages/Chat/hooks/useChatSidebarState";
 import "./workspaceNav.css";
 
 const groups = [
@@ -79,6 +80,7 @@ export default function WorkspaceNav({
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [, setChatSidebarOpen] = useChatSidebarOpen();
   const location = useLocation();
   const user = useCurrentUser();
   const { mobileEnabled } = useServerCapabilities();
@@ -136,12 +138,16 @@ export default function WorkspaceNav({
               >
                 <button
                   className={active.id === group.id ? "active" : ""}
-                  onClick={() =>
+                  onClick={() => {
+                    if (group.id === "chat") {
+                      setChatSidebarOpen(true);
+                      if (inChat) return;
+                    }
                     navigate(
                       available.find((item) => item.path === group.path)
                         ?.path || first.path,
-                    )
-                  }
+                    );
+                  }}
                   aria-label={t(`octopus.${group.id}`)}
                   aria-current={active.id === group.id ? "page" : undefined}
                 >

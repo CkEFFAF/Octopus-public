@@ -66,6 +66,16 @@ def safe_diagnostics(exc: Exception, *, code: str, stage: str, job_id: str) -> d
         result["request_id"] = request_id
     if isinstance(exc, ValidationError):
         result["issues"] = output_issues(exc)
+    elif str(exc) == "METADATA_INPUT_BUDGET":
+        for key in (
+            "input_bytes",
+            "input_limit_bytes",
+            "input_tokens_estimate",
+            "input_limit_tokens",
+        ):
+            value = getattr(exc, key, None)
+            if isinstance(value, int) and 0 <= value <= 1_000_000_000:
+                result[key] = value
     elif str(exc) == "METADATA_OUTPUT_TRUNCATED":
         result["format_failure"] = "output_token_limit"
     elif code == "METADATA_INVALID_OUTPUT":

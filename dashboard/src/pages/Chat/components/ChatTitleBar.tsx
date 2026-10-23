@@ -39,6 +39,7 @@ interface ChatTitleBarProps {
   isTeam?: boolean;
   activity?: ReactNode;
   actions?: ReactNode;
+  leading?: ReactNode;
 }
 
 export default function ChatTitleBar({
@@ -54,6 +55,7 @@ export default function ChatTitleBar({
   isTeam = false,
   activity,
   actions,
+  leading,
 }: ChatTitleBarProps) {
   const { t } = useTranslation();
   const [collapseThinking, setCollapseThinking] = useCollapseThinking(isTeam);
@@ -163,6 +165,7 @@ export default function ChatTitleBar({
   return (
     <div className={`${styles.chatTitleBar} ${DESKTOP_DRAG_REGION_CLASS}`}>
       <div className={styles.chatTitleLeft}>
+        {leading}
         <SessionChannelIcon
           channelType={session.channelType}
           size={13}

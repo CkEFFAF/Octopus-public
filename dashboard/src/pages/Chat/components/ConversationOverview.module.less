@@ -18,6 +18,54 @@
 .notice {
   margin: 12px 0;
 }
+.overviewSummary {
+  margin: 12px 0 20px;
+  p {
+    margin: 6px 0 0;
+    line-height: 1.7;
+  }
+}
+.objectiveCard {
+  padding: 18px;
+  border-radius: 12px;
+  border: 1px solid var(--fn-border-secondary, #e8e8e8);
+  background: var(--fn-bg-elevated, #fff);
+  h3 {
+    margin: 0;
+    font-size: 13px;
+    color: var(--fn-text-secondary, #737780);
+  }
+}
+.scopeText {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--fn-border-secondary, #e8e8e8);
+  font-size: 13px;
+  color: var(--fn-text-secondary, #737780);
+}
+.progressCards {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  > div {
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: var(--fn-bg-secondary, #f7f8fa);
+  }
+  span,
+  strong {
+    display: block;
+  }
+  span {
+    margin-bottom: 6px;
+    color: var(--fn-text-secondary, #737780);
+    font-size: 12px;
+  }
+  strong {
+    font-weight: 500;
+  }
+}
 .section {
   margin: 12px 0;
   padding: 16px;

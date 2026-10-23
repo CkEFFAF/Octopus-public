@@ -53,11 +53,17 @@ export default function ConversationOverview({
   compact?: boolean;
   onOpenArtifact?: (path: string, agentId?: string | null) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { message, modal } = App.useApp();
   const timezone = useServerTimezone();
   const [open, setOpen] = useState(false);
   const [brief, setBrief] = useState<ConversationBrief | null>(null);
+  const needsLanguageRefresh =
+    (i18n?.resolvedLanguage ?? i18n?.language ?? "").startsWith("zh") &&
+    !!brief?.provenance.generated_at &&
+    !brief.manual_overrides.objective &&
+    /[a-zA-Z]{3}/.test(brief.overview.objective) &&
+    !/[\u3400-\u9fff]/.test(brief.overview.objective);
   const [error, setError] = useState("");
   const [tab, setTab] = useState("overview");
   const [events, setEvents] = useState<ConversationEventPage | null>(null);
@@ -493,9 +499,6 @@ export default function ConversationOverview({
                 }
               />
             )}
-            <FailureDiagnostics
-              value={job?.result.diagnostic ?? brief.provenance.diagnostic}
-            />
             {generating && (
               <Alert
                 type="info"
@@ -524,7 +527,36 @@ export default function ConversationOverview({
                   `conversationMetadata.errors.${brief.provenance.last_error}`,
                   t("conversationMetadata.generationFailed"),
                 )}
+                action={
+                  <FailureDiagnostics
+                    summary={t(
+                      `conversationMetadata.errors.${brief.provenance.last_error}`,
+                      t("conversationMetadata.generationFailed"),
+                    )}
+                    value={{
+                      ...(job?.result.diagnostic ??
+                        brief.provenance.diagnostic),
+                      code: brief.provenance.last_error,
+                    }}
+                  />
+                }
                 showIcon
+              />
+            )}
+            {needsLanguageRefresh && (
+              <Alert
+                type="info"
+                className={styles.notice}
+                message={t("conversationMetadata.languageMismatch")}
+                action={
+                  <Button
+                    size="small"
+                    disabled={busy || generating}
+                    onClick={() => void generate("brief")}
+                  >
+                    {t("conversationMetadata.refreshLanguage")}
+                  </Button>
+                }
               />
             )}
             <Tabs
@@ -546,46 +578,42 @@ export default function ConversationOverview({
                   label: t("conversationMetadata.overview"),
                   children: (
                     <>
-                      <Descriptions
-                        column={1}
-                        size="small"
-                        items={[
-                          {
-                            key: "objective",
-                            label: t("conversationMetadata.objective"),
-                            children:
-                              brief.overview.objective ||
-                              t("conversationMetadata.notRecorded"),
-                          },
-                          ...(brief.overview.scope
-                            ? [
-                                {
-                                  key: "scope",
-                                  label: t("conversationMetadata.scope"),
-                                  children: brief.overview.scope,
-                                },
-                              ]
-                            : []),
-                          {
-                            key: "stage",
-                            label: t("conversationMetadata.stage"),
-                            children:
-                              brief.progress.stage ||
-                              t("conversationMetadata.notRecorded"),
-                          },
-                          {
-                            key: "plans",
-                            label: t("conversationMetadata.plan"),
-                            children: brief.progress.plan_total
-                              ? t("conversationMetadata.reportedPlan", {
-                                  completed:
-                                    brief.progress.reported_plan_completed,
-                                  total: brief.progress.plan_total,
-                                })
-                              : t("conversationMetadata.noPlan"),
-                          },
-                        ]}
-                      />
+                      <section className={styles.overviewSummary}>
+                        <div className={styles.objectiveCard}>
+                          <h3>{t("conversationMetadata.objective")}</h3>
+                          <p>
+                            {brief.overview.objective ||
+                              t("conversationMetadata.notRecorded")}
+                          </p>
+                          {brief.overview.scope && (
+                            <div className={styles.scopeText}>
+                              <span>{t("conversationMetadata.scope")}</span>
+                              <p>{brief.overview.scope}</p>
+                            </div>
+                          )}
+                        </div>
+                        <div className={styles.progressCards}>
+                          <div>
+                            <span>{t("conversationMetadata.stage")}</span>
+                            <strong>
+                              {brief.progress.stage ||
+                                t("conversationMetadata.notRecorded")}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>{t("conversationMetadata.plan")}</span>
+                            <strong>
+                              {brief.progress.plan_total
+                                ? t("conversationMetadata.reportedPlan", {
+                                    completed:
+                                      brief.progress.reported_plan_completed,
+                                    total: brief.progress.plan_total,
+                                  })
+                                : t("conversationMetadata.noPlan")}
+                            </strong>
+                          </div>
+                        </div>
+                      </section>
                       {items("constraints", brief.overview.constraints)}
                       {items("completed", brief.progress.completed)}
                       {items("inProgress", brief.progress.in_progress)}

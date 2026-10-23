@@ -496,7 +496,11 @@
     "back": "Back",
     "comingSoon": "Coming soon",
     "notImplemented": "This page is under construction.",
-    "failureDetails": "Diagnostic details (copyable)"
+    "failureDetails": "Details",
+    "failureDetailsTitle": "Error details",
+    "failureDetailsHint": "Copy these diagnostic details when reporting the issue.",
+    "failureBudget": "Estimated input (with reserve): {{input}} tokens. Request limit: {{limit}} tokens.",
+    "failureSamplesHint": "{{count}} conversations failed. The {{shown}} retained diagnostic samples are shown below."
   },
   "apiErrors": {
     "AUTH_FAILED": "Authentication failed.",
@@ -1649,6 +1653,9 @@
     "path_outside_root": "The file path is outside this expert's storage root, so it cannot be read or written. Use a path under the storage root, or widen the storage root in expert settings (on Windows, set an explicit drive path such as D:/octop-data)."
   },
   "chat": {
+    "sessionList": "Conversations",
+    "showSessionList": "Show conversation list",
+    "hideSessionList": "Hide conversation list",
     "capabilitySaved": "Saved",
     "capabilityAfterTurn": "Saved; applies after this turn",
     "capabilityNextRequest": "Applies on the next model request",
@@ -7958,7 +7965,7 @@
     },
     "errors": {
       "METADATA_MODEL_UNAVAILABLE": "Organization model unavailable. Choose an available model in settings.",
-      "METADATA_INPUT_BUDGET": "The content exceeds this call's safe limit. Choose a shorter range or a model with more context.",
+      "METADATA_INPUT_BUDGET": "This conversation is too long to organize in this request.",
       "METADATA_INVALID_OUTPUT": "The model returned an invalid result. Existing content was retained.",
       "METADATA_GENERATION_FAILED": "Organization temporarily failed. Existing content was retained.",
       "METADATA_REGION_RESTRICTED": "The provider does not serve this model in the server's region. Choose an available model or provider in model settings.",
@@ -7977,6 +7984,9 @@
     "outlineMode": "Outline mode",
     "outlineStandard": "Full outline",
     "outlineCompact": "Decisions and next steps",
-    "copyOutline": "Copy selected format"
+    "copyOutline": "Copy selected format",
+    "languageMismatch": "This older overview uses another language. Regenerate it in your account language.",
+    "refreshLanguage": "Update language",
+    "failureCount": "{{count}} conversations"
   }
 }

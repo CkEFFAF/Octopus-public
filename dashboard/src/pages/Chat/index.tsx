@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import {
   PanelLeftOpen,
+  PanelLeftClose,
   GraduationCap,
   Users,
   Globe,
@@ -1333,6 +1334,24 @@ function ChatPageInner() {
     />
   );
 
+  const sidebarToggle = !isMinimalLayout ? (
+    <Button
+      type="text"
+      className={styles.sidebarToggle}
+      aria-label={t(
+        sidebarOpen ? "chat.hideSessionList" : "chat.showSessionList",
+      )}
+      aria-expanded={sidebarOpen}
+      title={t(sidebarOpen ? "chat.hideSessionList" : "chat.showSessionList")}
+      icon={
+        sidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />
+      }
+      onClick={() => setSidebarOpen(!sidebarOpen)}
+    >
+      {!sidebarOpen && t("chat.sessionList")}
+    </Button>
+  ) : null;
+
   return (
     <ChatFilePreviewProvider
       openFilePreview={openFileAt}
@@ -1494,12 +1513,14 @@ function ChatPageInner() {
 
             {!isMobile && (!activeSession || !activeSessionTitle) ? (
               <div className={styles.chatHeaderFallback}>
+                {sidebarToggle}
                 {expertActivity}
                 {roomActions}
               </div>
             ) : null}
             {!isMobile && activeSession && activeSessionTitle && (
               <ChatTitleBar
+                leading={sidebarToggle}
                 session={activeSession}
                 title={activeSessionTitle}
                 onRename={renameSession}

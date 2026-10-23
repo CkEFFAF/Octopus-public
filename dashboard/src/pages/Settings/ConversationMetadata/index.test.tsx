@@ -49,6 +49,8 @@ describe("account conversation models", () => {
     vi.mocked(api.settings).mockResolvedValue(settings);
     vi.mocked(api.historyBatch).mockResolvedValue({
       ...batch,
+      failed: 2,
+      errors: { METADATA_INVALID_OUTPUT: 2 },
       failures: [
         {
           job_id: "failed-job",
@@ -57,6 +59,12 @@ describe("account conversation models", () => {
           diagnostic: {
             issues: [{ path: "remaining.0.source_refs", type: "missing" }],
           },
+        },
+        {
+          job_id: "another-job",
+          thread_id: "another-thread",
+          code: "METADATA_INVALID_OUTPUT",
+          diagnostic: {},
         },
       ],
     });
@@ -75,7 +83,16 @@ describe("account conversation models", () => {
     const stop = await screen.findByRole("button", {
       name: "conversationMetadata.stopOrganizing",
     });
-    expect(screen.getByText(/remaining.0.source_refs/)).toBeInTheDocument();
+    expect(screen.queryByText(/remaining.0.source_refs/)).toBeNull();
+    const details = screen.getAllByRole("button", {
+      name: "common.failureDetails",
+    });
+    expect(details).toHaveLength(1);
+    fireEvent.click(details[0]);
+    await waitFor(() =>
+      expect(screen.getByText(/remaining.0.source_refs/)).toBeVisible(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
     fireEvent.click(stop);
 
     await waitFor(() =>

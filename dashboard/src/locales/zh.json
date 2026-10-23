@@ -496,7 +496,11 @@
     "back": "返回",
     "comingSoon": "即将上线",
     "notImplemented": "页面建设中。",
-    "failureDetails": "诊断详情（可复制）"
+    "failureDetails": "详情",
+    "failureDetailsTitle": "错误详情",
+    "failureDetailsHint": "以下是用于排查的诊断信息，可复制反馈。",
+    "failureBudget": "输入估算（含预留）：{{input}} tokens，本次上限：{{limit}} tokens。",
+    "failureSamplesHint": "共 {{count}} 个会话失败，以下展示已保留的 {{shown}} 个诊断示例。"
   },
   "apiErrors": {
     "AUTH_FAILED": "认证失败。",
@@ -1649,6 +1653,9 @@
     "path_outside_root": "文件路径超出当前专家的存储根目录，无法读写。请改用存储根目录内的路径，或在专家设置中扩大存储根目录（Windows 上请显式指定盘符路径，例如 D:/octop-data）。"
   },
   "chat": {
+    "sessionList": "会话列表",
+    "showSessionList": "展开会话列表",
+    "hideSessionList": "收起会话列表",
     "capabilitySaved": "已保存",
     "capabilityAfterTurn": "已保存，本回合结束后生效",
     "capabilityNextRequest": "下次模型请求生效",
@@ -7958,18 +7965,18 @@
     },
     "errors": {
       "METADATA_MODEL_UNAVAILABLE": "整理模型不可用，请在设置中选择可用模型。",
-      "METADATA_INPUT_BUDGET": "内容超过本次安全处理上限，请选择更短的区间或更大上下文模型。",
-      "METADATA_INVALID_OUTPUT": "模型返回的整理结果格式无效，原有内容已保留。",
+      "METADATA_INPUT_BUDGET": "会话内容较多，本次未能整理。",
+      "METADATA_INVALID_OUTPUT": "模型返回的格式不正确，整理未完成。",
       "METADATA_GENERATION_FAILED": "整理服务暂时失败，原有内容已保留。",
-      "METADATA_INSUFFICIENT_BALANCE": "服务商余额或额度不足，请检查额度或更换模型。",
-      "METADATA_REGION_RESTRICTED": "Provider 不允许服务器所在地区使用此模型，请选择其他可用模型。",
-      "METADATA_MODEL_RETIRED": "此模型已被 Provider 下线，请更新模型目录并重新选择。",
-      "METADATA_AUTH_FAILED": "Provider 凭据无效或已过期，请检查 API Key。",
-      "METADATA_ACCESS_DENIED": "Provider 拒绝访问该模型，请检查账号权限或订阅。",
-      "METADATA_PROVIDER_UNAVAILABLE": "Provider 上游端点不可用或未提供配额，请测试其他模型。",
-      "METADATA_RATE_LIMITED": "Provider 请求限流或配额不足，请稍后重试或检查额度。",
+      "METADATA_INSUFFICIENT_BALANCE": "模型服务额度不足。",
+      "METADATA_REGION_RESTRICTED": "当前服务器所在地区无法使用此模型。",
+      "METADATA_MODEL_RETIRED": "所选模型已下线。",
+      "METADATA_AUTH_FAILED": "模型服务验证失败，请检查密钥。",
+      "METADATA_ACCESS_DENIED": "当前账号无权使用此模型。",
+      "METADATA_PROVIDER_UNAVAILABLE": "模型服务暂时不可用。",
+      "METADATA_RATE_LIMITED": "模型服务繁忙或额度受限，请稍后重试。",
       "METADATA_TIMEOUT": "模型请求超时，请稍后重试。",
-      "METADATA_CONNECTION_FAILED": "无法连接 Provider，请检查服务器网络与接口地址。"
+      "METADATA_CONNECTION_FAILED": "无法连接模型服务，请检查网络或接口地址。"
     },
     "stopOrganizing": "停止整理",
     "outline": "结构大纲",
@@ -7977,6 +7984,9 @@
     "outlineMode": "大纲模式",
     "outlineStandard": "完整大纲",
     "outlineCompact": "结论与下一步",
-    "copyOutline": "复制所选格式"
+    "copyOutline": "复制所选格式",
+    "languageMismatch": "这份历史概览使用了其他语言，可按当前账号语言重新生成。",
+    "refreshLanguage": "按当前语言更新",
+    "failureCount": "{{count}} 个会话"
   }
 }
