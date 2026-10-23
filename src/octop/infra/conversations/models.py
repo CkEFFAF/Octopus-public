@@ -106,6 +106,7 @@ class HistoryBatchRequest(Contract):
 
 
 class HistoryBatchView(Contract):
+    failures: list[dict[str, Any]] = Field(default_factory=list)
     errors: dict[str, int] = Field(default_factory=dict)
     batch_id: str
     total: int = 0

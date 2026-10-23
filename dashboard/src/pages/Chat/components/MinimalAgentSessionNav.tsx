@@ -316,6 +316,8 @@ function MinimalAgentSessionNavContent({
       agent.is_working ||
       !!sidebarActivity[agent.agent_id]?.working_threads.length,
   }));
+  const sectionRefs = useRef(new Map<string, HTMLElement>());
+  const [revealAgent, setRevealAgent] = useState<string | null>(null);
   const navigate = useNavigate();
   const { pinnedIds, togglePin } = usePinnedExperts();
   const [byAgent, setByAgent] = useState<Record<string, Session[]>>({});
@@ -359,6 +361,14 @@ function MinimalAgentSessionNavContent({
     });
   }, []);
 
+  useEffect(() => {
+    if (!revealAgent) return;
+    sectionRefs.current
+      .get(revealAgent)
+      ?.scrollIntoView({ block: "start", behavior: "auto" });
+    setRevealAgent(null);
+  }, [revealAgent, collapsedFolders]);
+
   const openFolderAndSelect = useCallback(
     (agentId: string) => {
       setCollapsedFolders((prev) => {
@@ -368,6 +378,7 @@ function MinimalAgentSessionNavContent({
         saveCollapsedFolders(next);
         return next;
       });
+      setRevealAgent(agentId);
       onAgentSelect(agentId);
     },
     [onAgentSelect],
@@ -564,7 +575,14 @@ function MinimalAgentSessionNavContent({
         );
 
         return (
-          <section key={agent.agent_id} className={styles.minimalAgentSection}>
+          <section
+            key={agent.agent_id}
+            ref={(element) => {
+              if (element) sectionRefs.current.set(agent.agent_id, element);
+              else sectionRefs.current.delete(agent.agent_id);
+            }}
+            className={styles.minimalAgentSection}
+          >
             <div className={styles.minimalAgentHeader}>
               <span className={styles.minimalAgentIconSlot}>
                 <ExpertAgentAvatar

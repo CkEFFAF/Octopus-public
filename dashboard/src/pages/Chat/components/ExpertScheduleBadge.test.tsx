@@ -33,6 +33,12 @@ describe("expert schedule shortcuts", () => {
     );
     expect(select).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: "workspace0034.backgroundSummary" }),
+    ).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(
+      screen.getByRole("tab", { name: "workspace0034.schedules" }),
+    );
     fireEvent.click(screen.getByText("schedule-browser"));
     expect(select).not.toHaveBeenCalled();
     expect(screen.getByRole("status")).toHaveTextContent("/");

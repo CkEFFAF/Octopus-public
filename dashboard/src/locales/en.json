@@ -495,7 +495,8 @@
     "tokenCountPreview": "About {{label}} tokens ({{exact}})",
     "back": "Back",
     "comingSoon": "Coming soon",
-    "notImplemented": "This page is under construction."
+    "notImplemented": "This page is under construction.",
+    "failureDetails": "Diagnostic details (copyable)"
   },
   "apiErrors": {
     "AUTH_FAILED": "Authentication failed.",
@@ -4222,7 +4223,16 @@
     "onnxCacheDir": "Cache: {{dir}}",
     "onnxLocalCached": "Cached models",
     "onnxQuickDownload": "Quick download from catalog…",
-    "defaultModelExtra": "Model used by Test connection; leave empty to use the first enabled model"
+    "defaultModelExtra": "Model used by Test connection; leave empty to use the first enabled model",
+    "freeChannels": "Free model channels",
+    "freeListingHint": "The full directory includes untested models. Availability depends on region, quota and API support. OpenCode Zen Free is anonymous; leaderboard providers require your own key.",
+    "freeCounts": "{{total}} listed · {{enabled}} enabled",
+    "syncAllFree": "Sync and enable all free models",
+    "freeSynced": "Synced and enabled {{count}} free models; test calls to confirm availability",
+    "keyRequired": "Own key required",
+    "applyFreeKey": "Apply for free key",
+    "configureFree": "Configure channel",
+    "freeKeyPrivacy": "Your key is saved only to this account’s provider settings, never sent to the leaderboard."
   },
   "advancedSettings": {
     "description": "Manage runtime configuration and environment variables.",
@@ -7808,7 +7818,13 @@
     "reminderReadOnly": "Created by the original conversation; execution is shown here.",
     "scheduleSource": "This task uses the existing schedule settings.",
     "noExecutionYet": "Not executed yet",
-    "lastExecutedAt": "Last execution {{time}}"
+    "lastExecutedAt": "Last execution {{time}}",
+    "configuredTasks": "{{count}} configured background tasks",
+    "backgroundSummary": "Background tasks",
+    "runningSummary": "{{count}} active conversations · {{jobs}} background jobs",
+    "noBackgroundTasks": "No active conversations or background jobs. See the other tabs for schedules and reminders.",
+    "observationStale": "Status needs confirmation",
+    "inspectTasks": "Inspect runs and plans"
   },
   "conversationMetadata": {
     "settingsTitle": "Conversation organization",
@@ -7954,6 +7970,13 @@
       "METADATA_TIMEOUT": "The model request timed out. Retry later.",
       "METADATA_CONNECTION_FAILED": "Cannot connect to the provider. Check the server network and API URL.",
       "METADATA_INSUFFICIENT_BALANCE": "Provider balance or quota exhausted. Check billing or choose another model."
-    }
+    },
+    "stopOrganizing": "Stop organization",
+    "outline": "Structured outline",
+    "outlineHint": "Built from the current overview without another model call. Reported work is separate from user acceptance; correct the objective in Overview and inspect sources.",
+    "outlineMode": "Outline mode",
+    "outlineStandard": "Full outline",
+    "outlineCompact": "Decisions and next steps",
+    "copyOutline": "Copy selected format"
   }
 }

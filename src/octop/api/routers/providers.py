@@ -47,6 +47,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+@router.get(
+    "/providers/free-hub", summary="Free Models Hub public leaderboard and publisher signup links"
+)
+async def free_models_hub(user: Any = Depends(current_user)) -> dict[str, Any]:
+    from octop.infra.agents.providers.live_catalog import catalog_status, free_hub_entries
+
+    return {"items": free_hub_entries(), "sources": catalog_status()["sources"]}
+
+
 class ProviderCreateBody(BaseModel):
     user_id: int | None = None
     name: str

@@ -93,6 +93,7 @@ export interface DoneChunk {
 export interface ErrorChunk {
   type: "error";
   message: string;
+  diagnostic?: Record<string, unknown>;
   error_code?: string;
   agent_id?: string;
 }
@@ -303,6 +304,12 @@ function projectHarnessChunk(
           typeof obj.message === "string" ? obj.message : "unknown error",
         error_code:
           typeof obj.error_code === "string" ? obj.error_code : undefined,
+        diagnostic:
+          obj.diagnostic &&
+          typeof obj.diagnostic === "object" &&
+          !Array.isArray(obj.diagnostic)
+            ? (obj.diagnostic as Record<string, unknown>)
+            : undefined,
         agent_id: agentId,
       };
     case "hitl_required":

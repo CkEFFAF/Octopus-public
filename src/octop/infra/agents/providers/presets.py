@@ -284,6 +284,18 @@ def load_provider_presets() -> list[dict[str, Any]]:
             "logo_id": "openai",
         }
     )
+    out.append(
+        {
+            "id": "opencode-zen-free",
+            "name": "OpenCode Zen Free (opencode2dsh)",
+            "protocol": "openai",
+            "base_url": "https://opencode.ai/inference/v1",
+            "api_key_prefix": "",
+            "auth_method": "anonymous",
+            "models": [],
+            "logo_id": "opencode",
+        }
+    )
     out = overlay_presets(out)
     for preset in out:
         provider_id = str(preset.get("id") or "")

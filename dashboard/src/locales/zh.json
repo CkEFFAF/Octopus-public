@@ -495,7 +495,8 @@
     "tokenCountPreview": "约 {{label}} tokens（{{exact}}）",
     "back": "返回",
     "comingSoon": "即将上线",
-    "notImplemented": "页面建设中。"
+    "notImplemented": "页面建设中。",
+    "failureDetails": "诊断详情（可复制）"
   },
   "apiErrors": {
     "AUTH_FAILED": "认证失败。",
@@ -4222,7 +4223,16 @@
     "onnxLocalCached": "已缓存模型",
     "onnxQuickDownload": "从目录快速下载…",
     "defaultModelExtra": "测试连接时使用此模型；留空则使用第一个已启用的模型",
-    "deleteProviderFailedSimple": "删除模型服务失败"
+    "deleteProviderFailedSimple": "删除模型服务失败",
+    "freeChannels": "免费模型渠道",
+    "freeListingHint": "完整目录包含尚未验证的模型；上架不代表调用可用，具体受地区、额度和接口限制。OpenCode Zen Free 为匿名通道；榜单渠道需自行申请 Key。",
+    "freeCounts": "目录 {{total}} 个 · 已启用 {{enabled}} 个",
+    "syncAllFree": "同步并启用全部免费模型",
+    "freeSynced": "已同步启用 {{count}} 个免费模型；调用结果以实际测试为准",
+    "keyRequired": "需申请 Key",
+    "applyFreeKey": "申请免费 Key",
+    "configureFree": "配置此渠道",
+    "freeKeyPrivacy": "Key 只保存到当前账户的提供方配置，不发送给排行榜数据源。"
   },
   "advancedSettings": {
     "description": "管理运行配置和环境变量等高级选项。",
@@ -7808,7 +7818,13 @@
     "reminderReadOnly": "提醒由原会话创建，在此查看执行情况。",
     "scheduleSource": "此任务使用已有定时调度设置。",
     "noExecutionYet": "尚未执行",
-    "lastExecutedAt": "最近执行 {{time}}"
+    "lastExecutedAt": "最近执行 {{time}}",
+    "configuredTasks": "已配置 {{count}} 个后台任务",
+    "backgroundSummary": "后台任务汇总",
+    "runningSummary": "{{count}} 个活动会话 · {{jobs}} 个后台执行任务",
+    "noBackgroundTasks": "当前没有运行中的会话或后台执行任务。定时任务与提醒在其他标签查看。",
+    "observationStale": "状态待确认",
+    "inspectTasks": "查看运行与计划"
   },
   "conversationMetadata": {
     "settingsTitle": "会话整理",
@@ -7954,6 +7970,13 @@
       "METADATA_RATE_LIMITED": "Provider 请求限流或配额不足，请稍后重试或检查额度。",
       "METADATA_TIMEOUT": "模型请求超时，请稍后重试。",
       "METADATA_CONNECTION_FAILED": "无法连接 Provider，请检查服务器网络与接口地址。"
-    }
+    },
+    "stopOrganizing": "停止整理",
+    "outline": "结构大纲",
+    "outlineHint": "使用已有概览生成大纲，不额外调用模型。已完成记录不等于用户验收；可在概览修正目标与说明，并通过来源核对。",
+    "outlineMode": "大纲模式",
+    "outlineStandard": "完整大纲",
+    "outlineCompact": "结论与下一步",
+    "copyOutline": "复制所选格式"
   }
 }

@@ -446,3 +446,28 @@
     justify-content: flex-end;
   }
 }
+
+.expertScheduleBadges button[data-task-state="scheduled"] {
+  background: #fff4df;
+  color: #9a5b00;
+  border: 1px solid #f1d79f;
+}
+.expertScheduleBadges button[data-task-state="running"] {
+  background: #e8f8f2;
+  color: #16815b;
+  border: 1px solid #9ed9c2;
+  svg {
+    animation: expertTaskPulse 1.5s ease-in-out infinite;
+  }
+}
+@keyframes expertTaskPulse {
+  50% {
+    opacity: 0.4;
+    transform: scale(0.9);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .expertScheduleBadges button[data-task-state="running"] svg {
+    animation: none;
+  }
+}

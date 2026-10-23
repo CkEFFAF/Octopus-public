@@ -147,6 +147,27 @@ class RunEventRepo:
             ).fetchall()
         return [self._public(row) for row in rows]
 
+    def sidebar_jobs(self, owner: int, agent: str) -> list[dict[str, Any]]:
+        """Bounded account/expert observations without command or log bodies."""
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT event_id,thread_id,status,updated_at,payload_json FROM run_events "
+                "WHERE owner_user_id=? AND agent_id=? AND kind='job' "
+                "AND status IN ('running','started','accepted','waiting') ORDER BY updated_at DESC LIMIT 200",
+                (owner, agent),
+            ).fetchall()
+        return [
+            {
+                "id": r["event_id"],
+                "thread_id": r["thread_id"],
+                "status": r["status"],
+                "updated_at": r["updated_at"],
+                "stale": time.time() - r["updated_at"] > 45,
+                "name": str(json.loads(r["payload_json"]).get("job_id") or "Background job")[:100],
+            }
+            for r in rows
+        ]
+
     def due_jobs(self, before: float, *, limit: int = 64) -> list[dict[str, Any]]:
         """Recover pending observations after restart; oldest checks run first."""
         with self.db.connect() as conn:

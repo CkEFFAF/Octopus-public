@@ -121,6 +121,9 @@ async def get_sidebar_status(
             agent_id=agent_id,
             user_id=user.id,
             include_schedules=user_owns_agent(row, user),
+            background_tasks=await asyncio.to_thread(
+                server.services.repos.run_event_repo.sidebar_jobs, user.id, agent_id
+            ),
         )
     )
 

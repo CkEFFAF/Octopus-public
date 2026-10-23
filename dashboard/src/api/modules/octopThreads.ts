@@ -90,6 +90,14 @@ export interface SidebarSchedule {
 }
 
 export interface SidebarStatus {
+  background_tasks?: Array<{
+    id: string;
+    thread_id: string;
+    name: string;
+    status: string;
+    updated_at: number;
+    stale: boolean;
+  }>;
   schedule_counts?: { schedules: number; reminders: number };
   working_threads: Array<
     Pick<
@@ -115,6 +123,7 @@ export interface OctopThreadHistory {
     timestamp?: number;
     status?: string;
     error_code?: string;
+    error_diagnostic?: Record<string, unknown>;
     agent_id?: string;
     team_wrapup?: boolean;
   }>;

@@ -15,6 +15,7 @@ vi.mock("../../../api/modules/conversationMetadata", () => ({
     saveSettings: vi.fn(),
     historyBatch: vi.fn(),
     startHistoryBatch: vi.fn(),
+    cancelHistoryBatch: vi.fn(),
   },
 }));
 
@@ -44,6 +45,50 @@ describe("account conversation models", () => {
     failed: 0,
     cancelled: 0,
   };
+  it("stops the restored active batch and displays safe diagnostic details", async () => {
+    vi.mocked(api.settings).mockResolvedValue(settings);
+    vi.mocked(api.historyBatch).mockResolvedValue({
+      ...batch,
+      failures: [
+        {
+          job_id: "failed-job",
+          thread_id: "thread",
+          code: "METADATA_INVALID_OUTPUT",
+          diagnostic: {
+            issues: [{ path: "remaining.0.source_refs", type: "missing" }],
+          },
+        },
+      ],
+    });
+    vi.mocked(api.cancelHistoryBatch).mockImplementation(async () => {
+      const cancelled = { ...batch, queued: 0, running: 0, cancelled: 83 };
+      vi.mocked(api.historyBatch).mockResolvedValue(cancelled);
+      return cancelled;
+    });
+    render(
+      <MemoryRouter>
+        <App>
+          <Settings />
+        </App>
+      </MemoryRouter>,
+    );
+    const stop = await screen.findByRole("button", {
+      name: "conversationMetadata.stopOrganizing",
+    });
+    expect(screen.getByText(/remaining.0.source_refs/)).toBeInTheDocument();
+    fireEvent.click(stop);
+
+    await waitFor(() =>
+      expect(api.cancelHistoryBatch).toHaveBeenCalledWith("batch-command"),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", {
+          name: "conversationMetadata.stopOrganizing",
+        }),
+      ).toBeNull(),
+    );
+  });
   it("starts all history by default without choosing an Agent or conversation", async () => {
     vi.mocked(api.settings).mockResolvedValue(settings);
     vi.mocked(api.startHistoryBatch).mockImplementation(async () => {

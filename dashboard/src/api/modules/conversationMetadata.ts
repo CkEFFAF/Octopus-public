@@ -81,6 +81,7 @@ export interface ConversationBrief {
     source_revision: number;
     coverage: Coverage;
     last_error: string;
+    diagnostic?: Record<string, unknown>;
   };
 }
 export interface MetadataJob {
@@ -90,6 +91,7 @@ export interface MetadataJob {
   attempts: number;
   error_code: string;
   result: {
+    diagnostic?: Record<string, unknown>;
     suggested_title?: string;
     title_revision?: number;
     digest_id?: string;
@@ -134,6 +136,12 @@ export interface ConversationSource {
   details: Record<string, unknown>;
 }
 export interface HistoryBatch {
+  failures?: Array<{
+    job_id: string;
+    thread_id: string;
+    code: string;
+    diagnostic: Record<string, unknown>;
+  }>;
   batch_id: string;
   errors?: Record<string, number>;
   total: number;
@@ -150,6 +158,20 @@ export const metadataCommandId = () =>
   `metadata_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
 export const conversationMetadataApi = {
+  cancelHistoryBatch: (batchId: string) =>
+    request<HistoryBatch>(
+      `/settings/conversation-metadata/batch/${encodeURIComponent(
+        batchId,
+      )}/cancel`,
+      { method: "POST" },
+    ),
+  cancelJob: (agent: string, thread: string, jobId: string) =>
+    request<MetadataJob>(
+      `${scope(agent, thread)}/metadata-jobs/${encodeURIComponent(
+        jobId,
+      )}/cancel`,
+      { method: "POST" },
+    ),
   historyBatch: () =>
     request<HistoryBatch | null>("/settings/conversation-metadata/batch"),
   startHistoryBatch: (body: {

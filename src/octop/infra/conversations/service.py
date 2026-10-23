@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from pydantic import ValidationError
+
 from octop.infra.conversations.errors import generation_error_code
 from octop.infra.conversations.generation import generate_json
 from octop.infra.conversations.models import (
@@ -36,6 +38,7 @@ from octop.infra.conversations.sources import message_source, output_json
 from octop.infra.db.repos.usage import resolve_usage_window
 from octop.infra.db.services import RepoBundle
 from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.utils.model_diagnostics import output_issues, safe_diagnostics
 from octop.infra.utils.ulid import new_ulid
 
 logger = logging.getLogger(__name__)
@@ -151,6 +154,8 @@ class ConversationService:
             owner, cfg.revision, cfg.model_dump()
         ):
             raise conflict()
+        if not (cfg.title_enabled or cfg.brief_enabled):
+            self.repos.conversation_metadata_repo.cancel_jobs(owner, automatic=True)
         return self.settings(owner)
 
     @staticmethod
@@ -169,6 +174,20 @@ class ConversationService:
     def history_batch(self, owner: int) -> HistoryBatchView | None:
         value = self.repos.conversation_metadata_repo.history_batch(owner)
         return HistoryBatchView(**value) if value else None
+
+    def cancel_history_batch(self, owner: int, identity: str) -> HistoryBatchView:
+        repo = self.repos.conversation_metadata_repo
+        if repo.batch(owner, identity) is None:
+            raise OctopError(ErrorCode.NOT_FOUND, "metadata batch not found")
+        repo.cancel_jobs(owner, batch=identity)
+        value = repo.batch(owner, identity)
+        assert value is not None
+        return HistoryBatchView(**value)
+
+    def cancel_job(self, owner: int, agent: str, thread: str, identity: str) -> JobView:
+        self.job(owner, agent, thread, identity)
+        self.repos.conversation_metadata_repo.cancel_jobs(owner, thread=thread, identity=identity)
+        return self.job(owner, agent, thread, identity)
 
     def start_history_batch(self, owner: int, body: HistoryBatchRequest) -> HistoryBatchView:
         if body.thread_ids is not None:
@@ -430,6 +449,9 @@ class ConversationService:
                 "prompt_version": data.get("prompt_version", PROMPT_VERSION),
                 "visibility_scope": "owner",
                 "last_error": meta["last_error"],
+                "diagnostic": self.repos.conversation_metadata_repo.last_failure(owner, thread)
+                if meta["last_error"]
+                else {},
             },
         )
 
@@ -646,6 +668,8 @@ class ConversationService:
             # Keep the lease for another process to recover after shutdown.
             raise
         except Exception as exc:
+            if isinstance(exc, ValueError) and str(exc) == "METADATA_LEASE_LOST":
+                return
             retryable = isinstance(exc, (TimeoutError, ConnectionError)) or type(exc).__name__ in {
                 "RateLimitError",
                 "APIConnectionError",
@@ -660,7 +684,15 @@ class ConversationService:
             if retry_after and str(retry_after).isdigit():
                 delay = max(delay, int(retry_after))
             self.repos.conversation_metadata_repo.finish(
-                job, "retry" if retry else "failed", error=code, delay=delay
+                job,
+                "retry" if retry else "failed",
+                error=code,
+                delay=delay,
+                result={
+                    "diagnostic": safe_diagnostics(
+                        exc, code=code, stage=job["kind"], job_id=job["job_id"]
+                    )
+                },
             )
             logger.warning(
                 "Conversation metadata generation status=%s exception=%s http_status=%s job=%s",
@@ -735,12 +767,67 @@ class ConversationService:
         payload: dict[str, Any],
         schema: dict[str, Any],
         purpose: str,
+        valid_refs: set[tuple[str, str]] | None = None,
     ) -> dict[str, Any]:
         if ref is None:
             raise ValueError("METADATA_MODEL_UNAVAILABLE")
         if not self.repos.conversation_metadata_repo.renew(job):
             raise ValueError("METADATA_LEASE_LOST")
-        return output_json(await generate_json(self.manager, job, ref, payload, schema, purpose))
+        contract = {c.__name__: c for c in (GeneratedTitle, GeneratedBrief, GeneratedDigest)}[
+            schema["title"]
+        ]
+        correction = ""
+        for attempt in range(2):
+            call_payload = {**payload, **({"format_correction": correction} if correction else {})}
+            task = asyncio.create_task(
+                generate_json(self.manager, job, ref, call_payload, schema, purpose)
+            )
+            try:
+                while not task.done():
+                    await asyncio.wait({task}, timeout=1)
+                    if not await asyncio.to_thread(
+                        self.repos.conversation_metadata_repo.renew, job
+                    ):
+                        raise ValueError("METADATA_LEASE_LOST")
+                raw = await task
+            except ValueError as exc:
+                if str(exc) != "METADATA_OUTPUT_TRUNCATED" or attempt:
+                    raise
+                correction = "The response hit the output token limit. Return a complete JSON object under 900 tokens, omit all optional lists and preserve only essential facts with exact source refs."
+                continue
+            finally:
+                if not task.done():
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+            try:
+                value = output_json(raw)
+                parsed = contract.model_validate(value)
+                if valid_refs is not None:
+                    for items in parsed.model_dump().values():
+                        if isinstance(items, list):
+                            for item in items:
+                                if isinstance(item, dict) and any(
+                                    (r["kind"], r["id"]) not in valid_refs
+                                    for r in item.get("source_refs", [])
+                                ):
+                                    raise ValueError("METADATA_INVALID_REFERENCES")
+                return value
+            except (ValueError, ValidationError) as exc:
+                if attempt:
+                    raise
+                # Retry the same model with original data, never the malformed text
+                # or its potentially sensitive validation values.
+                paths = (
+                    [issue["path"] for issue in output_issues(exc)]
+                    if isinstance(exc, ValidationError)
+                    else []
+                )
+                correction = (
+                    "Your previous response did not match the schema. Return one complete compact JSON object, no prose or fences. Use objects with text and source_refs for list items, copying kind/id exactly from supplied refs. Omit optional lists rather than inventing sources. Invalid field paths: "
+                    + ", ".join(paths)
+                )
+                logger.info("Retry metadata output format job=%s fields=%s", job["job_id"], paths)
+        raise ValueError("METADATA_INVALID_OUTPUT")
 
     async def _generate_brief(self, job: dict[str, Any], cfg: MetadataSettings) -> None:
         owner, agent, thread = job["owner_user_id"], job["agent_id"], job["thread_id"]
@@ -911,7 +998,12 @@ class ConversationService:
                 "coverage": coverage.model_dump(),
             }
             value = await self._call(
-                job, brief_model, payload, GeneratedBrief.model_json_schema(), "thread_brief"
+                job,
+                brief_model,
+                payload,
+                GeneratedBrief.model_json_schema(),
+                "thread_brief",
+                valid_refs,
             )
             content = GeneratedBrief.model_validate(value)
             for name in (

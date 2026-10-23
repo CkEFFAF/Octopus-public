@@ -35,7 +35,17 @@ class SidebarSchedule(BaseModel):
     self_reminder: bool = False
 
 
+class SidebarBackgroundJob(BaseModel):
+    id: str
+    thread_id: str
+    name: str
+    status: str
+    updated_at: float
+    stale: bool
+
+
 class SidebarStatus(BaseModel):
+    background_tasks: list[SidebarBackgroundJob] = Field(default_factory=list)
     schedule_counts: dict[str, int] = Field(default_factory=dict)
     working_threads: list[SidebarWorkingThread] = Field(
         description="Actual running turns owned by this user, independent of the selected chat."

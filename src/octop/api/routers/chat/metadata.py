@@ -178,6 +178,36 @@ class BatchRequest(MetadataJobRequest):
     thread_ids: list[str] = Field(min_length=1, max_length=50)
 
 
+@router.post(
+    "/settings/conversation-metadata/batch/{batch_id}/cancel",
+    response_model=HistoryBatchView,
+    summary="Stop a history batch and revoke in-flight generation",
+)
+async def cancel_history_batch(
+    batch_id: str, user: Any = Depends(current_user), server: Any = Depends(get_server)
+) -> HistoryBatchView:
+    return await asyncio.to_thread(
+        conversation_service(server).cancel_history_batch, user.id, batch_id
+    )
+
+
+@router.post(
+    SCOPE + "/metadata-jobs/{job_id}/cancel",
+    response_model=JobView,
+    summary="Stop one metadata job while preserving completed metadata",
+)
+async def cancel_metadata_job(
+    agent_id: str,
+    thread_id: str,
+    job_id: str,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> JobView:
+    return await asyncio.to_thread(
+        conversation_service(server).cancel_job, user.id, agent_id, thread_id, job_id
+    )
+
+
 @router.get(
     "/settings/conversation-metadata/batch",
     summary="Latest account history organization progress",

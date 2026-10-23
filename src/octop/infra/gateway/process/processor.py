@@ -85,6 +85,7 @@ from octop.infra.users.preferences import (
     get_preferred_model_from_json,
 )
 from octop.infra.utils.locale import resolve_user_locale
+from octop.infra.utils.model_diagnostics import safe_diagnostics
 from octop.infra.utils.ulid import new_ulid
 
 if TYPE_CHECKING:
@@ -1211,7 +1212,13 @@ class GlobalProcessor:
         except Exception as exc:
             await self._record_stream_error(user_id=user_id, agent_id=agent_id, exc=exc)
             message, error_code = _stream_error(exc, locale)
-            payload: dict[str, Any] = {"type": "error", "message": message}
+            payload: dict[str, Any] = {
+                "type": "error",
+                "message": message,
+                "diagnostic": safe_diagnostics(
+                    exc, code=error_code or "MODEL_CALL_FAILED", stage="chat", job_id=thread_id
+                ),
+            }
             if error_code:
                 payload["error_code"] = error_code
             history_tracker.observe(payload)
@@ -1278,7 +1285,13 @@ class GlobalProcessor:
                 channel_type="dashboard",
             )
             message, error_code = _stream_error(exc, locale)
-            payload: dict[str, Any] = {"type": "error", "message": message}
+            payload: dict[str, Any] = {
+                "type": "error",
+                "message": message,
+                "diagnostic": safe_diagnostics(
+                    exc, code=error_code or "MODEL_CALL_FAILED", stage="chat", job_id=thread_id
+                ),
+            }
             if error_code:
                 payload["error_code"] = error_code
             history_tracker.observe(payload)

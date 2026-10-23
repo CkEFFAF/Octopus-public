@@ -6,10 +6,18 @@ from typing import Any
 
 
 def sidebar_status(
-    *, gateway: Any, cron_manager: Any, agent_id: str, user_id: int, include_schedules: bool
+    *,
+    gateway: Any,
+    cron_manager: Any,
+    agent_id: str,
+    user_id: int,
+    include_schedules: bool,
+    background_tasks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     working = []
-    for thread_id in sorted(gateway.ws_hub.active_thread_ids()):
+    active = set(gateway.ws_hub.active_thread_ids())
+    active.update(task["thread_id"] for task in background_tasks or [] if not task["stale"])
+    for thread_id in sorted(active):
         row = gateway.thread_registry.get_thread(thread_id)
         if row is None or (row.agent_id, row.user_id) != (agent_id, user_id):
             continue
@@ -35,6 +43,19 @@ def sidebar_status(
             thread = gateway.thread_registry.get_thread(thread_id) if thread_id else None
             if thread is None or (thread.agent_id, thread.user_id) != (agent_id, user_id):
                 continue
+            if view["scheduler_state"] == "running" and not any(
+                item["thread_id"] == thread_id for item in working
+            ):
+                working.append(
+                    {
+                        "thread_id": thread.thread_id,
+                        "title": thread.title,
+                        "channel_type": thread.channel_type,
+                        "last_active": thread.last_active,
+                        "created_at": thread.created_at,
+                        "pinned": thread.pinned,
+                    }
+                )
             schedules.append(
                 {
                     "thread_id": thread_id,
@@ -49,4 +70,9 @@ def sidebar_status(
                     "self_reminder": view["self_reminder"],
                 }
             )
-    return {"working_threads": working, "schedules": schedules, "schedule_counts": schedule_counts}
+    return {
+        "working_threads": working,
+        "schedules": schedules,
+        "schedule_counts": schedule_counts,
+        "background_tasks": background_tasks or [],
+    }

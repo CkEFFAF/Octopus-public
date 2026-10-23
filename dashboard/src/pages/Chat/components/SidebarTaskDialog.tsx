@@ -1,6 +1,7 @@
 import { Modal, Tabs } from "antd";
 import { useTranslation } from "react-i18next";
 import ScheduleBrowser from "../../../components/ScheduleBrowser";
+import ExpertTaskSummary from "./ExpertTaskSummary";
 
 /** Keep sidebar inspection in place, without selecting another conversation. */
 export default function SidebarTaskDialog({
@@ -14,7 +15,7 @@ export default function SidebarTaskDialog({
   threadId?: string;
   open: boolean;
   onClose: () => void;
-  initialTab?: "schedules" | "reminders";
+  initialTab?: "schedules" | "reminders" | "background";
 }) {
   const { t } = useTranslation();
   return (
@@ -32,19 +33,28 @@ export default function SidebarTaskDialog({
       >
         {open && (
           <Tabs
-            defaultActiveKey={initialTab}
-            items={["schedules", "reminders"].map((tab) => ({
-              key: tab,
-              label: t(`workspace0034.${tab}`),
-              children: (
-                <ScheduleBrowser
-                  agentId={agentId}
-                  threadId={threadId}
-                  reminder={tab === "reminders"}
-                  onNavigate={onClose}
-                />
-              ),
-            }))}
+            defaultActiveKey={threadId ? initialTab : "background"}
+            items={[
+              {
+                key: "background",
+                label: t("workspace0034.backgroundSummary"),
+                children: (
+                  <ExpertTaskSummary agentId={agentId} threadId={threadId} />
+                ),
+              },
+              ...["schedules", "reminders"].map((tab) => ({
+                key: tab,
+                label: t(`workspace0034.${tab}`),
+                children: (
+                  <ScheduleBrowser
+                    agentId={agentId}
+                    threadId={threadId}
+                    reminder={tab === "reminders"}
+                    onNavigate={onClose}
+                  />
+                ),
+              })),
+            ]}
           />
         )}
       </Modal>

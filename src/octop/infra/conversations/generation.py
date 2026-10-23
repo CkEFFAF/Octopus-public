@@ -32,7 +32,7 @@ async def generate_json(
         # A standalone auxiliary call has no compiled graph/protocol to bind.
         llm = factory.get_chat_model(model_ref)
         profile = getattr(llm, "profile", None) or {}
-        output_cap = min(1600, int(profile.get("max_output_tokens") or 1600))
+        output_cap = min(3200, int(profile.get("max_output_tokens") or 3200))
         input_cap = min(
             12000,
             int(profile.get("max_input_tokens") or 16000),
@@ -50,7 +50,7 @@ async def generate_json(
             "Set new_objective only when a new user message explicitly replaces or reopens the objective. "
             "For a title use a concise topic: normally 8-18 Chinese characters or 3-8 English words, at most 40 characters; no quotes, Markdown or status prefix. "
             "For a period digest summarize only events inside its stated range, including unresolved work as of that range end. "
-            "Keep the JSON compact: omit empty/default fields, use at most six brief items per list and no more than six events. "
+            "Keep the entire JSON under 1200 tokens: omit empty/default fields, use at most three short items per list and no more than three events. "
             "Keep period summaries under 1000 characters. "
             "Schema:\n" + json.dumps(schema, ensure_ascii=False)
         )
@@ -87,6 +87,11 @@ async def generate_json(
             output_tokens=int(usage.get("output_tokens") or 0),
             model_calls=1,
         )
+        if (getattr(result, "response_metadata", None) or {}).get("finish_reason") in {
+            "length",
+            "max_tokens",
+        }:
+            raise ValueError("METADATA_OUTPUT_TRUNCATED")
         return llm_text_content(result)
     finally:
         await factory.aclose()
