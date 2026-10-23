@@ -856,21 +856,19 @@ function MessageBubble({
                   <div className={styles.errorMessageBody}>{errorBodyText}</div>
                 )}
                 <FailureDiagnostics
+                  summary={errorBodyText}
                   value={
-                    message.errorInfo?.diagnostic as
-                      | Record<string, unknown>
-                      | undefined
+                    message.errorInfo
+                      ? {
+                          ...(message.errorInfo.diagnostic as
+                            | Record<string, unknown>
+                            | undefined),
+                          code: errorCode,
+                          context: errorDebugTags,
+                        }
+                      : undefined
                   }
                 />
-                {errorDebugTags.length > 0 && (
-                  <div className={styles.errorDebugRow}>
-                    {errorDebugTags.map((tag) => (
-                      <span key={tag} className={styles.errorDebugTag}>
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
                 {(errorAction || onRegenerate) && (
                   <div className={styles.errorActionRow}>
                     {errorAction && (

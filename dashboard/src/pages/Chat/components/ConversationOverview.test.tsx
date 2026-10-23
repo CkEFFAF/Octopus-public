@@ -95,6 +95,41 @@ const brief = (thread: string): ConversationBrief => ({
 });
 
 describe("conversation overview", () => {
+  it("keeps diagnostic codes inside Details and offers to refresh an older English overview", async () => {
+    const value = brief("t");
+    value.provenance.last_error = "METADATA_INPUT_BUDGET";
+    value.provenance.diagnostic = {
+      input_bytes: 18000,
+      input_limit_bytes: 12000,
+    };
+    vi.mocked(api.brief).mockResolvedValue(value);
+    render(
+      <App>
+        <Overview agentId="a" threadId="t" />
+      </App>,
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "conversationMetadata.overviewTitle",
+      }),
+    );
+    await screen.findByText("Current goal");
+    expect(
+      screen.getByRole("button", {
+        name: "conversationMetadata.refreshLanguage",
+      }),
+    ).toBeEnabled();
+    expect(screen.queryByText(/input_limit_bytes/)).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "common.failureDetails" }),
+    );
+    expect(
+      await screen.findByText("common.failureDetailsTitle"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText(/input_limit_bytes/)).toBeVisible(),
+    );
+  });
   it("displays a ready digest even when reading the result completes after job polling", async () => {
     vi.mocked(api.brief).mockImplementation(async (_, thread) => brief(thread));
     vi.mocked(api.events).mockResolvedValue({

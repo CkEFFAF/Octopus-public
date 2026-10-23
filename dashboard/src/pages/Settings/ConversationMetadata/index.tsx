@@ -369,26 +369,36 @@ export default function ConversationMetadataSettings() {
                   {t("conversationMetadata.batchFailureHint")}
                 </Typography.Text>
               )}
-              {batch.failures?.map((failure) => (
-                <FailureDiagnostics
-                  key={failure.job_id}
-                  value={{
-                    ...failure.diagnostic,
-                    job_id: failure.job_id,
-                    thread_id: failure.thread_id,
-                    code: failure.code,
-                  }}
-                />
-              ))}
-              {Object.entries(batch.errors ?? {}).map(([code, count]) => (
-                <Typography.Paragraph key={code} type="danger">
-                  {t(
-                    `conversationMetadata.errors.${code}`,
-                    t("conversationMetadata.generationFailed"),
-                  )}{" "}
-                  × {count}
-                </Typography.Paragraph>
-              ))}
+              {Object.entries(batch.errors ?? {}).map(([code, count]) => {
+                const reason = t(
+                  `conversationMetadata.errors.${code}`,
+                  t("conversationMetadata.generationFailed"),
+                );
+                return (
+                  <Alert
+                    key={code}
+                    type="warning"
+                    showIcon
+                    className={styles.failureRow}
+                    message={`${reason} · ${t(
+                      "conversationMetadata.failureCount",
+                      { count },
+                    )}`}
+                    action={
+                      <FailureDiagnostics
+                        summary={reason}
+                        value={{
+                          code,
+                          failed_count: count,
+                          samples: batch.failures?.filter(
+                            (item) => item.code === code,
+                          ),
+                        }}
+                      />
+                    }
+                  />
+                );
+              })}
             </div>
           )}
         </section>

@@ -6,12 +6,23 @@ from types import SimpleNamespace
 import pytest
 from langchain_core.messages import AIMessage
 
-from octop.infra.conversations.generation import generate_json
+from octop.infra.conversations.generation import MetadataInputBudgetError, generate_json
 from octop.infra.conversations.models import GeneratedBrief, GeneratedTitle
+from octop.infra.utils.model_diagnostics import safe_diagnostics
 
 
 @pytest.mark.asyncio
-async def test_auxiliary_call_is_tool_free_account_scoped_and_records_usage(monkeypatch):
+@pytest.mark.parametrize(
+    "locale,language,too_long",
+    [
+        ("zh", "Simplified Chinese (简体中文)", False),
+        ("en", "English", False),
+        ("zh", "Simplified Chinese (简体中文)", True),
+    ],
+)
+async def test_auxiliary_call_is_tool_free_account_scoped_and_records_usage(
+    monkeypatch, locale, language, too_long
+):
     calls, recorded, closed = [], [], []
 
     class Model:
@@ -25,6 +36,8 @@ async def test_auxiliary_call_is_tool_free_account_scoped_and_records_usage(monk
             calls.append(messages)
             assert config == {"callbacks": []}
             assert "untrusted DATA" in messages[0].content
+            assert f"human-readable values in {language}" in messages[0].content
+            assert "never a snake_case identifier" in messages[0].content
             return AIMessage(
                 content='{"one_liner":"summary","objective":"goal"}',
                 usage_metadata={"input_tokens": 120, "output_tokens": 20, "total_tokens": 140},
@@ -49,24 +62,61 @@ async def test_auxiliary_call_is_tool_free_account_scoped_and_records_usage(monk
     manager = SimpleNamespace(
         providers_for_user=lambda owner: store if owner == 7 else None,
         _repos=SimpleNamespace(
-            usage_repo=SimpleNamespace(record=lambda **kwargs: recorded.append(kwargs))
+            usage_repo=SimpleNamespace(record=lambda **kwargs: recorded.append(kwargs)),
+            user_repo=SimpleNamespace(get=lambda owner: SimpleNamespace(locale=locale)),
         ),
     )
     monkeypatch.setattr("octop.infra.conversations.generation.ChatModelFactory", Factory)
     job = {"owner_user_id": 7, "agent_id": "agent", "thread_id": "thread"}
-    result = await generate_json(
+    request = generate_json(
         manager,
         job,
         "owner/model",
-        {"messages": [{"text": "会话整理" * 200, "ref": {"kind": "message", "id": "1"}}]},
+        {
+            "messages": [
+                {
+                    "text": "会话整理" * (50000 if too_long else 2000),
+                    "ref": {"kind": "message", "id": "1"},
+                }
+            ]
+        },
         GeneratedBrief.model_json_schema(),
         "thread_brief",
     )
+    if too_long:
+        with pytest.raises(MetadataInputBudgetError) as error:
+            await request
+        assert error.value.input_tokens_estimate > error.value.input_limit_tokens
+        assert calls == recorded == []
+        assert closed == [True]
+        return
+    result = await request
     assert json.loads(result)["objective"] == "goal"
     assert recorded[0]["source"] == "thread_brief"
     assert recorded[0]["user_id"] == 7
     assert recorded[0]["input_tokens"] == 120
     assert len(calls) == len(closed) == 1
+
+
+def test_input_budget_diagnostic_reports_only_sizes():
+    diagnostic = safe_diagnostics(
+        MetadataInputBudgetError(42000, 18000, 12000),
+        code="METADATA_INPUT_BUDGET",
+        stage="thread_brief",
+        job_id="synthetic",
+    )
+    assert diagnostic["input_bytes"] == 42000
+    assert diagnostic["input_tokens_estimate"] == 18000
+    assert diagnostic["input_limit_tokens"] == 12000
+    assert set(diagnostic) == {
+        "code",
+        "exception",
+        "stage",
+        "job_id",
+        "input_bytes",
+        "input_tokens_estimate",
+        "input_limit_tokens",
+    }
 
 
 @pytest.mark.asyncio
