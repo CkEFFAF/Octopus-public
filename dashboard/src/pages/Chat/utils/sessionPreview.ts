@@ -13,7 +13,7 @@ export function localizedPreview(value: string | undefined, language: string) {
   const text = previewText(value);
   return language.startsWith("zh") &&
     !/[\u3400-\u9fff]/u.test(text) &&
-    ((text.match(/[A-Za-z]+/g)?.length ?? 0) >= 4 || text.includes("_"))
+    /[A-Za-z]/.test(text)
     ? ""
     : text;
 }

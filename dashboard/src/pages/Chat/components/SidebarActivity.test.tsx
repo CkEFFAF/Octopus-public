@@ -261,7 +261,7 @@ it("does not dump old English reports and stage identifiers into Chinese preview
             metadata: {
               one_liner:
                 "Experiment results on retrieval robustness and relationship intervention analysis",
-              stage: "target_set_construction",
+              stage: "Analysis/Reporting",
               current_progress:
                 "Completed analysis of four way relationship intervention",
               work_state: "in_progress",
@@ -284,7 +284,7 @@ it("does not dump old English reports and stage identifiers into Chinese preview
   const tooltip = await screen.findByRole("tooltip");
   expect(tooltip).toHaveTextContent("sessionPreview.languageHint");
   expect(tooltip).not.toHaveTextContent("retrieval robustness");
-  expect(tooltip).not.toHaveTextContent("target_set_construction");
+  expect(tooltip).not.toHaveTextContent("Analysis/Reporting");
   expect(tooltip).not.toHaveTextContent("Completed analysis");
 });
 
