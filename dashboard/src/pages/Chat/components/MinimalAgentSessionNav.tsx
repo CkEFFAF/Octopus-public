@@ -1,4 +1,4 @@
-import SessionActivity from "./SessionActivity";
+import SessionRowContent from "./SessionRowContent";
 import ExpertScheduleBadge from "./ExpertScheduleBadge";
 import {
   SidebarActivityProvider,
@@ -261,8 +261,7 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
         />
       ) : (
         <>
-          <span className={styles.sessionRowTitle}>{session.name}</span>
-          <SessionActivity threadId={session.id} />
+          <SessionRowContent session={session} />
           {session.pinned ? (
             <span
               className={styles.sessionRowPinIndicator}

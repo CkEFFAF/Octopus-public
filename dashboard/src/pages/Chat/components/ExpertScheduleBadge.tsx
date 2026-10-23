@@ -1,6 +1,6 @@
 import { useState } from "react";
 import SidebarTaskDialog from "./SidebarTaskDialog";
-import { CalendarClock, LoaderCircle } from "lucide-react";
+import { CalendarClock } from "lucide-react";
 import { Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 import { useSidebarActivity } from "../hooks/useSidebarActivity";
@@ -34,15 +34,6 @@ export default function ExpertScheduleBadge({
     .slice(0, 3);
   return (
     <span className={styles.expertScheduleBadges}>
-      {working && (
-        <span
-          className={styles.sessionWorkingBadge}
-          title={t("chat.sessionWorking")}
-        >
-          <LoaderCircle size={12} aria-hidden />
-          <span>{t("chat.sessionWorkingShort")}</span>
-        </span>
-      )}
       <SidebarTaskDialog
         agentId={agentId}
         open={open}

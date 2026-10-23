@@ -424,6 +424,51 @@
   display: none;
   margin-bottom: 16px;
 }
+.compact {
+  max-height: 65vh;
+  overflow: auto;
+  .scope,
+  .filters {
+    padding-inline: 0;
+  }
+  .sortHint {
+    padding-inline: 0;
+  }
+  .columns {
+    flex: none;
+    overflow: visible;
+  }
+  .detail {
+    padding: 0;
+  }
+  .detailPane {
+    overflow: visible;
+  }
+  .row strong {
+    overflow-wrap: anywhere;
+  }
+  .back {
+    display: inline-flex;
+  }
+}
+.cardList .list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  align-items: start;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 0 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+  .row {
+    height: 100%;
+    margin: 0;
+  }
+}
+.compactDetail .list {
+  display: none;
+}
 .mobileDetail {
   .list {
     display: none;

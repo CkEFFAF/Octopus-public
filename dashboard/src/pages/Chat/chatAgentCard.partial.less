@@ -318,6 +318,21 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  > .sessionRowTitle {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow-wrap: anywhere;
+  }
+}
+.sessionRowMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-height: 18px;
+  line-height: 18px;
 }
 .sessionRowSummary {
   font-size: 11px;
@@ -559,7 +574,7 @@
 .sessionRowTime {
   margin-left: auto;
   flex-shrink: 0;
-  color: var(--fn-color-text-tertiary);
+  color: var(--fn-text-tertiary);
   font-size: 10px;
 }
 

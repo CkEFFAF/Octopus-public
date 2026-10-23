@@ -1,4 +1,4 @@
-import SessionActivity from "./SessionActivity";
+import SessionRowContent from "./SessionRowContent";
 import ExpertScheduleBadge from "./ExpertScheduleBadge";
 import {
   SidebarActivityProvider,
@@ -17,7 +17,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { Dropdown, Tooltip } from "antd";
+import { Dropdown } from "antd";
 import type { MenuProps } from "antd";
 import {
   Pencil,
@@ -51,8 +51,6 @@ import SharedExpertHint from "./SharedExpertHint";
 import RemoteExpertHint from "./RemoteExpertHint";
 import TeamChatBadge from "./TeamChatBadge";
 import styles from "../index.module.less";
-import { useServerTimezone } from "../../../hooks/useServerTimezone";
-import { formatMessageTime } from "../../../utils/formatMessageTime";
 
 function AgentUnreadBadge({ count }: { count: number }) {
   const { t } = useTranslation();
@@ -94,7 +92,6 @@ const SessionItem = memo(function SessionItem({
 }: SessionItemProps) {
   const { working } = useSessionActivity(session.id);
   const { t } = useTranslation();
-  const timezone = useServerTimezone();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(session.name);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -233,89 +230,7 @@ const SessionItem = memo(function SessionItem({
         />
       ) : (
         <>
-          <Tooltip
-            trigger={["hover", "focus"]}
-            placement="right"
-            color="var(--fn-bg-elevated)"
-            overlayClassName={styles.sessionScheduleTooltip}
-            overlayInnerStyle={{
-              padding: 12,
-              border: "1px solid var(--fn-border-secondary)",
-              color: "var(--fn-text-primary)",
-              boxShadow: "0 6px 24px rgb(0 0 0 / 12%)",
-            }}
-            title={
-              <div className={styles.sessionSchedulePreview}>
-                <strong>{session.name}</strong>
-                <p>
-                  {session.metadata?.one_liner ||
-                    t("conversationMetadata.notGenerated")}
-                </p>
-                {session.metadata?.display_state && (
-                  <p>
-                    {t(
-                      `conversationMetadata.states.${session.metadata.display_state}`,
-                      session.metadata.display_state,
-                    )}
-                  </p>
-                )}
-                {session.metadata?.stage && <p>{session.metadata.stage}</p>}
-                {session.metadata?.recent_events?.length ? (
-                  <ul>
-                    {session.metadata.recent_events.map((event, index) => (
-                      <li key={index}>{event}</li>
-                    ))}
-                  </ul>
-                ) : null}
-                {working && <p>{t("chat.sessionWorking")}</p>}
-                {session.metadata?.freshness === "stale" && (
-                  <small>{t("conversationMetadata.freshness.stale")}</small>
-                )}
-                {session.metadata?.generated_at ? (
-                  <small>
-                    {t("conversationMetadata.overviewTitle")} ·{" "}
-                    {formatMessageTime(
-                      session.metadata.generated_at * 1000,
-                      timezone,
-                    )}
-                  </small>
-                ) : null}
-              </div>
-            }
-          >
-            <span className={styles.sessionRowCopy}>
-              <span className={styles.sessionRowHeading}>
-                <span className={styles.sessionRowTitle}>{session.name}</span>
-                {session.updatedAt && (
-                  <time
-                    className={styles.sessionRowTime}
-                    dateTime={session.updatedAt}
-                  >
-                    {formatMessageTime(
-                      new Date(session.updatedAt).getTime(),
-                      timezone,
-                    )}
-                  </time>
-                )}
-              </span>
-              {session.metadata?.one_liner && (
-                <span className={styles.sessionRowSummary}>
-                  {session.metadata.display_state &&
-                    session.metadata.display_state !== "unknown" && (
-                      <span>
-                        {t(
-                          `conversationMetadata.states.${session.metadata.display_state}`,
-                          session.metadata.display_state,
-                        )}{" "}
-                        ·{" "}
-                      </span>
-                    )}
-                  {session.metadata.one_liner}
-                </span>
-              )}
-            </span>
-          </Tooltip>
-          <SessionActivity threadId={session.id} />
+          <SessionRowContent session={session} />
           {session.pinned ? (
             <span
               className={styles.sessionRowPinIndicator}
@@ -916,17 +831,22 @@ function SessionListContent({
                         [],
                         sidebarActivity[agent.agent_id],
                       ).map((session) => (
-                        <button
+                        <div
                           key={session.id}
-                          type="button"
+                          role="button"
+                          tabIndex={0}
                           className={`${styles.sessionRow} ${styles.sessionRowWorking} ${styles.backgroundSessionShortcut}`}
                           onClick={() => onSelect(session.id, agent.agent_id)}
+                          onKeyDown={(event) => {
+                            if (
+                              event.key === "Enter" &&
+                              event.target === event.currentTarget
+                            )
+                              onSelect(session.id, agent.agent_id);
+                          }}
                         >
-                          <span className={styles.sessionRowTitle}>
-                            {session.name}
-                          </span>
-                          <SessionActivity threadId={session.id} />
-                        </button>
+                          <SessionRowContent session={session} />
+                        </div>
                       ))}
                   </Fragment>
                 );

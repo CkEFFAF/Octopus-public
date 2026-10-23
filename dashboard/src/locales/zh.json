@@ -1,4 +1,24 @@
 {
+  "sessionPreview": {
+    "progress": "最新进展",
+    "blocker": "当前阻塞",
+    "next": "下一步",
+    "runningNoSummary": "正在执行，暂无新的进展摘要",
+    "noProgress": "尚未记录进展",
+    "languageHint": "旧概览为其他语言，可在会话概览中更新",
+    "backgroundCount": "后台 {{count}} 项",
+    "backgroundTask": "后台任务 {{index}}",
+    "taskObservations": "运行记录",
+    "olderRecords": "更早记录（{{count}}）",
+    "recordsEmpty": "暂无运行记录",
+    "activeCount": "进行中 {{count}} 项",
+    "completedCount": "已完成 {{count}} 项",
+    "failedCount": "失败 {{count}} 项",
+    "taskFallback": "活动会话",
+    "taskDetails": "查看运行详情",
+    "toolCommand": "执行命令",
+    "toolReminder": "设置自提醒"
+  },
   "devices": {
     "native": {
       "files": "文件目录",

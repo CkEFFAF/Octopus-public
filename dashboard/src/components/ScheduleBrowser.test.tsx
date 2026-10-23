@@ -33,6 +33,31 @@ const row = (id: string) =>
   }) as OctopCronRow;
 
 describe("bounded schedule browsing", () => {
+  it("uses a full card list in dialogs and opens details with a way back", async () => {
+    vi.mocked(octopCronApi.page).mockResolvedValue({
+      items: [{ ...row("Reminder card"), agent_id: "main" }],
+      total: 1,
+      has_more: false,
+      next_offset: null,
+      counts: { schedules: 1, reminders: 0 },
+    });
+    vi.mocked(octopCronApi.attempts).mockResolvedValue(empty);
+    render(
+      <MemoryRouter>
+        <ScheduleBrowser compact agentId="main" />
+      </MemoryRouter>,
+    );
+    const task = await screen.findByText("Reminder card");
+    expect(screen.queryByText("workspace0034.selectSchedule")).toBeNull();
+    fireEvent.click(task);
+    expect(
+      screen.getByRole("button", { name: "workspace0034.backToTasks" }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "workspace0034.backToTasks" }),
+    );
+    expect(screen.getByText("Reminder card")).toBeVisible();
+  });
   it("switches mobile detail into a single pane and returns to the task list", async () => {
     device.mobile = true;
     try {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import SidebarTaskDialog from "./SidebarTaskDialog";
-import { Clock3, LoaderCircle } from "lucide-react";
+import { Clock3, LoaderCircle, Terminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Tooltip } from "antd";
 import { useSessionActivity } from "../hooks/useSidebarActivity";
@@ -71,7 +71,7 @@ export default function SessionActivity({ threadId }: { threadId: string }) {
           onKeyDown={(event) => event.stopPropagation()}
           aria-label={t("workspace0034.backgroundSummary")}
         >
-          <Clock3 size={13} /> {background.length}
+          <Terminal size={13} aria-hidden /> {background.length}
         </button>
       )}
       {schedules.length > 0 && (
