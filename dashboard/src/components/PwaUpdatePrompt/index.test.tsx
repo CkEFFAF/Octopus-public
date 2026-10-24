@@ -11,6 +11,13 @@ import PwaUpdatePrompt from "./index";
 import { updateApi } from "../../api/modules/update";
 import { applyUpdate } from "../../pwa";
 
+const { account } = vi.hoisted(() => ({
+  account: { current: { role: "admin", permissions: [] as string[] } },
+}));
+vi.mock("../../hooks/useCurrentUser", () => ({
+  useCurrentUser: () => account.current,
+}));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
@@ -21,6 +28,7 @@ vi.mock("../../pwa", () => ({ applyUpdate: vi.fn() }));
 
 beforeEach(() => {
   vi.resetAllMocks();
+  account.current = { role: "admin", permissions: [] };
 });
 async function openConfirmation() {
   render(<PwaUpdatePrompt />);
@@ -31,6 +39,24 @@ async function openConfirmation() {
   return await screen.findByRole("dialog");
 }
 describe("PWA update confirmation", () => {
+  it("lets a user without update permission refresh the frontend without restarting the service", async () => {
+    account.current = { role: "user", permissions: [] };
+    vi.mocked(updateApi.getUpdateStatus).mockResolvedValue({
+      service_mode: "systemd",
+    } as Awaited<ReturnType<typeof updateApi.getUpdateStatus>>);
+    const dialog = await openConfirmation();
+    expect(
+      within(dialog).getByText("uiFeedback.updatePage"),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).queryByText("uiFeedback.updateService"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "pwa.updateNow" }),
+    );
+    await waitFor(() => expect(applyUpdate).toHaveBeenCalledOnce());
+    expect(updateApi.restartService).not.toHaveBeenCalled();
+  });
   it("restarts the service only after confirmation and before applying the frontend update", async () => {
     vi.mocked(updateApi.getUpdateStatus).mockResolvedValue({
       service_mode: "systemd",

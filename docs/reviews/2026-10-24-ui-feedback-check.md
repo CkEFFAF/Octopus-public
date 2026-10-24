@@ -6,6 +6,8 @@ The user explicitly requested continued optimization, merge and deployment, whil
 
 ## Findings addressed
 
+- A service-mode update must respect the existing `update` permission. Accounts without it confirm a frontend-only refresh and never call the service-restart endpoint; this avoids blocking ordinary users behind an unauthorized restart. A restricted-account regression covers this branch.
+
 - Provider changes can invalidate an in-flight connection test. Test results now carry the component's configuration generation; results from an older generation are discarded. A deferred-response regression verifies that the new configuration is not marked as tested.
 - The fixed update banner has a higher stacking level than ordinary modals. The confirmation now appears above it, and update/dismiss actions remain disabled until confirmation completes or is canceled. Tests cover cancellation and restart-before-refresh ordering.
 - AI task instructions were outside the form's change callbacks. They now participate in dirty state, including closing confirmation and the native browser unload guard.

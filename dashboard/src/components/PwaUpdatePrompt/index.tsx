@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import { Modal } from "antd";
 import { applyUpdate } from "../../pwa";
 import { updateApi } from "../../api/modules/update";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { userCan } from "../../utils/permissions";
 import styles from "./index.module.less";
 
 /**
@@ -16,6 +18,7 @@ import styles from "./index.module.less";
  */
 export default function PwaUpdatePrompt() {
   const { t } = useTranslation();
+  const user = useCurrentUser();
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -35,20 +38,20 @@ export default function PwaUpdatePrompt() {
     setError("");
     try {
       const status = await updateApi.getUpdateStatus();
+      const restartBackend =
+        Boolean(status.service_mode) && userCan(user, "update");
       modal.confirm({
         zIndex: 10000,
         title: t("uiFeedback.updateTitle"),
         content: t(
-          status.service_mode
-            ? "uiFeedback.updateService"
-            : "uiFeedback.updatePage",
+          restartBackend ? "uiFeedback.updateService" : "uiFeedback.updatePage",
         ),
         okText: t("pwa.updateNow"),
         cancelText: t("pwa.later"),
         onCancel: () => setBusy(false),
         onOk: async () => {
           try {
-            if (status.service_mode) await updateApi.restartService();
+            if (restartBackend) await updateApi.restartService();
             await applyUpdate();
             setBusy(false);
             setVisible(false);
