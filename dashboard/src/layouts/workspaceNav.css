@@ -143,3 +143,13 @@
 .octopus-workspace-nav.mobile.closed {
   display: none;
 }
+
+.octopus-context-nav button span {
+  overflow-wrap: anywhere;
+}
+.octopus-workspace-nav.mobile {
+  max-width: calc(100vw - 36px);
+}
+.octopus-workspace-nav.mobile .octopus-context-nav {
+  width: min(232px, calc(100vw - 100px));
+}

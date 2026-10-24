@@ -1,4 +1,5 @@
 import { Layout } from "antd";
+import { useTranslation } from "react-i18next";
 import { Menu as MenuIcon } from "lucide-react";
 import PwaInstallPrompt from "../components/PwaInstallPrompt";
 import AppVersionBadge from "../components/AppVersionBadge";
@@ -20,6 +21,7 @@ interface HeaderProps {
  * Desktop GitHub / theme controls moved into the account popover.
  */
 export default function Header({ onToggle, isMobile }: HeaderProps) {
+  const { t } = useTranslation();
   const { isDark } = useTheme();
   const mobileLogoSrc = isDark
     ? "/logo_horizontal_white.png"
@@ -58,7 +60,7 @@ export default function Header({ onToggle, isMobile }: HeaderProps) {
           <button
             type="button"
             onClick={onToggle}
-            aria-label="Open navigation"
+            aria-label={t("octopus.navigation")}
             style={{
               display: "flex",
               alignItems: "center",

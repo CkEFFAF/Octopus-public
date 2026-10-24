@@ -307,6 +307,9 @@ export function ProviderCard({
                 <Tooltip title={t("models.localServiceHint")}>
                   <Switch
                     size="small"
+                    aria-label={`${t("models.localServiceLabel")}: ${
+                      provider.name
+                    }`}
                     checked={serviceEnabled}
                     loading={serviceBusy}
                     onChange={(c) => void handleServiceToggle(c)}
@@ -325,6 +328,7 @@ export function ProviderCard({
             )}
             <Switch
               size="small"
+              aria-label={`${t("common.enabled")}: ${provider.name}`}
               checked={provider.enabled}
               loading={toggling}
               onChange={(c) => void handleToggle(c)}
@@ -344,6 +348,7 @@ export function ProviderCard({
                   onClick={handleTestConnection}
                   className={styles.cardActionBtn}
                   icon={<Zap size={14} />}
+                  aria-label={`${t("models.test")}: ${provider.name}`}
                 />
               </Tooltip>
             )}
@@ -357,6 +362,7 @@ export function ProviderCard({
                 }}
                 className={styles.cardActionBtn}
                 icon={<Pencil size={14} />}
+                aria-label={`${t("models.settings")}: ${provider.name}`}
               />
             </Tooltip>
             {isLocalRuntime ? null : (
@@ -368,6 +374,7 @@ export function ProviderCard({
                   onClick={handleDelete}
                   className={styles.cardActionBtn}
                   icon={<Trash2 size={14} />}
+                  aria-label={`${t("common.delete")}: ${provider.name}`}
                 />
               </Tooltip>
             )}

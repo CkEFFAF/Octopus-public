@@ -87,7 +87,7 @@ describe("classifyChatStreamError", () => {
     expect(formatChatStreamError("hello world", t)).toBe("hello world");
   });
 
-  it("keeps the concrete cause for retry-exhausted unknown errors", () => {
+  it("shows a short recovery message for retry-exhausted unknown errors", () => {
     const msg = "Model call failed after 3 attempts with RuntimeError: boom";
     expect(classifyChatStreamError(msg)).toBe(
       "stream_errors.model_call_failed",
@@ -113,6 +113,14 @@ describe("classifyChatStreamError", () => {
   });
 
   it("does not treat ordinary answers that mention errors as stream failures", () => {
+    expect(
+      isChatStreamError("The marker [model_call_failed] can appear in logs."),
+    ).toBe(false);
+    expect(
+      isChatStreamError(
+        "Example: Model call failed after 3 attempts with RuntimeError.",
+      ),
+    ).toBe(false);
     expect(
       isChatStreamError(
         "If you see Error code: 429 or rate_limit, wait and retry.",

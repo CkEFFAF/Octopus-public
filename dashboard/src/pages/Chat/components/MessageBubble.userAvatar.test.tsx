@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import MessageBubble from "./MessageBubble";
 import type { ChatMessage } from "../hooks/useChat";
@@ -59,6 +59,25 @@ function userMessage(extra: Partial<ChatMessage> = {}): ChatMessage {
 }
 
 describe("MessageBubble user avatar", () => {
+  it("renders historical model failures as a recovery card without internal instructions", () => {
+    const retry = vi.fn();
+    render(
+      <MessageBubble
+        message={userMessage({
+          role: "assistant",
+          content:
+            "[model_call_failed]\nThe model API request failed. Do not pretend success.\nTechnical detail: HTTP 402 insufficient_quota",
+        })}
+        onRegenerate={retry}
+      />,
+    );
+    expect(
+      screen.getByText("stream_errors.insufficient_balance"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Do not pretend/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "chat.retry" }));
+    expect(retry).toHaveBeenCalledWith("u1");
+  });
   it("shows the account preset icon instead of name initials", () => {
     currentUser.avatar_icon = "business";
     currentUser.avatar_url = null;
