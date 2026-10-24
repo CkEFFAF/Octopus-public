@@ -11,6 +11,7 @@ import {
   Input,
   Modal,
   Select,
+  Spin,
   Space,
   Tag,
   Typography,
@@ -29,6 +30,7 @@ import EditAgentDrawer from "../Experts/components/EditAgentDrawer";
 import { useAgent, type OctopAgent } from "../../context/AgentContext";
 import { apiErrorMessage } from "../../utils/apiError";
 import PageShell from "../../layouts/PageShell";
+import { useUnsavedChangesWarning } from "../../hooks/useUnsavedChangesWarning";
 import { ExpertIcon } from "../Experts/components/iconForName";
 
 export default function ProjectsPage() {
@@ -40,10 +42,15 @@ export default function ProjectsPage() {
   const [teams, setTeams] = useState<TeamRecord[]>([]);
   const [board, setBoard] = useState<BoardSnapshot | null>(null);
   const [error, setError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [loading, setLoading] = useState(true);
   const [editingExpert, setEditingExpert] = useState<OctopAgent | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
+  const [modal, modalContext] = Modal.useModal();
+  const [dirty, setDirty] = useState(false);
+  useUnsavedChangesWarning(Boolean(editing) && (dirty || saving));
   const team =
     teams.find((item) => item.team_id === params.get("project")) || teams[0];
   const ownExperts = agents.filter(
@@ -60,6 +67,8 @@ export default function ProjectsPage() {
       setError("");
     } catch (err) {
       setError(apiErrorMessage(err, t("octopus.loadFailed"), t));
+    } finally {
+      setLoading(false);
     }
   }, [t]);
   useEffect(() => {
@@ -71,11 +80,16 @@ export default function ProjectsPage() {
     }, 15000);
     return () => window.clearInterval(timer);
   }, [load]);
-  function edit(item?: TeamRecord) {
-    form.resetFields();
-    form.setFieldsValue(item || { member_ids: [] });
-    setEditing(item?.team_id || "new");
-  }
+  const edit = useCallback(
+    (item?: TeamRecord) => {
+      form.resetFields();
+      form.setFieldsValue(item || { member_ids: [] });
+      setDirty(false);
+      setActionError("");
+      setEditing(item?.team_id || "new");
+    },
+    [form],
+  );
   useEffect(() => {
     if (params.get("new") === "1") {
       edit();
@@ -89,10 +103,10 @@ export default function ProjectsPage() {
         setParams({ project: current.team_id }, { replace: true });
       }
     }
-  }, [params, teams]);
+  }, [params, teams, edit, setParams]);
   async function save() {
     const value = await form.validateFields().catch(() => null);
-    if (!value) return;
+    if (!value || saving) return;
     setSaving(true);
     try {
       const room =
@@ -104,7 +118,7 @@ export default function ProjectsPage() {
       setParams({ project: room.team_id });
       setEditing(null);
     } catch (err) {
-      setError(apiErrorMessage(err, tr("actionFailed"), t));
+      setActionError(apiErrorMessage(err, tr("actionFailed"), t));
     } finally {
       setSaving(false);
     }
@@ -127,6 +141,7 @@ export default function ProjectsPage() {
         </Button>
       }
     >
+      {modalContext}
       {error && (
         <Alert
           type="error"
@@ -137,7 +152,13 @@ export default function ProjectsPage() {
           style={{ marginBottom: 20 }}
         />
       )}
-      {!teams.length ? (
+      {loading ? (
+        <div style={{ padding: 24, textAlign: "center" }} role="status">
+          <Spin /> {t("uiFeedback.projectsLoad")}
+        </div>
+      ) : error && !board ? (
+        <Button onClick={() => void load()}>{t("common.retry")}</Button>
+      ) : !teams.length ? (
         <Empty description={tr("noProjects")}>
           <Button onClick={() => navigate("/experts")}>
             {tr("prepareMembers")}
@@ -297,7 +318,21 @@ export default function ProjectsPage() {
                 <Empty
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
                   description={tr("noTasks")}
-                />
+                >
+                  <Button
+                    type="primary"
+                    icon={<Plus size={14} />}
+                    onClick={() =>
+                      navigate(
+                        `/task-board?project=${encodeURIComponent(
+                          team.team_id,
+                        )}&new=1`,
+                      )
+                    }
+                  >
+                    {tr("newTask")}
+                  </Button>
+                </Empty>
               ) : (
                 tasks.slice(0, 8).map((item) => (
                   <div
@@ -335,12 +370,38 @@ export default function ProjectsPage() {
       <Modal
         title={tr(editing === "new" ? "newProject" : "manageMembers")}
         open={Boolean(editing)}
-        onCancel={() => setEditing(null)}
+        onCancel={() => {
+          if (saving) return;
+          if (!dirty) {
+            setEditing(null);
+            return;
+          }
+          modal.confirm({
+            title: t("uiFeedback.discardTitle"),
+            content: t("uiFeedback.discardBody"),
+            okText: t("uiFeedback.discard"),
+            cancelText: t("uiFeedback.keepEditing"),
+            onOk: () => setEditing(null),
+          });
+        }}
         onOk={() => void save()}
         confirmLoading={saving}
         destroyOnClose
       >
-        <Form form={form} layout="vertical" preserve={false}>
+        {actionError && (
+          <Alert
+            type="error"
+            showIcon
+            message={actionError}
+            style={{ marginBottom: 16 }}
+          />
+        )}
+        <Form
+          form={form}
+          layout="vertical"
+          preserve={false}
+          onValuesChange={() => setDirty(true)}
+        >
           <Form.Item
             name="name"
             label={tr("projectName")}

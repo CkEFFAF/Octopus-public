@@ -13,6 +13,7 @@ import {
   Modal,
   Select,
   Space,
+  Spin,
   Switch,
   Tag,
   Typography,
@@ -44,6 +45,7 @@ import type { ResolvedModel } from "../../api/types";
 import { buildModelSelectOptions } from "../../utils/modelOptions";
 import { useAgent } from "../../context/AgentContext";
 import { useServerTimezone } from "../../hooks/useServerTimezone";
+import { useUnsavedChangesWarning } from "../../hooks/useUnsavedChangesWarning";
 import { formatServerIsoDateTime } from "../../utils/formatMessageTime";
 import { apiErrorMessage } from "../../utils/apiError";
 import PageShell from "../../layouts/PageShell";
@@ -83,6 +85,8 @@ export default function TaskBoardPage() {
   const [tagRename, setTagRename] = useState("");
   const [tagPrefix, setTagPrefix] = useState("");
   const [error, setError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [editor, setEditor] = useState<
@@ -91,6 +95,9 @@ export default function TaskBoardPage() {
   const [aiNote, setAiNote] = useState("");
   const [editorRevision, setEditorRevision] = useState(0);
   const [form] = Form.useForm();
+  const [modalApi, modalContext] = Modal.useModal();
+  const [editorDirty, setEditorDirty] = useState(false);
+  useUnsavedChangesWarning(Boolean(editor) && (editorDirty || busy));
   const project = search.get("project") || "";
   const memberFilter = search.get("agent") || "";
   const executors = agents.filter((agent) => agent.is_owner !== false);
@@ -118,6 +125,8 @@ export default function TaskBoardPage() {
       setError("");
     } catch (err) {
       setError(apiErrorMessage(err, t("octopus.loadFailed"), t));
+    } finally {
+      setLoading(false);
     }
   }, [t]);
   useEffect(() => {
@@ -188,43 +197,56 @@ export default function TaskBoardPage() {
         await taskBoardApi.act(revision ?? board.revision, action, id, payload),
       );
       setError("");
+      setActionError("");
       return true;
     } catch (err) {
       const reason = apiErrorMessage(err, tr("actionFailed"), t);
-      setError(reason);
       message.error(reason);
       await reload();
+      setActionError(reason);
       return false;
     } finally {
       setBusy(false);
     }
   }
-  function open(mode: NonNullable<typeof editor>, item?: BoardTask) {
-    setEditorRevision(board?.revision || 0);
-    form.resetFields();
-    setAiNote("");
-    if (item) setSelected(item.id);
-    form.setFieldsValue(
-      mode === "create"
-        ? {
-            project_id: item?.project_id || project,
-            parent_id: item?.id || "",
-            tags: [],
-            agent_id: item?.agent_id,
-            acceptance: "automatic",
-            auto_repair: false,
-            continue_session: false,
-            model: "",
-            reviewer_model: "",
-          }
-        : mode === "schedule"
-        ? item?.schedule || { cron: "0 9 * * *", timezone, enabled: true }
-        : mode === "review"
-        ? { scores: [65, 65, 65], evidence: "" }
-        : item,
-    );
-    setEditor(mode);
-  }
+  const open = useCallback(
+    (mode: NonNullable<typeof editor>, item?: BoardTask) => {
+      setEditorRevision(board?.revision || 0);
+      form.resetFields();
+      setAiNote("");
+      setEditorDirty(false);
+      if (item) setSelected(item.id);
+      form.setFieldsValue(
+        mode === "create"
+          ? {
+              project_id: item?.project_id || project,
+              parent_id: item?.id || "",
+              tags: [],
+              agent_id: item?.agent_id,
+              acceptance: "automatic",
+              auto_repair: false,
+              continue_session: false,
+              model: "",
+              reviewer_model: "",
+            }
+          : mode === "schedule"
+          ? item?.schedule || { cron: "0 9 * * *", timezone, enabled: true }
+          : mode === "review"
+          ? { scores: [65, 65, 65], evidence: "" }
+          : item,
+      );
+      setEditor(mode);
+    },
+    [board?.revision, form, project, timezone],
+  );
+  useEffect(() => {
+    if (board && search.get("new") === "1") {
+      open("create");
+      const next = new URLSearchParams(search);
+      next.delete("new");
+      setSearch(next, { replace: true });
+    }
+  }, [board, search, open, setSearch]);
   async function save() {
     const values = await form.validateFields().catch(() => null);
     if (!values) return;
@@ -274,6 +296,7 @@ export default function TaskBoardPage() {
         aiNote,
         form.getFieldValue("model") || "",
       );
+      setEditorDirty(true);
       form.setFieldsValue({
         title: draft.title,
         description: draft.description,
@@ -298,9 +321,7 @@ export default function TaskBoardPage() {
   return (
     <PageShell
       title={tr("board")}
-      subtitle={`${tr("hostLedger")} · ${timezone} · r${
-        board?.revision ?? "—"
-      }`}
+      subtitle={t("uiFeedback.boardHelp")}
       actions={
         <Space>
           <Button icon={<RefreshCw size={15} />} onClick={() => void reload()}>
@@ -310,12 +331,14 @@ export default function TaskBoardPage() {
             type="primary"
             icon={<Plus size={15} />}
             onClick={() => open("create")}
+            disabled={!board}
           >
             {tr("newTask")}
           </Button>
         </Space>
       }
     >
+      {modalContext}
       {error && (
         <Alert
           type="error"
@@ -326,11 +349,26 @@ export default function TaskBoardPage() {
           style={{ marginBottom: 16 }}
         />
       )}
+      {actionError && (
+        <Alert
+          type="error"
+          showIcon
+          message={actionError}
+          closable
+          onClose={() => setActionError("")}
+          style={{ marginBottom: 16 }}
+        />
+      )}
       <div className="octopus-board-filters">
         <Select
           aria-label={tr("project")}
           value={project}
-          onChange={(value) => setSearch(value ? { project: value } : {})}
+          onChange={(value) => {
+            const next = new URLSearchParams(search);
+            if (value) next.set("project", value);
+            else next.delete("project");
+            setSearch(next);
+          }}
           options={[
             { value: "", label: tr("allProjects") },
             ...teams.map((team) => ({ value: team.team_id, label: team.name })),
@@ -403,121 +441,176 @@ export default function TaskBoardPage() {
           </Button>
         )}
       </div>
-      <div className="octopus-board-columns">
-        {states.map((status) => (
-          <section
-            key={status}
-            className="octopus-board-column"
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              event.preventDefault();
-              const id = event.dataTransfer.getData("application/octopus-task");
-              if (id && !archived && status !== "running")
-                void act("move", id, { status });
-            }}
-            aria-label={tr(status)}
-          >
-            <header>
-              <span style={{ background: colors[status] }} />{" "}
-              <strong>{tr(status)}</strong>
-              <small>
-                {visible.filter((item) => item.status === status).length}
-              </small>
-            </header>
-            {visible
-              .filter((item) => item.status === status)
-              .map((item) => (
-                <article
-                  key={item.id}
-                  className={`octopus-task ${item.status}`}
-                  draggable={
-                    !archived && !busy && item.runs.at(-1)?.state !== "running"
-                  }
-                  onDragStart={(event) =>
-                    event.dataTransfer.setData(
-                      "application/octopus-task",
-                      item.id,
-                    )
-                  }
-                >
-                  <button
-                    className="octopus-task-open"
-                    onClick={() => setSelected(item.id)}
+      {loading && (
+        <div style={{ padding: 24, textAlign: "center" }} role="status">
+          <Spin /> {t("uiFeedback.taskLoad")}
+        </div>
+      )}
+      {!loading && board && visible.length === 0 && (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={
+            query.trim() || tags.length || memberFilter
+              ? t("uiFeedback.noMatchingTasks")
+              : tr("noTasks")
+          }
+        >
+          {(query.trim() || tags.length > 0 || memberFilter) && (
+            <Button
+              onClick={() => {
+                setQuery("");
+                setTags([]);
+                const next = new URLSearchParams(search);
+                next.delete("agent");
+                setSearch(next);
+              }}
+            >
+              {tr("clearFilters")}
+            </Button>
+          )}
+        </Empty>
+      )}
+      {board && (
+        <div className="octopus-board-columns" aria-busy={busy || loading}>
+          {states.map((status) => (
+            <section
+              key={status}
+              className="octopus-board-column"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                const id = event.dataTransfer.getData(
+                  "application/octopus-task",
+                );
+                if (id && !archived && status !== "running")
+                  void act("move", id, { status });
+              }}
+              aria-label={tr(status)}
+            >
+              <header>
+                <span style={{ background: colors[status] }} />{" "}
+                <strong>{tr(status)}</strong>
+                <small>
+                  {visible.filter((item) => item.status === status).length}
+                </small>
+              </header>
+              {visible
+                .filter((item) => item.status === status)
+                .map((item) => (
+                  <article
+                    key={item.id}
+                    className={`octopus-task ${item.status}`}
+                    draggable={
+                      !archived &&
+                      !busy &&
+                      item.runs.at(-1)?.state !== "running"
+                    }
+                    onDragStart={(event) =>
+                      event.dataTransfer.setData(
+                        "application/octopus-task",
+                        item.id,
+                      )
+                    }
                   >
-                    <strong>{item.title}</strong>
-                    <div className="octopus-task-tags">
-                      {item.tags.map((tag) => (
-                        <Tag key={tag} color={tagColor(tag)}>
-                          {tag}
-                        </Tag>
-                      ))}
-                    </div>
-                    <p>{item.description}</p>
-                  </button>
-                  <footer>
-                    <span>
-                      {agents.find((agent) => agent.agent_id === item.agent_id)
-                        ?.name || tr("unassigned")}
-                    </span>
-                    <span>
-                      {item.runs.length} {tr("runs")}
-                    </span>
-                  </footer>
-                  <small>
-                    {formatServerIsoDateTime(item.updated_at, timezone)}
-                  </small>
-                  {item.runs.at(-1)?.state === "running" && (
-                    <small style={{ color: colors.running }}>
-                      {tr(
-                        item.runs.at(-1)?.phase === "reviewing"
-                          ? "reviewing"
-                          : "executing",
+                    <button
+                      className="octopus-task-open"
+                      onClick={() => setSelected(item.id)}
+                    >
+                      <strong>{item.title}</strong>
+                      <div className="octopus-task-tags">
+                        {item.tags.map((tag) => (
+                          <Tag key={tag} color={tagColor(tag)}>
+                            {tag}
+                          </Tag>
+                        ))}
+                      </div>
+                      <p>{item.description}</p>
+                    </button>
+                    <footer>
+                      <span>
+                        {agents.find(
+                          (agent) => agent.agent_id === item.agent_id,
+                        )?.name || tr("unassigned")}
+                      </span>
+                      <span>
+                        {item.runs.length} {tr("runs")}
+                      </span>
+                    </footer>
+                    <small>
+                      {formatServerIsoDateTime(item.updated_at, timezone)}
+                    </small>
+                    {item.runs.at(-1)?.state === "running" && (
+                      <small style={{ color: colors.running }}>
+                        {tr(
+                          item.runs.at(-1)?.phase === "reviewing"
+                            ? "reviewing"
+                            : "executing",
+                        )}
+                      </small>
+                    )}
+                    {item.runs.at(-1) &&
+                      item.runs.at(-1)?.state !== "running" && (
+                        <div
+                          className="octopus-run-state"
+                          data-state={item.runs.at(-1)?.state}
+                        >
+                          {t(
+                            `uiFeedback.${
+                              item.runs.at(-1)?.state === "failed"
+                                ? "taskFailed"
+                                : item.runs.at(-1)?.state === "interrupted"
+                                ? "taskInterrupted"
+                                : "taskSucceeded"
+                            }`,
+                          )}
+                        </div>
                       )}
-                    </small>
-                  )}
-                  {item.schedule && (
-                    <small>
-                      <Clock3 size={12} /> {item.schedule.cron} ·{" "}
-                      {item.schedule.timezone}
-                    </small>
-                  )}
-                  {board?.tasks.some(
-                    (child) => child.parent_id === item.id,
-                  ) && (
-                    <small>
-                      <ListTree size={12} />{" "}
-                      {
-                        board.tasks.filter(
-                          (child) =>
-                            child.parent_id === item.id &&
-                            child.status === "done",
-                        ).length
-                      }
-                      /
-                      {
-                        board.tasks.filter(
-                          (child) => child.parent_id === item.id,
-                        ).length
-                      }{" "}
-                      {tr("children")}
-                    </small>
-                  )}
-                  {item.runs.at(-1)?.state === "succeeded" && !item.review && (
-                    <small style={{ color: colors.running }}>
-                      {tr("awaitingReview")}
-                    </small>
-                  )}
-                  {!item.pin && <small>{tr("needsConfirmation")}</small>}
-                </article>
-              ))}
-            {visible.filter((item) => item.status === status).length === 0 && (
-              <div className="octopus-column-empty">{tr("noTasks")}</div>
-            )}
-          </section>
-        ))}
-      </div>
+                    {item.schedule && (
+                      <small>
+                        <Clock3 size={12} /> {item.schedule.cron} ·{" "}
+                        {item.schedule.timezone}
+                      </small>
+                    )}
+                    {board?.tasks.some(
+                      (child) => child.parent_id === item.id,
+                    ) && (
+                      <small>
+                        <ListTree size={12} />{" "}
+                        {
+                          board.tasks.filter(
+                            (child) =>
+                              child.parent_id === item.id &&
+                              child.status === "done",
+                          ).length
+                        }
+                        /
+                        {
+                          board.tasks.filter(
+                            (child) => child.parent_id === item.id,
+                          ).length
+                        }{" "}
+                        {tr("children")}
+                      </small>
+                    )}
+                    {item.runs.at(-1)?.state === "succeeded" &&
+                      !item.review && (
+                        <small style={{ color: colors.running }}>
+                          {tr("awaitingReview")}
+                        </small>
+                      )}
+                    {!item.pin && <small>{tr("needsConfirmation")}</small>}
+                  </article>
+                ))}
+              {visible.filter((item) => item.status === status).length ===
+                0 && (
+                <div className="octopus-column-empty">{tr("noTasks")}</div>
+              )}
+            </section>
+          ))}
+        </div>
+      )}
       <Drawer
-        width={620}
+        width="min(620px, 100vw)"
         open={Boolean(task)}
         onClose={() => setSelected(null)}
         title={task?.title}
@@ -859,12 +952,30 @@ export default function TaskBoardPage() {
         open={Boolean(editor)}
         width={660}
         title={tr(editor || "newTask")}
-        onCancel={() => setEditor(null)}
+        onCancel={() => {
+          if (busy) return;
+          if (!editorDirty) {
+            setEditor(null);
+            return;
+          }
+          modalApi.confirm({
+            title: t("uiFeedback.discardTitle"),
+            content: t("uiFeedback.discardBody"),
+            okText: t("uiFeedback.discard"),
+            cancelText: t("uiFeedback.keepEditing"),
+            onOk: () => setEditor(null),
+          });
+        }}
         onOk={() => void save()}
         confirmLoading={busy}
         destroyOnClose
       >
-        <Form form={form} layout="vertical" preserve={false}>
+        <Form
+          form={form}
+          layout="vertical"
+          preserve={false}
+          onValuesChange={() => setEditorDirty(true)}
+        >
           {editor === "create" && (
             <Form.Item name="parent_id" hidden>
               <Input />
@@ -898,7 +1009,10 @@ export default function TaskBoardPage() {
                     </strong>
                     <Input.TextArea
                       value={aiNote}
-                      onChange={(event) => setAiNote(event.target.value)}
+                      onChange={(event) => {
+                        setAiNote(event.target.value);
+                        setEditorDirty(true);
+                      }}
                       rows={3}
                       placeholder={tr("aiPlaceholder")}
                     />

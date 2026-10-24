@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Modal } from "antd";
 import { applyUpdate } from "../../pwa";
 import { updateApi } from "../../api/modules/update";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
+import { userCan } from "../../utils/permissions";
 import styles from "./index.module.less";
 
 /**
@@ -15,8 +18,11 @@ import styles from "./index.module.less";
  */
 export default function PwaUpdatePrompt() {
   const { t } = useTranslation();
+  const user = useCurrentUser();
   const [visible, setVisible] = useState(false);
-  const [serviceMode, setServiceMode] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [modal, contextHolder] = Modal.useModal();
 
   useEffect(() => {
     const handler = () => setVisible(true);
@@ -24,37 +30,60 @@ export default function PwaUpdatePrompt() {
     return () => window.removeEventListener("pwa:update-ready", handler);
   }, []);
 
-  // Fetch service mode once so we know whether to also restart the backend.
-  useEffect(() => {
-    updateApi
-      .getUpdateStatus()
-      .then((s) => setServiceMode(s.service_mode))
-      .catch(() => {});
-  }, []);
-
   if (!visible) return null;
 
   const handleUpdate = async () => {
-    setVisible(false);
-    // If running as a system service, trigger backend restart first.
-    // applyUpdate() reloads once after posting SKIP_WAITING.
-    if (serviceMode) {
-      updateApi.restartService().catch(() => {});
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const status = await updateApi.getUpdateStatus();
+      const restartBackend =
+        Boolean(status.service_mode) && userCan(user, "update");
+      modal.confirm({
+        zIndex: 10000,
+        title: t("uiFeedback.updateTitle"),
+        content: t(
+          restartBackend ? "uiFeedback.updateService" : "uiFeedback.updatePage",
+        ),
+        okText: t("pwa.updateNow"),
+        cancelText: t("pwa.later"),
+        onCancel: () => setBusy(false),
+        onOk: async () => {
+          try {
+            if (restartBackend) await updateApi.restartService();
+            await applyUpdate();
+            setBusy(false);
+            setVisible(false);
+          } catch {
+            setError(t("uiFeedback.updateFailed"));
+            throw new Error(t("uiFeedback.updateFailed"));
+          }
+        },
+      });
+    } catch {
+      setError(t("uiFeedback.updateFailed"));
+      setBusy(false);
     }
-    await applyUpdate();
   };
 
   const handleDismiss = () => setVisible(false);
 
   return (
     <div className={styles.banner} role="alert" aria-live="polite">
+      {contextHolder}
       <span className={styles.icon}>✨</span>
-      <span className={styles.text}>{t("pwa.updateReady")}</span>
-      <button className={styles.btnPrimary} onClick={handleUpdate}>
+      <span className={styles.text}>{error || t("pwa.updateReady")}</span>
+      <button
+        className={styles.btnPrimary}
+        disabled={busy}
+        onClick={() => void handleUpdate()}
+      >
         {t("pwa.updateNow")}
       </button>
       <button
         className={styles.btnGhost}
+        disabled={busy}
         onClick={handleDismiss}
         aria-label={t("pwa.later")}
       >

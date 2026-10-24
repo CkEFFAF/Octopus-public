@@ -7,12 +7,15 @@
   align-items: center;
   gap: 10px;
   padding: 10px 16px;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  flex-wrap: wrap;
   border-radius: var(--fn-radius-lg, 12px);
   background: var(--fn-bg-elevated, #1a1c28);
   border: 1px solid var(--fn-border-primary, rgba(255, 255, 255, 0.08));
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   z-index: 9999;
-  white-space: nowrap;
+  white-space: normal;
   animation: slideUp 0.25s ease;
 }
 
@@ -33,6 +36,8 @@
 }
 
 .text {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 13px;
   font-weight: 500;
   color: var(--fn-text-primary, rgba(255, 255, 255, 0.92));
@@ -53,6 +58,12 @@
 
 .btnPrimary:hover {
   background: var(--fn-color-brand-hover);
+}
+
+.btnPrimary:disabled,
+.btnGhost:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .btnGhost {

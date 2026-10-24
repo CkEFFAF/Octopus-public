@@ -1247,3 +1247,23 @@
   border: 1px dashed var(--fn-border-input);
   border-radius: var(--fn-radius-md);
 }
+.poolModelId {
+  display: block;
+  color: var(--fn-text-secondary);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  font-family: var(--fn-font-mono);
+}
+.poolTestStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fn-text-secondary);
+  font-size: 11px;
+}
+@media (max-width: 767px) {
+  .poolTestStatus {
+    flex-basis: 100%;
+    padding-left: 30px;
+  }
+}

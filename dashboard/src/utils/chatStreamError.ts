@@ -236,8 +236,8 @@ function isModelRetryEnvelope(message: string | null | undefined): boolean {
   if (!message) return false;
   const raw = normalizeMessage(message);
   return (
-    raw.toLowerCase().includes("model call failed after") ||
-    raw.includes(MODEL_RETRY_FAILURE_MARK)
+    /^\[model_call_failed\](?:\s|$)/.test(raw) ||
+    /^model call failed after \d+ attempts?\s+with\s+/i.test(raw)
   );
 }
 

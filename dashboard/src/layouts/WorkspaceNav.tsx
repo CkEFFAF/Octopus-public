@@ -196,6 +196,7 @@ export default function WorkspaceNav({
                     ? "active"
                     : ""
                 }
+                aria-current={selectedKey === item.key ? "page" : undefined}
                 onClick={() => {
                   navigate(item.path);
                   if (isMobile) onToggle();
@@ -224,7 +225,10 @@ export default function WorkspaceNav({
                   className={
                     location.pathname.endsWith(`/${key}`) ? "active" : ""
                   }
-                  onClick={() => navigate(`/personalization/${key}`)}
+                  onClick={() => {
+                    navigate(`/personalization/${key}`);
+                    if (isMobile) onToggle();
+                  }}
                 >
                   <Icon size={17} />
                   <span>{t(`personalization.tabs.${key}`)}</span>

@@ -4,9 +4,18 @@
  *
  * Mirrors finnie's ActiveModelPool component.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Brain, Check, Info, Star, X, Zap } from "lucide-react";
-import { Button, Empty, Popover, Segmented, Select, Tag, Tooltip } from "antd";
+import {
+  Button,
+  Empty,
+  Input,
+  Popover,
+  Segmented,
+  Select,
+  Tag,
+  Tooltip,
+} from "antd";
 import { message } from "@/utils/antdMessage";
 
 import { useTranslation } from "react-i18next";
@@ -50,9 +59,15 @@ export function ActiveModelPool({
   const { t } = useTranslation();
   const [setting, setSetting] = useState<string | null>(null);
   const [testingKey, setTestingKey] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const [testResults, setTestResults] = useState<
     Map<string, "success" | "failure">
   >(new Map());
+  const configurationVersion = useRef(0);
+  useEffect(() => {
+    configurationVersion.current += 1;
+    setTestResults(new Map());
+  }, [providers]);
 
   const providerHasKey = useMemo(() => {
     const map = new Map<number, boolean>();
@@ -65,6 +80,12 @@ export function ActiveModelPool({
   const grouped = useMemo<GroupedModels[]>(() => {
     const map = new Map<string, GroupedModels>();
     for (const m of resolvedModels) {
+      if (
+        !`${modelOptionLabel(m)} ${m.model} ${m.provider_name}`
+          .toLowerCase()
+          .includes(query.trim().toLowerCase())
+      )
+        continue;
       let group = map.get(m.provider_name);
       if (!group) {
         group = {
@@ -78,7 +99,7 @@ export function ActiveModelPool({
       group.models.push(m);
     }
     return Array.from(map.values());
-  }, [resolvedModels]);
+  }, [resolvedModels, query]);
 
   const handleSetPreferred = async (m: ResolvedModel) => {
     const isAlready =
@@ -106,6 +127,7 @@ export function ActiveModelPool({
   };
 
   const handleTestModel = async (m: ResolvedModel) => {
+    const testedVersion = configurationVersion.current;
     const key = `${m.provider_name}/${m.model}`;
     setTestingKey(key);
     try {
@@ -117,6 +139,7 @@ export function ActiveModelPool({
         method: "POST",
         body: JSON.stringify({ model_id: m.model }),
       });
+      if (testedVersion !== configurationVersion.current) return;
       if (result.ok) {
         message.success(
           t("models.testSuccess", {
@@ -132,6 +155,7 @@ export function ActiveModelPool({
         setTestResults((prev) => new Map(prev).set(key, "failure"));
       }
     } catch (err) {
+      if (testedVersion !== configurationVersion.current) return;
       message.error(
         t("models.testFailed", {
           error: err instanceof Error ? err.message : String(err),
@@ -140,13 +164,6 @@ export function ActiveModelPool({
       setTestResults((prev) => new Map(prev).set(key, "failure"));
     } finally {
       setTestingKey(null);
-      setTimeout(() => {
-        setTestResults((prev) => {
-          const next = new Map(prev);
-          next.delete(key);
-          return next;
-        });
-      }, 2000);
     }
   };
 
@@ -283,12 +300,31 @@ export function ActiveModelPool({
             <Info size={14} className={styles.poolInfoIcon} />
           </Tooltip>
         </div>
-        <Tag color="green" className={styles.poolCountTag}>
+        <Tag className={styles.poolCountTag}>
           {t("models.modelCount", { count: resolvedModels.length })}
         </Tag>
       </div>
 
       <p className={styles.poolDesc}>{t("models.autoRouteDesc")}</p>
+      <p className={styles.poolDesc}>{t("uiFeedback.enabledHint")}</p>
+      <Input.Search
+        allowClear
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder={t("uiFeedback.searchPool")}
+        aria-label={t("uiFeedback.searchPool")}
+        style={{ marginBottom: 16, maxWidth: 480 }}
+      />
+      {grouped.length === 0 && (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={t("uiFeedback.noMatches")}
+        >
+          <Button onClick={() => setQuery("")}>
+            {t("uiFeedback.clearSearch")}
+          </Button>
+        </Empty>
+      )}
 
       <div className={styles.poolList}>
         {grouped.map((group) => (
@@ -334,6 +370,12 @@ export function ActiveModelPool({
                         type="text"
                         size="small"
                         loading={isLoading}
+                        aria-label={`${t(
+                          isPreferred
+                            ? "models.currentPreferred"
+                            : "models.setAsPreferred",
+                        )}: ${modelOptionLabel(m)} (${m.model})`}
+                        aria-pressed={isPreferred}
                         className={`${styles.preferredBtn} ${
                           isPreferred ? styles.preferredActive : ""
                         }`}
@@ -354,29 +396,44 @@ export function ActiveModelPool({
                       >
                         {modelOptionLabel(m)}
                       </span>
+                      <small className={styles.poolModelId}>{m.model}</small>
                     </div>
 
                     {capTags}
                     {renderReasoningPreference(m, key)}
 
+                    <span
+                      className={styles.poolTestStatus}
+                      role={testState ? "status" : undefined}
+                    >
+                      {testState === "success" ? (
+                        <Check size={12} />
+                      ) : testState === "failure" ? (
+                        <X size={12} />
+                      ) : null}
+                      {t(
+                        testState === "success"
+                          ? "uiFeedback.testPassed"
+                          : testState === "failure"
+                          ? "uiFeedback.testFailedStatus"
+                          : "uiFeedback.notTested",
+                      )}
+                    </span>
                     {canTest && (
                       <div className={styles.poolModelActions}>
-                        {isTesting ? (
-                          <Button type="text" size="small" loading />
-                        ) : testState === "success" ? (
-                          <Check size={14} style={{ color: "#52c41a" }} />
-                        ) : testState === "failure" ? (
-                          <X size={14} style={{ color: "#ff4d4f" }} />
-                        ) : (
-                          <Tooltip title={t("models.testConnection")}>
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<Zap size={14} />}
-                              onClick={() => void handleTestModel(m)}
-                            />
-                          </Tooltip>
-                        )}
+                        <Tooltip title={t("models.testConnection")}>
+                          <Button
+                            type="text"
+                            size="small"
+                            aria-label={`${t(
+                              "models.testConnection",
+                            )}: ${modelOptionLabel(m)} (${m.model})`}
+                            loading={isTesting}
+                            disabled={testingKey !== null}
+                            icon={<Zap size={14} />}
+                            onClick={() => void handleTestModel(m)}
+                          />
+                        </Tooltip>
                       </div>
                     )}
                   </div>

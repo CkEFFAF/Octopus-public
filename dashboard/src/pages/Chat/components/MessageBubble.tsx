@@ -39,6 +39,7 @@ import { prepareSpeechText } from "../../../utils/plainTextForSpeech";
 import {
   chatStreamErrorAction,
   formatChatStreamError,
+  isChatStreamError,
 } from "../../../utils/chatStreamError";
 import { MessageFileCard } from "./MessageFileCard";
 import AskQuestionCard from "./AskQuestionCard";
@@ -639,7 +640,9 @@ function MessageBubble({
     isUser && !isEditing && hasUserComposerTags(message.composerContext);
   const isStreaming = message.status === "streaming";
   const hasToolData = !!message.toolData;
-  const isError = message.status === "error";
+  const isError =
+    message.status === "error" ||
+    (!isUser && !hasToolData && isChatStreamError(textContent));
   const errorCode = message.errorInfo?.code;
   const modelError =
     typeof errorCode === "string" &&
