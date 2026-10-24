@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextvars import Context
 from math import ceil
 from typing import Any
 
@@ -105,10 +106,15 @@ async def generate_json(
         )
         if overrides.get("model_fields"):
             bound = bound.bind(**overrides["model_fields"])
+        # Runnable bindings merge ambient callbacks even when callbacks=[] is
+        # supplied. Keep auxiliary JSON outside the parent chat's graph/stream.
         result = await asyncio.wait_for(
-            bound.ainvoke(
-                [SystemMessage(content=system), HumanMessage(content=text)],
-                config={"callbacks": []},
+            asyncio.create_task(
+                bound.ainvoke(
+                    [SystemMessage(content=system), HumanMessage(content=text)],
+                    config={"callbacks": []},
+                ),
+                context=Context(),
             ),
             timeout=30,
         )

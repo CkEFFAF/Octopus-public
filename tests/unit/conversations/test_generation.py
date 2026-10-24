@@ -163,3 +163,58 @@ async def test_openai_auxiliary_json_disables_optional_thinking_within_existing_
         "thread_title",
     )
     assert json.loads(output)["title"] == "测试主题"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("purpose", ["thread_title", "thread_brief", "period_digest"])
+async def test_auxiliary_json_does_not_enter_parent_chat_stream(monkeypatch, purpose):
+    from langchain_core.language_models.fake_chat_models import FakeListChatModel
+    from langchain_core.runnables.config import var_child_runnable_config
+    from langgraph.graph import END, START, MessagesState, StateGraph
+
+    metadata_json = '{"one_liner":"内部摘要","objective":"整理会话"}'
+    model = FakeListChatModel(responses=[metadata_json])
+    recorded, closed = [], []
+
+    async def close():
+        closed.append(True)
+
+    monkeypatch.setattr(
+        "octop.infra.conversations.generation.ChatModelFactory",
+        lambda configs: SimpleNamespace(get_chat_model=lambda ref: model, aclose=close),
+    )
+    store = SimpleNamespace(
+        is_model_ref_usable=lambda ref: True,
+        build_harness_configs=lambda: [],
+        get_model_reasoning_capability=lambda ref: None,
+    )
+    manager = SimpleNamespace(
+        providers_for_user=lambda owner: store,
+        _repos=SimpleNamespace(usage_repo=SimpleNamespace(record=lambda **kw: recorded.append(kw))),
+    )
+
+    async def reply(state):
+        parent = var_child_runnable_config.get()
+        output = await generate_json(
+            manager,
+            {"owner_user_id": 7, "agent_id": "agent", "thread_id": "thread"},
+            "owner/model",
+            {"messages": [{"text": "实验到哪了"}]},
+            GeneratedBrief.model_json_schema(),
+            purpose,
+        )
+        assert output == metadata_json
+        assert var_child_runnable_config.get() is parent
+        return {"messages": [AIMessage(content="实验已完成三组对照。", id="normal-answer")]}
+
+    graph = StateGraph(MessagesState)
+    graph.add_node("reply", reply)
+    graph.add_edge(START, "reply")
+    graph.add_edge("reply", END)
+    streamed = [
+        message.content
+        async for message, _ in graph.compile().astream({"messages": []}, stream_mode="messages")
+    ]
+    assert streamed == ["实验已完成三组对照。"]
+    assert recorded[0]["source"] == purpose
+    assert closed == [True]
