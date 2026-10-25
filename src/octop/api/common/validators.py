@@ -14,21 +14,29 @@ def assert_user_backend_root_dirs(
     backend: Any,
     *,
     policy_repo: Any | None = None,
+    user_repo: Any | None = None,
 ) -> None:
     """Reject local backend ``root_dir`` values that fail denylist or user policy.
 
-    When *policy_repo* is provided, ``local_shell`` / ``filesystem`` roots must
-    stay under the user's ``workspace_root_dir`` (if set). All authenticated
-    users may otherwise select host paths outside home (UI still defaults to
-    home). Sensitive pseudo-fs mounts remain blocked.
+    When *policy_repo* is provided, ordinary users are jailed to
+    ``workspace_root_dir`` (if set) or the process home (0038 F02). Admins may
+    select host paths outside home; sensitive mounts remain blocked.
     """
     if backend is None:
         return
     if policy_repo is not None and user is not None:
-        raise_if_backend_outside_user_root(policy_repo, int(user.id), backend)
+        raise_if_backend_outside_user_root(
+            policy_repo,
+            int(user.id),
+            backend,
+            is_admin=bool(getattr(user, "is_admin", False)),
+            user_repo=user_repo,
+        )
         return
+    # No policy context: still apply denylist; home-jail non-admins.
+    restrict_home = not bool(getattr(user, "is_admin", False)) if user is not None else True
     try:
-        assert_backend_root_dirs_allowed(backend, restrict_to_home=False)
+        assert_backend_root_dirs_allowed(backend, restrict_to_home=restrict_home)
     except ValueError as exc:
         raise OctopError(ErrorCode.WORKSPACE_OP_UNSUPPORTED, str(exc)) from exc
 

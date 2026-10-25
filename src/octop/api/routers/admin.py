@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 
 from octop.api.deps import get_server, require_permission
+from octop.infra.users.invites import public_invite_audit_target
 
 router = APIRouter()
 
@@ -69,7 +70,7 @@ async def audit_log(
             "ts": r.ts,
             "actor": r.actor,
             "action": r.action,
-            "target": r.target,
+            "target": public_invite_audit_target(r.action, r.target),
             "payload": r.payload,
         }
         for r in rows
