@@ -36,12 +36,46 @@ def test_allowed_host_download_under_workspace(tmp_path: Path) -> None:
     assert is_allowed_host_download_abs_path(str(target), workspace=ws) is True
 
 
-def test_allowed_host_download_desktop_style(tmp_path: Path) -> None:
-    desktop = tmp_path / "Desktop" / "deck.pptx"
-    desktop.parent.mkdir(parents=True)
-    desktop.write_bytes(b"PK")
-    # Outside workspace but not a system root — tool send_file paths.
-    assert is_allowed_host_download_abs_path(str(desktop), workspace=tmp_path / "ws") is True
+def test_denied_host_download_desktop_outside_workspace(tmp_path: Path) -> None:
+    # Use a home path (not under OS temp): pytest tmp_path lives in /tmp and
+    # would otherwise pass is_allowed_host_temp_path once the file exists.
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    assert (
+        is_allowed_host_download_abs_path(
+            "/home/bob/Desktop/deck.pptx",
+            workspace=ws,
+        )
+        is False
+    )
+    assert (
+        is_allowed_host_download_abs_path(
+            "/Users/me/Desktop/deck.pptx",
+            workspace=ws,
+        )
+        is False
+    )
+
+
+def test_denied_host_download_peer_agents_tree(tmp_path: Path) -> None:
+    ws = tmp_path / "alice-ws"
+    ws.mkdir()
+    # Peer agent tree must not be blanket-allowed via "/.octop/agents/".
+    assert (
+        is_allowed_host_download_abs_path(
+            "/home/alice/.octop/agents/bob-bot/secret.txt",
+            workspace=ws,
+        )
+        is False
+    )
+
+
+def test_denied_host_download_ssh_private_key(tmp_path: Path) -> None:
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    # Review reproduction: fail-open used to return True for this shape.
+    assert is_allowed_host_download_abs_path("/home/bob/.ssh/id_rsa", workspace=ws) is False
+    assert is_allowed_host_download_abs_path("/Users/bob/.ssh/id_rsa", workspace=ws) is False
 
 
 def test_denied_host_download_etc(tmp_path: Path) -> None:
@@ -52,14 +86,24 @@ def test_denied_harness_browser(tmp_path: Path) -> None:
     path = tmp_path / ".harness-browser" / "screenshots" / "x.png"
     path.parent.mkdir(parents=True)
     path.write_bytes(b"x")
-    assert is_allowed_host_download_abs_path(str(path), workspace=tmp_path) is False
+    # Under OS temp the file is temp-allowed; assert segment deny via home shape.
+    assert (
+        is_allowed_host_download_abs_path(
+            "/home/bob/.harness-browser/screenshots/x.png",
+            workspace=tmp_path,
+        )
+        is False
+    )
 
 
 def test_denied_octop_browser(tmp_path: Path) -> None:
-    path = tmp_path / ".octop-browser" / "screenshots" / "x.png"
-    path.parent.mkdir(parents=True)
-    path.write_bytes(b"x")
-    assert is_allowed_host_download_abs_path(str(path), workspace=tmp_path) is False
+    assert (
+        is_allowed_host_download_abs_path(
+            "/home/bob/.octop-browser/screenshots/x.png",
+            workspace=tmp_path,
+        )
+        is False
+    )
 
 
 def test_file_url_windows_drive_decodes_unicode() -> None:

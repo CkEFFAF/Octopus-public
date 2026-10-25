@@ -64,6 +64,7 @@ class UserRow:
     permissions: builtins.list[str] = field(default_factory=list)
     role_name: str | None = None
     avatar_icon: str | None = None
+    auth_version: int = 1
 
     @classmethod
     def from_row(cls, r: DbRow) -> UserRow:
@@ -72,6 +73,9 @@ class UserRow:
         role_name = str(raw_name).strip() if isinstance(raw_name, str) else ""
         raw_icon = r["avatar_icon"] if "avatar_icon" in keys else None
         avatar_icon = str(raw_icon).strip() if isinstance(raw_icon, str) else ""
+        auth_version = 1
+        if "auth_version" in keys and r["auth_version"] is not None:
+            auth_version = int(r["auth_version"])
         return cls(
             id=r["id"],
             username=r["username"],
@@ -90,6 +94,7 @@ class UserRow:
             permissions=_parse_permissions(r["permissions"] if "permissions" in keys else None),
             role_name=role_name or None,
             avatar_icon=avatar_icon or None,
+            auth_version=auth_version,
         )
 
 

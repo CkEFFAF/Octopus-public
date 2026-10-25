@@ -95,13 +95,22 @@ async def try_bootstrap_default_agent(
         logger.warning("skip default agent bootstrap: app_runtime not ready")
         return
     try:
+        root_dir = user_policy_workspace_root(server, user_id)
+        if root_dir is None:
+            from pathlib import Path as _Path
+
+            row = server.services.user_repo.get(user_id)
+            role = getattr(row, "role", None) if row is not None else None
+            if not (isinstance(role, str) and role.strip().lower() == "admin"):
+                # Ordinary accounts must not inherit control-server "/" (0038 F02).
+                root_dir = str(_Path.home())
         await bootstrap_default_agent(
             server.app_runtime.agent_registry,
             server.expert_catalog,
             user_id=user_id,
             locale=locale,
             agent_id=agent_id,
-            root_dir=user_policy_workspace_root(server, user_id),
+            root_dir=root_dir,
         )
     except Exception as exc:  # pragma: no cover - logged; user creation should still succeed
         logger.warning("could not auto-create default agent for user %s: %s", user_id, exc)

@@ -40,6 +40,25 @@ logger = logging.getLogger(__name__)
 
 _PROTECTED_PREFIX = "_builtin_skills"
 
+def _assert_host_abs_within_agent_workspace(io_path: str, workspace: Any) -> None:
+    """0038 F02/AC05: host-absolute API reads stay under this agent workspace."""
+    if not is_host_absolute_path(io_path):
+        return
+    root = Path(getattr(workspace, "workspace_dir", workspace)).resolve()
+    raw = io_path.strip()
+    if raw.startswith("file://"):
+        mapped = backend_workspace_path(raw)
+        if mapped is None:
+            raise OctopError(ErrorCode.FORBIDDEN, f"cannot read {io_path!r}")
+        raw = mapped
+    try:
+        Path(raw).expanduser().resolve().relative_to(root)
+    except (OSError, ValueError):
+        raise OctopError(
+            ErrorCode.FORBIDDEN,
+            f"cannot read {io_path!r}: outside agent workspace",
+        ) from None
+
 
 def _assert_workspace_mutable(path: str) -> str:
     """Mutating ops always treat paths as workspace-relative (``from_workspace=true``)."""
@@ -221,7 +240,9 @@ async def read_file(
 ) -> dict[str, Any]:
     """Read a UTF-8 text file."""
     ws = await require_agent_workspace(agent_id, user=user, as_user=as_user, server=server)
-    content = await ws.aread_text(_workspace_io_path(path, from_workspace=from_workspace))
+    io_path = _workspace_io_path(path, from_workspace=from_workspace)
+    _assert_host_abs_within_agent_workspace(io_path, ws)
+    content = await ws.aread_text(io_path)
     if content is None:
         raise OctopError(ErrorCode.NOT_FOUND, f"cannot read {path!r}")
     return {"path": path, "content": coerce_read_content(content)}
@@ -396,12 +417,12 @@ async def download_file(
     """Stream ``path`` back as application/octet-stream.
 
     See ``from_workspace``: workspace UI uses true; chat/tool downloads use false.
-    ``file://`` and other host-absolute paths are allowed for agent/OS tool
-    outputs (Desktop, ``~/.octop/agents/…``, workspace tree) but denied for
-    sensitive system roots (``/etc``, ``.harness-browser``, ``.octop-browser``, Windows system dirs).
+    Host-absolute paths must stay under this agent workspace (0038 F02/AC05),
+    matching ``read_file`` / ``read_doc``.
     """
     ws = await require_agent_workspace(agent_id, user=user, as_user=as_user, server=server)
     io_path = _workspace_io_path(path, from_workspace=from_workspace)
+    _assert_host_abs_within_agent_workspace(io_path, ws)
     if is_host_absolute_path(io_path) and not is_allowed_host_download_abs_path(
         io_path,
         workspace=ws.workspace_dir,
@@ -436,6 +457,7 @@ async def read_doc(
     converter = _ensure_editable_doc(path)
     ws = await require_agent_workspace(agent_id, user=user, as_user=as_user, server=server)
     io_path = _workspace_io_path(path, from_workspace=from_workspace)
+    _assert_host_abs_within_agent_workspace(io_path, ws)
     try:
         blob = await ws.adownload_bytes(io_path)
     except PermissionError as exc:

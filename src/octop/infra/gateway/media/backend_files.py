@@ -328,8 +328,11 @@ _DENIED_WIN_DOWNLOAD_PREFIXES = (
 
 
 def is_allowed_host_download_abs_path(path: str, *, workspace: Path) -> bool:
-    """Allow host-absolute download when under workspace / agents / temp, or
-    non-system user paths (e.g. Desktop tool outputs). Deny OS system roots.
+    """Allow host-absolute download only under this agent workspace, OS temp,
+    or the legacy harness screenshots dir.
+
+    0038 F02/AC05: no blanket ``/.octop/agents/`` (peer workspaces) and no
+    fail-open for arbitrary home paths such as ``~/.ssh``.
     """
     raw = path.strip()
     if not raw:
@@ -364,19 +367,17 @@ def is_allowed_host_download_abs_path(path: str, *, workspace: Path) -> bool:
     except ValueError:
         pass
 
-    if "/.octop/agents/" in norm:
-        return True
     if is_allowed_host_temp_path(resolved):
         return True
 
-    if any(norm.startswith(prefix) for prefix in _DENIED_HOST_DOWNLOAD_PREFIXES):
-        return False
-    win_denied = (
-        len(norm) >= 2
-        and norm[1] == ":"
-        and any(norm.startswith(prefix) for prefix in _DENIED_WIN_DOWNLOAD_PREFIXES)
-    )
-    return not win_denied
+    try:
+        resolved.relative_to(legacy_harness_screenshots_dir().resolve())
+        return True
+    except (OSError, ValueError):
+        pass
+
+    return False
+
 
 
 def is_host_absolute_path(path: str) -> bool:

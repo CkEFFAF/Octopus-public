@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from octop.infra.agents.experts.default_agent import default_home_local_backend
 from octop.infra.utils.host_dirs import host_fs_tree_root
@@ -71,11 +72,14 @@ async def test_invite_create_list_redeem_and_one_time(env) -> None:
     bob_row = srv.app_runtime.agent_registry.get_row(bob_agents[0]["agent_id"])
     assert bob_row is not None
     bob_cfg = json.loads(bob_row.config_json or "{}")
-    assert bob_cfg["backend"] == default_home_local_backend()
-    assert bob_cfg["backend"]["root_dir"] == host_fs_tree_root()
-    assert bob_cfg["workspace_dir"] == str(
-        srv.paths.agent_workspace(bob_agents[0]["agent_id"]).resolve()
-    )
+    # 0038 F02: ordinary invitees get a home-scoped local backend, not control-server "/".
+    assert bob_cfg["backend"] == default_home_local_backend(root_dir=str(Path.home()))
+    assert bob_cfg["backend"]["root_dir"] == str(Path.home())
+    assert bob_cfg["backend"]["root_dir"] != host_fs_tree_root()
+    # Workspace path is backend-relative under the home-scoped jail (F02); only
+    # require it is present and tied to this agent id.
+    assert isinstance(bob_cfg.get("workspace_dir"), str) and bob_cfg["workspace_dir"]
+    assert bob_agents[0]["agent_id"] in bob_cfg["workspace_dir"]
 
     again = await c.post(
         "/api/auth/invite/redeem",

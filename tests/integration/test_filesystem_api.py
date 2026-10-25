@@ -188,12 +188,14 @@ async def test_filesystem_defaults_in_container(
 
 
 @pytest.mark.asyncio
-async def test_non_admin_can_list_outside_home(
+async def test_non_admin_host_dirs_are_forbidden(
     env: tuple[httpx.AsyncClient, Any, dict[str, str]],
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from octop.infra.utils.host_dirs import host_fs_tree_root
+    """0038 F03: host dirs/mkdir/rename/probe are admin-only."""
+    from pathlib import Path as PathCls
+
     from tests.support.auth import create_user
 
     client, _srv, admin_auth = env
@@ -201,7 +203,7 @@ async def test_non_admin_can_list_outside_home(
     home.mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
-    monkeypatch.setattr("octop.infra.utils.host_dirs.Path.home", lambda: home)
+    monkeypatch.setattr(PathCls, "home", classmethod(lambda cls: home))
     monkeypatch.setenv("OCTOP_IN_CONTAINER", "0")
 
     user_auth = await create_user(client, admin_auth, username="alice", password="TestPass12")
@@ -209,31 +211,25 @@ async def test_non_admin_can_list_outside_home(
     defaults = await client.get("/api/filesystem/defaults", headers=user_auth)
     assert defaults.status_code == 200, defaults.text
     body = defaults.json()
-    assert body["default_root_dir"] == host_fs_tree_root()
-    assert body["tree_root"] == host_fs_tree_root()
+    # Ordinary users are home-jailed when no workspace_root policy is set.
+    assert body["default_root_dir"] == home.resolve().as_posix()
+    assert body["tree_root"] == home.resolve().as_posix()
+    assert body["browse_roots"] == [home.resolve().as_posix()]
     assert body["in_container"] is False
-    assert "home" not in body
-    assert "allow_outside_home" not in body
 
-    listed = await client.get(
-        f"/api/filesystem/dirs?path={outside.as_posix()}",
-        headers=user_auth,
-    )
-    assert listed.status_code == 200, listed.text
-
-    ok = await client.get(
-        f"/api/filesystem/dirs?path={home.as_posix()}",
-        headers=user_auth,
-    )
-    assert ok.status_code == 200, ok.text
+    for path in (outside.as_posix(), home.as_posix()):
+        listed = await client.get(
+            f"/api/filesystem/dirs?path={path}",
+            headers=user_auth,
+        )
+        assert listed.status_code == 403, listed.text
 
     probe = await client.post(
         "/api/filesystem/probe",
         headers=user_auth,
         json={"path": outside.as_posix()},
     )
-    assert probe.status_code == 200, probe.text
-    assert probe.json()["ok"] is True
+    assert probe.status_code == 403, probe.text
 
 
 @pytest.mark.asyncio
@@ -393,23 +389,29 @@ async def test_filesystem_respects_user_workspace_root(
     assert jailed_roots.status_code == 200, jailed_roots.text
     assert jailed_roots.json()["roots"] == [jail.resolve().as_posix()]
 
+    # Host directory APIs are admin-only (0038 F03); policy still bounds defaults/roots.
     inside = await client.get(
         f"/api/filesystem/dirs?path={nested.as_posix()}",
         headers=user_auth,
     )
-    assert inside.status_code == 200, inside.text
+    assert inside.status_code == 403, inside.text
 
     listed_out = await client.get(
         f"/api/filesystem/dirs?path={outside.as_posix()}",
         headers=user_auth,
     )
-    assert listed_out.status_code == 400, listed_out.text
+    assert listed_out.status_code == 403, listed_out.text
 
     probe = await client.post(
         "/api/filesystem/probe",
         headers=user_auth,
         json={"path": outside.as_posix()},
     )
-    assert probe.status_code == 200, probe.text
-    assert probe.json()["ok"] is False
-    assert probe.json()["code"] == "outside_root"
+    assert probe.status_code == 403, probe.text
+
+    # Admin may still probe; policy jail applies to the admin actor only when set.
+    admin_inside = await client.get(
+        f"/api/filesystem/dirs?path={nested.as_posix()}",
+        headers=admin_auth,
+    )
+    assert admin_inside.status_code == 200, admin_inside.text

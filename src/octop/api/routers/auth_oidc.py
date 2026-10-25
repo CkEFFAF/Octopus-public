@@ -66,12 +66,11 @@ async def exchange_login_code_response(code: str, server: Any) -> dict[str, Any]
         user = await _service(server).exchange_login_code(code)
     except ValueError as exc:
         raise _bad_request(exc) from exc
-    secret = server.services.secret_repo.get("jwt")
+    from octop.infra.auth.sessions import issue_browser_access_token
+
     ttl = server.services.config.access_token_ttl_seconds
     return {
-        "access_token": sign_token(
-            secret, sub=user.id, uname=user.username, role=user.role, ttl_seconds=ttl
-        ),
+        "access_token": issue_browser_access_token(server, user, ttl_seconds=ttl),
         "token_type": "Bearer",
         "expires_in": ttl,
         "user": _user_json(user, locale=user.locale),

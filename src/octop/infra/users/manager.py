@@ -523,6 +523,9 @@ class UserManager:
         validate_password_policy(new, old_password=old)
         self._services.user_repo.set_password_hash(row.id, hash_password(new))
         self._services.user_repo.clear_login_lockout(row.id)
+        from octop.infra.auth.sessions import bump_auth_version_and_revoke_browser_sessions
+
+        bump_auth_version_and_revoke_browser_sessions(self._services, row.id)
         self._services.audit_repo.write(
             actor=username, action="user.password_changed", target=username
         )
@@ -535,6 +538,9 @@ class UserManager:
         validate_password_policy(new)
         self._services.user_repo.set_password_hash(row.id, hash_password(new))
         self._services.user_repo.clear_login_lockout(row.id)
+        from octop.infra.auth.sessions import bump_auth_version_and_revoke_browser_sessions
+
+        bump_auth_version_and_revoke_browser_sessions(self._services, row.id)
         self._services.audit_repo.write(
             actor=ACTOR_ADMIN, action="user.password_reset", target=username
         )
@@ -734,6 +740,9 @@ class UserManager:
         async with self._lock:
             self._users.pop(username, None)
         self._services.user_repo.set_disabled(row.id, True)
+        from octop.infra.auth.sessions import bump_auth_version_and_revoke_browser_sessions
+
+        bump_auth_version_and_revoke_browser_sessions(self._services, row.id)
         self._services.audit_repo.write(actor=ACTOR_ADMIN, action="user.disable", target=username)
 
     async def enable(self, username: str) -> None:

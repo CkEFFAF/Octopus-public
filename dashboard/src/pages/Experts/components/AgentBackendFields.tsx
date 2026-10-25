@@ -3,6 +3,7 @@ import { Form, Input, Select } from "antd";
 import RootDirSelect from "./RootDirSelect";
 import { MinusCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useUserRole } from "../../../hooks/useUserRole";
 import {
   BUILTIN_BACKENDS,
   DEFAULT_BACKEND,
@@ -46,6 +47,8 @@ export default function AgentBackendFields({
   onUpdatePathMapping,
 }: AgentBackendFieldsProps) {
   const { t } = useTranslation();
+  const role = useUserRole();
+  const isAdmin = role === "admin";
   const form = Form.useFormInstance();
   const [fsDefaults, setFsDefaults] = useState<FilesystemDefaults | null>(null);
   const watchedRootDir = Form.useWatch("root_dir", form) as string | undefined;
@@ -176,10 +179,17 @@ export default function AgentBackendFields({
                 : undefined
             }
           >
-            <RootDirSelect
-              treeRoots={treeRoots}
-              disabled={disabled || rootDirMode === "edit"}
-            />
+            {isAdmin ? (
+              <RootDirSelect
+                treeRoots={treeRoots}
+                disabled={disabled || rootDirMode === "edit"}
+              />
+            ) : (
+              <Input
+                disabled={disabled || rootDirMode === "edit"}
+                placeholder={fsDefaults?.default_root_dir}
+              />
+            )}
           </Form.Item>
           <div style={{ margin: "-8px 0 12px" }}>
             {rootDirMode === "edit" ? (

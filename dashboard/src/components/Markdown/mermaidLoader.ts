@@ -12,7 +12,8 @@ export async function loadMermaid() {
     mermaidModule.initialize({
       startOnLoad: false,
       theme: "default",
-      securityLevel: "loose",
+      // F08 / DEC-0038-11: never use "loose" for untrusted chat Markdown.
+      securityLevel: "strict",
       fontFamily: "inherit",
     });
   }

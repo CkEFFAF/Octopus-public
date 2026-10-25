@@ -295,6 +295,7 @@ async def create_agent(
             user,
             body.config.get("backend"),
             policy_repo=server.services.user_policy_repo,
+            user_repo=server.services.user_repo,
         )
     knowledge_ids = (
         server.app_runtime.agent_registry.validate_knowledge_base_ids(
@@ -395,6 +396,7 @@ async def patch_agent(
             user,
             body.config.get("backend"),
             policy_repo=server.services.user_policy_repo,
+            user_repo=server.services.user_repo,
         )
         binding = body.config.get("device_binding")
         if binding is not None:

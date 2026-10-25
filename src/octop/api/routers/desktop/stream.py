@@ -345,6 +345,20 @@ async def desktop_stream_ws(
                 continue
             if msg.get("type") == "stop":
                 break
+            # F07: re-validate browser/access session before dispatching input.
+            try:
+                resolve_user_from_token(server, auth_token)
+            except Exception as exc:
+                await _send_json(
+                    websocket,
+                    {
+                        "type": "error",
+                        "code": "AUTH_FAILED",
+                        "message": "session revoked or account disabled",
+                    },
+                )
+                await websocket.close(code=4001, reason=f"auth revoked: {exc}")
+                break
             if session is not None:
                 try:
                     await _handle_input(

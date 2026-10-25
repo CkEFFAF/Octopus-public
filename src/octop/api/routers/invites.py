@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from octop.api.common.client_ip import resolve_client_ip
-from octop.api.deps import get_server, require_permission, sign_token
+from octop.api.deps import get_server, require_permission
 from octop.api.routers.auth import _user_json
 from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.users.administration import assert_can_assign
 from octop.infra.users.identity import User
 from octop.infra.users.invites import (
     DEFAULT_EXPIRES_DAYS,
@@ -74,14 +75,18 @@ class InviteRedeemBody(BaseModel):
     email: str | None = Field(default=None, max_length=254)
 
 
-@admin_router.get("", summary="List user invites")
+@admin_router.get(
+    "",
+    summary="List user invites",
+    description="Administrators see all invitations. Delegates see only their own invitations within their current permissions.",
+)
 async def list_invites(
     request: Request,
-    _: Any = Depends(require_permission("users")),
+    actor: User = Depends(require_permission("users")),
     server: Any = Depends(get_server),
 ) -> list[dict[str, Any]]:
     base = _public_base(request)
-    return [_with_url(row, base_url=base) for row in _service(server).list_all()]
+    return [_with_url(row, base_url=base) for row in _service(server).list_all(actor=actor)]
 
 
 @admin_router.post("", status_code=201, summary="Create a user invite")
@@ -94,7 +99,6 @@ async def create_invite(
     role_name: str | None = None
     role_id: str | None = None
     if body.role is not None:
-        from octop.api.routers.users import _assert_can_assign
         from octop.infra.db.repos.user_roles import UserRoleRepo
 
         role = UserRoleRepo(server.services.db).get(body.role)
@@ -106,7 +110,7 @@ async def create_invite(
                 "only an administrator can invite the administrator role",
             )
         if not role.is_admin:
-            _assert_can_assign(actor, list(role.permissions))
+            assert_can_assign(actor, list(role.permissions))
         role_name = role.user_role_name
         role_id = role.user_role_id
     row = _service(server).create(
@@ -122,14 +126,18 @@ async def create_invite(
     return _with_url(invite_status_payload(row), base_url=_public_base(request))
 
 
-@admin_router.post("/{invite_id}/revoke", summary="Revoke an unused invite")
+@admin_router.post(
+    "/{invite_id}/revoke",
+    summary="Revoke an unused invite",
+    description="Administrators may revoke any pending invitation. Delegates may revoke only their own invitations within their current permissions.",
+)
 async def revoke_invite(
     invite_id: int,
     request: Request,
     actor: User = Depends(require_permission("users")),
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
-    payload = _service(server).revoke(invite_id, actor_username=actor.username)
+    payload = _service(server).revoke(invite_id, actor_username=actor.username, actor=actor)
     return _with_url(payload, base_url=_public_base(request))
 
 
@@ -167,9 +175,10 @@ async def redeem_invite(
     from octop.infra.agents.experts.default_agent import try_bootstrap_default_agent
 
     await try_bootstrap_default_agent(server, user_id=user.id, locale=user.locale)
-    secret = server.services.secret_repo.get("jwt")
+    from octop.infra.auth.sessions import issue_browser_access_token
+
     ttl = server.services.config.access_token_ttl_seconds
-    token = sign_token(secret, sub=user.id, uname=user.username, role=user.role, ttl_seconds=ttl)
+    token = issue_browser_access_token(server, user, ttl_seconds=ttl)
     return {
         "access_token": token,
         "token_type": "Bearer",

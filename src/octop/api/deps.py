@@ -120,6 +120,16 @@ def _decode(server: OctopServer, token: str) -> dict[str, Any]:
         ):
             raise OctopError(ErrorCode.AUTH_FAILED, "invalid access key session")
         server.app_runtime.devices.access_keys.validate_session(int(payload["sub"]), key_id)
+        return payload
+    # Browser JWT: require durable sid + auth_version (F06). Legacy tokens without
+    # claims must re-login (no infinite compatibility window).
+    from octop.infra.auth.sessions import browser_claims_from_payload, validate_browser_session
+
+    claims = browser_claims_from_payload(payload)
+    if claims is None:
+        raise OctopError(ErrorCode.AUTH_FAILED, "session required; please sign in again")
+    sid, av = claims
+    validate_browser_session(server, user_id=int(payload["sub"]), sid=sid, av=av)
     return payload
 
 
@@ -155,6 +165,8 @@ def maybe_sliding_renew_token(server: OctopServer, token: str, user: User) -> st
         role=user.role,
         ttl_seconds=ttl,
         auth_key_id=payload.get("auth_key_id"),
+        sid=payload.get("sid"),
+        av=payload.get("av"),
     )
 
 
