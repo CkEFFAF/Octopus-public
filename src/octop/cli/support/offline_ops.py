@@ -19,6 +19,7 @@ from octop.infra.cron.task_type import normalize_cron_task_type, require_cron_pr
 from octop.infra.cron.trigger import build_trigger
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.threads import ThreadRegistry
+from octop.infra.users.invites import public_invite_audit_target
 from octop.infra.users.password import hash_password
 from octop.infra.utils.ulid import new_cron_id, new_ulid
 
@@ -332,7 +333,7 @@ def admin_audit_offline(
                 "ts": r.ts,
                 "actor": r.actor,
                 "action": r.action,
-                "target": r.target,
+                "target": public_invite_audit_target(r.action, r.target),
                 "payload": r.payload,
             }
             for r in rows

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from collections.abc import AsyncIterator
 from typing import Any, Literal
 
@@ -27,14 +29,22 @@ def _voice_manager(server: Any) -> VoiceManager:
 
 
 def _row_to_dict(r: Any) -> dict[str, Any]:
+    """Public voice provider DTO — never echoes raw api_key / secret extras (0038 F04)."""
+    from octop.infra.security.secret_dto import (  # noqa: PLC0415
+        has_nonempty_secret,
+        redact_mapping,
+    )
+
+    extra_raw = r.get_extra() if hasattr(r, "get_extra") else {}
+    public_extra, _ = redact_mapping(extra_raw if isinstance(extra_raw, dict) else {})
     return {
         "id": r.id,
         "name": r.name,
         "kind": r.kind,
         "capability": r.capability,
         "base_url": r.base_url,
-        "api_key": r.api_key,
-        "extra": r.get_extra(),
+        "has_api_key": has_nonempty_secret(r.api_key),
+        "extra": public_extra,
         "note": r.note,
         "enabled": bool(r.enabled),
     }
@@ -196,14 +206,38 @@ async def admin_patch_voice_provider(
     row = repo.get(provider_id)
     if row is None:
         raise OctopError(ErrorCode.NOT_FOUND, "voice provider not found")
+    # PATCH three-state for secrets (0038 F04): omit=keep, null/""=clear, value=replace.
+    fields_set = body.model_fields_set
+    api_key = None
+    if "api_key" in fields_set:
+        api_key = body.api_key if body.api_key is not None else ""
+    extra_json = None
+    if "extra_json" in fields_set:
+        from octop.infra.security.secret_dto import (  # noqa: PLC0415
+            merge_mapping_preserving_secrets,
+        )
+
+        if body.extra_json is None or not str(body.extra_json).strip():
+            extra_json = ""
+        else:
+            try:
+                incoming = json.loads(body.extra_json)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                incoming = {}
+            existing_extra = row.get_extra() if hasattr(row, "get_extra") else {}
+            merged = merge_mapping_preserving_secrets(
+                incoming if isinstance(incoming, dict) else {},
+                existing_extra if isinstance(existing_extra, dict) else {},
+            )
+            extra_json = json.dumps(merged, ensure_ascii=False)
     repo.update(
         provider_id,
-        kind=body.kind,
-        capability=body.capability,
-        base_url=body.base_url,
-        api_key=body.api_key,
-        extra_json=body.extra_json,
-        note=body.note,
+        kind=body.kind if "kind" in fields_set else None,
+        capability=body.capability if "capability" in fields_set else None,
+        base_url=body.base_url if "base_url" in fields_set else None,
+        api_key=api_key,
+        extra_json=extra_json,
+        note=body.note if "note" in fields_set else None,
         enabled=body.enabled,
     )
     updated = repo.get(provider_id)

@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 
 from octop.api.deps import current_user, get_server, require_permission
 from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.users.administration import assert_can_assign as _assert_can_assign
+from octop.infra.users.administration import assert_can_manage_account
 from octop.infra.users.identity import Role, User
 from octop.infra.users.permissions import PERMISSIONS, effective_permissions
 from octop.infra.users.resource_policy import (
@@ -200,19 +202,6 @@ def _policy_kwargs_from_body(body: UserCreateBody | UserPatchBody) -> dict[str, 
     return policy_kwargs
 
 
-def _assert_can_assign(actor: User, permissions: list[str]) -> None:
-    """Non-admin actors may only grant permissions they themselves hold."""
-    if actor.is_admin:
-        return
-    missing = sorted(set(permissions) - set(actor.permissions or []))
-    if missing:
-        raise OctopError(
-            ErrorCode.FORBIDDEN,
-            "cannot grant permissions you do not hold",
-            details={"missing": missing},
-        )
-
-
 def _can_manage_users(row: Any) -> bool:
     if str(getattr(row, "role", "")) == "admin":
         return True
@@ -347,6 +336,7 @@ async def _batch_apply_one(
             error="user not found",
         )
     try:
+        assert_can_manage_account(actor, role=str(row.role), permissions=row.permissions)
         if action == "enable":
             await server.user_manager.enable(row.username)
         elif action == "disable":
@@ -384,7 +374,8 @@ async def _batch_apply_one(
     description=(
         "Apply one action to many users. Per-user failures do not abort the batch. "
         "Disable and delete skip the current actor. For set_token_quota / set_max_agents, "
-        "a null value clears the limit."
+        "a null value clears the limit. Delegates cannot modify administrators "
+        "or accounts holding permissions they do not hold."
     ),
     response_model=UserBatchResponse,
 )
@@ -440,7 +431,11 @@ async def get_user(
     return _row_to_dict(row, server.services.user_policy_repo.list_for_user(row.id), server)
 
 
-@router.patch("/{user_id}")
+@router.patch(
+    "/{user_id}",
+    summary="Update a user account",
+    description="Delegates can manage only non-admin accounts within their permissions. Template permissions are checked before applying a role. Self-disable is forbidden.",
+)
 async def patch_user(
     user_id: int,
     body: UserPatchBody,
@@ -450,6 +445,18 @@ async def patch_user(
     row = server.user_manager.get_row(user_id)
     if row is None:
         raise OctopError(ErrorCode.NOT_FOUND, "user not found")
+    assert_can_manage_account(actor, role=str(row.role), permissions=row.permissions)
+    if body.disabled is True and user_id == actor.id:
+        raise OctopError(ErrorCode.FORBIDDEN, "cannot disable yourself")
+    resolved_role = None
+    if body.role is not None:
+        resolved_role = _resolve_role_template(server, body.role)
+        role_id, _name, template_perms, _policies = resolved_role
+        if user_id == actor.id and role_id != Role.ADMIN:
+            raise OctopError(ErrorCode.FORBIDDEN, "cannot demote yourself")
+        _require_admin_to_grant_admin(actor, role_id)
+        if body.permissions is None:
+            _assert_can_assign(actor, template_perms)
     if body.permissions is not None:
         _assert_can_assign(actor, body.permissions)
         # An administrator account keeps full access. The form stores that as
@@ -464,13 +471,8 @@ async def patch_user(
                 target_user_id=user_id,
                 new_permissions=body.permissions,
             )
-    if body.role is not None:
-        role_id, template_name, template_perms, template_policies = _resolve_role_template(
-            server, body.role
-        )
-        if user_id == actor.id and role_id != Role.ADMIN:
-            raise OctopError(ErrorCode.FORBIDDEN, "cannot demote yourself")
-        _require_admin_to_grant_admin(actor, role_id)
+    if resolved_role is not None:
+        role_id, template_name, template_perms, template_policies = resolved_role
         await server.user_manager.set_role(row.username, role_id)
         if "role_name" not in body.model_fields_set:
             server.services.user_repo.set_role_name(user_id, template_name)
@@ -515,13 +517,14 @@ async def patch_user(
 @router.post("/{user_id}/unlock-login", status_code=204, summary="Clear login lockout")
 async def unlock_user_login(
     user_id: int,
-    _: Any = Depends(require_permission("users")),
+    actor: User = Depends(require_permission("users")),
     server: Any = Depends(get_server),
 ) -> None:
     """Clear failed-login counter and temporary lock for a user."""
     row = server.user_manager.get_row(user_id)
     if row is None:
         raise OctopError(ErrorCode.NOT_FOUND, "user not found")
+    assert_can_manage_account(actor, role=str(row.role), permissions=row.permissions)
     await server.user_manager.unlock_login(row.username)
 
 
@@ -529,12 +532,13 @@ async def unlock_user_login(
 async def reset_password(
     user_id: int,
     body: ResetPasswordBody,
-    _: Any = Depends(require_permission("users")),
+    actor: User = Depends(require_permission("users")),
     server: Any = Depends(get_server),
 ) -> None:
     row = server.user_manager.get_row(user_id)
     if row is None:
         raise OctopError(ErrorCode.NOT_FOUND, "user not found")
+    assert_can_manage_account(actor, role=str(row.role), permissions=row.permissions)
     await server.user_manager.reset_password(row.username, body.new_password)
 
 
@@ -549,6 +553,7 @@ async def delete_user(
     row = server.user_manager.get_row(user_id)
     if row is None:
         raise OctopError(ErrorCode.NOT_FOUND, "user not found")
+    assert_can_manage_account(actor, role=str(row.role), permissions=row.permissions)
     await server.user_manager.remove(row.username)
     from octop.infra.users.profile_avatar import delete_profile_avatar
 
@@ -559,11 +564,13 @@ async def delete_user(
 async def upload_user_avatar(
     user_id: int,
     file: UploadFile = File(...),  # noqa: B008
-    _: Any = Depends(require_permission("users")),
+    actor: User = Depends(require_permission("users")),
     server: Any = Depends(get_server),
 ) -> dict[str, str | None]:
-    if server.user_manager.get_row(user_id) is None:
+    row = server.user_manager.get_row(user_id)
+    if row is None:
         raise OctopError(ErrorCode.NOT_FOUND, "user not found")
+    assert_can_manage_account(actor, role=str(row.role), permissions=row.permissions)
     from octop.infra.users.profile_avatar import write_profile_avatar
 
     write_profile_avatar(
@@ -592,11 +599,13 @@ async def get_user_avatar(
 @router.delete("/{user_id}/avatar", status_code=204)
 async def delete_user_avatar(
     user_id: int,
-    _: Any = Depends(require_permission("users")),
+    actor: User = Depends(require_permission("users")),
     server: Any = Depends(get_server),
 ) -> None:
-    if server.user_manager.get_row(user_id) is None:
+    row = server.user_manager.get_row(user_id)
+    if row is None:
         raise OctopError(ErrorCode.NOT_FOUND, "user not found")
+    assert_can_manage_account(actor, role=str(row.role), permissions=row.permissions)
     from octop.infra.users.profile_avatar import delete_profile_avatar
 
     delete_profile_avatar(server.services.paths.user_avatars_dir, str(user_id))
