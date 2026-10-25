@@ -624,6 +624,19 @@ async def mobile_stream_ws(
             if msg.get("type") == "stop":
                 break
             try:
+                resolve_user_from_token(server, auth_token)
+            except Exception as exc:
+                await _send_json(
+                    websocket,
+                    {
+                        "type": "error",
+                        "code": "AUTH_FAILED",
+                        "message": "session revoked or account disabled",
+                    },
+                )
+                await websocket.close(code=4001, reason=f"auth revoked: {exc}")
+                break
+            try:
                 await _handle_input(
                     websocket,
                     msg,

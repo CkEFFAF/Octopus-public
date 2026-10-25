@@ -13,13 +13,14 @@ from fastapi import APIRouter, Depends, File, UploadFile
 from pydantic import BaseModel, Field
 
 from octop.api.deps import get_server, require_permission
-from octop.api.routers.users import _assert_can_assign
 from octop.infra.db.repos.user_roles import (
     BUILTIN_USER_ROLE_IDS,
     UserRoleRepo,
     UserRoleRow,
 )
 from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.users.administration import assert_can_assign as _assert_can_assign
+from octop.infra.users.administration import assert_can_manage_account
 from octop.infra.users.identity import User
 from octop.infra.users.permissions import ALL_PERMISSION_KEYS, validate_permission_keys
 from octop.infra.users.resource_policy import (
@@ -228,6 +229,14 @@ async def patch_user_role(
     current = _repo(server).get(user_role_id)
     if current is None:
         raise OctopError(ErrorCode.NOT_FOUND, "role not found")
+    assert_can_manage_account(actor, role=current.user_role_id, permissions=current.permissions)
+    permissions: list[str] | None = None
+    if body.permissions is not None:
+        try:
+            permissions = validate_permission_keys(body.permissions)
+        except ValueError as exc:
+            raise OctopError(ErrorCode.FORBIDDEN, str(exc), status=400) from exc
+        _assert_can_assign(actor, permissions)
     name = _clean_name(body.user_role_name) if body.user_role_name is not None else None
     description: str | None | object = ...
     if "description" in body.model_fields_set:
@@ -259,13 +268,6 @@ async def patch_user_role(
         )
         return _public(server, updated)
 
-    permissions: list[str] | None = None
-    if body.permissions is not None:
-        try:
-            permissions = validate_permission_keys(body.permissions)
-        except ValueError as exc:
-            raise OctopError(ErrorCode.FORBIDDEN, str(exc), status=400) from exc
-        _assert_can_assign(actor, permissions)
     try:
         updated = _repo(server).update(
             user_role_id,
@@ -296,6 +298,7 @@ async def delete_user_role(
     current = _repo(server).get(user_role_id)
     if current is None:
         raise OctopError(ErrorCode.NOT_FOUND, "role not found")
+    assert_can_manage_account(actor, role=current.user_role_id, permissions=current.permissions)
     if current.user_role_id in BUILTIN_USER_ROLE_IDS:
         raise OctopError(ErrorCode.FORBIDDEN, "built-in role cannot be deleted")
     in_use = server.services.user_repo.count_by_role(user_role_id)
@@ -319,12 +322,13 @@ async def delete_user_role(
 async def upload_role_avatar(
     user_role_id: str,
     file: UploadFile = File(...),  # noqa: B008
-    _: Any = Depends(require_permission("users")),
+    actor: User = Depends(require_permission("users")),
     server: Any = Depends(get_server),
 ) -> dict[str, str | None]:
     row = _repo(server).get(user_role_id)
     if row is None:
         raise OctopError(ErrorCode.NOT_FOUND, "role not found")
+    assert_can_manage_account(actor, role=row.user_role_id, permissions=row.permissions)
     from octop.infra.users.profile_avatar import write_profile_avatar
 
     write_profile_avatar(
@@ -351,11 +355,13 @@ async def get_role_avatar(
 @router.delete("/{user_role_id}/avatar", status_code=204)
 async def delete_role_avatar(
     user_role_id: str,
-    _: Any = Depends(require_permission("users")),
+    actor: User = Depends(require_permission("users")),
     server: Any = Depends(get_server),
 ) -> None:
-    if _repo(server).get(user_role_id) is None:
+    row = _repo(server).get(user_role_id)
+    if row is None:
         raise OctopError(ErrorCode.NOT_FOUND, "role not found")
+    assert_can_manage_account(actor, role=row.user_role_id, permissions=row.permissions)
     from octop.infra.users.profile_avatar import delete_profile_avatar
 
     delete_profile_avatar(server.services.paths.role_avatars_dir, user_role_id)

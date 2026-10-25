@@ -65,23 +65,33 @@ class StorageBackendProbeBody(BaseModel):
 
 
 def _row_to_dict(r: Any) -> dict[str, Any]:
-    """Serialize a BackendRow to API response dict.
+    """Serialize a BackendRow for public API responses (0038 F05).
 
-    secret_key is intentionally omitted from responses.
-    access_key is masked (first 4 chars + asterisks).
+    Raw ``secret_key`` and nested config secrets are never echoed. ``access_key``
+    is masked; ``config_json`` is redacted to a public whitelist of non-secret
+    fields. Presence flags let admin UIs know credentials exist without values.
     """
+    from octop.infra.security.secret_dto import (  # noqa: PLC0415
+        has_nonempty_secret,
+        redact_config_json,
+    )
+
     ak = r.access_key or ""
-    masked_ak = f"{ak[:4]}{'*' * 8}" if len(ak) > 4 else "*" * len(ak)
+    masked_ak = f"{ak[:4]}{'*' * 8}" if len(ak) > 4 else ("*" * len(ak) if ak else None)
+    public_config, had_config_secret = redact_config_json(r.config_json)
     spec = row_to_backend_spec(r)
     return {
         "id": r.id,
         "name": r.name,
         "kind": r.kind,
         "endpoint": r.endpoint,
-        "access_key": masked_ak if ak else None,
+        "access_key": masked_ak,
+        "has_access_key": has_nonempty_secret(r.access_key),
+        "has_secret_key": has_nonempty_secret(r.secret_key),
         "bucket": r.bucket,
         "region": r.region,
-        "config_json": r.config_json,
+        "config_json": public_config,
+        "has_config_secret": had_config_secret,
         "note": r.note,
         "enabled": bool(r.enabled),
         "previewable": storage_spec_previewable(spec) if spec is not None else False,
@@ -163,17 +173,36 @@ async def patch_storage_backend(
             )
             registry.persist_harness_config(ref["agent_id"], cfg)
 
+    fields_set = body.model_fields_set
+    access_key = None
+    if "access_key" in fields_set:
+        access_key = body.access_key if body.access_key is not None else ""
+    secret_key = None
+    if "secret_key" in fields_set:
+        secret_key = body.secret_key if body.secret_key is not None else ""
+    config_json = None
+    if "config_json" in fields_set:
+        from octop.infra.security.secret_dto import (  # noqa: PLC0415
+            merge_config_json_preserving_secrets,
+        )
+
+        if body.config_json is None or not str(body.config_json).strip():
+            config_json = ""
+        else:
+            config_json = merge_config_json_preserving_secrets(
+                body.config_json, row.config_json
+            )
     server.services.storage_backend_repo.update(
         backend_id,
         name=new_name,
-        kind=body.kind,
-        endpoint=body.endpoint,
-        access_key=body.access_key,
-        secret_key=body.secret_key,
-        bucket=body.bucket,
-        region=body.region,
-        config_json=body.config_json,
-        note=body.note,
+        kind=body.kind if "kind" in fields_set else None,
+        endpoint=body.endpoint if "endpoint" in fields_set else None,
+        access_key=access_key,
+        secret_key=secret_key,
+        bucket=body.bucket if "bucket" in fields_set else None,
+        region=body.region if "region" in fields_set else None,
+        config_json=config_json,
+        note=body.note if "note" in fields_set else None,
         enabled=body.enabled,
     )
     from octop.infra.backend.browse import release_browse_session
