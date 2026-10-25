@@ -530,6 +530,14 @@ async def put_custom_mcp(
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     """Replace the user's custom MCP servers document and reload agents."""
+    from octop.infra.connectors.execution_auth import (  # noqa: PLC0415
+        authorize_stdio_mcp_spec,
+    )
+
+    # 0038 F01: reject stdio on control server before any DB write.
+    for _name, spec in (body.servers or {}).items():
+        if isinstance(spec, dict):
+            authorize_stdio_mcp_spec(user, spec, location="control_server")
     svc = _connector_service(server)
     try:
         servers = svc.put_custom_servers(user.id, body.servers)
@@ -607,6 +615,11 @@ async def test_custom_mcp(
             ErrorCode.CONNECTOR_INVALID_CREDENTIALS,
             "provide name or server spec to probe",
         )
+    from octop.infra.connectors.execution_auth import (  # noqa: PLC0415
+        authorize_stdio_mcp_spec,
+    )
+
+    authorize_stdio_mcp_spec(user, spec, location="control_server")
     result = await probe_custom_mcp_server(spec)
     if body.name:
         try:
@@ -900,6 +913,11 @@ async def test_instance(
         raw = saved.get(synthetic_name)
         if not isinstance(raw, dict):
             raise OctopError(ErrorCode.CONNECTOR_NOT_FOUND, f"instance {instance_id!r} not found")
+        from octop.infra.connectors.execution_auth import (  # noqa: PLC0415
+            authorize_stdio_mcp_spec,
+        )
+
+        authorize_stdio_mcp_spec(user, dict(raw), location="control_server")
         return await probe_custom_mcp_server(dict(raw))
 
     repo = server.services.repos.connector_repo

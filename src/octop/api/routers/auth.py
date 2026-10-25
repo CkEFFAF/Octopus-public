@@ -310,9 +310,10 @@ async def login(
             user = await _authenticate_ldap(server, body.username, body.password, client_ip)
     if user is None:
         raise OctopError(ErrorCode.AUTH_FAILED, "invalid credentials")
-    secret = server.services.secret_repo.get("jwt")
+    from octop.infra.auth.sessions import issue_browser_access_token
+
     ttl = server.services.config.access_token_ttl_seconds
-    token = sign_token(secret, sub=user.id, uname=user.username, role=user.role, ttl_seconds=ttl)
+    token = issue_browser_access_token(server, user, ttl_seconds=ttl)
     return {
         "access_token": token,
         "token_type": "Bearer",
@@ -322,8 +323,23 @@ async def login(
 
 
 @router.post("/logout", status_code=204, summary="Sign out")
-async def logout(user: Any = Depends(current_user), server: Any = Depends(get_server)) -> Response:
-    """Record an audit event for the current session. JWTs are stateless and not revoked server-side."""
+async def logout(
+    request: Request,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> Response:
+    """Revoke the current browser session (sid) and write an audit event."""
+    from octop.infra.auth.sessions import revoke_browser_session
+
+    raw = extract_raw_token(
+        authorization=request.headers.get("authorization"),
+        access_token=request.query_params.get("access_token"),
+    )
+    if raw:
+        payload = _decode(server, raw)
+        sid = payload.get("sid")
+        if isinstance(sid, str) and sid:
+            revoke_browser_session(server, sid)
     server.services.audit_repo.write(actor=user.username, action="auth.logout")
     return Response(status_code=204)
 
