@@ -32,6 +32,13 @@ policy: administrators and users granted the `providers` management permission
 can manage other accounts' providers. That permission is a privileged credential
 administration capability; ordinary provider CRUD does not require it.
 
+Delegated user administration does not permit controlling administrator accounts
+or accounts with permissions outside the actor's own grants. User and role
+writes enforce this boundary before mutation. Delegates can read and revoke only
+their own invitations within their current authority. See
+`docs/octopus/multiuser-beta-readiness.md` for the implemented checks and the
+remaining beta-readiness work.
+
 The existing instance-wide knowledge embedding/OCR configuration remains an
 administrator-selected service. Its internal lookup is explicitly privileged;
 account-facing selectors and updates still validate account ownership. This

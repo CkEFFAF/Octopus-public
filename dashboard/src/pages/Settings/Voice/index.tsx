@@ -97,10 +97,11 @@ export function VoiceSettingsPanel() {
   const openConfigure = (preset: VoicePreset) => {
     const existing = findConfigured(preset);
     setConfigure({ preset, existing });
-    setApiKey(existing?.api_key ?? "");
+    // Secrets are never echoed (0038 F04); blank fields mean keep on patch.
+    setApiKey("");
     const extra = existing?.extra ?? {};
-    setSecretId(String(extra.secret_id ?? ""));
-    setSecretKey(String(extra.secret_key ?? ""));
+    setSecretId("");
+    setSecretKey("");
     setMimoEndpoint(extra.endpoint_type === "tokenplan" ? "tokenplan" : "payg");
     setMimoVoiceId(String(extra.voice_id ?? "冰糖"));
   };
@@ -111,11 +112,22 @@ export function VoiceSettingsPanel() {
     let extra: Record<string, unknown>;
     let baseUrl: string | null = null;
     if (preset.kind === "tencent") {
-      extra = {
-        secret_id: secretId,
-        secret_key: secretKey,
-        region: "ap-guangzhou",
-      };
+      if (secretId.trim() && secretKey.trim()) {
+        extra = {
+          secret_id: secretId,
+          secret_key: secretKey,
+          region: "ap-guangzhou",
+        };
+      } else if (configure?.existing) {
+        // Keep stored secrets; only refresh non-secret region hint.
+        extra = { ...(configure.existing.extra ?? {}), region: "ap-guangzhou" };
+      } else {
+        extra = {
+          secret_id: secretId,
+          secret_key: secretKey,
+          region: "ap-guangzhou",
+        };
+      }
     } else if (preset.kind === "edge") {
       extra = { voice_id: "zh-CN-XiaoxiaoNeural" };
     } else if (preset.kind === "mimo") {
@@ -139,18 +151,25 @@ export function VoiceSettingsPanel() {
         preset.kind === "tencent"
           ? secretId && secretKey
             ? `${secretId}:${secretKey}`
-            : null
-          : apiKey || null,
+            : configure?.existing
+              ? undefined
+              : null
+          : apiKey
+            ? apiKey
+            : configure?.existing
+              ? undefined
+              : null,
       extra_json: JSON.stringify(extra),
     };
   };
 
   const validateCredentials = () => {
     if (!configure?.preset.requires_key) return true;
+    const keepExisting = Boolean(configure.existing?.has_api_key);
     const complete =
       configure.preset.kind === "tencent"
-        ? Boolean(secretId.trim() && secretKey.trim())
-        : Boolean(apiKey.trim());
+        ? Boolean(secretId.trim() && secretKey.trim()) || keepExisting
+        : Boolean(apiKey.trim()) || keepExisting;
     if (!complete) message.warning(t("voice.credentialsRequired"));
     return complete;
   };
