@@ -11,28 +11,40 @@ import PdfDocumentPreview from "./PdfDocumentPreview";
 const outlineState = vi.hoisted(() => ({
   items: null as { title: string; dest?: unknown; items?: unknown[] }[] | null,
   dests: {} as Record<string, unknown[]>,
+  getOutline: undefined as undefined | (() => Promise<unknown>),
 }));
 
 vi.mock("react-pdf", async () => {
   const React = await import("react");
   const Document = ({
+    file,
     onLoadSuccess,
     children,
   }: {
+    file?: unknown;
     onLoadSuccess?: (pdf: unknown) => void;
     children?: React.ReactNode;
   }) => {
     React.useLayoutEffect(() => {
-      onLoadSuccess?.({
+      let cancelled = false;
+      const pdf = {
         numPages: 4,
         getPage: async () => ({
           getViewport: () => ({ width: 500, height: 1000 }),
         }),
-        getOutline: async () => outlineState.items,
+        getOutline: () =>
+          outlineState.getOutline?.() ?? Promise.resolve(outlineState.items),
         getDestination: async (id: string) => outlineState.dests[id] ?? null,
         getPageIndex: async (ref: { num: number }) => ref.num - 1,
+      };
+      // Real PDF loading finishes asynchronously, after the parent's URL reset.
+      void Promise.resolve().then(() => {
+        if (!cancelled) onLoadSuccess?.(pdf);
       });
-    }, [onLoadSuccess]);
+      return () => {
+        cancelled = true;
+      };
+    }, [file, onLoadSuccess]);
     return <div data-testid="pdf-document">{children}</div>;
   };
   const Page = ({
@@ -176,6 +188,7 @@ describe("PdfDocumentPreview windowed rendering", () => {
     vi.unstubAllGlobals();
     outlineState.items = null;
     outlineState.dests = {};
+    outlineState.getOutline = undefined;
   });
 
   it("renders size-accurate placeholders and mounts only intersecting pages", async () => {
@@ -277,6 +290,36 @@ describe("PdfDocumentPreview windowed rendering", () => {
     await waitFor(() => {
       expect(mountedPages(container)).toHaveLength(4);
     });
+  });
+
+  it("ignores a late outline from the previous document", async () => {
+    let resolveOld!: (items: unknown) => void;
+    const oldOutline = new Promise<unknown>((resolve) => {
+      resolveOld = resolve;
+    });
+    outlineState.getOutline = () => oldOutline;
+    const { container, rerender } = await renderPdf(
+      <PdfDocumentPreview fileUrl="blob:old" filename="old.pdf" />,
+    );
+    outlineState.getOutline = async () => [
+      { title: "New chapter", dest: [{ num: 1 }] },
+    ];
+    rerender(<PdfDocumentPreview fileUrl="blob:new" filename="new.pdf" />);
+    await flushPdfAsync();
+    const toggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="书签"], button[aria-label="Outline"]',
+    );
+    expect(toggle).toBeEnabled();
+    await act(async () => {
+      toggle?.click();
+    });
+    expect(container.querySelector("nav")).toHaveTextContent("New chapter");
+    await act(async () => {
+      resolveOld([{ title: "Old chapter", dest: [{ num: 2 }] }]);
+    });
+    await flushPdfAsync();
+    expect(container.querySelector("nav")).toHaveTextContent("New chapter");
+    expect(container.querySelector("nav")).not.toHaveTextContent("Old chapter");
   });
 
   it("shows the outline sidebar and scrolls a bookmark to its page", async () => {

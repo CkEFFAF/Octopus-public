@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
@@ -19,8 +19,9 @@ vi.mock("../../Control/Terminal/components/TerminalView", () => ({
     onReady: () => void;
     onData: (value: string) => void;
   }) {
+    const readyAtMount = useRef(onReady);
     useEffect(() => {
-      onReady();
+      readyAtMount.current();
     }, []);
     return (
       <button onClick={() => onData("a".repeat(2500) + "\r")}>

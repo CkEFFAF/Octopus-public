@@ -93,6 +93,7 @@ async def test_copy_with_lock_policy_stamps_workspace_manifest(tmp_path) -> None
 
     store = SimpleNamespace(
         package_skills_dir=lambda pack_id: tmp_path / pack_id,
+        scan_mode=lambda: "warn",
     )
     workspace = _MemWorkspace()
 

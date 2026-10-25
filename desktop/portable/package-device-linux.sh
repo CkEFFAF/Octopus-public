@@ -174,7 +174,9 @@ INSTALL_ARGS=(--target "${PAYLOAD}/packages" --python-platform "$WHEEL_PLATFORM"
 if [[ "${OCTOP_GREEN_OFFLINE:-0}" == 1 ]]; then
   INSTALL_ARGS+=(--offline)
 fi
-uv pip install "${INSTALL_ARGS[@]}" -r "$REQ"
+# This subset is already pinned and hashed from uv.lock. Project resolver
+# constraints are ranges, which are invalid additional hash-mode requirements.
+uv --no-config pip install "${INSTALL_ARGS[@]}" -r "$REQ"
 cp "$REQ" "${PAYLOAD}/requirements-device.txt"
 
 VERIFICATION=not-run-cross-assembled

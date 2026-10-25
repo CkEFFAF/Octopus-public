@@ -453,6 +453,7 @@
     "WORKSPACE_OP_UNSUPPORTED": "This workspace backend does not support that file operation.",
     "SKILL_IMPORT_UNSUPPORTED_URL": "This skill URL source is not supported.",
     "SKILL_IMPORT_FAILED": "Skill import failed: {reason}",
+    "SKILL_SCAN_BLOCKED": "The skill security scan blocked this installation or change. Existing files were not replaced. Review the skill content and scan findings.",
     "SKILL_ALREADY_EXISTS": "Skill {name} already exists. Enable overwrite to replace it.",
     "SKILL_PACKAGE_NOT_FOUND": "Skill package not found.",
     "SKILL_PACKAGE_NAME_TAKEN": "Skill package {name} already exists.",

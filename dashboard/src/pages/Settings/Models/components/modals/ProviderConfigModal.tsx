@@ -109,6 +109,8 @@ export function ProviderConfigModal({
   const [fetchingModels, setFetchingModels] = useState(false);
   const [form] = Form.useForm<ProviderConfigForm>();
   const [draftModels, setDraftModels] = useState<ProviderModel[]>([]);
+  const hydratedProviderId = useRef<ProviderRow["id"] | null>(null);
+  const initialProvider = useRef(provider);
 
   const hasApiKey = !!provider.api_key && provider.api_key.length > 0;
   const isOllama = isOllamaProviderRow(provider);
@@ -191,7 +193,7 @@ export function ProviderConfigModal({
         );
       }
     },
-    [apiPrefix, draftModels, form, isOnnx, onSaved, provider.id, t],
+    [apiPrefix, draftModels, form, isOnnx, message, onSaved, provider.id, t],
   );
 
   const stopOllamaPolling = useCallback(() => {
@@ -265,11 +267,12 @@ export function ProviderConfigModal({
       /* ignore polling errors */
     }
   }, [
+    stopOllamaPolling,
     enableModelAfterDownload,
+    message,
     t,
     onSaved,
     fetchOllamaModels,
-    stopOllamaPolling,
   ]);
 
   const startOllamaPolling = useCallback(() => {
@@ -463,14 +466,14 @@ export function ProviderConfigModal({
         message.error(error || t("models.onnxDownloadFailed"));
       }
     },
-    [enableModelAfterDownload, refreshDownloadedIds, t],
+    [enableModelAfterDownload, message, refreshDownloadedIds, t],
   );
 
   const dismissDownloadProgressToBackground = useCallback(() => {
     setDownloadProgressOpen(false);
     setOnnxDownloadProgressHandler(undefined);
     message.info(t("models.localDownloadBackground"));
-  }, [t]);
+  }, [message, t]);
 
   const runOnnxDownloadWithProgress = useCallback(
     async (modelId: string) => {
@@ -512,7 +515,7 @@ export function ProviderConfigModal({
         );
       }
     },
-    [handleOnnxDownloadTerminal, t],
+    [handleOnnxDownloadTerminal, message, t],
   );
 
   // If progress UI remounts / reopens while a watch is running, re-attach handler.
@@ -610,6 +613,8 @@ export function ProviderConfigModal({
       formatSizeGb,
       isOllama,
       isOnnx,
+      message,
+      modal,
       onnxSizeById,
       runOnnxDownloadWithProgress,
       startOllamaPolling,
@@ -670,7 +675,13 @@ export function ProviderConfigModal({
   }, [hasApiKey, t]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      hydratedProviderId.current = null;
+      return;
+    }
+    if (hydratedProviderId.current === provider.id) return;
+    hydratedProviderId.current = provider.id;
+    initialProvider.current = provider;
     // Only hydrate when the modal opens (or provider id changes), so
     // background refreshes / local model toggles do not reset the form.
     const currentDefaultModel = provider.models?.length
@@ -690,7 +701,7 @@ export function ProviderConfigModal({
       })),
     );
     setFormDirty(false);
-  }, [open, provider.id, form]);
+  }, [open, provider, form]);
 
   const handleModelsChange = (models: ProviderModel[]) => {
     setDraftModels(models);
@@ -703,29 +714,46 @@ export function ProviderConfigModal({
       setSaving(true);
 
       const payload: Record<string, unknown> = {};
-      if (values.kind !== provider.kind) payload.kind = values.kind;
-      if ((values.base_url ?? "") !== (provider.base_url ?? ""))
+      const original = initialProvider.current;
+      if (values.kind !== original.kind) payload.kind = values.kind;
+      if ((values.base_url ?? "") !== (original.base_url ?? ""))
         payload.base_url = values.base_url?.trim() || null;
       if (values.api_key !== undefined && values.api_key !== "")
         payload.api_key = values.api_key.trim();
-      if ((values.note ?? "") !== (provider.note ?? ""))
+      if ((values.note ?? "") !== (original.note ?? ""))
         payload.note = values.note?.trim() || null;
       // default model
-      const existingDefault = provider.models?.length
-        ? provider.models[0].id
+      const existingDefault = original.models?.length
+        ? original.models[0].id
         : "";
-      if ((values.model ?? "") !== existingDefault)
-        payload.model = values.model?.trim() || null;
+      let nextModels = draftModels;
+      if ((values.model ?? "") !== existingDefault) {
+        const defaultId =
+          values.model?.trim() ||
+          draftModels.find((m) => m.enabled !== false)?.id;
+        if (defaultId) {
+          const selected = draftModels.find((m) => m.id === defaultId) ?? {
+            id: defaultId,
+            name: defaultId,
+            enabled: true,
+          };
+          // The API represents the provider default as its first model.
+          nextModels = [
+            selected,
+            ...draftModels.filter((m) => m.id !== defaultId),
+          ];
+        }
+      }
 
       const modelsChanged =
         JSON.stringify(
-          (provider.models ?? []).map((m) => ({
+          (original.models ?? []).map((m) => ({
             ...m,
             enabled: m.enabled !== false,
           })),
-        ) !== JSON.stringify(draftModels);
+        ) !== JSON.stringify(nextModels);
       if (modelsChanged) {
-        payload.models = draftModels;
+        payload.models = nextModels;
       }
 
       if (Object.keys(payload).length === 0) {

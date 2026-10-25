@@ -61,6 +61,7 @@ function DesktopSession({ device, onError, context, visible = true }: Props) {
     };
   }, []);
   const viewAllowed = canUse(device, "desktop_view");
+  const executionContextId = context?.context_id;
   const controlAllowed =
     canUse(device, "desktop_control") &&
     context?.work_mode !== "plan" &&
@@ -92,9 +93,9 @@ function DesktopSession({ device, onError, context, visible = true }: Props) {
       controller = new AbortController();
       const timeout = setTimeout(() => controller?.abort(), 20000);
       try {
-        const next = context
+        const next = executionContextId
           ? await executionApi.call<NonNullable<typeof frame>>(
-              context.context_id,
+              executionContextId,
               "desktop.capture",
               { quality: 65 },
               controller.signal,
@@ -125,7 +126,7 @@ function DesktopSession({ device, onError, context, visible = true }: Props) {
       clearTimeout(timer);
       controller?.abort();
     };
-  }, [context?.context_id, device.device_id, viewAllowed, viewing, visible]);
+  }, [executionContextId, device.device_id, viewAllowed, viewing, visible]);
 
   async function input(params: DeviceInput) {
     if (!inputEnabled || inputPending.current) return;

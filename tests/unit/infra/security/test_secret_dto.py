@@ -50,3 +50,26 @@ def test_has_nonempty_secret() -> None:
     assert has_nonempty_secret("abc") is True
     assert has_nonempty_secret("  ") is False
     assert has_nonempty_secret(None) is False
+
+
+def test_secret_bearing_arrays_are_opaque_and_preserved_on_round_trip() -> None:
+    stored = {
+        "region": "ap",
+        "profiles": [{"name": "primary", "api_key": "ARRAY_SECRET"}],
+        "nested": {"matrix": [[{"Authorization": "DEEP_SECRET"}]]},
+        "labels": ["one", {"name": "two"}],
+    }
+    public, had = redact_mapping(stored)
+    assert had is True
+    assert public == {"region": "ap", "nested": {}, "labels": stored["labels"]}
+    assert "SECRET" not in json.dumps(public)
+    assert merge_mapping_preserving_secrets(public, stored) == stored
+
+
+def test_config_json_redacts_secret_bearing_arrays() -> None:
+    stored = json.dumps({"profiles": [{"client-secret": "DO_NOT_ECHO"}], "region": "ap"})
+    public, had = redact_config_json(stored)
+    assert had is True
+    assert json.loads(public or "{}") == {"region": "ap"}
+    merged = merge_config_json_preserving_secrets(public, stored)
+    assert json.loads(merged or "{}") == json.loads(stored)

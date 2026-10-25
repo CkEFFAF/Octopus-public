@@ -18,7 +18,6 @@ from fastapi.responses import JSONResponse
 from octop.api.middleware.jwt_auth import install
 from octop.api.routers.devices import router
 from octop.infra.auth.tokens import sign_token
-from tests.support.browser_sessions import mint_browser_token
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.pool import SqlitePool
 from octop.infra.db.services import RepoBundle
@@ -26,6 +25,7 @@ from octop.infra.devices.client import DeviceClient
 from octop.infra.devices.executor import DeviceExecutor
 from octop.infra.devices.service import DeviceService
 from octop.infra.errors import OctopError
+from tests.support.browser_sessions import mint_browser_token
 
 
 @pytest.mark.asyncio

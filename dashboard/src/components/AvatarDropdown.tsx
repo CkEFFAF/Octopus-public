@@ -444,6 +444,7 @@ export default function AvatarDropdown({
       <button
         type="button"
         className={styles.triggerExpanded}
+        aria-expanded={menuOpen}
         onMouseEnter={(e) => {
           e.currentTarget.style.background = "var(--fn-sidebar-item-hover)";
         }}
@@ -473,9 +474,14 @@ export default function AvatarDropdown({
         placement="right"
         mouseEnterDelay={0.3}
       >
-        <span role="button" tabIndex={0} className={styles.triggerCompact}>
+        <button
+          type="button"
+          aria-label={t("account.myAccount")}
+          aria-expanded={menuOpen}
+          className={styles.triggerCompact}
+        >
           {avatar}
-        </span>
+        </button>
       </Tooltip>
     );
 

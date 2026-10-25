@@ -524,7 +524,7 @@ tests/         unit/ + integration/
 
 ## 🛠️ Development
 
-**Prerequisites:** Python 3.12+, Node 18+, [uv](https://docs.astral.sh/uv/)
+**Prerequisites:** Python 3.12+, Node.js 22.12+ LTS (or 24 LTS), [uv](https://docs.astral.sh/uv/)
 
 ```bash
 # Backend

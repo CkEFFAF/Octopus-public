@@ -35,9 +35,7 @@ def actor_is_admin(actor: Any) -> bool:
     if bool(getattr(actor, "is_admin", False)):
         return True
     role = getattr(actor, "role", None)
-    if isinstance(role, str) and role.strip().lower() == "admin":
-        return True
-    return False
+    return isinstance(role, str) and role.strip().lower() == "admin"
 
 
 def authorize_mcp_execution(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import shutil
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ except ImportError:  # pragma: no cover - optional PostgreSQL driver
 from octop.infra.db.repos.skill_packages import SkillPackageRepo, SkillPackageRow
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.skills.presentation import apply_skill_presentation
+from octop.infra.skills.security import enforce_skill_scan
 from octop.infra.skills.skill_packages import (
     SkillPackageError,
     normalize_skill_files,
@@ -68,9 +70,12 @@ def _allocate_package_id(repo: SkillPackageRepo) -> str:
 class SkillPackageStore:
     """Persist skill package contents below a host-local root."""
 
-    def __init__(self, *, repo: SkillPackageRepo, root: Path) -> None:
+    def __init__(
+        self, *, repo: SkillPackageRepo, root: Path, scan_mode: Callable[[], str] | None = None
+    ) -> None:
         self.repo = repo
         self.root = root
+        self.scan_mode = scan_mode or (lambda: "warn")
 
     def create(
         self,
@@ -164,9 +169,16 @@ class SkillPackageStore:
             normalized_files = normalize_skill_files(files)
         except SkillPackageError as exc:
             raise OctopError(ErrorCode.SLASH_BAD_ARGS, str(exc)) from exc
+        enforce_skill_scan(normalized_files, mode=self.scan_mode())
         skill_dir = self.package_skills_dir(pack_id) / safe_slug
+        expected = self.root.resolve() / validate_skill_slug(pack_id) / "skills" / safe_slug
+        if skill_dir.resolve() != expected:
+            raise OctopError(
+                ErrorCode.FORBIDDEN, "skill package destination contains a linked directory"
+            )
 
-        shutil.rmtree(skill_dir, ignore_errors=True)
+        if skill_dir.exists():
+            shutil.rmtree(skill_dir)
         skill_dir.mkdir(parents=True, exist_ok=True)
         for relative_path, content in normalized_files:
             path = skill_dir / relative_path

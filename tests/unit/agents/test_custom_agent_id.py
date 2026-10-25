@@ -61,6 +61,7 @@ def _make_manager(*, existing_agent_ids: set[str]):
     mgr._repos = SimpleNamespace(
         agent_repo=SimpleNamespace(get=repo_get),
         user_policy_repo=SimpleNamespace(get=lambda *args, **kwargs: None),
+        user_repo=SimpleNamespace(get=lambda user_id: SimpleNamespace(role="admin")),
     )
     mgr._paths = SimpleNamespace(ensure_agent_workspace=ensure_workspace)
     mgr._lock = asyncio.Lock()

@@ -145,7 +145,7 @@ def test_folded_execution_schema_reconciles_existing_watermark() -> None:
         db.conn.execute("DROP TABLE request_snapshots")
         db.conn.execute("DROP TABLE thread_execution_settings")
         run_migrations(db)
-        assert db.conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 33
+        assert db.conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 34
         assert db.conn.execute("SELECT COUNT(*) FROM request_snapshots").fetchone()[0] == 0
         assert db.conn.execute("SELECT COUNT(*) FROM thread_execution_settings").fetchone()[0] == 0
     finally:

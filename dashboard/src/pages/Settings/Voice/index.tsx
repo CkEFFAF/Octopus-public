@@ -152,13 +152,13 @@ export function VoiceSettingsPanel() {
           ? secretId && secretKey
             ? `${secretId}:${secretKey}`
             : configure?.existing
-              ? undefined
-              : null
+            ? undefined
+            : null
           : apiKey
-            ? apiKey
-            : configure?.existing
-              ? undefined
-              : null,
+          ? apiKey
+          : configure?.existing
+          ? undefined
+          : null,
       extra_json: JSON.stringify(extra),
     };
   };

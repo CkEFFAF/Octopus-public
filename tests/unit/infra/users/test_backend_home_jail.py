@@ -28,7 +28,11 @@ def test_non_admin_without_policy_cannot_use_host_tmp(tmp_path, monkeypatch) -> 
             {"type": "local_shell", "root_dir": str(outside)},
             is_admin=False,
         )
-    assert ei.value.code in (ErrorCode.FORBIDDEN, ErrorCode.WORKSPACE_ROOT_RESTRICTED, ErrorCode.WORKSPACE_OP_UNSUPPORTED)
+    assert ei.value.code in (
+        ErrorCode.FORBIDDEN,
+        ErrorCode.WORKSPACE_ROOT_RESTRICTED,
+        ErrorCode.WORKSPACE_OP_UNSUPPORTED,
+    )
 
 
 def test_admin_without_policy_may_use_host_path(tmp_path) -> None:

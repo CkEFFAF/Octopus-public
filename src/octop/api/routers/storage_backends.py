@@ -189,9 +189,7 @@ async def patch_storage_backend(
         if body.config_json is None or not str(body.config_json).strip():
             config_json = ""
         else:
-            config_json = merge_config_json_preserving_secrets(
-                body.config_json, row.config_json
-            )
+            config_json = merge_config_json_preserving_secrets(body.config_json, row.config_json)
     server.services.storage_backend_repo.update(
         backend_id,
         name=new_name,

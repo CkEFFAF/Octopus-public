@@ -37,6 +37,7 @@ import shutil
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
@@ -54,6 +55,7 @@ from octop.infra.agents.manager import (
 )
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.skills.presentation import apply_skill_presentation
+from octop.infra.skills.security import configured_skill_scan_mode, enforce_skill_scan
 from octop.infra.skills.skill_package_store import SkillPackageStore, normalize_copy_policy
 from octop.infra.skills.skill_packages import (
     SkillPackageError,
@@ -580,6 +582,7 @@ def _skill_package_store(server: Any) -> SkillPackageStore:
     return SkillPackageStore(
         repo=server.services.skill_package_repo,
         root=server.paths.skill_packages_dir,
+        scan_mode=partial(configured_skill_scan_mode, server.services.settings_repo),
     )
 
 
@@ -931,6 +934,9 @@ async def create_skill(
         meta, _ = _parse_frontmatter(existing)
         if not meta.get("removed") and not body.overwrite:
             raise OctopError(ErrorCode.SKILL_ALREADY_EXISTS, f"skill {name!r} already exists")
+    enforce_skill_scan(
+        package.files, mode=server.app_runtime.agent_registry.security.load().skill_scan.mode
+    )
     with contextlib.suppress(Exception):
         await ctx.workspace.adelete(f"skills/{name}")
     await _write_skill_files(ctx.workspace, f"skills/{name}", package.files)
@@ -992,6 +998,9 @@ async def update_skill(
     # wholesale, matching create-with-overwrite / re-import semantics. The
     # truthiness check mirrors ``_files_from_skill_body`` so an empty ``files``
     # list falls back to the content path on both sides.
+    enforce_skill_scan(
+        package.files, mode=server.app_runtime.agent_registry.security.load().skill_scan.mode
+    )
     if body.files:
         with contextlib.suppress(Exception):
             await ctx.workspace.adelete(f"skills/{slug}")
@@ -1030,6 +1039,9 @@ class _AgentWorkspaceInstallTarget:
         return await _resolve_skill(self._workspace, slug) is not None
 
     async def write_files(self, slug: str, files: list[tuple[str, bytes]]) -> None:
+        enforce_skill_scan(
+            files, mode=self._server.app_runtime.agent_registry.security.load().skill_scan.mode
+        )
         skill_root = f"skills/{slug}"
         with contextlib.suppress(Exception):
             await self._workspace.adelete(skill_root)
@@ -1074,6 +1086,7 @@ async def copy_skill_from_agent(
             destination=dest.workspace,
             slug=slug,
             overwrite=body.overwrite,
+            scan_mode=server.app_runtime.agent_registry.security.load().skill_scan.mode,
         )
     except SkillPackageError as exc:
         raise _skill_transfer_error(exc, locale=locale) from exc

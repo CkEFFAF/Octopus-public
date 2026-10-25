@@ -8,7 +8,12 @@ the repo-root ``.env``. Skipped by default — run with::
 
 from __future__ import annotations
 
+import os
+import re
+from pathlib import Path
+
 import pytest
+from langchain_core.messages import AIMessage
 
 from octop.infra.agents.manager import AgentCreateSpec
 from octop.infra.agents.providers import KIND_TO_PROTOCOL
@@ -54,7 +59,10 @@ async def test_create_agent_seeds_workspace_and_starts(
     cfg = live_agent_manager._build_harness_config(row)
     backend = cfg.backend
     assert backend["type"] == "local_shell"
-    assert backend["root_dir"] == "/"
+    if os.name == "nt":
+        assert Path(backend["root_dir"]).resolve() == ws.resolve()
+    else:
+        assert backend["root_dir"] == "/"
     assert backend["virtual_mode"] is True
     # execute-env injection (PR #376): platform identity folded into shell env
     assert backend.get("inherit_env") is True
@@ -129,6 +137,14 @@ async def test_agent_call_returns_reply(live_agent_manager, live_openai_config) 
     )
     agent = live_agent_manager.get_agent(row.agent_id)
     result = await agent.call("ping")
-    assert result is not None
-    text = str(result).lower()
-    assert len(text) > 0
+    replies = [message for message in result.get("messages", []) if isinstance(message, AIMessage)]
+    assert replies, "The real model must produce an assistant message"
+    content = replies[-1].content
+    text = (
+        content
+        if isinstance(content, str)
+        else " ".join(str(block.get("text", "")) for block in content if isinstance(block, dict))
+    )
+    assert re.search(r"\bpong\b", text, re.IGNORECASE), (
+        "Expected a real pong reply, not an error state"
+    )

@@ -13,12 +13,13 @@ export default function DeviceCapabilities({ device }: { device: Device }) {
   const [error, setError] = useState<string | null>(null);
   const active = useRef(0);
   useEffect(() => {
-    ++active.current;
+    const lifecycleGeneration = active;
+    ++lifecycleGeneration.current;
     setCatalog(null);
     setLoading(false);
     setError(null);
     return () => {
-      ++active.current;
+      ++lifecycleGeneration.current;
     };
   }, [device.device_id]);
   const discover = async () => {

@@ -32,17 +32,14 @@ class BrowserSessionRepo:
 
     def get(self, sid: str) -> dict[str, Any] | None:
         with self.db.connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM browser_sessions WHERE sid = ?", (sid,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM browser_sessions WHERE sid = ?", (sid,)).fetchone()
         return dict(row) if row is not None else None
 
     def revoke(self, sid: str) -> bool:
         now = time.time()
         with self.db.transaction() as conn:
             result = conn.execute(
-                "UPDATE browser_sessions SET revoked_at = COALESCE(revoked_at, ?) "
-                "WHERE sid = ?",
+                "UPDATE browser_sessions SET revoked_at = COALESCE(revoked_at, ?) WHERE sid = ?",
                 (now, sid),
             )
         return bool(result.rowcount)

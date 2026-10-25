@@ -24,12 +24,12 @@ dependencies = [
     "questionary>=2.0",
     "apscheduler>=3.10,<4",
     "argon2-cffi>=23.1",
-    "pyjwt>=2.8",
+    "pyjwt>=2.15.0",
     "octop-harness[all]==1.0.2.post4.dev4+interrupt.2",
     "octop-memory>=1.0.0",
     "lark-oapi>=1.7.3",
     "octop-gateway>=1.0.0",
-    "cryptography>=41",
+    "cryptography>=50.0.0",
     "scalar-fastapi>=1.0",
     "edge-tts>=6.1",
     "segno>=1.6",
@@ -44,10 +44,10 @@ dependencies = [
     "octop-browser>=1.0.0",
     "playwright>=1.40",
     "psycopg[binary]>=3.2",
-    "langgraph-checkpoint-postgres>=2.0",
-    "mcp>=1.9,<2",
-    "pillow>=10.0",
-    "pypdf>=5.0",
+    "langgraph-checkpoint-postgres>=3.1.3",
+    "mcp>=1.30.0,<2",
+    "pillow>=13.0.0",
+    "pypdf>=6.21.2",
     "python-docx>=1.2.0",
     "python-pptx>=1.0",
     "pypinyin>=0.53",
@@ -233,6 +233,23 @@ markers = [
 # fallback is intentional for this environment, so silence the noise.
 filterwarnings = [
     "ignore::starlette.exceptions.StarletteDeprecationWarning",
+]
+
+[tool.uv]
+# Security floors for transitive dependencies; keep the reviewed Harness wheel pinned.
+constraint-dependencies = [
+    "aiohttp>=3.14.4",
+    # 4.15 imports typing_extensions.sentinel, unavailable in the reviewed runtime.
+    "anyio>=4.14.2,<4.15",
+    "certifi>=2026.10.19",
+    "filelock>=4.2.1",
+    "langgraph-checkpoint-sqlite>=3.1.2",
+    "langgraph-sdk>=0.4.4",
+    "multidict>=6.9.1",
+    "opentelemetry-api>=1.45.1",
+    "pyasn1>=0.6.4",
+    "soupsieve>=2.9.0",
+    "urllib3>=2.8.0",
 ]
 
 # Portable internal-beta review artifact; source/hash provenance lives next to the wheel.

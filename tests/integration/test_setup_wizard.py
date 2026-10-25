@@ -259,16 +259,52 @@ async def test_resume_wizard_after_admin_created(env: Any) -> None:
     c, _srv, home = env
     pw = read_password(Path.home())
     tok = (await c.post("/api/setup/verify-password", json={"password": pw})).json()["wizard_token"]
-    await c.post(
+    admin = await c.post(
         "/api/setup/initial-admin",
         json={"username": "admin", "password": "TestPass12"},
         headers={"Authorization": f"Bearer {tok}"},
     )
-    r = await c.post("/api/setup/resume-wizard")
+    r = await c.post(
+        "/api/setup/resume-wizard",
+        headers={"Authorization": f"Bearer {admin.json()['access_token']}"},
+    )
     assert r.status_code == 200
     body = r.json()
     assert isinstance(body["wizard_token"], str)
     assert body["expires_in"] > 0
+
+
+async def test_anonymous_cannot_resume_setup_after_admin_exists(env: Any) -> None:
+    c, srv, _home = env
+    pw = read_password(Path.home())
+    tok = (await c.post("/api/setup/verify-password", json={"password": pw})).json()["wizard_token"]
+    admin = await c.post(
+        "/api/setup/initial-admin",
+        json={"username": "admin", "password": "TestPass12"},
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    admin.raise_for_status()
+    srv.wizard_tokens.clear()
+
+    response = await c.post("/api/setup/resume-wizard")
+
+    assert response.status_code == 401
+    assert "wizard_token" not in response.json()
+
+
+async def test_resume_accepts_existing_wizard_token(env: Any) -> None:
+    c, _srv, _home = env
+    pw = read_password(Path.home())
+    tok = (await c.post("/api/setup/verify-password", json={"password": pw})).json()["wizard_token"]
+    admin = await c.post(
+        "/api/setup/initial-admin",
+        json={"username": "admin", "password": "TestPass12"},
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    admin.raise_for_status()
+    response = await c.post("/api/setup/resume-wizard", headers={"Authorization": f"Bearer {tok}"})
+    assert response.status_code == 200
+    assert response.json()["wizard_token"]
 
 
 async def test_test_provider_accepts_admin_jwt_after_admin_created(env: Any) -> None:

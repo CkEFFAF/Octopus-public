@@ -1,2 +1,12 @@
 # Shell scripts must stay LF for Linux CI / bash
 *.sh text eol=lf
+
+# Match the frontend formatter on Windows without converting binary assets.
+dashboard/**/*.ts text eol=lf
+dashboard/**/*.tsx text eol=lf
+dashboard/**/*.js text eol=lf
+dashboard/**/*.json text eol=lf
+dashboard/**/*.less text eol=lf
+dashboard/**/*.css text eol=lf
+dashboard/**/*.html text eol=lf
+dashboard/**/*.md text eol=lf

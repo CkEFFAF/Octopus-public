@@ -379,7 +379,6 @@ def is_allowed_host_download_abs_path(path: str, *, workspace: Path) -> bool:
     return False
 
 
-
 def is_host_absolute_path(path: str) -> bool:
     """True for host filesystem absolute paths (``/…``, ``file://``, drive letter).
 

@@ -230,6 +230,7 @@ export default function ContextRequestBrowser({
     [...requests]
       .filter((item) => item.seq < selectedSummary.seq)
       .sort((a, b) => b.seq - a.seq)[0];
+  const previousRequestId = previousSummary?.request_id;
   // Selecting a listed request must not eagerly pull full component detail (S3).
   // Focus / highlight of an ID missing from the page still needs a detail fetch.
   const needsFocusFetch =
@@ -245,8 +246,8 @@ export default function ContextRequestBrowser({
     let disposed = false;
     void Promise.all([
       executionApi.request(agentId, threadId, selectedId),
-      previousSummary
-        ? executionApi.request(agentId, threadId, previousSummary.request_id)
+      previousRequestId
+        ? executionApi.request(agentId, threadId, previousRequestId)
         : Promise.resolve(null),
       contextInsightsApi.request(agentId, threadId, selectedId, {
         includeContent: false,
@@ -273,7 +274,7 @@ export default function ContextRequestBrowser({
     detailOpen,
     needsFocusFetch,
     selectedSummary?.status,
-    previousSummary?.request_id,
+    previousRequestId,
     t,
   ]);
   const olderHashes = useMemo(

@@ -504,7 +504,7 @@ tests/         unit/ + integration/
 
 ## 🛠️ 开发
 
-**前置条件：** Python 3.12+、Node 18+、[uv](https://docs.astral.sh/uv/)
+**前置条件：** Python 3.12+、Node.js 22.12+ LTS（或 24 LTS）、[uv](https://docs.astral.sh/uv/)
 
 ```bash
 # 后端

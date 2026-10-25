@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -53,7 +52,10 @@ async def test_ordinary_user_cannot_manage_host_directories(ordinary, tmp_path, 
     )
 
 
-async def test_voice_provider_list_does_not_return_secret_to_ordinary_user(ordinary):
+@pytest.mark.parametrize("nested_in_array", [False, True])
+async def test_voice_provider_list_does_not_return_secret_to_ordinary_user(
+    ordinary, nested_in_array
+):
     client, server, _, auth, _ = ordinary
     secret = "AUDIT_SYNTHETIC_VOICE_SECRET"
     server.services.voice_provider_repo.create(
@@ -62,7 +64,11 @@ async def test_voice_provider_list_does_not_return_secret_to_ordinary_user(ordin
         capability="tts",
         base_url="https://example.invalid",
         api_key=secret,
-        extra_json=json.dumps({"secret_id": "SID", "secret_key": secret}),
+        extra_json=json.dumps(
+            {"profiles": [{"secret_id": "SID", "secret_key": secret}]}
+            if nested_in_array
+            else {"secret_id": "SID", "secret_key": secret}
+        ),
     )
     result = await client.get("/api/voice/providers", headers=auth)
     assert result.status_code == 200, result.text
@@ -75,14 +81,21 @@ async def test_voice_provider_list_does_not_return_secret_to_ordinary_user(ordin
     assert "secret_key" not in (row.get("extra") or {})
 
 
-async def test_storage_list_does_not_return_config_secret_to_ordinary_user(ordinary):
+@pytest.mark.parametrize("nested_in_array", [False, True])
+async def test_storage_list_does_not_return_config_secret_to_ordinary_user(
+    ordinary, nested_in_array
+):
     client, server, _, auth, _ = ordinary
     secret = "AUDIT_SYNTHETIC_STORAGE_SECRET"
     server.services.storage_backend_repo.create(
         name="audit-storage",
         kind="opensandbox",
         endpoint="sandbox.example.invalid",
-        config_json=json.dumps({"api_key": secret, "sandbox_scope": "agent"}),
+        config_json=json.dumps(
+            {"profiles": [[{"api_key": secret}]], "sandbox_scope": "agent"}
+            if nested_in_array
+            else {"api_key": secret, "sandbox_scope": "agent"}
+        ),
         secret_key=secret,
     )
     result = await client.get("/api/storage-backends", headers=auth)

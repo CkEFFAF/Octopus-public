@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 from dataclasses import asdict
+from functools import partial
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Request, status
@@ -19,6 +20,7 @@ from octop.infra.db.repos.skill_packages import SkillPackageRow
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.server import OctopServer
 from octop.infra.skills.install import valid_skillhub_icon_url
+from octop.infra.skills.security import configured_skill_scan_mode
 from octop.infra.skills.skill_package_from_skillhub import create_package_from_skillhub
 from octop.infra.skills.skill_package_store import (
     SkillPackageStore,
@@ -138,6 +140,7 @@ def _store(server: OctopServer) -> SkillPackageStore:
     return SkillPackageStore(
         repo=server.services.skill_package_repo,
         root=server.paths.skill_packages_dir,
+        scan_mode=partial(configured_skill_scan_mode, server.services.settings_repo),
     )
 
 

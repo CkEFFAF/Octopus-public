@@ -9,13 +9,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from tests.support.fakes import fake_bin_path
 
 from octop.infra.connectors.builder import validate_create_credentials
 from octop.infra.connectors.catalog import get_catalog_entry
 from octop.infra.connectors.gateway.adapters import agently_cli
 from octop.infra.connectors.gateway.langchain import build_gateway_langchain_tools
 from octop.infra.connectors.gateway.protocol import handle_mcp_request
+from tests.support.fakes import fake_bin_path
 
 
 @pytest.fixture

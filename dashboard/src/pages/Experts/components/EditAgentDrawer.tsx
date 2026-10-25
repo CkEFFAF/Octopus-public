@@ -94,6 +94,7 @@ interface AgentDetail {
   description: string | null;
   default_model: string | null;
   color?: string | null;
+  is_shared?: boolean;
   icon_url?: string | null;
   max_iters?: number | null;
   max_input_length?: number | null;
@@ -322,7 +323,7 @@ function EditAgentDrawerBody({
             ? ag.color
             : typeof cfg.color === "string"
             ? cfg.color
-            : agent.color ?? null;
+            : null;
         setColorPalette(parseStoredColor(colorFromRow) ?? DEFAULT_PALETTE);
         setIconUrl(
           typeof ag.icon_url === "string" && ag.icon_url.trim()
@@ -337,7 +338,7 @@ function EditAgentDrawerBody({
           description: ag.description ?? "",
           welcome_message:
             typeof ag.welcome_message === "string" ? ag.welcome_message : "",
-          is_shared: agent.is_shared ?? false,
+          is_shared: ag.is_shared ?? false,
           default_model: defaultModelToForm(ag.default_model),
           conversation_mode: parseConversationMode(cfg.conversation_mode),
           backend_choice: parsedBackend.backendChoice,
@@ -571,6 +572,7 @@ function EditAgentDrawerBody({
     colorPalette,
     form,
     iconUrl,
+    message,
     onClose,
     onSaved,
     pathMappings,

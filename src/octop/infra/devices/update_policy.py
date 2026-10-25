@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -89,12 +90,20 @@ def default_policy() -> dict[str, Any]:
     }
 
 
+def validate_target_version(version: str) -> None:
+    """Update versions identify one directory, never an arbitrary filesystem path."""
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", version) is None:
+        raise ValueError("target_version must be a single version name without path separators")
+
+
 def parse_policy(raw: dict[str, Any] | None) -> DeviceUpdatePolicy:
     """Validate and normalize a policy body. Raises ValueError on bad input."""
     data = dict(default_policy())
     if raw:
         data.update(raw)
     target = str(data.get("target_version") or "").strip()
+    if target:
+        validate_target_version(target)
     channel = str(data.get("channel") or "stable").strip().lower()
     if channel not in VALID_CHANNELS:
         raise ValueError(f"channel must be one of {sorted(VALID_CHANNELS)}")

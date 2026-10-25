@@ -144,4 +144,4 @@ it("reaches verified report bytes from the parent panel using the real shared do
   expect(requestBlob).toHaveBeenCalledWith(
     "/agents/parent/threads/root/resources/published-report/content",
   );
-});
+}, 15000);

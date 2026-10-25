@@ -101,7 +101,7 @@ export default function ConversationOverview({
           apiErrorMessage(err, t("conversationMetadata.generationFailed")),
         );
     }
-  }, [agentId, threadId, identity]);
+  }, [agentId, threadId, identity, t]);
   const loadEvents = useCallback(
     async (cursor?: string) => {
       const seq = ++eventRequestSeq.current;
@@ -138,6 +138,7 @@ export default function ConversationOverview({
   }, [identity]);
   useEffect(() => {
     if (!open) return;
+    const requestGeneration = requestSeq;
     void load();
     const timer = window.setInterval(() => void load(), 3000);
     const off = onSessionEvent((event) => {
@@ -146,7 +147,7 @@ export default function ConversationOverview({
     return () => {
       window.clearInterval(timer);
       off();
-      requestSeq.current++;
+      requestGeneration.current++;
     };
   }, [open, load, threadId]);
   useEffect(() => {
@@ -159,7 +160,7 @@ export default function ConversationOverview({
         apiErrorMessage(err, t("conversationMetadata.generationFailed")),
       ),
     );
-  }, [open, tab, loadEvents, message]);
+  }, [open, tab, loadEvents, message, t]);
   useEffect(() => {
     if (!job || !["queued", "retry", "running"].includes(job.status)) return;
     let cancelled = false;

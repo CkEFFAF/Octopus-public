@@ -9,12 +9,12 @@ from typing import Any
 
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from tests.support.fakes import fake_bin_path
 
 from octop.infra.connectors.builder import validate_create_credentials
 from octop.infra.connectors.catalog import get_catalog_entry
 from octop.infra.connectors.gateway.adapters import feishu_cli, wecom_cli
 from octop.infra.connectors.gateway.wecom_creds import materialize_wecom_bot_config
+from tests.support.fakes import fake_bin_path
 
 
 def test_catalog_entries_registered() -> None:

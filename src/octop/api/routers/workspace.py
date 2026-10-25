@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 _PROTECTED_PREFIX = "_builtin_skills"
 
+
 def _assert_host_abs_within_agent_workspace(io_path: str, workspace: Any) -> None:
     """0038 F02/AC05: host-absolute API reads stay under this agent workspace."""
     if not is_host_absolute_path(io_path):

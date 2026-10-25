@@ -15,6 +15,8 @@ from typing import Any
 from urllib.parse import urlsplit
 from urllib.request import urlopen
 
+from octop.infra.devices.update_policy import validate_target_version
+
 logger = logging.getLogger(__name__)
 
 BusyProbe = Callable[[], tuple[bool, list[str]]]
@@ -147,8 +149,12 @@ def stage_side_by_side(
     releases_root: Path | None = None,
 ) -> Path:
     """Extract *archive* into a sibling stage directory (never overwrite *current_dir*)."""
-    root = releases_root or current_dir.parent
-    stage = root / "releases" / version
+    validate_target_version(version)
+    root = (releases_root or current_dir.parent).resolve()
+    releases = root / "releases"
+    stage = releases / version
+    if releases.resolve() != releases or stage.resolve().parent != releases:
+        raise ValueError("version staging directory escapes the releases directory")
     if stage.resolve() == current_dir.resolve():
         raise ValueError("stage directory must differ from current install directory")
     if stage.exists():
@@ -340,6 +346,7 @@ class DeviceUpdater:
         if not url or not sha or not version:
             return {"status": "failed", "error": "incomplete offer"}
         try:
+            validate_target_version(version)
             archive = download_and_verify(url, expect_sha256=sha, dest_dir=self.download_dir)
         except ValueError as exc:
             return {

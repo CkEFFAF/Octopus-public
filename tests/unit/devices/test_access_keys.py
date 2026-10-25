@@ -48,9 +48,7 @@ def rig(tmp_path: Path) -> Any:
             else None
         )
 
-    def mint_browser_token(
-        user_id: int, uname: str, role: str, *, ttl_seconds: int = 3600
-    ) -> str:
+    def mint_browser_token(user_id: int, uname: str, role: str, *, ttl_seconds: int = 3600) -> str:
         sid = secrets.token_urlsafe(16)
         row = repos.user_repo.get(user_id)
         assert row is not None

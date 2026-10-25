@@ -727,13 +727,11 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       reasoningMode,
       reasoningEffort,
       defaultModel,
-      workMode,
       conversationMode,
       hitlPolicy,
       antMessage,
       agentId,
       threadId,
-      i18n.language,
       t,
     ]);
 
@@ -847,7 +845,16 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       } finally {
         setPolishing(false);
       }
-    }, [text, agentId, polishing, isStreaming, disabled, selectedModel, t]);
+    }, [
+      text,
+      agentId,
+      polishing,
+      isStreaming,
+      disabled,
+      selectedModel,
+      antMessage,
+      t,
+    ]);
 
     const composerResize = useComposerResize(isMobile);
 

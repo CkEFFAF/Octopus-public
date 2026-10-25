@@ -146,7 +146,7 @@ function EnvironmentsPage() {
         onOk: doRemove,
       });
     },
-    [workingRows, ensureLocal, envVars.length, t],
+    [workingRows, modal, t, ensureLocal, envVars.length],
   );
 
   const removeSelected = useCallback(() => {
@@ -179,7 +179,7 @@ function EnvironmentsPage() {
       cancelText: t("common.cancel"),
       onOk: doRemove,
     });
-  }, [selected, workingRows, ensureLocal, envVars.length, t]);
+  }, [selected, modal, t, workingRows, ensureLocal, envVars.length]);
 
   /* ---- validate & save ---- */
 
@@ -222,7 +222,7 @@ function EnvironmentsPage() {
     } finally {
       setSaving(false);
     }
-  }, [validate, workingRows, fetchAll, t]);
+  }, [validate, workingRows, message, t, fetchAll]);
 
   const handleReset = useCallback(() => {
     setRows(null);

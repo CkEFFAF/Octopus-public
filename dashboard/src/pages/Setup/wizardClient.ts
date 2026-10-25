@@ -127,12 +127,14 @@ export const wizardApi = {
     request<{ ok: boolean; driver: string }>("/setup/test-database", {
       method: "POST",
       body: JSON.stringify(body),
+      headers: bearer(wizardSession.loadToken() || ""),
     }),
 
   applyDatabase: (body: DatabaseSetupBody) =>
     request<{ ok: boolean; driver: string }>("/setup/database", {
       method: "POST",
       body: JSON.stringify(body),
+      headers: bearer(wizardSession.loadToken() || ""),
     }),
 
   verifyPassword: (password: string) =>

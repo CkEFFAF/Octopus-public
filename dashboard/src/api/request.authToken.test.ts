@@ -47,7 +47,7 @@ describe("auth token remember / session-only", () => {
     const response = new Response(null, {
       headers: { "X-Octop-Access-Token": "renewed" },
     });
-    mod.applyRenewedAccessToken(response);
+    mod.applyRenewedAccessToken(response, "old");
     expect(mod.getAuthToken()).toBe("renewed");
     expect(mod.isSessionOnlyAuth()).toBe(true);
     expect(sessionStorage.getItem("auth_token")).toBe("renewed");

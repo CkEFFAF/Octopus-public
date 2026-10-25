@@ -30,13 +30,25 @@ def _is_secret_key(name: str) -> bool:
     cleaned = name.strip().lower().replace("-", "_")
     if cleaned in _SECRET_KEY_NAMES:
         return True
-    if cleaned.endswith("_api_key") or cleaned.endswith("_secret"):
-        return True
+    return cleaned.endswith("_api_key") or cleaned.endswith("_secret")
+
+
+def _contains_secret(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(
+            _is_secret_key(str(key)) or _contains_secret(item) for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return any(_contains_secret(item) for item in value)
     return False
 
 
 def redact_mapping(raw: Any) -> tuple[dict[str, Any], bool]:
-    """Return a shallow-redacted copy of a mapping and whether secrets were present."""
+    """Return a redacted mapping and whether secrets were present.
+
+    Secret-bearing arrays are opaque: omit the whole field so a public DTO
+    round-trip preserves its stored credentials without matching items by index.
+    """
     if not isinstance(raw, dict):
         return {}, False
     out: dict[str, Any] = {}
@@ -50,6 +62,8 @@ def redact_mapping(raw: Any) -> tuple[dict[str, Any], bool]:
             nested, nested_secret = redact_mapping(value)
             out[key_s] = nested
             had_secret = had_secret or nested_secret
+        elif isinstance(value, list) and _contains_secret(value):
+            had_secret = True
         else:
             out[key_s] = value
     return out, had_secret

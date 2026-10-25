@@ -308,25 +308,30 @@ async def admin_patch_provider(
         raise OctopError(ErrorCode.NOT_FOUND, "provider not found")
     import json as _json
 
-    models_json = _json.dumps(body.models) if body.models is not None else None
+    from octop.infra.db.repos._base import UNSET
+
+    # Omitted patch fields retain their values; explicit null revokes/clears them.
+    models_json: str | None | object = UNSET
+    if "models" in body.model_fields_set:
+        models_json = _json.dumps(body.models) if body.models is not None else None
     server.services.provider_repo.update(
         row.user_id,
         provider_id,
         kind=body.kind,
-        base_url=body.base_url,
-        api_key=body.api_key,
-        extra_json=body.extra_json,
+        base_url=body.base_url if "base_url" in body.model_fields_set else UNSET,
+        api_key=body.api_key if "api_key" in body.model_fields_set else UNSET,
+        extra_json=body.extra_json if "extra_json" in body.model_fields_set else UNSET,
         models_json=models_json,
-        note=body.note,
+        note=body.note if "note" in body.model_fields_set else UNSET,
         enabled=body.enabled,
     )
-    if body.models is not None:
+    if "models" in body.model_fields_set:
         clear_stale_pins_for_provider(
             agent_repo=server.services.agent_repo,
             settings_repo=server.services.settings_repo,
             user_id=row.user_id,
             provider_name=row.name,
-            models=body.models,
+            models=body.models or [],
         )
     if server.app_runtime and _patch_requires_provider_rehydrate(body):
         await server.app_runtime.agent_registry.on_provider_changed(

@@ -265,7 +265,9 @@ export default function PdfDocumentPreview({
   const [outline, setOutline] = useState<PdfOutlineItem[] | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const destPageCacheRef = useRef(new Map<PdfOutlineItem, number | null>());
-  const [outlineDestVersion, setOutlineDestVersion] = useState(0);
+  const [outlineDestinations, setOutlineDestinations] = useState(
+    () => new Map<PdfOutlineItem, number | null>(),
+  );
   const [bootOverlayMounted, setBootOverlayMounted] = useState(true);
   const [bootOverlayFading, setBootOverlayFading] = useState(false);
 
@@ -307,7 +309,7 @@ export default function PdfDocumentPreview({
     setOutline(null);
     setOutlineOpen(false);
     destPageCacheRef.current = new Map();
-    setOutlineDestVersion(0);
+    setOutlineDestinations(new Map());
     setBootOverlayMounted(true);
     setBootOverlayFading(false);
     const el = scrollRef.current;
@@ -436,7 +438,7 @@ export default function PdfDocumentPreview({
     setOutline(null);
     setOutlineOpen(false);
     destPageCacheRef.current = new Map();
-    setOutlineDestVersion(0);
+    setOutlineDestinations(new Map());
     // Mount page 1 immediately so the first canvas can paint under the
     // boot overlay (windowed IO otherwise leaves every slot empty).
     if (pdf.numPages > 0) {
@@ -451,6 +453,7 @@ export default function PdfDocumentPreview({
     pdf
       .getOutline()
       .then(async (items) => {
+        if (pdfRef.current !== pdf) return;
         const tree = items ?? [];
         setOutline(tree);
         // Keep outline closed by default — especially on narrow widths.
@@ -461,16 +464,20 @@ export default function PdfDocumentPreview({
           if (item.url || !item.dest || cache.has(item)) return;
           tasks.push(
             outlineDestPage(pdf, item.dest).then((page) => {
-              cache.set(item, page);
+              if (pdfRef.current === pdf && destPageCacheRef.current === cache)
+                cache.set(item, page);
             }),
           );
         });
         if (tasks.length > 0) {
           await Promise.all(tasks);
-          setOutlineDestVersion((v) => v + 1);
+          if (pdfRef.current === pdf && destPageCacheRef.current === cache)
+            setOutlineDestinations(new Map(cache));
         }
       })
-      .catch(() => setOutline([]));
+      .catch(() => {
+        if (pdfRef.current === pdf) setOutline([]);
+      });
     // Seed defaults so slots have stable heights, then measure eagerly for
     // the first band and fill the rest as the user scrolls (large PDFs).
     setPageRatios(
@@ -637,7 +644,7 @@ export default function PdfDocumentPreview({
     setOutlineOpen(false);
     pdfRef.current = null;
     destPageCacheRef.current = new Map();
-    setOutlineDestVersion(0);
+    setOutlineDestinations(new Map());
     intersectingRef.current = new Set();
     mountedRef.current = new Set();
     setVisiblePages(new Set());
@@ -656,8 +663,11 @@ export default function PdfDocumentPreview({
       if (!pdf || !item.dest) return;
       const cache = destPageCacheRef.current;
       if (!cache.has(item)) {
-        cache.set(item, await outlineDestPage(pdf, item.dest));
-        setOutlineDestVersion((v) => v + 1);
+        const page = await outlineDestPage(pdf, item.dest);
+        if (pdfRef.current !== pdf || destPageCacheRef.current !== cache)
+          return;
+        cache.set(item, page);
+        setOutlineDestinations(new Map(cache));
       }
       const pageNo = cache.get(item);
       if (pageNo) scrollToPage(pageNo);
@@ -668,8 +678,8 @@ export default function PdfDocumentPreview({
 
   const activeOutline = useMemo(() => {
     if (!outline || outline.length === 0) return null;
-    return activeOutlineItem(outline, currentPage, destPageCacheRef.current);
-  }, [outline, currentPage, outlineDestVersion]);
+    return activeOutlineItem(outline, currentPage, outlineDestinations);
+  }, [outline, currentPage, outlineDestinations]);
 
   const renderOutline = useCallback(
     (items: PdfOutlineItem[], depth: number): ReactNode =>

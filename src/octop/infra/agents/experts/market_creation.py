@@ -355,6 +355,7 @@ async def create_agent_from_skillhub_skillset(
                 patch if patch is not None else ComposerWorkspacePatch(),
                 copies=options.composer_copies,
                 report=options.composer_report,
+                scan_mode=registry.security.load().skill_scan.mode,
             )
         if options.quick_prompts is not None:
             await apply_workspace_quick_prompts(workspace, options.quick_prompts)

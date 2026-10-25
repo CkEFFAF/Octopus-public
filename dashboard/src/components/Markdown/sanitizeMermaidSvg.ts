@@ -22,11 +22,7 @@ function stripDangerousAttributes(el: Element): void {
       el.removeAttribute(name);
       continue;
     }
-    if (
-      lower === "href" ||
-      lower === "xlink:href" ||
-      lower.endsWith(":href")
-    ) {
+    if (lower === "href" || lower === "xlink:href" || lower.endsWith(":href")) {
       if (isDangerousUrl(attr.value)) {
         el.removeAttribute(name);
       }

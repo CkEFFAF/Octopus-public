@@ -47,7 +47,8 @@ export default function ExecutionBrowser({
   );
 
   useEffect(() => {
-    const current = ++generation.current;
+    const lifecycleGeneration = generation;
+    const current = ++lifecycleGeneration.current;
     halted.current = true;
     setConnected(false);
     setFrame("");
@@ -78,7 +79,7 @@ export default function ExecutionBrowser({
         if (generation.current === current) setError(String(failure));
       });
     return () => {
-      generation.current++;
+      lifecycleGeneration.current++;
       halted.current = true;
     };
   }, [context.context_id, retry, applyState]);
