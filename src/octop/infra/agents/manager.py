@@ -707,6 +707,7 @@ class AgentManager:
                     self._repos.user_policy_repo,
                     spec.user_id,
                     config.get("backend"),
+                    user_repo=self._repos.user_repo,
                 )
 
             # Create-time: user-assigned workspace_dir wins; otherwise default+encode.
@@ -915,6 +916,7 @@ class AgentManager:
                     self._repos.user_policy_repo,
                     owner_row.user_id,
                     parsed_profile_cfg.get("backend"),
+                    user_repo=self._repos.user_repo,
                 )
             lifted = extract_profile_from_config(parsed_profile_cfg)
             kwargs["config_json"] = dumps_config(parsed_profile_cfg)
@@ -1709,6 +1711,12 @@ class AgentManager:
 
             global_env = load_env_file(env_file_path(self._paths.root))
             load_spec = overlay_stdio_spec_env(spec, global_env)
+            from octop.infra.connectors.execution_auth import (  # noqa: PLC0415
+                authorize_stdio_mcp_spec,
+            )
+
+            owner = self._repos.user_repo.get(user_id)
+            authorize_stdio_mcp_spec(owner, load_spec, location="control_server")
             raw = await aload_mcp_tools({server_name: load_spec})
             from octop.infra.agents.plugins.plugin_tool_names import (  # noqa: PLC0415
                 sanitize_plugin_tool_names,
