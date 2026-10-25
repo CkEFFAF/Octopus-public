@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 from octop.infra.errors import ErrorCode, OctopError
@@ -157,24 +158,98 @@ def normalize_max_agents(raw: int | None) -> int | None:
     return limit
 
 
-def assert_backend_within_user_root(backend: Any, allowed_root: str | None) -> None:
-    """Raise ``ValueError`` when a local backend root is outside *allowed_root*."""
+
+def is_control_plane_agents_path(root_dir: str) -> bool:
+    """True when *root_dir* sits under the shared ``.octop/agents`` tree.
+
+    Ordinary accounts must not bind ``local_shell`` / ``filesystem`` roots to
+    control-plane agent workspaces (0038 F02 / AC05): that tree is shared on
+    the same OS home and otherwise passes a home-only jail.
+    """
+    raw = host_path_text(root_dir).replace("\\", "/").lower()
+    if "/.octop/agents" in raw or raw.endswith("/.octop/agents"):
+        return True
+    try:
+        resolved = Path(root_dir).expanduser().resolve()
+    except (OSError, ValueError):
+        return False
+    norm = str(resolved).replace("\\", "/").lower()
+    return "/.octop/agents/" in norm or norm.endswith("/.octop/agents")
+
+
+def assert_backend_within_user_root(
+    backend: Any,
+    allowed_root: str | None,
+    *,
+    restrict_to_home: bool = False,
+) -> None:
+    """Raise ``ValueError`` when a local backend root escapes the account jail.
+
+    When *allowed_root* is set, every local ``root_dir`` must stay under it.
+    Otherwise *restrict_to_home* (ordinary users) jails to the process home so
+    control-server paths like ``/etc`` cannot be selected; admins pass
+    ``restrict_to_home=False`` and only the host denylist applies.
+    """
     if backend is None:
         return
-    if not allowed_root:
-        assert_backend_root_dirs_allowed(backend, restrict_to_home=False)
+    if allowed_root:
+        for root_dir in iter_local_backend_root_dirs(backend):
+            assert_safe_host_path(root_dir, restrict_to_root=allowed_root)
+            if restrict_to_home and is_control_plane_agents_path(root_dir):
+                raise ValueError(
+                    "backend root_dir cannot target control-plane agent workspaces"
+                )
         return
-    for root_dir in iter_local_backend_root_dirs(backend):
-        assert_safe_host_path(root_dir, restrict_to_root=allowed_root)
+    assert_backend_root_dirs_allowed(backend, restrict_to_home=restrict_to_home)
+    if restrict_to_home:
+        for root_dir in iter_local_backend_root_dirs(backend):
+            if is_control_plane_agents_path(root_dir):
+                raise ValueError(
+                    "backend root_dir cannot target control-plane agent workspaces"
+                )
 
 
-def raise_if_backend_outside_user_root(policy_repo: Any, user_id: int, backend: Any) -> None:
+def user_row_is_admin(user_row: Any) -> bool:
+    """True when a DB user row (or User) has the admin role."""
+    if user_row is None:
+        return False
+    if bool(getattr(user_row, "is_admin", False)):
+        return True
+    role = getattr(user_row, "role", None)
+    return isinstance(role, str) and role.strip().lower() == "admin"
+
+
+def raise_if_backend_outside_user_root(
+    policy_repo: Any,
+    user_id: int,
+    backend: Any,
+    *,
+    is_admin: bool | None = None,
+    user_repo: Any | None = None,
+) -> None:
+    """Reject local backends that escape the account / control-server boundary.
+
+    Ordinary users are always home-jailed when no ``workspace_root_dir`` policy
+    is set (0038 F02). Admins keep host-wide selection subject to the denylist.
+    """
     allowed = effective_workspace_root_dir(policy_repo.get(user_id, POLICY_WORKSPACE_ROOT_DIR))
+    admin = is_admin
+    if admin is None and user_repo is not None:
+        admin = user_row_is_admin(user_repo.get(user_id))
+    if admin is None:
+        # Fail closed for callers that omit identity: treat as non-admin.
+        admin = False
     try:
-        assert_backend_within_user_root(backend, allowed)
+        assert_backend_within_user_root(
+            backend,
+            allowed,
+            restrict_to_home=not admin,
+        )
     except ValueError as exc:
         code = (
-            ErrorCode.WORKSPACE_ROOT_RESTRICTED if allowed else ErrorCode.WORKSPACE_OP_UNSUPPORTED
+            ErrorCode.WORKSPACE_ROOT_RESTRICTED
+            if allowed or not admin
+            else ErrorCode.WORKSPACE_OP_UNSUPPORTED
         )
         raise OctopError(code, str(exc)) from exc
 
