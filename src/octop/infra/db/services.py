@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from octop.config import OctopConfig
 from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos.access_keys import AccessKeyRepo
+from octop.infra.db.repos.browser_sessions import BrowserSessionRepo
 from octop.infra.db.repos.agents import AgentRepo
 from octop.infra.db.repos.audit import AuditRepo
 from octop.infra.db.repos.backends import BackendRepo
@@ -70,6 +71,7 @@ class RepoBundle:
     bridge_connection_repo: BridgeConnectionRepo
     device_repo: DeviceRepo
     access_key_repo: AccessKeyRepo
+    browser_session_repo: BrowserSessionRepo
     connector_repo: ConnectorRepo
     skill_package_repo: SkillPackageRepo
     published_expert_repo: PublishedExpertRepo
@@ -125,6 +127,7 @@ class RepoBundle:
             bridge_connection_repo=BridgeConnectionRepo(db),
             device_repo=DeviceRepo(db),
             access_key_repo=AccessKeyRepo(db),
+            browser_session_repo=BrowserSessionRepo(db),
             connector_repo=ConnectorRepo(db),
             skill_package_repo=SkillPackageRepo(db),
             published_expert_repo=PublishedExpertRepo(db),
@@ -221,6 +224,10 @@ class SharedServices:
     @property
     def device_repo(self) -> DeviceRepo:
         return self.repos.device_repo
+
+    @property
+    def browser_session_repo(self) -> BrowserSessionRepo:
+        return self.repos.browser_session_repo
 
     @property
     def connector_repo(self) -> ConnectorRepo:
