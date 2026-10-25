@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -97,7 +98,7 @@ async def test_install_published_expert_accepts_create_options(
             "description": "fork with options",
             "default_model": "openai/gpt-4o-mini",
             "max_iters": 12,
-            "backend": {"type": "local_shell"},
+            "backend": {"type": "local_shell", "root_dir": Path.home().as_posix()},
         },
     )
     assert installed.status_code == 201, installed.text
@@ -111,6 +112,7 @@ async def test_install_published_expert_accepts_create_options(
     assert body.get("max_iters") == 12
     config = body.get("config") or {}
     assert (config.get("backend") or {}).get("type") == "local_shell"
+    assert (config.get("backend") or {}).get("root_dir") == Path.home().as_posix()
 
 
 async def test_install_published_expert_does_not_copy_source_composer_defaults(
