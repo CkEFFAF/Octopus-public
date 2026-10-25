@@ -28,9 +28,13 @@ export interface StorageBackendRow {
   endpoint: string | null;
   /** Masked on the server — first 4 chars + asterisks. */
   access_key: string | null;
+  has_access_key?: boolean;
+  has_secret_key?: boolean;
   bucket: string | null;
   region: string | null;
+  /** Public non-secret config only (0038 F05). */
   config_json: string | null;
+  has_config_secret?: boolean;
   note: string | null;
   enabled: boolean;
   /** Admin storage browse only (``/admin/backend``); expert workspace is always available. */
