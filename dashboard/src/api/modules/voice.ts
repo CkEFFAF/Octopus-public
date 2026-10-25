@@ -17,7 +17,9 @@ export interface VoiceProviderRow {
   kind: string;
   capability: "stt" | "tts" | "both";
   base_url: string | null;
-  api_key: string | null;
+  /** Raw api_key is never returned; use has_api_key (0038 F04). */
+  api_key?: string | null;
+  has_api_key?: boolean;
   extra: Record<string, unknown>;
   note: string | null;
   enabled: boolean;
@@ -109,11 +111,15 @@ export const voiceApi = {
       note: string | null;
       enabled: boolean;
     }>,
-  ) =>
-    request<VoiceProviderRow>(`/admin/voice/providers/${id}`, {
+  ) => {
+    const payload = Object.fromEntries(
+      Object.entries(body).filter(([, v]) => v !== undefined),
+    );
+    return request<VoiceProviderRow>(`/admin/voice/providers/${id}`, {
       method: "PATCH",
-      body: JSON.stringify(body),
-    }),
+      body: JSON.stringify(payload),
+    });
+  },
   deleteProvider: (id: number) =>
     request<void>(`/admin/voice/providers/${id}`, { method: "DELETE" }),
   testProvider: (id: number, mode: "stt" | "tts") =>

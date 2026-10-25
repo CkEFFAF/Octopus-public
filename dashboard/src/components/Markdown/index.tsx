@@ -21,6 +21,7 @@ import {
 import { isShellLanguage } from "../../utils/shellCodeBlock";
 import { copyText } from "../../utils/copyText";
 import { loadMermaid } from "./mermaidLoader";
+import { sanitizeMermaidSvg } from "./sanitizeMermaidSvg";
 import { HighlightedCode } from "./syntaxHighlight";
 import { useMathPlugins } from "./mathPlugins";
 import { stabilizeStreamingMarkdown } from "./stabilizeStreamingMarkdown";
@@ -72,7 +73,7 @@ function MermaidBlock({ code }: { code: string }) {
 
         const { svg: rendered } = await mermaid.render(id, trimmed);
         if (!cancelled) {
-          setSvg(rendered);
+          setSvg(sanitizeMermaidSvg(rendered));
           setError(false);
         }
       } catch {
