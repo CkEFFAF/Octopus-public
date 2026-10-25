@@ -258,9 +258,11 @@ async def status(server: Any = Depends(get_server)) -> dict[str, Any]:
 async def test_database(
     body: DatabaseSetupBody,
     server: Any = Depends(get_server),
+    authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     """Validate DSN/settings with a short-lived pool (does not replace the process pool)."""
     _enforce_wizard_open(server)
+    _require_wizard_token(authorization, server)
     from octop.infra.db.probe import probe_database
     from octop.infra.db.rebind import database_config_from_payload
 
@@ -276,6 +278,7 @@ async def test_database(
 async def apply_database(
     body: DatabaseSetupBody,
     server: Any = Depends(get_server),
+    authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     """Write ``config.json`` database section, open the pool, migrate, and boot runtime.
 
@@ -283,6 +286,7 @@ async def apply_database(
     (e.g. changing engine mid-wizard), swaps via rebind.
     """
     _enforce_wizard_open(server)
+    _require_wizard_token(authorization, server)
     from octop.infra.db.probe import probe_database
     from octop.infra.db.rebind import (
         assert_control_plane_database_empty,
@@ -382,13 +386,17 @@ async def initial_admin(
 
 
 @router.post("/setup/resume-wizard", summary="Issue a fresh wizard token mid-setup")
-async def resume_wizard(server: Any = Depends(get_server)) -> dict[str, Any]:
-    """Issue a new wizard token after the admin exists but before finish."""
+async def resume_wizard(
+    server: Any = Depends(get_server),
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Resume with an existing wizard token or the initial administrator's JWT."""
     _enforce_wizard_token_phase(server)
     require_database(server)
     assert server.user_manager is not None
     if server.user_manager.count() == 0:
         raise OctopError(ErrorCode.SETUP_TOKEN_INVALID, "admin not created yet", status=400)
+    _authorize_setup_mid_wizard(authorization, server)
     token, ttl = server.wizard_tokens.issue()
     return {"wizard_token": token, "expires_in": ttl}
 

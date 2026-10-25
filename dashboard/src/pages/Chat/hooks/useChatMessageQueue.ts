@@ -186,7 +186,7 @@ export function useChatMessageQueue({
       writeQueues({ ...queuesRef.current, [key]: [...latest, item] });
       return "ok";
     },
-    [key, writeQueues],
+    [agentId, key, threadId, writeQueues],
   );
 
   const remove = useCallback(

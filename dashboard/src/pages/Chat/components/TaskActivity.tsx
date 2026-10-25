@@ -99,7 +99,8 @@ export function NodeDetail({
   const [busy, setBusy] = useState(false);
   const epoch = useRef(0);
   useEffect(() => {
-    const current = ++epoch.current;
+    const lifecycleEpoch = epoch;
+    const current = ++lifecycleEpoch.current;
     setBusy(false);
     setDetail(null);
     setLog("");
@@ -116,7 +117,7 @@ export function NodeDetail({
           if (current === epoch.current) setError(String(e));
         });
     return () => {
-      ++epoch.current;
+      ++lifecycleEpoch.current;
     };
   }, [agentId, threadId, node.id, node.type]);
   async function logs() {

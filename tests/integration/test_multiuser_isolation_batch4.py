@@ -134,8 +134,7 @@ async def test_ac04_ordinary_mcp_stdio_still_denied(dual, tmp_path):
     client, _server, _admin, alice, _bob, _aid, _bid = dual
     marker = tmp_path / "batch4-mcp-marker.txt"
     source = (
-        f"from pathlib import Path; Path({str(marker)!r}).write_text("
-        f"'BATCH4', encoding='utf-8')"
+        f"from pathlib import Path; Path({str(marker)!r}).write_text('BATCH4', encoding='utf-8')"
     )
     result = await client.post(
         "/api/connectors/custom-mcp/test",

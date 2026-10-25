@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from octop.config import OctopConfig
 from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos.access_keys import AccessKeyRepo
-from octop.infra.db.repos.browser_sessions import BrowserSessionRepo
 from octop.infra.db.repos.agents import AgentRepo
 from octop.infra.db.repos.audit import AuditRepo
 from octop.infra.db.repos.backends import BackendRepo
 from octop.infra.db.repos.bridge_connections import BridgeConnectionRepo
+from octop.infra.db.repos.browser_sessions import BrowserSessionRepo
 from octop.infra.db.repos.care_push import CarePushRepo
 from octop.infra.db.repos.channels import ChannelRepo
 from octop.infra.db.repos.chat_inputs import ChatInputRepo

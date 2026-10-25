@@ -294,7 +294,6 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "0.0.0.0",
       port: devServerPort,
-      allowedHosts: true,
       // NEVER default to `hmr: false` — Vite still injects @vite/client and a
       // failed WS then triggers location.reload() loops. Pin clientPort so
       // Safari on privileged ports (e.g. :80 via VITE_DEV_PORT) does not build

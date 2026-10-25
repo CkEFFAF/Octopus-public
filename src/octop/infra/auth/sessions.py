@@ -38,9 +38,7 @@ def issue_browser_access_token(
     if secret is None:
         raise OctopError(ErrorCode.INTERNAL_ERROR, "jwt secret missing")
     ttl = int(
-        ttl_seconds
-        if ttl_seconds is not None
-        else server.services.config.access_token_ttl_seconds
+        ttl_seconds if ttl_seconds is not None else server.services.config.access_token_ttl_seconds
     )
     ttl = max(1, ttl)
     av = current_auth_version(server, int(user.id))

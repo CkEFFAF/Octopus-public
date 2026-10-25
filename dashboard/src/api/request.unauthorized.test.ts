@@ -69,4 +69,28 @@ describe("401 handling", () => {
 
     window.removeEventListener(mod.UNAUTHORIZED_EVENT, listener);
   });
+
+  it("handles expiry again after the user signs back in", async () => {
+    const listener = vi.fn((event: Event) => event.preventDefault());
+    window.addEventListener(mod.UNAUTHORIZED_EVENT, listener);
+
+    await expect(mod.request("/agents")).rejects.toThrow();
+    mod.setAuthToken("new-session");
+    await expect(mod.request("/agents")).rejects.toThrow();
+
+    expect(listener).toHaveBeenCalledTimes(2);
+    window.removeEventListener(mod.UNAUTHORIZED_EVENT, listener);
+  });
+
+  it("keeps the login when a separate wizard credential is rejected", async () => {
+    await expect(
+      mod.request("/setup/database", {
+        method: "POST",
+        headers: { Authorization: "Bearer expired-wizard-token" },
+      }),
+    ).rejects.toThrow();
+
+    expect(mod.getAuthToken()).toBe("expired-token");
+    expect(replace).not.toHaveBeenCalled();
+  });
 });

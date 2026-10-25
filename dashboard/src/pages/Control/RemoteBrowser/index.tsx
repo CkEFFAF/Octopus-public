@@ -571,7 +571,7 @@ export default function RemoteBrowserPage({
         antMessage.success(t("remoteBrowser.installSuccess", "浏览器安装成功"));
       },
     );
-  }, [refreshEnv, t]);
+  }, [antMessage, refreshEnv, t]);
 
   const cancelInstall = useCallback(() => {
     installAbortRef.current?.abort();
@@ -584,7 +584,7 @@ export default function RemoteBrowserPage({
         "已取消安装请求，服务端可能仍在继续安装，请稍后刷新状态。",
       ),
     );
-  }, [t]);
+  }, [antMessage, t]);
 
   const handleCopyInstallLog = useCallback(async () => {
     const title = t("remoteBrowser.installFailed", "安装失败");
@@ -600,7 +600,7 @@ export default function RemoteBrowserPage({
     } else {
       antMessage.error(t("common.copyFailed", "Failed to copy to clipboard"));
     }
-  }, [installLogs, t]);
+  }, [antMessage, installLogs, t]);
 
   const handleUninstall = useCallback(() => {
     if (!envStatus?.playwright_chromium || uninstalling) return;
@@ -653,8 +653,10 @@ export default function RemoteBrowserPage({
         }),
     });
   }, [
+    antMessage,
     disconnect,
     envStatus?.playwright_chromium,
+    modal,
     refreshEnv,
     session,
     t,

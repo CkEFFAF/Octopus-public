@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from tests.support.fakes import fake_bin_path
 
 from octop.infra.connectors.gateway import feishu_user_auth
+from tests.support.fakes import fake_bin_path
 
 
 def test_live_preview_missing_secret() -> None:

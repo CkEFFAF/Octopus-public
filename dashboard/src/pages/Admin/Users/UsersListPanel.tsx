@@ -743,7 +743,7 @@ export function PermissionCheckboxPicker({
   disabled,
 }: PermissionCheckboxPickerProps) {
   const { t } = useTranslation();
-  const selected = value ?? [];
+  const selected = useMemo(() => value ?? [], [value]);
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
   const groups = useMemo(() => {

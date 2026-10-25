@@ -72,6 +72,7 @@ export function isSessionOnlyAuth(): boolean {
  * post the token back to the opener — ``sessionStorage`` is not shared.
  */
 export function setAuthToken(token: string, remember: boolean = true) {
+  _redirectingToLogin = false;
   if (remember) {
     localStorage.setItem(AUTH_TOKEN_KEY, token);
     sessionStorage.removeItem(AUTH_TOKEN_KEY);
@@ -101,9 +102,13 @@ export function clearAuthToken() {
 }
 
 /** Persist a sliding-renewed access token from an API response, if present. */
-export function applyRenewedAccessToken(response: Response): void {
+export function applyRenewedAccessToken(
+  response: Response,
+  requestToken: string,
+): void {
   const renewed = response.headers.get(ACCESS_TOKEN_RESPONSE_HEADER);
-  if (renewed) {
+  // A late response must never restore a signed-out account or replace a new login.
+  if (renewed && requestToken && getAuthToken() === requestToken) {
     setAuthToken(renewed, !isSessionOnlyAuth());
   }
 }
@@ -333,12 +338,15 @@ function handleUnauthorized(): void {
 async function throwIfUnauthorized(
   path: string,
   response: Response,
+  requestToken: string,
 ): Promise<void> {
   if (response.status !== 401 || path.startsWith("/auth/")) {
     return;
   }
-  clearAuthToken();
-  handleUnauthorized();
+  if (getAuthToken() === requestToken) {
+    clearAuthToken();
+    handleUnauthorized();
+  }
   let message = "Unauthorized";
   if (path.startsWith("/setup/")) {
     try {
@@ -364,6 +372,8 @@ export async function request<T = unknown>(
   const url = getApiUrl(path);
 
   const headers = buildHeaders(path, options.headers);
+  const requestToken =
+    new Headers(headers).get("Authorization")?.replace(/^Bearer\s+/i, "") || "";
 
   const response = await fetch(url, {
     ...options,
@@ -374,8 +384,8 @@ export async function request<T = unknown>(
     throw new SetupRequiredError();
   }
 
-  await throwIfUnauthorized(path, response);
-  applyRenewedAccessToken(response);
+  await throwIfUnauthorized(path, response, requestToken);
+  applyRenewedAccessToken(response, requestToken);
 
   if (!response.ok) {
     if (response.status === 403 && isAgentScopedPath(path)) {
@@ -417,6 +427,7 @@ export async function requestBlob(
 ): Promise<Blob> {
   assertNotSetupLocked(path);
 
+  const requestToken = getAuthToken();
   const url = getApiUrl(path);
   const headers = buildAuthHeaders(path);
   const response = await fetch(url, {
@@ -428,8 +439,8 @@ export async function requestBlob(
     throw new SetupRequiredError();
   }
 
-  await throwIfUnauthorized(path, response);
-  applyRenewedAccessToken(response);
+  await throwIfUnauthorized(path, response, requestToken);
+  applyRenewedAccessToken(response, requestToken);
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -470,6 +481,7 @@ export async function probeAuthResource(
 ): Promise<void> {
   assertNotSetupLocked(path);
 
+  const requestToken = getAuthToken();
   const url = getApiUrl(path);
   const headers = buildAuthHeaders(path);
   const response = await fetch(url, {
@@ -481,8 +493,8 @@ export async function probeAuthResource(
     throw new SetupRequiredError();
   }
 
-  await throwIfUnauthorized(path, response);
-  applyRenewedAccessToken(response);
+  await throwIfUnauthorized(path, response, requestToken);
+  applyRenewedAccessToken(response, requestToken);
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -510,6 +522,7 @@ export async function requestStream(
 ): Promise<{ contentType: string; body: ReadableStream<Uint8Array> }> {
   assertNotSetupLocked(path);
 
+  const requestToken = getAuthToken();
   const url = getApiUrl(path);
   const headers = buildAuthHeaders(path);
   const response = await fetch(url, {
@@ -521,8 +534,8 @@ export async function requestStream(
     throw new SetupRequiredError();
   }
 
-  await throwIfUnauthorized(path, response);
-  applyRenewedAccessToken(response);
+  await throwIfUnauthorized(path, response, requestToken);
+  applyRenewedAccessToken(response, requestToken);
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -557,6 +570,7 @@ export async function requestUpload<T = unknown>(
 ): Promise<T> {
   assertNotSetupLocked(path);
 
+  const requestToken = getAuthToken();
   const url = getApiUrl(path);
   const headers = buildAuthHeaders(path);
   const method = options.method ?? "POST";
@@ -622,13 +636,13 @@ export async function requestUpload<T = unknown>(
         }
 
         try {
-          await throwIfUnauthorized(path, response);
+          await throwIfUnauthorized(path, response, requestToken);
         } catch (err) {
           reject(err);
           return;
         }
 
-        applyRenewedAccessToken(response);
+        applyRenewedAccessToken(response, requestToken);
 
         if (!response.ok) {
           // Same shape as request() so parseApiError() can read the error envelope.

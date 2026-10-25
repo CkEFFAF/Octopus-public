@@ -9,6 +9,17 @@ from pathlib import Path, PurePosixPath
 
 MAX_SKILL_FILES = 2_000
 MAX_SKILL_BYTES = 64 * 1024 * 1024
+_WINDOWS_DEVICES = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"} | {
+    f"{prefix}{number}" for prefix in ("COM", "LPT") for number in "123456789¹²³"
+}
+
+
+def _portable_path_part(part: str) -> bool:
+    return bool(part) and not (
+        part.endswith((".", " "))
+        or any(ord(char) < 32 or char in '<>:"|?*' for char in part)
+        or part.split(".", 1)[0].rstrip(" ").upper() in _WINDOWS_DEVICES
+    )
 
 
 class SkillPackageError(ValueError):
@@ -43,6 +54,7 @@ def validate_skill_slug(slug: str) -> str:
         or "/" in normalized
         or "\\" in normalized
         or "\x00" in normalized
+        or not _portable_path_part(normalized)
     ):
         raise SkillPackageError("invalid skill name")
     return normalized
@@ -55,7 +67,7 @@ def _normalize_relative_path(value: str) -> str:
     # (PurePosixPath would silently strip it, turning the dir into a file).
     is_dir_marker = value.endswith("/")
     path = PurePosixPath(value)
-    if path.is_absolute() or ".." in path.parts or (path.parts and path.parts[0].endswith(":")):
+    if path.is_absolute() or any(not _portable_path_part(part) for part in path.parts):
         raise SkillPackageError(f"unsafe skill package path: {value}")
     normalized = path.as_posix()
     if normalized in {"", "."}:
@@ -76,20 +88,35 @@ def normalize_skill_files(
 
     normalized: list[tuple[str, bytes]] = []
     seen: set[str] = set()
+    file_paths: set[str] = set()
+    directories: set[str] = set()
     total = 0
     for relative_path, content in files:
         path = _normalize_relative_path(relative_path)
-        if path in seen:
+        identity = path.rstrip("/").casefold()
+        if identity in seen:
             raise SkillPackageError(f"duplicate skill package path: {path}")
+        parents = {
+            parent.as_posix().casefold()
+            for parent in PurePosixPath(path).parents
+            if parent != PurePosixPath(".")
+        }
+        if parents & file_paths or (not path.endswith("/") and identity in directories):
+            raise SkillPackageError(f"file/directory conflict in skill package: {path}")
         if not isinstance(content, bytes):
             raise SkillPackageError(f"skill package content must be bytes: {path}")
-        seen.add(path)
+        seen.add(identity)
+        directories.update(parents)
+        if path.endswith("/"):
+            directories.add(identity)
+        else:
+            file_paths.add(identity)
         total += len(content)
         if total > MAX_SKILL_BYTES:
             raise SkillPackageTooLarge("skill package size exceeds 64 MB")
         normalized.append((path, content))
 
-    if require_manifest and "SKILL.md" not in seen:
+    if require_manifest and not any(path == "SKILL.md" for path, _ in normalized):
         raise SkillPackageError("skill package does not contain a root SKILL.md")
     if require_manifest:
         manifest = next(content for path, content in normalized if path == "SKILL.md")
@@ -140,12 +167,14 @@ def resolve_workspace_uploads(
 
 def read_skill_directory(skill_dir: Path) -> list[tuple[str, bytes]]:
     """Read a CLI-produced package without following links."""
+    if skill_dir.is_symlink() or skill_dir.is_junction():
+        raise SkillPackageError("unsupported linked skill package directory")
     files: list[tuple[str, bytes]] = []
     total = 0
     for dirpath, dirnames, filenames in os.walk(skill_dir, followlinks=False):
         current = Path(dirpath)
         for dirname in dirnames:
-            if (current / dirname).is_symlink():
+            if (current / dirname).is_symlink() or (current / dirname).is_junction():
                 raise SkillPackageError(f"unsupported symlink in skill package: {dirname}")
         for filename in filenames:
             path = current / filename
@@ -177,7 +206,7 @@ def read_cli_skill_install(install_root: Path) -> list[tuple[str, bytes]]:
             entry_mode = entry.lstat().st_mode
         except FileNotFoundError:
             continue
-        if not stat.S_ISDIR(entry_mode):
+        if not stat.S_ISDIR(entry_mode) or entry.is_junction():
             continue
         manifest = entry / "SKILL.md"
         try:

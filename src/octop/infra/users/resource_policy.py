@@ -158,7 +158,6 @@ def normalize_max_agents(raw: int | None) -> int | None:
     return limit
 
 
-
 def is_control_plane_agents_path(root_dir: str) -> bool:
     """True when *root_dir* sits under the shared ``.octop/agents`` tree.
 
@@ -166,7 +165,7 @@ def is_control_plane_agents_path(root_dir: str) -> bool:
     control-plane agent workspaces (0038 F02 / AC05): that tree is shared on
     the same OS home and otherwise passes a home-only jail.
     """
-    raw = host_path_text(root_dir).replace("\\", "/").lower()
+    raw = host_path_text(Path(root_dir)).replace("\\", "/").lower()
     if "/.octop/agents" in raw or raw.endswith("/.octop/agents"):
         return True
     try:
@@ -196,17 +195,13 @@ def assert_backend_within_user_root(
         for root_dir in iter_local_backend_root_dirs(backend):
             assert_safe_host_path(root_dir, restrict_to_root=allowed_root)
             if restrict_to_home and is_control_plane_agents_path(root_dir):
-                raise ValueError(
-                    "backend root_dir cannot target control-plane agent workspaces"
-                )
+                raise ValueError("backend root_dir cannot target control-plane agent workspaces")
         return
     assert_backend_root_dirs_allowed(backend, restrict_to_home=restrict_to_home)
     if restrict_to_home:
         for root_dir in iter_local_backend_root_dirs(backend):
             if is_control_plane_agents_path(root_dir):
-                raise ValueError(
-                    "backend root_dir cannot target control-plane agent workspaces"
-                )
+                raise ValueError("backend root_dir cannot target control-plane agent workspaces")
 
 
 def user_row_is_admin(user_row: Any) -> bool:

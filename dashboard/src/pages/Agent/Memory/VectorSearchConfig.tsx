@@ -56,7 +56,7 @@ export default function VectorSearchConfig() {
       }
     };
     loadData();
-  }, [t]);
+  }, [message, t]);
 
   // Save config.
   const handleSaveConfig = useCallback(async () => {
@@ -72,7 +72,7 @@ export default function VectorSearchConfig() {
     } finally {
       setSaving(false);
     }
-  }, [config, t]);
+  }, [config, message, t]);
 
   const handleApplyConfig = useCallback(async () => {
     if (!config) return;
@@ -97,7 +97,7 @@ export default function VectorSearchConfig() {
     } finally {
       setApplying(false);
     }
-  }, [config, refreshDownloadStatus, t]);
+  }, [config, message, refreshDownloadStatus, t]);
 
   /** Disable vector search in one action by applying provider=none immediately. */
   const handleDisableVectorSearch = useCallback(() => {
@@ -124,7 +124,7 @@ export default function VectorSearchConfig() {
         }
       },
     });
-  }, [config, refreshDownloadStatus, t]);
+  }, [config, message, modal, refreshDownloadStatus, t]);
 
   // Download completion/failure notifications.
   // prevStatusRef prevents duplicate notifications after remounts.
@@ -159,7 +159,7 @@ export default function VectorSearchConfig() {
           : t("memory.vs.downloadFailed");
       message.error(downloadState.error || fallbackMessage);
     }
-  }, [downloadState, t, config?.localModel]);
+  }, [downloadState, t, config?.localModel, message]);
 
   // Trigger model download.
   const handleDownloadModel = useCallback(async () => {
@@ -175,7 +175,7 @@ export default function VectorSearchConfig() {
       message.error(t("memory.vs.downloadFailed"));
       console.error(err);
     }
-  }, [config?.localModel, t, refreshDownloadStatus]);
+  }, [config?.localModel, refreshDownloadStatus, message, t]);
 
   const handleDeleteModel = useCallback(async () => {
     const currentModel = config?.localModel || "";
@@ -204,7 +204,7 @@ export default function VectorSearchConfig() {
         }
       },
     });
-  }, [config?.localModel, refreshDownloadStatus, t]);
+  }, [config?.localModel, message, modal, refreshDownloadStatus, t]);
 
   // Update a config field.
   const updateConfig = (field: keyof EmbeddingConfig, value: unknown) => {

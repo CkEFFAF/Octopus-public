@@ -31,13 +31,32 @@ def _seed_occupied_sqlite(home, *, relative_path: str = "occupied.db") -> None:
         db.close()
 
 
+@pytest.mark.parametrize("endpoint", ["test-database", "database"])
+@pytest.mark.parametrize("authorization", [None, "Bearer invalid-wizard-token"])
+async def test_setup_database_requires_wizard_token(
+    patched_app_client, endpoint: str, authorization: str | None
+) -> None:
+    client, _srv, home = patched_app_client
+    before = (home / "config.json").read_bytes()
+    response = await client.post(
+        f"/api/setup/{endpoint}",
+        json={"driver": "sqlite", "sqlite_path": "unauthorized/changed.db"},
+        headers={"Authorization": authorization} if authorization else {},
+    )
+    assert response.status_code == 401, response.text
+    assert (home / "config.json").read_bytes() == before
+    assert not (home / "unauthorized").exists()
+
+
 @pytest.mark.asyncio
 async def test_setup_database_sqlite_bind(patched_app_client) -> None:
     """Already-bound empty wizard can still swap sqlite path via rebind."""
     client, srv, home = patched_app_client
+    tok = await wizard_token(client, home)
     r = await client.post(
         "/api/setup/test-database",
         json={"driver": "sqlite", "sqlite_path": "data/wizard.db"},
+        headers={"Authorization": f"Bearer {tok}"},
     )
     assert r.status_code == 200, r.text
     assert r.json()["ok"] is True
@@ -45,6 +64,7 @@ async def test_setup_database_sqlite_bind(patched_app_client) -> None:
     r = await client.post(
         "/api/setup/database",
         json={"driver": "sqlite", "sqlite_path": "data/wizard.db"},
+        headers={"Authorization": f"Bearer {tok}"},
     )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -102,6 +122,7 @@ async def test_deferred_verify_password_then_bind(tmp_octop_home: Path) -> None:
         applied = await client.post(
             "/api/setup/database",
             json={"driver": "sqlite", "sqlite_path": "octop.db"},
+            headers={"Authorization": f"Bearer {tok}"},
         )
         assert applied.status_code == 200, applied.text
         assert srv.database_bound is True
@@ -125,10 +146,12 @@ async def test_setup_database_refuses_nonempty_target(patched_app_client) -> Non
     client, srv, home = patched_app_client
     _seed_occupied_sqlite(home)
     before = load_config(home / "config.json")
+    tok = await wizard_token(client, home)
 
     r = await client.post(
         "/api/setup/database",
         json={"driver": "sqlite", "sqlite_path": "occupied.db"},
+        headers={"Authorization": f"Bearer {tok}"},
     )
     assert r.status_code == 409, r.text
     assert r.json()["error"]["code"] == "DATABASE_NOT_EMPTY"

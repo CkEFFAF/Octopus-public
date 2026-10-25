@@ -3084,8 +3084,11 @@ class AgentManager:
                 expert_dir=expert_dir,
                 workspace=workspace,
                 seed_paths=expert.files,
+                scan_mode=self.security.load().skill_scan.mode,
             )
         except Exception as exc:
+            if isinstance(exc, OctopError) and exc.code == ErrorCode.SKILL_SCAN_BLOCKED:
+                raise
             logger.warning(
                 "Agent %s: expert template %r seed failed: %s",
                 row.agent_id,

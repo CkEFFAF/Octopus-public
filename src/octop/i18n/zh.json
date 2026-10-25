@@ -453,6 +453,7 @@
     "WORKSPACE_OP_UNSUPPORTED": "当前工作区后端不支持该文件操作。",
     "SKILL_IMPORT_UNSUPPORTED_URL": "不支持该技能 URL 来源。",
     "SKILL_IMPORT_FAILED": "技能导入失败：{reason}",
+    "SKILL_SCAN_BLOCKED": "技能安全扫描已拦截本次安装或修改，原有文件未被覆盖。请检查技能内容和扫描结果。",
     "SKILL_ALREADY_EXISTS": "技能 {name} 已存在，如需覆盖请启用 overwrite。",
     "SKILL_PACKAGE_NOT_FOUND": "未找到技能包。",
     "SKILL_PACKAGE_NAME_TAKEN": "技能包 {name} 已存在。",

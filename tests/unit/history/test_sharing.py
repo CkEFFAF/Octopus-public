@@ -11,11 +11,11 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.config import var_child_runnable_config
+from tests.support.browser_sessions import mint_browser_token
 from tests.unit.agents.test_collaboration_resources import rig as rig
 
 from octop.api.app import _install_exception_handlers
 from octop.api.deps import get_server
-from tests.support.browser_sessions import mint_browser_token
 from octop.api.middleware.jwt_auth import install
 from octop.api.routers.chat.shares import router
 from octop.config import OctopConfig, load_config, validate_public_origin

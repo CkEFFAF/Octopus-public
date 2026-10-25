@@ -46,7 +46,7 @@ export default function EmbeddingPage() {
       }
     };
     loadData();
-  }, [t]);
+  }, [message, t]);
 
   // Handle download completion/failure notifications from status polling.
   useEffect(() => {
@@ -75,7 +75,7 @@ export default function EmbeddingPage() {
           : t("embedding.downloadFailed");
       message.error(downloadState.error || fallbackMessage);
     }
-  }, [downloadState, t]);
+  }, [downloadState, message, t]);
 
   // Save config.
   const handleSaveConfig = useCallback(async () => {
@@ -91,7 +91,7 @@ export default function EmbeddingPage() {
     } finally {
       setSaving(false);
     }
-  }, [config, t]);
+  }, [config, message, t]);
 
   const handleApplyConfig = useCallback(async () => {
     if (!config) return;
@@ -116,7 +116,7 @@ export default function EmbeddingPage() {
     } finally {
       setApplying(false);
     }
-  }, [config, refreshDownloadStatus, t]);
+  }, [config, message, refreshDownloadStatus, t]);
 
   const handleDisableVectorSearch = useCallback(() => {
     if (!config || config.provider === "none") return;
@@ -142,7 +142,7 @@ export default function EmbeddingPage() {
         }
       },
     });
-  }, [config, refreshDownloadStatus, t]);
+  }, [config, message, modal, refreshDownloadStatus, t]);
 
   // Trigger local model download; polling picks up backend status changes.
   const handleDownloadLocalModel = useCallback(async () => {
@@ -158,7 +158,7 @@ export default function EmbeddingPage() {
       message.error(t("embedding.downloadError"));
       console.error(err);
     }
-  }, [config?.localModel, t, refreshDownloadStatus]);
+  }, [config?.localModel, refreshDownloadStatus, message, t]);
 
   // Update a config field.
   const updateConfig = (field: keyof EmbeddingConfig, value: unknown) => {

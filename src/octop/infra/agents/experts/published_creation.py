@@ -367,7 +367,11 @@ async def install_published_expert(
         config_extra["conversation_mode"] = options.conversation_mode
 
     async def seed_snapshot(created_row: Any, workspace: Any) -> None:
-        await seed_expert_directory(expert_dir=snapshot_dir, workspace=workspace)
+        await seed_expert_directory(
+            expert_dir=snapshot_dir,
+            workspace=workspace,
+            scan_mode=registry.security.load().skill_scan.mode,
+        )
         await bind_workspace_avatar_icon_url(registry, created_row.agent_id, workspace)
         patch = options.workspace_patch
         if patch is not None or options.composer_copies:
@@ -381,6 +385,7 @@ async def install_published_expert(
                 patch if patch is not None else ComposerWorkspacePatch(),
                 copies=options.composer_copies,
                 report=options.composer_report,
+                scan_mode=registry.security.load().skill_scan.mode,
             )
         if options.quick_prompts is not None:
             await apply_workspace_quick_prompts(workspace, options.quick_prompts)

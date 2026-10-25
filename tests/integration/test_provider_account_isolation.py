@@ -2,7 +2,48 @@
 
 import json
 
+import pytest
+
 from tests.support.auth import create_user
+
+
+@pytest.mark.parametrize("prefix", ["/api/providers", "/api/admin/providers"])
+async def test_provider_patch_preserves_omitted_fields_and_clears_explicit_null(env, prefix):
+    client, server, admin_auth = env
+    created = await client.post(
+        "/api/providers",
+        headers=admin_auth,
+        json={
+            "name": "nullable-patch",
+            "kind": "openai",
+            "base_url": "https://example.test/v1",
+            "api_key": "disposable-test-key",
+            "extra_json": '{"test":true}',
+            "note": "original",
+            "models": [{"id": "keep", "enabled": True}],
+        },
+    )
+    assert created.status_code == 201
+    provider_id = created.json()["id"]
+    response = await client.patch(
+        f"{prefix}/{provider_id}", headers=admin_auth, json={"note": "updated"}
+    )
+    assert response.status_code == 200
+    assert response.json()["api_key"] == "disposable-test-key"
+    assert response.json()["base_url"] == "https://example.test/v1"
+    response = await client.patch(
+        f"{prefix}/{provider_id}",
+        headers=admin_auth,
+        json={"note": None, "api_key": None, "base_url": None, "extra_json": None},
+    )
+    assert response.status_code == 200
+    row = server.services.provider_repo.get_for_admin(provider_id)
+    assert row.api_key is None
+    assert row.note is None
+    assert row.base_url is None
+    assert row.extra_json is None
+    assert row.kind == "openai"
+    assert json.loads(row.models_json) == [{"id": "keep", "enabled": True}]
 
 
 async def test_account_provider_crud_catalog_and_admin_management(env):

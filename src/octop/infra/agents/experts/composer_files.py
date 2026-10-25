@@ -191,14 +191,18 @@ def composer_plan_from_payload(
 
 
 class _WorkspaceSkillInstallTarget:
-    def __init__(self, workspace: Any) -> None:
+    def __init__(self, workspace: Any, scan_mode: str = "warn") -> None:
         self._workspace = workspace
+        self._scan_mode = scan_mode
 
     async def skill_exists(self, slug: str) -> bool:
         text = await self._workspace.aread_text(f"skills/{slug}/SKILL.md")
         return text is not None
 
     async def write_files(self, slug: str, files: list[tuple[str, bytes]]) -> None:
+        from octop.infra.skills.security import enforce_skill_scan
+
+        enforce_skill_scan(files, mode=self._scan_mode)
         skill_root = f"skills/{slug}"
         with contextlib.suppress(Exception):
             await self._workspace.adelete(skill_root)
@@ -221,11 +225,23 @@ async def apply_composer_workspace_patch(
     *,
     copies: Sequence[tuple[str, Any]] = (),
     report: ComposerApplyReport | None = None,
+    scan_mode: str = "warn",
 ) -> ComposerApplyReport:
     """Apply omit → copy → override → hub. Hub/copy failures are reported, not raised."""
     report = report or ComposerApplyReport()
     if patch.is_empty() and not copies:
         return report
+
+    uploads = [
+        (rel, content.encode("utf-8"))
+        for rel, content in patch.file_overrides
+        if not rel.endswith("/")
+    ]
+    from octop.infra.skills.security import enforce_skill_scan
+
+    enforce_skill_scan(
+        [(rel, data) for rel, data in uploads if rel.startswith("skills/")], mode=scan_mode
+    )
 
     for rel in patch.omit_files:
         with contextlib.suppress(Exception):
@@ -243,16 +259,12 @@ async def apply_composer_workspace_patch(
                     destination=workspace,
                     slug=slug,
                     overwrite=True,
+                    scan_mode=scan_mode,
                 )
             except Exception:
                 logger.warning("composer copy skill %s failed", slug, exc_info=True)
                 report.copy_skill_errors.append(slug)
 
-    uploads = [
-        (rel, content.encode("utf-8"))
-        for rel, content in patch.file_overrides
-        if not rel.endswith("/")
-    ]
     if uploads:
         await workspace.aupload_many(uploads)
     if not patch.hub_skills:
@@ -261,7 +273,7 @@ async def apply_composer_workspace_patch(
     from octop.infra.skills.install import install_skill_from_skillhub  # noqa: PLC0415
     from octop.infra.skills.skillhub_market import download_skillhub_package  # noqa: PLC0415
 
-    target = _WorkspaceSkillInstallTarget(workspace)
+    target = _WorkspaceSkillInstallTarget(workspace, scan_mode)
     for pick in patch.hub_skills:
         try:
             files = await download_skillhub_package(pick.skill_name)

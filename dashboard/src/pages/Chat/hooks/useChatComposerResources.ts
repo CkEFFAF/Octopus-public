@@ -72,8 +72,8 @@ export function useChatComposerResources(
   const remoteBridge = Boolean(bridgeConnectionId);
   const expertMcpServers = teamHost || remoteBridge ? [] : expert?.mcp_servers;
   const expertKnowledgeBaseIds = expert?.knowledge_base_ids;
-  const expertMcpKey = (expertMcpServers ?? []).join("\0");
-  const expertKbKey = (expertKnowledgeBaseIds ?? []).join("\0");
+  const expertMcpKey = JSON.stringify(expertMcpServers ?? []);
+  const expertKbKey = JSON.stringify(expertKnowledgeBaseIds ?? []);
   const isNewSession = !activeThreadId || isPendingThread(activeThreadId);
   const composerTouchedRef = useRef(false);
   const [selectedConnectors, setSelectedConnectors] = useState<string[]>([]);
@@ -283,7 +283,7 @@ export function useChatComposerResources(
           const allowed = new Set(options.map((o) => o.mcp_server_name));
           const defaults = withDefaultOpenKnowledgeBases(
             options.filter((o) => o.default_open).map((o) => o.mcp_server_name),
-            expertMcpServers ?? [],
+            JSON.parse(expertMcpKey) as string[],
           );
           setSelectedConnectors((prev) =>
             resolveInitialConnectors({
@@ -365,7 +365,9 @@ export function useChatComposerResources(
             : ownedDefaults;
           const defaults = withDefaultOpenKnowledgeBases(
             bridgeDefaults,
-            (expertKnowledgeBaseIds ?? []).filter((id) => allowed.has(id)),
+            (JSON.parse(expertKbKey) as string[]).filter((id) =>
+              allowed.has(id),
+            ),
           );
           setSelectedKnowledgeBaseIds((previous) => {
             const base = resolveInitialConnectors({

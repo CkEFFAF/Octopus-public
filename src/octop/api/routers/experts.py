@@ -262,13 +262,16 @@ def _composer_initializer(
     copies: tuple[tuple[str, Any], ...] = (),
     report: ComposerApplyReport | None = None,
     quick_prompts: list[dict[str, Any]] | None = None,
+    scan_mode: str = "warn",
 ) -> Any:
     if patch.is_empty() and not copies and quick_prompts is None:
         return None
 
     async def _apply(_row: Any, workspace: Any) -> None:
         if not patch.is_empty() or copies:
-            await apply_composer_workspace_patch(workspace, patch, copies=copies, report=report)
+            await apply_composer_workspace_patch(
+                workspace, patch, copies=copies, report=report, scan_mode=scan_mode
+            )
         if quick_prompts is not None:
             await apply_workspace_quick_prompts(workspace, quick_prompts)
 
@@ -912,6 +915,7 @@ async def create_agent_from_expert(
             copies,
             report,
             quick_prompts=_quick_prompts_from_body(body),
+            scan_mode=server.app_runtime.agent_registry.security.load().skill_scan.mode,
         ),
     )
     return {

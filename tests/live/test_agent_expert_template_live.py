@@ -96,6 +96,7 @@ async def _assert_expert_files_via_workspace(
     agent: object,
     expert_id: str,
     contents: dict[str, str],
+    expert_dir: Path,
 ) -> None:
     """Compare exact bytes via ``adownload_bytes``.
 
@@ -103,12 +104,13 @@ async def _assert_expert_files_via_workspace(
     (e.g. package ``__init__.py``), so it is not a faithful copy check.
     """
     workspace = agent.workspace  # type: ignore[attr-defined]
-    for rel_path, expected in contents.items():
+    for rel_path in contents:
         rel = rel_path.lstrip("/")
         raw = await workspace.adownload_bytes(rel)
         assert raw is not None, f"{expert_id}: workspace missing {rel}"
-        actual = raw.decode("utf-8")
-        assert actual == expected, f"{expert_id}: workspace mismatch for {rel}"
+        # Text previews normalize CRLF; downloads must preserve original source bytes.
+        expected = (expert_dir / rel_path).read_bytes()
+        assert raw == expected, f"{expert_id}: workspace mismatch for {rel}"
 
 
 @pytest.mark.asyncio
@@ -152,6 +154,7 @@ async def test_skill_experts_copy_md_and_skill_files(
                 agent=agent,
                 expert_id=expert_id,
                 contents=contents,
+                expert_dir=expert_library.expert_dir(expert_id),
             )
 
             skill_md = [f for f in expert.files if f.endswith("SKILL.md")]

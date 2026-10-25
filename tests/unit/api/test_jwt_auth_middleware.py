@@ -16,7 +16,6 @@ from octop.api.deps import (
     decode_token,
     is_jwt_exempt_path,
     maybe_sliding_renew_token,
-    sign_token,
 )
 from octop.infra.server import OctopServer
 

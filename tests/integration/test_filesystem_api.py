@@ -212,9 +212,9 @@ async def test_non_admin_host_dirs_are_forbidden(
     assert defaults.status_code == 200, defaults.text
     body = defaults.json()
     # Ordinary users are home-jailed when no workspace_root policy is set.
-    assert body["default_root_dir"] == home.resolve().as_posix()
-    assert body["tree_root"] == home.resolve().as_posix()
-    assert body["browse_roots"] == [home.resolve().as_posix()]
+    assert Path(body["default_root_dir"]).resolve() == home.resolve()
+    assert Path(body["tree_root"]).resolve() == home.resolve()
+    assert [Path(root).resolve() for root in body["browse_roots"]] == [home.resolve()]
     assert body["in_container"] is False
 
     for path in (outside.as_posix(), home.as_posix()):

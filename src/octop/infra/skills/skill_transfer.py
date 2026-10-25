@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from octop.infra.skills.security import enforce_skill_scan
 from octop.infra.skills.skill_package_store import SkillPackageStore
 from octop.infra.skills.skill_packages import (
     MAX_SKILL_BYTES,
@@ -174,6 +175,7 @@ async def copy_package_skills_to_workspace(
                 for name, data in files
             ]
         sources[slug] = files
+        enforce_skill_scan(files, mode=store.scan_mode())
 
     if not overwrite:
         for slug in selected:
@@ -192,10 +194,12 @@ async def copy_workspace_skill_to_workspace(
     destination: Any,
     slug: str,
     overwrite: bool = True,
+    scan_mode: str = "warn",
 ) -> str:
     """Copy one workspace skill directory (SKILL.md plus siblings) to another."""
     safe_slug = validate_skill_slug(slug)
     files = await read_workspace_skill_files(source, safe_slug)
+    enforce_skill_scan(files, mode=scan_mode)
     if not overwrite:
         existing = await destination.aread_text(f"skills/{safe_slug}/SKILL.md")
         if _is_live_manifest(existing):

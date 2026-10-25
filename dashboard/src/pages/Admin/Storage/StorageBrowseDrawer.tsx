@@ -221,7 +221,7 @@ export function StorageBrowseDrawer({
   }, [backendId, fetchTree, t, buildStorageRootNode]);
 
   useEffect(() => {
-    if (!open || !backend) return;
+    if (!open || backendId == null) return;
     setTreeData([]);
     setLoadError(false);
     expandedKeysRef.current = [storageRootKey()];

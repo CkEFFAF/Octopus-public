@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from tests.support.fakes import fake_bin_path
 
 from octop.infra.connectors.gateway import cli_install
+from tests.support.fakes import fake_bin_path
 
 
 def test_cli_install_specs_registered() -> None:

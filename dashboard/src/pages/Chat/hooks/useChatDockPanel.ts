@@ -153,7 +153,7 @@ export function useChatDockPanel(
   isMobile: boolean,
   agentId?: string | null,
   threadId?: string | null,
-  defaultDeviceId?: string,
+  _defaultDeviceId?: string,
 ) {
   const { t } = useTranslation();
   const scope = executionScope(agentId, threadId);
@@ -275,7 +275,7 @@ export function useChatDockPanel(
       }
       return true;
     },
-    [scope, agentId, threadId, defaultDeviceId, openDock, t],
+    [scope, agentId, threadId, openDock, t],
   );
 
   const openFileAt = useCallback(
@@ -323,7 +323,7 @@ export function useChatDockPanel(
       setActiveTabId(id);
       openDock();
     },
-    [agentId, openDock, openFileList, scope, defaultDeviceId, openExecutionTab],
+    [agentId, openDock, openFileList, openExecutionTab],
   );
 
   const openResource = useCallback(

@@ -154,7 +154,8 @@ export default function RunReceiptBrowser({
     }
   };
   useEffect(() => {
-    ++epoch.current;
+    const lifecycleEpoch = epoch;
+    ++lifecycleEpoch.current;
     busy.current = false;
     paged.current = false;
     setEvents([]);
@@ -170,7 +171,7 @@ export default function RunReceiptBrowser({
       live ? 5000 : 15000,
     );
     return () => {
-      ++epoch.current;
+      ++lifecycleEpoch.current;
       clearInterval(timer);
     };
     // The immutable thread target, rather than a render callback, controls loading.

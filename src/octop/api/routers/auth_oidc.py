@@ -17,7 +17,7 @@ from octop.api.common.sso_cookie import (
     delete_sso_state_cookie,
     set_sso_state_cookie,
 )
-from octop.api.deps import get_server, require_permission, sign_token
+from octop.api.deps import get_server, require_permission
 from octop.api.routers.auth import _user_json
 from octop.infra.auth.sso.service import SsoService
 from octop.infra.errors import ErrorCode, OctopError

@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from tests.support.fakes import fake_bin_path
 
 from octop.infra.connectors.gateway.adapters import wecom_cli
+from tests.support.fakes import fake_bin_path
 
 
 def test_humanize_strips_init_hint() -> None:

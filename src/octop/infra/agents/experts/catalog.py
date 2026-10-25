@@ -216,6 +216,7 @@ async def seed_expert_directory(
     expert_dir: Path,
     workspace: BackendWorkspace,
     seed_paths: list[str] | None = None,
+    scan_mode: str = "warn",
 ) -> int:
     """Upload expert template files into *workspace*, including welcome manifest.
 
@@ -236,6 +237,11 @@ async def seed_expert_directory(
         pairs.append((WORKSPACE_MANIFEST_PATH, manifest_path.read_bytes()))
     if not pairs:
         return 0
+    from octop.infra.skills.security import enforce_skill_scan
+
+    enforce_skill_scan(
+        [(rel, data) for rel, data in pairs if rel.startswith("skills/")], mode=scan_mode
+    )
     await workspace.aupload_many(pairs)
     return len(pairs)
 

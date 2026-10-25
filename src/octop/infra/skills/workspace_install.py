@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.skills.security import enforce_skill_scan
 from octop.infra.skills.skill_packages import validate_skill_slug
 from octop.infra.utils.frontmatter import parse_frontmatter
 
@@ -27,6 +28,7 @@ class AgentWorkspaceSkillTarget:
 
     async def write_files(self, slug: str, files: list[tuple[str, bytes]]) -> None:
         validate_skill_slug(slug)
+        enforce_skill_scan(files, mode=self.manager.security.load().skill_scan.mode)
         summaries = await self.manager.list_skill_summaries(self.agent_id)
         entry = next((item for item in summaries if item.get("slug") == slug), None)
         if entry and entry.get("kind") in {"package", "builtin"}:

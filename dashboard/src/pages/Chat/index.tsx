@@ -741,12 +741,7 @@ function ChatPageInner() {
     if (!isTeamChat) return chatAgentOptionsPickable;
     const ids = new Set(activeAgent?.member_ids ?? []);
     return chatAgentOptionsPickable.filter((item) => ids.has(item.agent_id));
-  }, [
-    isTeamChat,
-    activeAgent?.member_ids,
-    chatAgentOptions,
-    chatAgentOptionsPickable,
-  ]);
+  }, [isTeamChat, activeAgent?.member_ids, chatAgentOptionsPickable]);
 
   const composerLookups = useMemo(
     () => ({

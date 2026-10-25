@@ -2053,11 +2053,37 @@ def _ensure_execution_schema(db: DatabasePool) -> None:
         _ensure_column(db, table, "target_kind", "TEXT NOT NULL DEFAULT 'device'")
 
 
+def _ensure_browser_sessions_schema(db: DatabasePool) -> None:
+    """Repair partially applied v34 without resetting session revocations."""
+    if not _table_exists(db, "users"):
+        return
+    _ensure_column(db, "users", "auth_version", "INTEGER NOT NULL DEFAULT 1")
+    with db.connect() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS browser_sessions ("
+            "sid TEXT PRIMARY KEY, "
+            "user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+            "created_at DOUBLE PRECISION NOT NULL, "
+            "absolute_expires_at DOUBLE PRECISION NOT NULL, "
+            "revoked_at DOUBLE PRECISION, "
+            "auth_version_at_issue INTEGER NOT NULL)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_browser_sessions_user ON browser_sessions(user_id)"
+        )
+
+
 def run_migrations(db: DatabasePool) -> None:
     if db.dialect == "sqlite":
         _repair_legacy_schema(db)
     for version, path in _discover(db.dialect):
         if version <= _current_version(db):
+            continue
+        if version == 34:
+            _ensure_browser_sessions_schema(db)
+            with db.connect() as conn:
+                placeholder = "%s" if db.dialect == "postgresql" else "?"
+                conn.execute(f"UPDATE _schema_version SET version = {placeholder}", (version,))
             continue
         if version == 25:
             _migrate_provider_ownership(db)
@@ -2127,3 +2153,4 @@ def run_migrations(db: DatabasePool) -> None:
     _ensure_bridge_connections_schema(db)
     _ensure_execution_schema(db)
     _ensure_device_update_schema(db)
+    _ensure_browser_sessions_schema(db)
