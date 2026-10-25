@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from octop.api.middleware.jwt_auth import install
 from octop.api.routers.devices import router
 from octop.infra.auth.tokens import sign_token
+from tests.support.browser_sessions import mint_browser_token
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.pool import SqlitePool
 from octop.infra.db.services import RepoBundle
@@ -44,6 +45,9 @@ async def test_same_account_outbound_clients_http_auth_and_revoke(tmp_path: Path
         services=SimpleNamespace(
             secret_repo=SimpleNamespace(get=lambda key: secret),
             config=SimpleNamespace(access_token_ttl_seconds=86400),
+            user_repo=repos.user_repo,
+            repos=repos,
+            db=pool,
         ),
         user_manager=SimpleNamespace(get_by_id=repos.user_repo.get),
     )
@@ -71,9 +75,17 @@ async def test_same_account_outbound_clients_http_auth_and_revoke(tmp_path: Path
             await asyncio.sleep(0.02)
         assert host.started
         url = f"http://127.0.0.1:{port}"
-        token = sign_token(secret, sub=owner, uname="one-account", role="admin")
+        token = mint_browser_token(
+            secret=secret, repos=repos, user_id=owner, username="one-account", role="admin"
+        )
         headers = {"Authorization": f"Bearer {token}"}
-        other_token = sign_token(secret, sub=other, uname="different-account", role="user")
+        other_token = mint_browser_token(
+            secret=secret,
+            repos=repos,
+            user_id=other,
+            username="different-account",
+            role="user",
+        )
         async with httpx.AsyncClient(base_url=url, headers=headers) as http:
             reusable_key = service.access_keys.create(owner, "Second PC", 30, True, True)["secret"]
             assert (
@@ -184,6 +196,9 @@ async def test_account_bearer_enroll_lists_under_owner(tmp_path: Path) -> None:
         services=SimpleNamespace(
             secret_repo=SimpleNamespace(get=lambda key: secret),
             config=SimpleNamespace(access_token_ttl_seconds=86400),
+            user_repo=repos.user_repo,
+            repos=repos,
+            db=pool,
         ),
         user_manager=SimpleNamespace(get_by_id=repos.user_repo.get),
     )
@@ -197,8 +212,12 @@ async def test_account_bearer_enroll_lists_under_owner(tmp_path: Path) -> None:
         return JSONResponse(status_code=exc.status, content=exc.to_envelope())
 
     transport = httpx.ASGITransport(app=app)
-    token = sign_token(secret, sub=owner, uname="owner", role="admin")
-    other_token = sign_token(secret, sub=other, uname="other", role="user")
+    token = mint_browser_token(
+        secret=secret, repos=repos, user_id=owner, username="owner", role="admin"
+    )
+    other_token = mint_browser_token(
+        secret=secret, repos=repos, user_id=other, username="other", role="user"
+    )
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
         # AE-02: listing with JWT does not create a device.
         listed = await http.get("/api/devices", headers={"Authorization": f"Bearer {token}"})

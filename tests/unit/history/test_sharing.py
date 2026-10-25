@@ -14,7 +14,8 @@ from langgraph.config import var_child_runnable_config
 from tests.unit.agents.test_collaboration_resources import rig as rig
 
 from octop.api.app import _install_exception_handlers
-from octop.api.deps import get_server, sign_token
+from octop.api.deps import get_server
+from tests.support.browser_sessions import mint_browser_token
 from octop.api.middleware.jwt_auth import install
 from octop.api.routers.chat.shares import router
 from octop.config import OctopConfig, load_config, validate_public_origin
@@ -270,7 +271,10 @@ async def test_http_real_jwt_exact_anonymous_get_and_openapi(sharing, rig):
     server = SimpleNamespace(
         _started=True,
         services=SimpleNamespace(
-            repos=rig.repos, config=sharing.config, secret_repo=rig.repos.secret_repo
+            repos=rig.repos,
+            config=sharing.config,
+            secret_repo=rig.repos.secret_repo,
+            user_repo=rig.repos.user_repo,
         ),
         user_manager=SimpleNamespace(get_by_id=user),
         app_runtime=SimpleNamespace(agent_registry=rig.manager, history_archive=sharing.archive),
@@ -282,9 +286,17 @@ async def test_http_real_jwt_exact_anonymous_get_and_openapi(sharing, rig):
     install(app, server)
 
     def auth(uid):
+        row = rig.repos.user_repo.get(uid)
         return {
             "Authorization": "Bearer "
-            + sign_token(secret, sub=uid, uname="user", role="admin", ttl_seconds=86400)
+            + mint_browser_token(
+                secret=secret,
+                repos=rig.repos,
+                user_id=uid,
+                username=row.username if row else "user",
+                role="admin",
+                ttl_seconds=86400,
+            )
         }
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="https://test") as client:

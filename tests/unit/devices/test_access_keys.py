@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -47,10 +48,37 @@ def rig(tmp_path: Path) -> Any:
             else None
         )
 
+    def mint_browser_token(
+        user_id: int, uname: str, role: str, *, ttl_seconds: int = 3600
+    ) -> str:
+        sid = secrets.token_urlsafe(16)
+        row = repos.user_repo.get(user_id)
+        assert row is not None
+        av = int(row.auth_version)
+        repos.browser_session_repo.create(
+            sid=sid,
+            user_id=user_id,
+            absolute_expires_at=time.time() + ttl_seconds,
+            auth_version_at_issue=av,
+        )
+        return sign_token(
+            secret,
+            sub=user_id,
+            uname=uname,
+            role=role,
+            ttl_seconds=ttl_seconds,
+            sid=sid,
+            av=av,
+        )
+
     server = SimpleNamespace(
         _started=True,
         services=SimpleNamespace(
-            secret_repo=repos.secret_repo, config=SimpleNamespace(access_token_ttl_seconds=3600)
+            secret_repo=repos.secret_repo,
+            config=SimpleNamespace(access_token_ttl_seconds=3600),
+            user_repo=repos.user_repo,
+            repos=repos,
+            db=pool,
         ),
         user_manager=SimpleNamespace(get_by_id=user),
         app_runtime=SimpleNamespace(devices=service),
@@ -75,13 +103,14 @@ def rig(tmp_path: Path) -> Any:
         secret=secret,
         server=server,
         app=app,
+        mint_browser_token=mint_browser_token,
     )
     pool.close()
 
 
 @pytest.mark.asyncio
 async def test_key_login_renewal_revoke_and_delegation_denial(rig: Any) -> None:
-    token = sign_token(rig.secret, sub=rig.owner, uname="owner", role="admin")
+    token = rig.mint_browser_token(rig.owner, "owner", "admin")
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=rig.app),
         base_url="http://test",
@@ -94,7 +123,7 @@ async def test_key_login_renewal_revoke_and_delegation_denial(rig: Any) -> None:
         assert key["secret"] not in json.dumps(listing)
         assert "secret_hash" not in json.dumps(listing)
         # Another account cannot revoke or list this key.
-        other = sign_token(rig.secret, sub=rig.other, uname="other", role="user")
+        other = rig.mint_browser_token(rig.other, "other", "user")
         assert (
             await http.get("/api/auth/access-keys", headers={"Authorization": f"Bearer {other}"})
         ).json()["keys"] == []
