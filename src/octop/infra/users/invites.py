@@ -15,6 +15,7 @@ from octop.infra.db.repos._base import now_ts
 from octop.infra.db.repos.invites import InviteRepo, InviteRow, invite_status_payload
 from octop.infra.db.services import SharedServices
 from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.users.administration import assert_can_manage_account
 from octop.infra.users.identity import Role, User
 from octop.infra.users.password import hash_password, validate_password_policy
 from octop.infra.utils.locale import normalize_locale
@@ -64,6 +65,20 @@ def build_invite_url(base_url: str, code: str) -> str:
     return f"{base_url.rstrip('/')}{invite_path(code)}"
 
 
+def public_invite_audit_target(action: str, target: str | None) -> str | None:
+    """Hide legacy redemption secrets while retaining new invitation references."""
+    if action not in {"invite.create", "invite.revoke", "invite.redeem"}:
+        return target
+    if (
+        target is not None
+        and target.startswith("invite:")
+        and target[7:].isascii()
+        and target[7:].isdigit()
+    ):
+        return target
+    return None
+
+
 class InviteService:
     def __init__(self, services: SharedServices) -> None:
         self._services = services
@@ -108,18 +123,41 @@ class InviteService:
                 self._services.audit_repo.write(
                     actor=actor_username,
                     action="invite.create",
-                    target=code,
+                    target=f"invite:{row.id}",
                 )
                 return row
         raise OctopError(ErrorCode.INTERNAL_ERROR, "failed to allocate invite code")
 
-    def list_all(self) -> list[dict[str, object]]:
-        return [invite_status_payload(row) for row in self._repo.list_all()]
+    def _assert_can_manage(self, actor: User, row: InviteRow) -> None:
+        if actor.is_admin:
+            return
+        if row.created_by != actor.id:
+            raise OctopError(ErrorCode.FORBIDDEN, "cannot manage another user's invitation")
+        try:
+            role, permissions, _policies, _name = _role_defaults_for_invite(self._services.db, row)
+        except OctopError as exc:
+            if exc.code == ErrorCode.INVITE_ROLE_MISSING:
+                return  # Its creator may still clean up an unusable invitation.
+            raise
+        assert_can_manage_account(actor, role=role, permissions=permissions)
 
-    def revoke(self, invite_id: int, *, actor_username: str) -> dict[str, object]:
+    def list_all(self, *, actor: User) -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = []
+        for row in self._repo.list_all():
+            try:
+                self._assert_can_manage(actor, row)
+            except OctopError as exc:
+                if exc.code == ErrorCode.FORBIDDEN:
+                    continue
+                raise
+            rows.append(invite_status_payload(row))
+        return rows
+
+    def revoke(self, invite_id: int, *, actor_username: str, actor: User) -> dict[str, object]:
         before = self._repo.get(invite_id)
         if before is None:
             raise OctopError(ErrorCode.NOT_FOUND, "invite not found")
+        self._assert_can_manage(actor, before)
         if before.status() != "pending":
             raise OctopError(
                 ErrorCode.INVITE_INVALID,
@@ -131,7 +169,7 @@ class InviteService:
         self._services.audit_repo.write(
             actor=actor_username,
             action="invite.revoke",
-            target=after.code,
+            target=f"invite:{after.id}",
         )
         return invite_status_payload(after)
 
@@ -228,7 +266,7 @@ class InviteService:
         self._services.audit_repo.write(
             actor=cleaned_username,
             action="invite.redeem",
-            target=cleaned_code,
+            target=f"invite:{_invite.id}",
         )
         return user
 

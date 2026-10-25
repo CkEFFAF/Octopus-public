@@ -586,7 +586,6 @@ class OctopServer:
         await user_mgr.boot()
         await proactive_scheduler.start_all()
 
-        from octop.infra.auth.tokens import sign_token
         from octop.infra.bridge.manager import BridgeManager, public_base_url_from_config
 
         services = self.services
@@ -594,17 +593,9 @@ class OctopServer:
             raise RuntimeError("shared services not ready for bridge")
 
         def _sign_user_token(user: Any) -> str:
-            secret = services.secret_repo.get("jwt")
-            if secret is None:
-                raise RuntimeError("jwt secret missing")
-            ttl = services.config.access_token_ttl_seconds
-            return sign_token(
-                secret,
-                sub=int(user.id),
-                uname=str(user.username),
-                role=str(user.role),
-                ttl_seconds=ttl,
-            )
+            from octop.infra.auth.sessions import issue_browser_access_token
+
+            return issue_browser_access_token(self, user)
 
         advertise = public_base_url_from_config(config.bind_host, config.port)
         bridge_mgr = BridgeManager(
