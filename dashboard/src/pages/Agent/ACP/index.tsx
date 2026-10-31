@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, App, Button, Empty, Form, Switch } from "antd";
+import { Alert, App, Button, Empty, Form, Switch, Select } from "antd";
 
 import { useTranslation } from "react-i18next";
 import PageShell from "../../../layouts/PageShell";
 import { CardSkeleton } from "../../../components/Skeleton";
 import PeerOnlyRemoteAlert from "../../../components/PeerOnlyRemoteAlert";
+import { devicesApi, type Device } from "../../../api/modules/devices";
+import { apiErrorMessage } from "../../../utils/apiError";
 import { acpApi } from "../../../api/modules/acp";
 import {
   ACP_DEFAULT_STDIO_BUFFER_LIMIT_BYTES,
@@ -38,6 +40,18 @@ export function ACPPanel({ agentId: agentIdProp }: ACPPanelProps = {}) {
     agentIdProp !== undefined ? agentIdProp : contextAgentId;
   /** Only the Experts tools drawer should tunnel account-global ACP runners. */
   const runnersScopeId = agentIdProp;
+  const [deviceId, setDeviceId] = useState(
+    () => new URLSearchParams(window.location.search).get("device") || "",
+  );
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [checking, setChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState("");
+  useEffect(() => {
+    void devicesApi
+      .list()
+      .then((data) => setDevices(data.devices))
+      .catch(() => setDevices([]));
+  }, []);
   const [runners, setRunners] =
     useState<Record<string, ACPRunnerConfig>>(EMPTY_RUNNERS);
   const [toolEnabled, setToolEnabled] = useState(false);
@@ -73,7 +87,9 @@ export function ACPPanel({ agentId: agentIdProp }: ACPPanelProps = {}) {
     setRunnersLoading(true);
     void (async () => {
       try {
-        const data = await acpApi.getGlobalRunners(runnersScopeId);
+        const data = deviceId
+          ? await acpApi.getDeviceRunners(deviceId)
+          : await acpApi.getGlobalRunners(runnersScopeId);
         if (!cancelled) {
           setRunners(data.runners || EMPTY_RUNNERS);
         }
@@ -146,11 +162,20 @@ export function ACPPanel({ agentId: agentIdProp }: ACPPanelProps = {}) {
 
   const persistRunners = useCallback(
     async (next: Record<string, ACPRunnerConfig>) => {
+      if (deviceId) {
+        for (const [name, runner] of Object.entries(next)) {
+          if (JSON.stringify(runner) !== JSON.stringify(runners[name]))
+            await acpApi.updateDeviceRunner(deviceId, name, runner);
+        }
+        const saved = await acpApi.getDeviceRunners(deviceId);
+        setRunners(saved.runners);
+        return saved.runners;
+      }
       const saved = await acpApi.updateGlobalRunners(next, runnersScopeId);
       setRunners(saved.runners || EMPTY_RUNNERS);
       return saved.runners;
     },
-    [runnersScopeId],
+    [runnersScopeId, deviceId, runners],
   );
 
   const persistToolEnabled = useCallback(
@@ -256,7 +281,21 @@ export function ACPPanel({ agentId: agentIdProp }: ACPPanelProps = {}) {
   };
 
   const handleDelete = () => {
-    if (!activeKey || isBuiltinRunner(activeKey)) return;
+    if (!activeKey) return;
+    if (deviceId) {
+      void acpApi
+        .resetDeviceRunner(deviceId, activeKey)
+        .then((saved) => {
+          setRunners(saved.runners);
+          setDrawerOpen(false);
+          message.success(t("acp.configSaved"));
+        })
+        .catch((error) =>
+          message.error(apiErrorMessage(error, t("acp.configFailed"), t)),
+        );
+      return;
+    }
+    if (isBuiltinRunner(activeKey)) return;
     modal.confirm({
       title: t("acp.deleteTitle", { name: activeKey }),
       content: t("acp.deleteConfirm"),
@@ -291,15 +330,38 @@ export function ACPPanel({ agentId: agentIdProp }: ACPPanelProps = {}) {
         <PeerOnlyRemoteAlert hintKey="peerOnlyAcp" />
       ) : null}
       <div className={styles.toolbar}>
+        <Select
+          disabled={saving || Boolean(toggleLoadingKey)}
+          aria-label={t("acp.scope")}
+          value={deviceId}
+          style={{ minWidth: 220 }}
+          options={[
+            { value: "", label: t("acp.accountTemplate") },
+            ...devices.map((device) => ({
+              value: device.device_id,
+              label: device.name,
+            })),
+          ]}
+          onChange={(id) => {
+            setDeviceId(id);
+            setDrawerOpen(false);
+            setCheckResult("");
+          }}
+        />
         <div className={styles.toolbarText}>
           <div className={styles.description}>{t("acp.description")}</div>
-          <p className={styles.scopeHint}>{t("acp.globalRunnersHint")}</p>
+          <p className={styles.scopeHint}>
+            {t(deviceId ? "acp.deviceHint" : "acp.globalRunnersHint")}
+          </p>
         </div>
         <Button type="primary" onClick={openCreate}>
           {t("acp.create")}
         </Button>
       </div>
 
+      {checkResult ? (
+        <Alert type="info" showIcon message={checkResult} />
+      ) : null}
       {activeAgentId && outboundBlocked ? (
         <Alert
           type="info"
@@ -320,7 +382,7 @@ export function ACPPanel({ agentId: agentIdProp }: ACPPanelProps = {}) {
               config={cfg}
               isHover={hoverKey === key}
               toggleLoading={toggleLoadingKey === key}
-              interactionDisabled={outboundBlocked}
+              interactionDisabled={outboundBlocked || runnersLoading}
               onClick={() => openEdit(key)}
               onMouseEnter={() => setHoverKey(key)}
               onMouseLeave={() => setHoverKey(null)}
@@ -354,8 +416,37 @@ export function ACPPanel({ agentId: agentIdProp }: ACPPanelProps = {}) {
         canEditKey={
           isCreateMode || (activeKey ? !isBuiltinRunner(activeKey) : false)
         }
+        deviceScoped={Boolean(deviceId)}
+        checking={checking}
+        onCheck={
+          deviceId && activeKey
+            ? async () => {
+                setChecking(true);
+                try {
+                  const result = await acpApi.checkDeviceRunner(
+                    deviceId,
+                    activeKey,
+                  );
+                  setCheckResult(
+                    t(
+                      result.available ? "acp.checkFound" : "acp.checkMissing",
+                      { path: result.executable || "" },
+                    ),
+                  );
+                } catch (error) {
+                  setCheckResult(
+                    apiErrorMessage(error, t("acp.configFailed"), t),
+                  );
+                } finally {
+                  setChecking(false);
+                }
+              }
+            : undefined
+        }
         canDelete={
-          !isCreateMode && activeKey !== null && !isBuiltinRunner(activeKey)
+          !isCreateMode &&
+          activeKey !== null &&
+          (Boolean(deviceId) || !isBuiltinRunner(activeKey))
         }
         onClose={() => setDrawerOpen(false)}
         onSubmit={handleSubmit}

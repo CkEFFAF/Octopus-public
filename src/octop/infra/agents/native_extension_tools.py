@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
@@ -387,6 +388,11 @@ def register_extension_tools(
                 not enabled and name in CRITICAL_TOOLS
             ):
                 raise ValueError("unknown or critical tool cannot be disabled")
+            if name == "acp_runner":
+                section = dict(cfg.get("acp") or {})
+                section["tool_enabled"] = enabled
+                cfg["acp"] = section
+                await manager.update_config_json(row.agent_id, json.dumps(cfg))
             disabled = set(cfg.get("tools_disabled") or [])
             await manager.persist_tools_disabled(
                 row.agent_id, disabled - {name} if enabled else disabled | {name}

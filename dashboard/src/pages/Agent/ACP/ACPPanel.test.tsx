@@ -9,16 +9,40 @@ import { App } from "antd";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ACPRunnerConfig } from "../../../api/types/acp";
 
-const { getGlobalRunners, updateGlobalRunners, translate } = vi.hoisted(() => ({
+const {
+  getGlobalRunners,
+  updateGlobalRunners,
+  getDeviceRunners,
+  updateDeviceRunner,
+  resetDeviceRunner,
+  checkDeviceRunner,
+  translate,
+} = vi.hoisted(() => ({
   getGlobalRunners: vi.fn(),
   updateGlobalRunners: vi.fn(),
+  getDeviceRunners: vi.fn(),
+  updateDeviceRunner: vi.fn(),
+  resetDeviceRunner: vi.fn(),
+  checkDeviceRunner: vi.fn(),
   translate: (key: string) => key,
 }));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: translate }),
 }));
 vi.mock("../../../api/modules/acp", () => ({
-  acpApi: { getGlobalRunners, updateGlobalRunners },
+  acpApi: {
+    getGlobalRunners,
+    updateGlobalRunners,
+    getDeviceRunners,
+    updateDeviceRunner,
+    resetDeviceRunner,
+    checkDeviceRunner,
+  },
+}));
+vi.mock("../../../api/modules/devices", () => ({
+  devicesApi: {
+    list: async () => ({ devices: [{ device_id: "laptop", name: "Laptop" }] }),
+  },
 }));
 vi.mock("../../../context/AgentContext", () => ({
   useAgent: () => ({ activeAgentId: null, agents: [] }),
@@ -59,8 +83,51 @@ function show() {
 describe("extended ACP presets", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState({}, "", "/acp");
+    getDeviceRunners.mockResolvedValue({ runners: presets, overrides: [] });
+    updateDeviceRunner.mockResolvedValue({ runners: presets });
+    resetDeviceRunner.mockResolvedValue({ runners: presets });
+    checkDeviceRunner.mockResolvedValue({
+      available: true,
+      executable: "device-bin",
+    });
     getGlobalRunners.mockResolvedValue({ runners: presets });
     updateGlobalRunners.mockImplementation(async (runners) => ({ runners }));
+  });
+
+  it("saves an override on the selected device without changing account templates", async () => {
+    window.history.replaceState({}, "", "/acp?device=laptop");
+    show();
+    const label = await screen.findByText("acp.runner_hermes");
+    fireEvent.click(within(label.parentElement!).getByRole("switch"));
+    await waitFor(() =>
+      expect(updateDeviceRunner).toHaveBeenCalledWith("laptop", "hermes", {
+        ...presets.hermes,
+        enabled: true,
+      }),
+    );
+    expect(updateGlobalRunners).not.toHaveBeenCalled();
+    expect(getGlobalRunners).not.toHaveBeenCalled();
+  });
+
+  it("checks and resets saved device settings while keeping credentials off the form", async () => {
+    window.history.replaceState({}, "", "/acp?device=laptop");
+    show();
+    fireEvent.click(await screen.findByText("acp.runner_hermes"));
+    expect(
+      screen.queryByRole("textbox", { name: "acp.env" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "acp.checkSaved" }),
+    );
+    await waitFor(() =>
+      expect(checkDeviceRunner).toHaveBeenCalledWith("laptop", "hermes"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "acp.resetDevice" }));
+    await waitFor(() =>
+      expect(resetDeviceRunner).toHaveBeenCalledWith("laptop", "hermes"),
+    );
+    expect(updateGlobalRunners).not.toHaveBeenCalled();
   });
 
   it("renders disabled presets and enables the selected runner only", async () => {

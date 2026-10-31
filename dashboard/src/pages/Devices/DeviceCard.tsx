@@ -158,6 +158,13 @@ export default function DeviceCard({
           <Button
             type="text"
             size="small"
+            href={`/acp?device=${encodeURIComponent(device.device_id)}`}
+          >
+            ACP
+          </Button>
+          <Button
+            type="text"
+            size="small"
             icon={<Shield size={14} />}
             onClick={onSettings}
           >

@@ -140,6 +140,10 @@ class ACPSettingsStore:
 
 def _runners_response(raw_runners: dict[str, Any]) -> dict[str, Any]:
     merged_raw = dict(raw_runners)
+    codex = dict(merged_raw.get("codex") or default_acp_runners()["codex"].to_dict())
+    if codex.get("command") == "npx" and codex.get("args") == ["-y", "@zed-industries/codex-acp"]:
+        codex["args"] = ["-y", "@agentclientprotocol/codex-acp"]
+    merged_raw["codex"] = codex
     harness_names = set(default_acp_runners())
     for name, spec in _OCTOP_BUILTIN_RUNNERS.items():
         if name not in harness_names and name not in merged_raw:

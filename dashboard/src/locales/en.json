@@ -6983,6 +6983,14 @@
     "pickAgent": "Select an Agent first"
   },
   "acp": {
+    "scope": "ACP configuration scope",
+    "accountTemplate": "Account default templates",
+    "deviceHint": "Editing runners for the selected device. Entries without an override inherit account templates. Switching execution devices uses that device's settings.",
+    "resetDevice": "Restore account template",
+    "checkSaved": "Check saved configuration",
+    "checkFound": "Device executable found: {{path}}. ACP handshake, authentication and model subscription have not been tested.",
+    "checkMissing": "The device cannot find this program. Enter its full executable path on that device.",
+    "deviceEnvHint": "Devices use their own credentials and environment. Account template environment values are never sent to devices.",
     "description": "Connect external ACP-compatible coding agents. Runner settings are shared across all your agents; enable the acp_runner tool per agent below.",
     "globalRunnersHint": "Runner configuration below applies to all agents for your account.",
     "toolEnabledHint": "The acp_runner tool is enabled per agent — switch the agent above to configure the current one.",

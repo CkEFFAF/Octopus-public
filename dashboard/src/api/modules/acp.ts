@@ -14,6 +14,27 @@ function optionalAgentHeaders(
 }
 
 export const acpApi = {
+  getDeviceRunners: (id: string) =>
+    request<{ runners: Record<string, ACPRunnerConfig>; overrides: string[] }>(
+      `/devices/${encodeURIComponent(id)}/acp`,
+    ),
+  updateDeviceRunner: (id: string, name: string, body: ACPRunnerConfig) =>
+    request<{ runners: Record<string, ACPRunnerConfig> }>(
+      `/devices/${encodeURIComponent(id)}/acp/${encodeURIComponent(name)}`,
+      { method: "PUT", body: JSON.stringify({ ...body, env: {} }) },
+    ),
+  resetDeviceRunner: (id: string, name: string) =>
+    request<{ runners: Record<string, ACPRunnerConfig> }>(
+      `/devices/${encodeURIComponent(id)}/acp/${encodeURIComponent(name)}`,
+      { method: "DELETE" },
+    ),
+  checkDeviceRunner: (id: string, name: string) =>
+    request<{ available: boolean; executable: string | null; code: string }>(
+      `/devices/${encodeURIComponent(id)}/acp/${encodeURIComponent(
+        name,
+      )}/check`,
+      { method: "POST" },
+    ),
   /** Global runner definitions (shared by all agents for the current user). */
   getGlobalRunners: (agentId?: string | null) =>
     request<{ runners: Record<string, ACPRunnerConfig> }>("/acp", {

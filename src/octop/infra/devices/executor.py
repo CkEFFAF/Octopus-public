@@ -1044,6 +1044,8 @@ class DeviceExecutor:
             if self._acp is None:
                 self._acp = DeviceACPProcesses()
             session_id = str(params.get("session_id", ""))
+            if action == "acp.check":
+                return self._acp.check(str(params.get("command", "")), params.get("args", []))
             if action == "acp.open":
                 root = self.roots.get(str(params.get("root_id", "")))
                 if self.trust_mode != "owner" and (

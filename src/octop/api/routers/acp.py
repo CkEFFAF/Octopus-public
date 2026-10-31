@@ -11,7 +11,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from octop.api.common.agent import assert_agent_owner as _assert_agent_owner
 from octop.api.deps import current_user, get_server, require_admin
@@ -47,6 +47,20 @@ class ACPRunnerBody(BaseModel):
     trusted: bool = False
     tool_parse_mode: str = "update_detail"
     stdio_buffer_limit_bytes: int = _DEFAULT_STDIO_BUFFER
+
+    @field_validator("command")
+    @classmethod
+    def validate_command(cls, value: str) -> str:
+        if not value.strip() or len(value) > 1024 or "\x00" in value:
+            raise ValueError("A command or absolute executable path is required")
+        return value.strip()
+
+    @field_validator("args")
+    @classmethod
+    def validate_args(cls, value: list[str]) -> list[str]:
+        if len(value) > 64 or any("\x00" in arg or len(arg) > 4096 for arg in value):
+            raise ValueError("Invalid runner arguments")
+        return value
 
 
 class ACPRunnersBody(BaseModel):
@@ -154,6 +168,86 @@ def _agent_row(server: Any, agent_id: str, user: Any) -> Any:
         raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
     _assert_agent_owner(row, user)
     return row
+
+
+def _device_settings(server: Any, user: Any, device_id: str) -> Any:
+    from octop.infra.devices.acp_settings import DeviceACPSettings
+
+    return DeviceACPSettings(server.app_runtime.devices, user.id, device_id)
+
+
+@router.get("/devices/{device_id}/acp", summary="Get this device's effective ACP runners")
+async def get_device_acp(
+    device_id: str, user: Any = Depends(current_user), server: Any = Depends(get_server)
+) -> dict[str, Any]:
+    store = _device_settings(server, user, device_id)
+    return {"runners": store.runners(), "overrides": sorted(store.overrides())}
+
+
+@router.put("/devices/{device_id}/acp/{runner_name}", summary="Configure a runner on one device")
+async def put_device_acp(
+    device_id: str,
+    runner_name: str,
+    body: ACPRunnerBody,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    import re
+
+    store = _device_settings(server, user, device_id)
+    _validate_runner(runner_name, body)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", runner_name) or body.env:
+        raise OctopError(ErrorCode.SLASH_BAD_ARGS, "Invalid runner name or device environment")
+    store.save(runner_name, body.model_dump())
+    return {"runners": store.runners(), "overrides": sorted(store.overrides())}
+
+
+@router.delete(
+    "/devices/{device_id}/acp/{runner_name}",
+    summary="Restore the account template for a device runner",
+)
+async def reset_device_acp(
+    device_id: str,
+    runner_name: str,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    store = _device_settings(server, user, device_id)
+    store.reset(runner_name)
+    return {"runners": store.runners(), "overrides": sorted(store.overrides())}
+
+
+@router.post(
+    "/devices/{device_id}/acp/{runner_name}/check",
+    summary="Check the device executable without running a task",
+)
+async def check_device_acp(
+    device_id: str,
+    runner_name: str,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    store = _device_settings(server, user, device_id)
+    runner = store.runners().get(runner_name)
+    if runner is None:
+        raise OctopError(ErrorCode.NOT_FOUND, "Runner not configured")
+    try:
+        result = await server.app_runtime.devices.call(
+            user.id,
+            device_id,
+            "acp.check",
+            {"command": runner["command"], "args": runner["args"]},
+            allow_acp=True,
+        )
+    except OctopError as exc:
+        if exc.code == ErrorCode.DEVICE_INVALID and "unsupported" in str(exc).lower():
+            from octop.i18n import tr
+
+            raise OctopError(
+                ErrorCode.DEVICE_INVALID, tr("acp_runtime.update_client", user.locale)
+            ) from exc
+        raise
+    return dict(result)
 
 
 @router.get("/acp", summary="Get global ACP runners")

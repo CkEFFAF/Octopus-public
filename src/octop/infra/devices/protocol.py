@@ -88,6 +88,7 @@ ACTION_PERMISSION = {
     "desktop.input": "desktop_control",
     "command.run": "command_exec",
     "acp.open": "acp_run",
+    "acp.check": "acp_run",
     "acp.write": "acp_run",
     "acp.poll": "acp_run",
     "acp.close": "acp_run",
