@@ -36,24 +36,29 @@ def test_vendored_sheetjs_installs_without_a_registry_cache(
     shutil.copy2(dashboard / ".npmrc", tmp_path / ".npmrc")
     (tmp_path / "vendor").mkdir()
     shutil.copy2(dashboard / "vendor/xlsx-0.20.3.tgz", tmp_path / "vendor/xlsx-0.20.3.tgz")
-    result = subprocess.run(
-        [
-            npm,
-            "ci",
-            "--offline",
-            "--ignore-scripts",
-            "--no-audit",
-            "--no-fund",
-            "--cache",
-            str(tmp_path / "empty-cache"),
-        ],
-        cwd=tmp_path,
-        env={**os.environ, "NPM_CONFIG_UPDATE_NOTIFIER": "false"},
-        capture_output=True,
-        text=True,
-        timeout=90,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+    # On Windows npm.cmd starts node as a child. Redirecting output to a file
+    # avoids waiting on pipe handles inherited by another parallel subprocess.
+    output_path = tmp_path / "npm-output.log"
+    with output_path.open("w", encoding="utf-8") as output:
+        result = subprocess.run(
+            [
+                npm,
+                "ci",
+                "--offline",
+                "--ignore-scripts",
+                "--no-audit",
+                "--no-fund",
+                "--cache",
+                str(tmp_path / "empty-cache"),
+            ],
+            cwd=tmp_path,
+            env={**os.environ, "NPM_CONFIG_UPDATE_NOTIFIER": "false"},
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=300 if os.name == "nt" else 90,
+        )
+    assert result.returncode == 0, output_path.read_text(encoding="utf-8", errors="replace")
     installed = json.loads(
         (tmp_path / "node_modules/xlsx/package.json").read_text(encoding="utf-8")
     )
