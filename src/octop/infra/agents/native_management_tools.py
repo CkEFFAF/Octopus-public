@@ -386,6 +386,7 @@ def build_native_management_tools(
                     "work_step",
                     "schedule_self_check",
                     "cancel_self_check",
+                    "acp_runner",
                 }
             ),
             "rules": "Only owned resources can be changed. Ask/Plan are read-only. Device selection affects later turns. Team members are dispatched with ask_agent. Foreign shared members support text collaboration only; cross-account device execution is unsupported. Publish a conversation snapshot only when the user explicitly requests external sharing; preview the exact public text first and use its digest. Never publish automatically.",

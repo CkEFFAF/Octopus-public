@@ -6983,6 +6983,14 @@
     "pickAgent": "请先选择一个专家"
   },
   "acp": {
+    "scope": "ACP 配置范围",
+    "accountTemplate": "账号默认模板",
+    "deviceHint": "当前编辑所选设备的 Runner。未覆盖的配置继承账号模板；切换运行设备会使用对应设备的配置。",
+    "resetDevice": "恢复账号模板",
+    "checkSaved": "检查已保存配置",
+    "checkFound": "设备已找到程序：{{path}}。此检查未验证 ACP 握手、登录或模型订阅。",
+    "checkMissing": "设备找不到该程序，请填写该设备上的完整可执行文件路径。",
+    "deviceEnvHint": "设备使用自己的登录状态和环境变量，账号模板中的环境变量不会传到设备。",
     "description": "连接支持 ACP 协议的外部编程专家。Runner 配置对该账号下所有专家共享；可在下方按专家单独开启 acp_runner 工具。",
     "globalRunnersHint": "以下 Runner 配置对该账号下所有专家生效。",
     "toolEnabledHint": "acp_runner 工具需按专家单独开启，切换上方专家后为当前专家配置。",

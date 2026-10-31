@@ -3844,6 +3844,15 @@ class AgentManager:
             else backend
         )
 
+        if acp_raw.get("tool_enabled", False) and not team_host:
+            from octop.infra.devices.acp_bridge import build_request_acp_tool
+
+            merged_tools.append(
+                build_request_acp_tool(
+                    str(Path(harness_workspace)), acp_config, Path(harness_workspace)
+                )
+            )
+
         harness_cfg = HarnessAgentConfig(
             providers=self.providers_for_user(row.user_id).build_harness_configs(),
             name=_memory_namespace(row.agent_id),
@@ -3866,7 +3875,7 @@ class AgentManager:
             middleware=agent_middleware or None,
             bootstrap_enabled=not team_host,
             acp_runners=acp_config.runners,
-            acp_delegate_enabled=bool(acp_raw.get("tool_enabled", False)),
+            acp_delegate_enabled=False,  # The request scoped tool above resolves device overrides.
             skills_disabled=frozenset(skills_disabled_set(cfg) | plugin_skills_disabled),
             skills_dir=skill_dirs or None,
             default_timezone=self._config.default_timezone,

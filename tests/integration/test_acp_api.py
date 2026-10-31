@@ -10,6 +10,38 @@ async def env(env_acp_agent):
     yield env_acp_agent
 
 
+async def test_owned_device_runner_override_and_reset(env):
+    c, srv, auth, agent = env
+    service = srv.app_runtime.devices
+    owner = srv.app_runtime.agent_registry.get_row(agent).user_id
+    device = service.enroll(
+        pairing_code=service.pairing(owner)["pairing_code"],
+        name="test",
+        platform="windows",
+        capabilities=[],
+        permissions=[],
+        roots=[],
+    )["device"]["device_id"]
+    endpoint = f"/api/devices/{device}/acp"
+    response = await c.get(endpoint, headers=auth)
+    assert response.status_code == 200
+    runner = {
+        **response.json()["runners"]["opencode"],
+        "command": "device-command",
+        "enabled": True,
+    }
+    response = await c.put(endpoint + "/opencode", headers=auth, json=runner)
+    assert response.status_code == 200
+    assert response.json()["overrides"] == ["opencode"]
+    assert (await c.get("/api/acp/opencode", headers=auth)).json()["command"] == "opencode"
+    assert (
+        await c.put(endpoint + "/opencode", headers=auth, json={**runner, "env": {"KEY": "secret"}})
+    ).status_code == 400
+    assert (await c.get("/api/devices/foreign-device/acp", headers=auth)).status_code in {403, 404}
+    response = await c.delete(endpoint + "/opencode", headers=auth)
+    assert response.json()["overrides"] == []
+
+
 async def test_acp_config_round_trip(env) -> None:
     c, _srv, auth, agent_id = env
 

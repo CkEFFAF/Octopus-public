@@ -11,7 +11,7 @@ import base64
 import contextlib
 import socket
 from contextlib import AsyncExitStack, asynccontextmanager
-from pathlib import PurePosixPath, PureWindowsPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, cast
 
 from langgraph.config import get_config
@@ -348,9 +348,7 @@ class RequestACPService(ACPService):
     ) -> None:
         super().__init__(config=config)
         self.devices, self.owner, self.agent_id = devices, owner, agent_id
-        self._targets: dict[
-            tuple[str | None, str | None, int, int, str, str], RemoteACPService
-        ] = {}
+        self._targets: dict[tuple[Any, ...], RemoteACPService] = {}
         self._session_targets: dict[tuple[str, str], RemoteACPService] = {}
 
     def resolve_cwd(self, cwd: str, workspace_dir: Any) -> str:
@@ -367,6 +365,19 @@ class RequestACPService(ACPService):
         context = ExecutionService(self.devices).get(
             self.owner, str(supplied.get("context_id") or "")
         )
+        import json
+
+        from octop.infra.devices.acp_settings import DeviceACPSettings
+
+        effective = self.config
+        if context.device_id:
+            effective = ACPConfig.from_dict(
+                {
+                    "runners": DeviceACPSettings(
+                        self.devices, self.owner, context.device_id
+                    ).runners()
+                }
+            )
         directory = context.working_dir if not cwd or cwd == "." else cwd
         key = (
             context.device_id,
@@ -375,10 +386,13 @@ class RequestACPService(ACPService):
             context.grant_version,
             context.work_mode,
             context.context_id,
+            json.dumps(
+                {name: vars(runner) for name, runner in effective.runners.items()}, sort_keys=True
+            ),
         )
         if key not in self._targets:
             self._targets[key] = RemoteACPService(
-                config=self.config,
+                config=effective,
                 devices=self.devices,
                 owner=self.owner,
                 agent_id=self.agent_id,
@@ -391,8 +405,10 @@ class RequestACPService(ACPService):
         return service
 
     async def run_turn(self, **kwargs: Any) -> dict[str, Any]:
-        service = self._selected(str(kwargs.get("cwd") or "."))
-        self._session_targets[(str(kwargs["thread_id"]), str(kwargs["runner"]))] = service
+        key = (str(kwargs["thread_id"]), str(kwargs["runner"]))
+        service = self._session_targets.get(key) if kwargs.get("require_existing") else None
+        service = service or self._selected(str(kwargs.get("cwd") or "."))
+        self._session_targets[key] = service
         # Each service retains the device/default cwd that created its sessions.
         if kwargs.get("cwd"):
             kwargs["cwd"] = str(kwargs["cwd"])
@@ -420,10 +436,11 @@ class RequestACPService(ACPService):
         return await service.cancel_turn(thread_id=thread_id, runner=runner) if service else False
 
     async def resume_permission(self, **kwargs: Any) -> dict[str, Any]:
-        service = self._session_targets.get((str(kwargs["thread_id"]), str(kwargs["runner"])))
-        if service is None:
-            raise ACPSessionError("ACP session unavailable")
-        return await service.resume_permission(**kwargs)
+        # Harness resumes by the ACP session id, without thread or runner keys.
+        for service in set(self._session_targets.values()):
+            if await service._find_session_by_acp_id(str(kwargs["acp_session_id"])) is not None:
+                return await service.resume_permission(**kwargs)
+        raise ACPSessionError("ACP session unavailable")
 
     async def close_all_sessions(self) -> None:
         for service in self._targets.values():
@@ -437,3 +454,72 @@ def bind_remote_acp_service(service_key: str, service: ACPService) -> None:
     from octop_harness.acp.service import register_acp_service
 
     register_acp_service(service_key, service)
+
+
+def build_request_acp_tool(service_key: str, config: ACPConfig, workspace_dir: Path) -> Any:
+    """Resolve templates on each request and keep device errors inside tool results."""
+    from langchain_core.tools import tool
+    from octop_harness.acp.service import get_acp_service
+    from octop_harness.builtin.tools.acp_runner import build_acp_runner_tool
+
+    from octop.i18n import tr
+    from octop.infra.errors import OctopError
+
+    @tool
+    async def acp_runner(
+        action: str,
+        runner: str = "",
+        message: str = "",
+        cwd: str = "",
+        max_runtime: float | None = 300,
+    ) -> str:
+        """Use an ACP agent on the selected execution device. Actions: list, status, start, message, respond, close. Credentials stay on the device. List checks configuration, not authentication. Close a session before switching its device."""
+        service = get_acp_service(service_key)
+        try:
+            effective = config
+            if not isinstance(service, RequestACPService):
+                raise ACPSessionError("choose an execution target for ACP")
+            if isinstance(service, RequestACPService):
+                bound = service._session_targets.get(
+                    (str((get_config().get("configurable") or {}).get("thread_id")), runner)
+                )
+                selected = (
+                    bound
+                    if action in {"message", "respond", "status", "close"} and bound
+                    else service._selected(cwd or ".")
+                )
+                effective = selected.config
+                cwd = selected._binding()[0]
+            delegate = build_acp_runner_tool(
+                service_key=service_key, config=effective, workspace_dir=workspace_dir
+            )
+            return str(
+                await delegate.ainvoke(
+                    {
+                        "action": action,
+                        "runner": runner,
+                        "message": message,
+                        "cwd": cwd,
+                        "max_runtime": max_runtime,
+                    }
+                )
+            )
+        except Exception as exc:
+            text = str(exc).lower()
+            kind = (
+                "subscription"
+                if "subscription" in text
+                else "auth"
+                if any(
+                    word in text for word in ("unauthorized", "authentication", "login", "api key")
+                )
+                else "missing"
+                if "not installed" in text or "not found" in text or "executable_not_found" in text
+                else "offline"
+                if isinstance(exc, OctopError) and exc.code.value == "DEVICE_OFFLINE"
+                else "failed"
+            )
+            cfg = get_config().get("configurable") or {}
+            return tr("acp_runtime." + kind, cfg.get("locale") or "zh")
+
+    return acp_runner

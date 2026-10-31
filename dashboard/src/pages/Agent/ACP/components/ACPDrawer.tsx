@@ -30,6 +30,9 @@ interface ACPDrawerProps {
   onClose: () => void;
   onSubmit: (values: Record<string, unknown>) => void;
   onDelete?: () => void;
+  deviceScoped?: boolean;
+  onCheck?: () => void;
+  checking?: boolean;
 }
 
 export function ACPDrawer({
@@ -43,6 +46,9 @@ export function ACPDrawer({
   onClose,
   onSubmit,
   onDelete,
+  deviceScoped = false,
+  onCheck,
+  checking,
 }: ACPDrawerProps) {
   const { t } = useTranslation();
 
@@ -64,11 +70,16 @@ export function ACPDrawer({
           <div>
             {canDelete ? (
               <Button danger onClick={onDelete}>
-                {t("common.delete")}
+                {t(deviceScoped ? "acp.resetDevice" : "common.delete")}
               </Button>
             ) : null}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
+            {onCheck ? (
+              <Button onClick={onCheck} loading={checking}>
+                {t("acp.checkSaved")}
+              </Button>
+            ) : null}
             <Button onClick={onClose}>{t("common.cancel")}</Button>
             <Button
               type="primary"
@@ -113,13 +124,17 @@ export function ACPDrawer({
         >
           <Input.TextArea autoSize={{ minRows: 4, maxRows: 8 }} />
         </Form.Item>
-        <Form.Item
-          name="envText"
-          label={t("acp.env")}
-          tooltip={t("acp.envHelp")}
-        >
-          <Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} />
-        </Form.Item>
+        {!deviceScoped ? (
+          <Form.Item
+            name="envText"
+            label={t("acp.env")}
+            tooltip={t("acp.envHelp")}
+          >
+            <Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} />
+          </Form.Item>
+        ) : (
+          <p>{t("acp.deviceEnvHint")}</p>
+        )}
         <Form.Item
           name="trusted"
           label={t("acp.trusted")}

@@ -40,6 +40,33 @@ class DeviceACPProcesses:
     def __init__(self) -> None:
         self._sessions: dict[str, _Process] = {}
 
+    @staticmethod
+    def process_environment() -> dict[str, str]:
+        environment = dict(os.environ)
+        if os.name == "nt":
+            from urllib.request import getproxies
+
+            for scheme, address in getproxies().items():
+                if scheme in {"http", "https"}:
+                    key = scheme.upper() + "_PROXY"
+                    if not any(name.upper() == key for name in environment):
+                        environment[key] = address
+            environment.setdefault("NO_PROXY", "localhost,127.0.0.1")
+        return environment
+
+    @staticmethod
+    def check(command: str, args: list[str]) -> dict[str, Any]:
+        executable = shutil.which(command) if command and "\x00" not in command else None
+        return {
+            "available": executable is not None,
+            "executable": executable,
+            "code": "ACP_EXECUTABLE_FOUND" if executable else "ACP_EXECUTABLE_NOT_FOUND",
+            "authentication": "not_checked",
+            "adapter": "download_may_be_required"
+            if Path(command).stem.lower() in {"npx", "npm"}
+            else "not_checked",
+        }
+
     async def open(self, command: str, args: list[str], cwd: Path) -> dict[str, str]:
         if (
             not isinstance(command, str)
@@ -60,12 +87,23 @@ class DeviceACPProcesses:
             raise ACPProcessError("ACP working directory unavailable")
         executable = shutil.which(command)
         if executable is None:
-            raise ACPProcessError("ACP runner is not installed or cannot start on device")
+            raise ACPProcessError(
+                "ACP_EXECUTABLE_NOT_FOUND: configure the runner path on this device"
+            )
+        # Launch npm's JS entry directly. Batch shims otherwise depend on cmd.exe
+        # quoting, shell settings and PATH inherited by a long-running client.
+        if os.name == "nt" and Path(executable).name.lower() in {"npx.cmd", "npm.cmd"}:
+            folder = Path(executable).parent
+            script = folder / "node_modules" / "npm" / "bin" / (Path(executable).stem + "-cli.js")
+            node = folder / "node.exe"
+            if script.is_file() and node.is_file():
+                executable, args = str(node), [str(script), *args]
         spawn: dict[str, Any] = {
             "cwd": cwd,
             "stdin": asyncio.subprocess.PIPE,
             "stdout": asyncio.subprocess.PIPE,
             "stderr": asyncio.subprocess.PIPE,
+            "env": self.process_environment(),
         }
         if os.name == "nt":
             spawn["creationflags"] = (
@@ -86,7 +124,9 @@ class DeviceACPProcesses:
             await process.wait()
             raise
         except OSError as exc:
-            raise ACPProcessError("ACP runner is not installed or cannot start on device") from exc
+            raise ACPProcessError(
+                "ACP_START_FAILED: device could not launch the configured executable"
+            ) from exc
         job = None
         try:
             if os.name == "nt":

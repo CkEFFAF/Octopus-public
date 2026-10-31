@@ -1,4 +1,12 @@
 {
+  "acp_runtime": {
+    "update_client": "Update this device client to use startup checks. Device settings can still be saved and existing ACP calls remain supported.",
+    "subscription": "ACP connected, but the external service rejected the request because this model or account has no active subscription. Check the model and subscription on the execution device.",
+    "auth": "ACP started, but authentication failed. Sign in to the external program on the execution device.",
+    "missing": "The execution device cannot find the ACP executable. Select that device on the ACP page, configure its full executable path and run the startup check.",
+    "offline": "The ACP execution device is offline. Reconnect it and retry.",
+    "failed": "ACP call failed. Check the selected device's runner path, adapter installation and authentication. Run the startup check on the ACP page first."
+  },
   "slash": {
     "error": {
       "unknown_command": "Unknown command: /{name}. Type /help for available commands."
