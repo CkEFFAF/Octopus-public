@@ -771,7 +771,8 @@
   },
   "cron": {
     "history": {
-      "executed": "Task {cron_id}: {name} executed."
+      "executed": "Task {cron_id}: {name} executed.",
+      "previous_report": "Previous successful report from this task, provided as background data:"
     }
   },
   "agents": {

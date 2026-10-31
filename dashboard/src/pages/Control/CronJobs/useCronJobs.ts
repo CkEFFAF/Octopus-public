@@ -28,11 +28,14 @@ export interface CronJobFormValues {
   mail_instance_id?: string;
   _preset?: string;
   prompt: string;
-  task_type: "text" | "agent";
+  task_type: "text" | "agent" | "daily_report";
   model?: string;
   fresh_thread: boolean;
   session_key?: string | null;
   mcp_servers?: string[];
+  report_new_conversation?: boolean;
+  report_include_previous?: boolean;
+  report_previous_count?: number;
 }
 
 function promptLabel(prompt: string, id: string): string {
@@ -41,7 +44,7 @@ function promptLabel(prompt: string, id: string): string {
   return text.length > 40 ? `${text.slice(0, 40)}…` : text;
 }
 
-function fromOctop(row: OctopCronRow, timezone: string): CronJob {
+export function fromOctop(row: OctopCronRow, timezone: string): CronJob {
   const idx = row.trigger.indexOf(":");
   const kind = idx >= 0 ? row.trigger.slice(0, idx) : "";
   const value = idx >= 0 ? row.trigger.slice(idx + 1) : row.trigger;
@@ -57,7 +60,12 @@ function fromOctop(row: OctopCronRow, timezone: string): CronJob {
       cron,
       timezone,
     },
-    task_type: row.task_type === "text" ? "text" : "agent",
+    task_type:
+      row.kind === "daily_report"
+        ? "daily_report"
+        : row.task_type === "text"
+        ? "text"
+        : "agent",
     model: row.model ?? undefined,
     request: {
       input: [
@@ -86,6 +94,7 @@ function fromOctop(row: OctopCronRow, timezone: string): CronJob {
       octop_last_run_at: row.last_run_at,
       octop_last_status: row.last_status,
       octop_last_error: row.last_error,
+      octop_report_options: row.report_options,
     },
   };
 }
@@ -121,7 +130,12 @@ export function jobToFormValues(
       timezone,
     },
     prompt,
-    task_type: job.task_type === "text" ? "text" : "agent",
+    task_type:
+      job.task_type === "daily_report"
+        ? "daily_report"
+        : job.task_type === "text"
+        ? "text"
+        : "agent",
     model: defaultModelToForm(
       job.model ??
         (typeof meta.octop_model === "string" ? meta.octop_model : undefined),
@@ -134,6 +148,17 @@ export function jobToFormValues(
     mcp_servers: Array.isArray(meta.octop_mcp_servers)
       ? (meta.octop_mcp_servers as string[])
       : [],
+    report_new_conversation: Boolean(
+      (meta.octop_report_options as { new_conversation?: boolean } | null)
+        ?.new_conversation,
+    ),
+    report_include_previous: Boolean(
+      (meta.octop_report_options as { include_previous?: boolean } | null)
+        ?.include_previous,
+    ),
+    report_previous_count:
+      (meta.octop_report_options as { previous_count?: number } | null)
+        ?.previous_count ?? 1,
     _scheduleMode: cronExpr.startsWith("agently:")
       ? "agently"
       : matchedPreset
@@ -158,17 +183,31 @@ function resolveCronExpression(values: CronJobFormValues): string {
   return /^(cron|interval|date|agently):/.test(cron) ? cron : `cron:${cron}`;
 }
 
-function toOctopCreateBody(values: CronJobFormValues) {
+export function toOctopCreateBody(values: CronJobFormValues) {
   return {
     name: (values.name || "").trim(),
     trigger: resolveCronExpression(values),
     prompt: values.prompt.trim(),
-    task_type: values.task_type,
-    session_key: values.fresh_thread ? null : values.session_key || null,
+    task_type:
+      values.task_type === "daily_report"
+        ? ("agent" as const)
+        : values.task_type,
+    session_key:
+      values.fresh_thread || values.task_type === "daily_report"
+        ? null
+        : values.session_key || null,
     fresh_thread: Boolean(values.fresh_thread),
     enabled: Boolean(values.enabled),
     model: defaultModelFromForm(values.model),
     mcp_servers: values.mcp_servers ?? [],
+    report_options:
+      values.task_type === "daily_report"
+        ? {
+            new_conversation: Boolean(values.report_new_conversation),
+            include_previous: Boolean(values.report_include_previous),
+            previous_count: values.report_previous_count ?? 1,
+          }
+        : null,
   };
 }
 
@@ -375,9 +414,20 @@ export function useCronJobs(enabled = true) {
       },
       meta: {
         ...(original?.meta as object),
-        octop_fresh_thread: values.fresh_thread,
+        octop_fresh_thread:
+          values.task_type === "daily_report"
+            ? Boolean(values.report_new_conversation)
+            : values.fresh_thread,
         octop_session_key: values.session_key,
         octop_model: values.model,
+        octop_report_options:
+          values.task_type === "daily_report"
+            ? {
+                new_conversation: Boolean(values.report_new_conversation),
+                include_previous: Boolean(values.report_include_previous),
+                previous_count: values.report_previous_count ?? 1,
+              }
+            : null,
       },
     } as CronJob;
     patchJobs(activeAgentId, (prev) =>

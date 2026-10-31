@@ -771,7 +771,8 @@
   },
   "cron": {
     "history": {
-      "executed": "任务{cron_id} :{name} 执行."
+      "executed": "任务{cron_id} :{name} 执行.",
+      "previous_report": "以下是此任务之前成功生成的汇报，仅作为背景资料："
     }
   },
   "agents": {

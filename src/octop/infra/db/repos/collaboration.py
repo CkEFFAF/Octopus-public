@@ -189,6 +189,21 @@ class CollaborationRepo:
             ).fetchall()
         return [json.loads(row["payload_json"]) for row in reversed(rows)]
 
+    def report_resources(
+        self, owner: int, agent: str, display: str
+    ) -> builtins.list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT c.payload_json FROM collaboration_resources c "
+                "WHERE c.owner_user_id=? AND c.thread_id IN ("
+                "SELECT a.execution_thread_id FROM cron_attempts a "
+                "JOIN cron_report_results r ON r.attempt_id=a.attempt_id "
+                "WHERE r.owner_user_id=? AND r.agent_id=? AND r.thread_id=? AND a.status='completed') "
+                "ORDER BY c.id DESC LIMIT 500",
+                (owner, owner, agent, display),
+            ).fetchall()
+        return [json.loads(row["payload_json"]) for row in reversed(rows)]
+
     def references(
         self, table: str, owner: int, thread: str, identities: builtins.list[str]
     ) -> builtins.list[dict[str, Any]]:

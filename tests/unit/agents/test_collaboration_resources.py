@@ -101,6 +101,85 @@ def call(rig: Any, identity: str = "inv-1", resources: tuple[str, ...] = (), **c
 
 
 @pytest.mark.asyncio
+async def test_completed_report_resources_are_readable_from_display_thread(rig: Any) -> None:
+    repos = rig.repos
+    repos.thread_repo.insert(
+        thread_id="report-internal",
+        agent_id="parent",
+        user_id=rig.owner,
+        channel_type="cron_internal",
+        session_key="report",
+    )
+    repos.cron_repo.create(
+        cron_id="report",
+        agent_id="parent",
+        user_id=rig.owner,
+        trigger="interval:60",
+        prompt="Report",
+        session_key="report",
+    )
+    resource = await rig.resources.register(
+        rig.owner, "parent", "inbound/paper.txt", thread="report-internal"
+    )
+    repos.cron_attempt_repo.create("report-attempt", rig.owner, "parent", "report", "root", "timer")
+    repos.cron_attempt_repo.update(rig.owner, "report-attempt", "running", thread="root")
+    repos.cron_attempt_repo.bind_report_execution(rig.owner, "report-attempt", "report-internal")
+    repos.cron_report_repo.save(
+        attempt="report-attempt",
+        owner=rig.owner,
+        agent="parent",
+        cron="report",
+        thread="root",
+        output="Report",
+    )
+    with pytest.raises(OctopError):
+        rig.resources.owner_view(rig.owner, "parent", "root", resource["resource_id"])
+    repos.cron_attempt_repo.update(rig.owner, "report-attempt", "completed")
+    assert (
+        rig.resources.owner_view(rig.owner, "parent", "root", resource["resource_id"])["version"]
+        == resource["version"]
+    )
+    assert (
+        rig.resources.authorize(rig.owner, resource["resource_id"], "parent", "root")["version"]
+        == resource["version"]
+    )
+    with pytest.raises(OctopError):
+        rig.resources.owner_view(rig.outsider, "other", "foreign", resource["resource_id"])
+    peer = call(
+        rig, "report-child", source_thread_id="report-internal", source_session_key="report"
+    )
+    rig.collaboration.accept(peer)
+    rig.collaboration.bind(peer, "child-thread", {})
+    token = var_child_runnable_config.set({"configurable": {"octop_invocation_id": "report-child"}})
+    try:
+        delegated = await rig.resources.register(
+            rig.owner, "child", "inbound/paper.txt", thread="child-thread", published=True
+        )
+    finally:
+        var_child_runnable_config.reset(token)
+    assert (
+        rig.resources.owner_view(rig.owner, "parent", "root", delegated["resource_id"])[
+            "source_thread_id"
+        ]
+        == "child-thread"
+    )
+    assert (
+        rig.resources.authorize(rig.owner, delegated["resource_id"], "parent", "root")["version"]
+        == delegated["version"]
+    )
+    listed = rig.collaboration.listing(rig.owner, "parent", "root", 0, 50)
+    assert {item["resource_id"] for item in listed["artifacts"]} >= {
+        resource["resource_id"],
+        delegated["resource_id"],
+    }
+    repos.cron_repo.delete("report")
+    assert (
+        rig.resources.owner_view(rig.owner, "parent", "root", resource["resource_id"])["version"]
+        == resource["version"]
+    )
+
+
+@pytest.mark.asyncio
 async def test_actual_read_tool_does_not_need_device_and_revalidates_source(rig: Any) -> None:
     tool = next(
         tool

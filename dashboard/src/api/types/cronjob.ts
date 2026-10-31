@@ -35,7 +35,7 @@ export interface CronJobSpecInput {
   name: string;
   enabled?: boolean;
   schedule: CronJobSchedule;
-  task_type?: "text" | "agent";
+  task_type?: "text" | "agent" | "daily_report";
   text?: string;
   request?: CronJobRequest;
   dispatch: CronJobDispatch;
@@ -81,6 +81,7 @@ export interface OctopCronRow {
   last_status: string | null;
   last_error: string | null;
   kind?: string;
+  report_options?: DailyReportOptions | null;
   self_reminder?: boolean;
   meta?: Record<string, unknown>;
   timezone?: string;
@@ -98,6 +99,12 @@ export interface OctopCronRow {
   thread_title?: string | null;
 }
 
+export interface DailyReportOptions {
+  new_conversation: boolean;
+  include_previous: boolean;
+  previous_count: number;
+}
+
 /** Body sent to POST /api/agents/:id/cron */
 export interface OctopCronCreateBody {
   name?: string | null;
@@ -109,6 +116,7 @@ export interface OctopCronCreateBody {
   model?: string | null;
   task_type?: "text" | "agent";
   mcp_servers?: string[];
+  report_options?: DailyReportOptions | null;
 }
 
 /** Body sent to PATCH /api/agents/:id/cron/:cron_id */
@@ -122,4 +130,5 @@ export interface OctopCronPatchBody {
   model?: string | null;
   task_type?: "text" | "agent";
   mcp_servers?: string[];
+  report_options?: DailyReportOptions | null;
 }

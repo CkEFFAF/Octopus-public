@@ -3,6 +3,7 @@ import {
   Drawer,
   Form,
   Input,
+  InputNumber,
   Select,
   Switch,
   Button,
@@ -91,6 +92,8 @@ export function JobDrawer({
   const remote = isBridgeAgentId(activeAgentId);
   const scheduleMode = Form.useWatch("_scheduleMode", form);
   const freshThread = Form.useWatch("fresh_thread", form);
+  const taskType = Form.useWatch("task_type", form);
+  const includePrevious = Form.useWatch("report_include_previous", form);
 
   const [models, setModels] = useState<ModelPickerOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -419,6 +422,11 @@ export function JobDrawer({
             <Select.Option value="text">
               {t("cronJobs.form.taskTypeText")}
             </Select.Option>
+            {!remote && (
+              <Select.Option value="daily_report">
+                {t("cronJobs.form.taskTypeReport")}
+              </Select.Option>
+            )}
           </Select>
         </Form.Item>
 
@@ -483,22 +491,52 @@ export function JobDrawer({
           />
         </Form.Item>
 
-        <Form.Item
-          name="fresh_thread"
-          label={t("cronJobs.form.freshThread")}
-          valuePropName="checked"
-          tooltip={t("cronJobs.form.freshThreadTooltip")}
-        >
-          <Switch
-            onChange={(checked) => {
-              if (checked) {
-                form.setFieldValue("session_key", undefined);
-              }
-            }}
-          />
-        </Form.Item>
+        {taskType === "daily_report" ? (
+          <>
+            <Form.Item
+              name="report_new_conversation"
+              label={t("cronJobs.form.reportNewConversation")}
+              valuePropName="checked"
+              tooltip={t("cronJobs.form.reportNewConversationHint")}
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              name="report_include_previous"
+              label={t("cronJobs.form.reportIncludePrevious")}
+              valuePropName="checked"
+              tooltip={t("cronJobs.form.reportIncludePreviousHint")}
+            >
+              <Switch />
+            </Form.Item>
+            {includePrevious && (
+              <Form.Item
+                name="report_previous_count"
+                label={t("cronJobs.form.reportPreviousCount")}
+                rules={[{ required: true, type: "number", min: 1, max: 30 }]}
+              >
+                <InputNumber min={1} max={30} precision={0} />
+              </Form.Item>
+            )}
+          </>
+        ) : (
+          <Form.Item
+            name="fresh_thread"
+            label={t("cronJobs.form.freshThread")}
+            valuePropName="checked"
+            tooltip={t("cronJobs.form.freshThreadTooltip")}
+          >
+            <Switch
+              onChange={(checked) => {
+                if (checked) {
+                  form.setFieldValue("session_key", undefined);
+                }
+              }}
+            />
+          </Form.Item>
+        )}
 
-        {!freshThread && (
+        {taskType !== "daily_report" && !freshThread && (
           <>
             <SectionHeader
               title={t("cronJobs.form.sectionRouting")}

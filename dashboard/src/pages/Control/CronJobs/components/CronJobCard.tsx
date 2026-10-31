@@ -68,7 +68,7 @@ export function CronJobCard({
 
   const accent = job.enabled ? ENABLED_ACCENT : DISABLED_ACCENT;
 
-  const taskType = job.task_type === "text" ? "text" : "agent";
+  const taskType = job.task_type;
 
   const moreMenuItems: MenuProps["items"] = [
     {
@@ -126,7 +126,9 @@ export function CronJobCard({
             </div>
             {/* Task type tag */}
             <Tag style={{ fontSize: 11, margin: 0 }}>
-              {taskType === "text"
+              {taskType === "daily_report"
+                ? t("cronJobs.form.taskTypeReport")
+                : taskType === "text"
                 ? t("cronJobs.form.taskTypeText")
                 : t("cronJobs.form.taskTypeAgent")}
             </Tag>

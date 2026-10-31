@@ -197,8 +197,8 @@ class ThreadRepo:
                 ("user" if title else "fallback", ts, thread_id),
             )
             conn.execute(
-                "INSERT INTO thread_metadata(thread_id,auto_enrolled) VALUES (?,1) ON CONFLICT(thread_id) DO NOTHING",
-                (thread_id,),
+                "INSERT INTO thread_metadata(thread_id,auto_enrolled) VALUES (?,?) ON CONFLICT(thread_id) DO NOTHING",
+                (thread_id, 0 if channel_type == "cron_internal" else 1),
             )
 
     def get(self, thread_id: str) -> ThreadRow | None:
@@ -212,7 +212,7 @@ class ThreadRepo:
         # instead of sinking below every previously active chat.
         with self._db.connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM threads WHERE agent_id = ? "
+                "SELECT * FROM threads WHERE agent_id = ? AND channel_type != 'cron_internal' "
                 "ORDER BY pinned DESC, "
                 "CASE WHEN last_active > 0 THEN last_active ELSE created_at END DESC, "
                 "thread_id DESC LIMIT ?",
@@ -225,7 +225,7 @@ class ThreadRepo:
     ) -> list[ThreadRow]:
         with self._db.connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM threads WHERE agent_id = ? AND user_id = ? "
+                "SELECT * FROM threads WHERE agent_id = ? AND user_id = ? AND channel_type != 'cron_internal' "
                 "ORDER BY pinned DESC, "
                 "CASE WHEN last_active > 0 THEN last_active ELSE created_at END DESC, "
                 "thread_id DESC LIMIT ?",
@@ -236,7 +236,7 @@ class ThreadRepo:
     def list_by_session(self, *, session_key: str, limit: int = 50) -> list[ThreadRow]:
         with self._db.connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM threads WHERE session_key = ? "
+                "SELECT * FROM threads WHERE session_key = ? AND channel_type != 'cron_internal' "
                 "ORDER BY "
                 "CASE WHEN last_active > 0 THEN last_active ELSE created_at END DESC, "
                 "thread_id DESC LIMIT ?",
@@ -274,7 +274,7 @@ class ThreadRepo:
                 "WHERE json_extract(CASE WHEN b.type='object' THEN b.value ELSE '{}' END,'$.type')='text' "
                 "AND json_extract(CASE WHEN b.type='object' THEN b.value ELSE '{}' END,'$.text') LIKE ? ESCAPE '!')"
             )
-        where = "t.user_id=? AND (a.user_id=? OR (a.is_shared=1 AND a.enabled=1))"
+        where = "t.user_id=? AND t.channel_type!='cron_internal' AND (a.user_id=? OR (a.is_shared=1 AND a.enabled=1))"
         params: list[object] = [user_id, user_id]
         if agent_id is not None:
             where += " AND t.agent_id=?"

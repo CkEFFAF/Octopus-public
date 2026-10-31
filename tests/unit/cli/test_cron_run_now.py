@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -57,6 +57,53 @@ def cron_runtime(tmp_path, monkeypatch):
         yield mgr, delivery, snapshots
     finally:
         db.close()
+
+
+def test_offline_report_creation_keeps_independent_options(cron_runtime, monkeypatch):
+    mgr, _delivery, _snapshots = cron_runtime
+    repos = mgr._repos
+    owner = repos.user_repo.get_by_username("owner").id
+    monkeypatch.setattr(offline_ops, "open_cli_services", lambda *_: nullcontext(repos))
+    row = offline_ops.create_cron_offline(
+        agent_id="agent-1",
+        user_id=owner,
+        trigger="interval:60",
+        prompt="Report",
+        report_options={"new_conversation": True, "include_previous": False, "previous_count": 3},
+    )
+    assert row["kind"] == "daily_report"
+    assert row["fresh_thread"] is True
+    assert row["report_options"]["include_previous"] is False
+    assert row["report_options"]["previous_count"] == 3
+    assert repos.session_repo.get(row["session_key"]) is not None
+
+
+def test_cli_creates_report_with_history_options(cron_runtime, monkeypatch):
+    mgr, _delivery, _snapshots = cron_runtime
+    monkeypatch.setattr(offline_ops, "open_cli_services", lambda *_: nullcontext(mgr._repos))
+    result = CliRunner().invoke(
+        cli,
+        [
+            "cron",
+            "create",
+            "--agent",
+            "agent-1",
+            "--trigger",
+            "interval:60",
+            "--prompt",
+            "Report",
+            "--daily-report",
+            "--fresh-thread",
+            "--include-previous-reports",
+            "--previous-report-count",
+            "7",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    rows = mgr._repos.cron_repo.list_by_agent("agent-1")
+    report = next(row for row in rows if row.kind == "daily_report")
+    assert report.fresh_thread == 1
+    assert report.meta["daily_report"]["previous_count"] == 7
 
 
 @pytest.mark.parametrize(

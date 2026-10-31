@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from octop.api.common.agent import assert_agent_access, require_agent_row, user_owns_agent
 from octop.api.deps import current_user, get_server
@@ -22,6 +22,20 @@ from octop.infra.utils.ulid import new_cron_id
 router = APIRouter()
 
 
+class DailyReportOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    new_conversation: StrictBool = Field(
+        default=False, description="Create a separate visible conversation for each run."
+    )
+    include_previous: StrictBool = Field(
+        default=False, description="Include successful reports from this task as model context."
+    )
+    previous_count: int = Field(
+        default=1, ge=1, le=30, strict=True, description="Number of previous successful reports."
+    )
+
+
 class CronCreateBody(BaseModel):
     name: str | None = None
     trigger: str = Field(
@@ -34,6 +48,9 @@ class CronCreateBody(BaseModel):
     model: str | None = None
     task_type: str = "text"
     mcp_servers: list[str] = Field(default_factory=list)
+    report_options: DailyReportOptions | None = Field(
+        default=None, description="Enable daily report mode with a dedicated conversation."
+    )
 
 
 class CronPatchBody(BaseModel):
@@ -49,6 +66,9 @@ class CronPatchBody(BaseModel):
     model: str | None = None
     task_type: str | None = None
     mcp_servers: list[str] | None = None
+    report_options: DailyReportOptions | None = Field(
+        default=None, description="Update report settings; null returns the task to ordinary mode."
+    )
 
 
 class CronExamplesResponse(BaseModel):
@@ -208,6 +228,7 @@ async def create_cron(
         prompt=prompt,
         session_key=body.session_key,
         fresh_thread=body.fresh_thread,
+        report_options=body.report_options.model_dump() if body.report_options else None,
         enabled=body.enabled,
         model=(body.model or "").strip() or None,
         task_type=normalize_cron_task_type(body.task_type),
@@ -276,6 +297,15 @@ async def patch_cron(
         task_type=normalize_cron_task_type(body.task_type) if body.task_type is not None else None,
         **({"model": (body.model or "").strip() or None} if "model" in patch_fields else {}),
         mcp_servers=mcp_arg,
+        **(
+            {
+                "report_options": body.report_options.model_dump(exclude_unset=True)
+                if body.report_options
+                else None
+            }
+            if "report_options" in patch_fields
+            else {}
+        ),
     )
     return cast(dict[str, Any], _get_cron_manager(server).public_view(row))
 

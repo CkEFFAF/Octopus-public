@@ -60,6 +60,9 @@ export function buildDefaultFormValues(timezone: string) {
     task_type: "text" as const,
     model: undefined,
     fresh_thread: false,
+    report_new_conversation: false,
+    report_include_previous: false,
+    report_previous_count: 1,
     session_key: undefined,
     mcp_servers: [],
   };

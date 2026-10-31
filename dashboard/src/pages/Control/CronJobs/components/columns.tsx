@@ -182,10 +182,12 @@ export const createColumns = (
       key: "task_type",
       width: 180,
       render: (_: unknown, record: CronJob) => {
-        const taskType = record.task_type === "text" ? "text" : "agent";
+        const taskType = record.task_type;
         return (
           <Tag style={{ fontSize: 11, whiteSpace: "nowrap" }}>
-            {taskType === "text"
+            {taskType === "daily_report"
+              ? handlers.t("cronJobs.form.taskTypeReport")
+              : taskType === "text"
               ? handlers.t("cronJobs.form.taskTypeText")
               : handlers.t("cronJobs.form.taskTypeAgent")}
           </Tag>

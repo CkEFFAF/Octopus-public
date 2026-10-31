@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from octop.i18n.domains.stream import format_stream_error
 from octop.infra.cron.delivery import CronDeliveryCommand
+from octop.infra.cron.report import ReportOptions, report_options
 from octop.infra.cron.task_type import normalize_cron_task_type
 from octop.infra.db.repos.audit import ACTOR_SYSTEM
 
@@ -36,6 +37,8 @@ class CronJob:
         delivery_service: CronDeliveryService,
         cron_repo: CronJobRepo,
         audit_repo: AuditRepo,
+        report: ReportOptions | None = None,
+        report_origin_session: str = "",
     ) -> None:
         self._cron_id = cron_id
         self._name = name
@@ -50,6 +53,8 @@ class CronJob:
         self._delivery_service = delivery_service
         self._cron_repo = cron_repo
         self._audit_repo = audit_repo
+        self._report = report
+        self._report_origin_session = report_origin_session
 
     @classmethod
     def from_row(
@@ -74,6 +79,8 @@ class CronJob:
             delivery_service=delivery_service,
             cron_repo=cron_repo,
             audit_repo=audit_repo,
+            report=report_options(row),
+            report_origin_session=str((row.meta or {}).get("previous_session_key") or ""),
         )
 
     async def run(self, *, raise_on_error: bool = False, reason: str = "timer") -> None:
@@ -83,14 +90,13 @@ class CronJob:
         ts = int(time.time())
 
         try:
-            from octop.infra.cron.self_reminder import is_self_reminder_row
-
             row = self._cron_repo.get(self._cron_id)
             if row is None or (not row.enabled and reason != "manual"):
                 return
-            fresh = self._fresh_thread
-            if row is not None and is_self_reminder_row(row):
-                fresh = False
+            if (report_options(row) is not None) != (self._report is not None):
+                return
+            from octop.infra.cron.self_reminder import is_self_reminder_row
+
             command = CronDeliveryCommand(
                 cron_id=self._cron_id,
                 reason=reason,
@@ -99,10 +105,12 @@ class CronJob:
                 user_id=self._user_id,
                 session_key=self._session_key,
                 prompt=self._prompt,
-                fresh_thread=fresh,
+                fresh_thread=self._fresh_thread and not is_self_reminder_row(row),
                 task_type=self._task_type,
                 model=self._model,
                 mcp_servers=tuple(self._mcp_servers),
+                report=self._report,
+                report_origin_session=self._report_origin_session,
             )
             await self._delivery_service.deliver(command)
         except Exception as exc:

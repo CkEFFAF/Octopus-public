@@ -200,7 +200,9 @@ export function JobDetailDrawer({
         labelStyle={{ color: "var(--fn-text-tertiary)", width: 120 }}
       >
         <Descriptions.Item label={t("cronJobs.col.taskType")}>
-          {job.task_type === "text"
+          {job.task_type === "daily_report"
+            ? t("cronJobs.form.taskTypeReport")
+            : job.task_type === "text"
             ? t("cronJobs.form.taskTypeText")
             : t("cronJobs.form.taskTypeAgent")}
         </Descriptions.Item>
@@ -216,11 +218,41 @@ export function JobDetailDrawer({
             {String(job.model || meta.octop_model)}
           </Descriptions.Item>
         ) : null}
-        <Descriptions.Item label={t("cronJobs.col.freshThread")}>
+        <Descriptions.Item
+          label={t(
+            job.task_type === "daily_report"
+              ? "cronJobs.form.reportNewConversation"
+              : "cronJobs.col.freshThread",
+          )}
+        >
           {meta.octop_fresh_thread
             ? t("cronJobs.col.freshThreadOn")
             : t("cronJobs.col.freshThreadOff")}
         </Descriptions.Item>
+        {job.task_type === "daily_report" && (
+          <>
+            <Descriptions.Item label={t("cronJobs.form.reportIncludePrevious")}>
+              {(
+                meta.octop_report_options as {
+                  include_previous?: boolean;
+                } | null
+              )?.include_previous
+                ? t("cronJobs.col.freshThreadOn")
+                : t("cronJobs.col.freshThreadOff")}
+            </Descriptions.Item>
+            {(
+              meta.octop_report_options as { include_previous?: boolean } | null
+            )?.include_previous && (
+              <Descriptions.Item label={t("cronJobs.form.reportPreviousCount")}>
+                {(
+                  meta.octop_report_options as {
+                    previous_count?: number;
+                  } | null
+                )?.previous_count ?? 1}
+              </Descriptions.Item>
+            )}
+          </>
+        )}
       </Descriptions>
 
       <Divider

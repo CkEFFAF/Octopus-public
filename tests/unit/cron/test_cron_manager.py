@@ -17,6 +17,8 @@ from octop.infra.cron.manager import CronManager
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.pool import SqlitePool
 from octop.infra.db.services import build_shared_services
+from octop.infra.devices.service import DeviceService
+from octop.infra.execution.service import ExecutionService
 from octop.infra.gateway.threads import ThreadRegistry
 from octop.infra.utils.paths import PathLayout
 from octop.infra.utils.ulid import new_ulid
@@ -102,6 +104,65 @@ def _cron_id() -> str:
     return new_ulid()
 
 
+@pytest.mark.asyncio
+async def test_report_creation_and_conversion_inherit_source_device(tmp_path: Path) -> None:
+    services = _make_services(tmp_path)
+    aid, uid = _make_agent(services)
+    registry = ThreadRegistry(
+        session_repo=services.repos.session_repo, thread_repo=services.repos.thread_repo
+    )
+    source = ThreadRegistry.dashboard_key(agent_id=aid, user_id=uid)
+    source_thread = await registry.get_or_create_by_key(
+        session_key=source, agent_id=aid, user_id=uid, channel_type="dashboard"
+    )
+    devices = DeviceService(services.repos)
+    device = devices.enroll(
+        owner_user_id=uid,
+        name="Laptop",
+        platform="windows",
+        capabilities=[],
+        permissions=[],
+        roots=[],
+        trust_mode="owner",
+    )
+    execution = ExecutionService(devices)
+    execution.save_selection(
+        uid,
+        source_thread,
+        {
+            "device_id": device["device"]["device_id"],
+            "working_dir": str(tmp_path),
+            "work_mode": "plan",
+        },
+    )
+    gateway = _make_gateway()
+    gateway.thread_registry = registry
+    manager = _make_manager(services, gateway=gateway)
+    manager._delivery_service._agent_manager._device_service = devices
+    created = await manager.create(
+        cron_id="direct-report",
+        agent_id=aid,
+        user_id=uid,
+        session_key=source,
+        trigger="interval:60",
+        prompt="Report",
+        report_options={},
+    )
+    direct_thread = services.repos.session_repo.get(created.session_key).thread_id
+    assert execution.selection(uid, direct_thread) == execution.selection(uid, source_thread)
+    ordinary = await manager.create(
+        cron_id="convert-report",
+        agent_id=aid,
+        user_id=uid,
+        session_key=source,
+        trigger="interval:60",
+        prompt="Report",
+    )
+    converted = await manager.update(ordinary.cron_id, report_options={})
+    target = services.repos.session_repo.get(converted.session_key).thread_id
+    assert execution.selection(uid, target) == execution.selection(uid, source_thread)
+
+
 # ---------------------------------------------------------------------------
 # boot() / shutdown()
 # ---------------------------------------------------------------------------
@@ -138,7 +199,7 @@ async def test_boot_schedules_enabled_jobs(tmp_path: Path) -> None:
 
     await mgr.boot()
 
-    assert mgr._scheduler.add_job.call_count == 2
+    assert mgr._scheduler.add_job.call_count == 3
 
 
 @pytest.mark.asyncio
@@ -160,7 +221,8 @@ async def test_boot_skips_disabled_jobs(tmp_path: Path) -> None:
     mgr = _make_manager(services)
     await mgr.boot()
 
-    mgr._scheduler.add_job.assert_not_called()
+    mgr._scheduler.add_job.assert_called_once()
+    assert mgr._scheduler.add_job.call_args.kwargs["id"] == "cron-report-checkpoint-cleanup"
 
 
 @pytest.mark.asyncio

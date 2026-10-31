@@ -65,6 +65,56 @@ def _tool_by_name(tools: list, name: str):
 
 
 @pytest.mark.asyncio
+async def test_expert_can_create_and_change_report_settings(tmp_path: Path) -> None:
+    services = _make_services(tmp_path)
+    agent_id = new_ulid()
+    user_id = services.repos.user_repo.create(username="report", password_hash="x", role="user")
+    other = services.repos.user_repo.create(username="other", password_hash="x", role="user")
+    services.repos.agent_repo.create(agent_id=agent_id, user_id=user_id, name="a")
+    tools = build_cronjob_tools(_make_manager(services))
+    create = _tool_by_name(tools, "cronjob_create")
+    update = _tool_by_name(tools, "cronjob_update")
+    source = ThreadRegistry.make_key(
+        agent_id=agent_id, channel_type="weixin", channel_subject_id="subject"
+    )
+    with _configurable(agent_id=agent_id, user=str(user_id), session_key=source):
+        created = json.loads(
+            await create.ainvoke(
+                {
+                    "trigger": "interval:60",
+                    "prompt": "report",
+                    "name": "Report",
+                    "report_mode": True,
+                    "report_include_previous": True,
+                    "report_previous_count": 3,
+                }
+            )
+        )
+        assert created["kind"] == "daily_report"
+        assert created["report_options"]["previous_count"] == 3
+        assert created["session_key"] != source
+        cron_id = created["id"]
+        updated = json.loads(
+            await update.ainvoke(
+                {
+                    "cron_id": cron_id,
+                    "report_new_conversation": True,
+                }
+            )
+        )
+        assert updated["fresh_thread"] is True
+        assert updated["report_options"]["previous_count"] == 3
+        assert updated["report_options"]["include_previous"] is True
+    with _configurable(agent_id=agent_id, user=str(other)):
+        denied = json.loads(await update.ainvoke({"cron_id": cron_id, "report_previous_count": 5}))
+        assert "error" in denied
+    with _configurable(agent_id=agent_id, user=str(user_id), session_key=source):
+        restored = json.loads(await update.ainvoke({"cron_id": cron_id, "report_mode": False}))
+        assert restored["kind"] == "user"
+        assert restored["session_key"] == source
+
+
+@pytest.mark.asyncio
 async def test_cronjob_create_and_list(tmp_path: Path) -> None:
     services = _make_services(tmp_path)
     agent_id = new_ulid()

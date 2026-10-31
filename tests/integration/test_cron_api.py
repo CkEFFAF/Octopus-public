@@ -21,6 +21,57 @@ async def env(env_alice_bob_agent):
 # --- CRUD cycle ---------------------------------------------------------------
 
 
+async def test_daily_report_settings_round_trip_and_owner_scope(env: Any) -> None:
+    client, _server, owner, outsider, aid = env
+    created = await client.post(
+        f"/api/agents/{aid}/cron",
+        headers=owner,
+        json={
+            "trigger": "interval:60",
+            "prompt": "Report",
+            "task_type": "agent",
+            "report_options": {
+                "new_conversation": False,
+                "include_previous": True,
+                "previous_count": 4,
+            },
+        },
+    )
+    assert created.status_code == 201, created.text
+    row = created.json()
+    assert row["kind"] == "daily_report"
+    assert row["report_options"]["previous_count"] == 4
+    assert ":report-" in row["session_key"]
+    url = f"/api/agents/{aid}/cron/{row['id']}"
+    changed = await client.patch(
+        url, headers=owner, json={"report_options": {"new_conversation": True}}
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["report_options"] == {
+        "new_conversation": True,
+        "include_previous": True,
+        "previous_count": 4,
+    }
+    assert changed.json()["fresh_thread"] is True
+    assert (await client.get(url, headers=outsider)).status_code == 403
+    assert (
+        await client.patch(url, headers=owner, json={"report_options": {"previous_count": 31}})
+    ).status_code == 422
+    ordinary = await client.patch(url, headers=owner, json={"report_options": None})
+    assert ordinary.status_code == 200
+    assert ordinary.json()["kind"] == "user"
+    assert ordinary.json()["report_options"] is None
+    original_session = ordinary.json()["session_key"]
+    switched = await client.patch(
+        url, headers=owner, json={"report_options": {"include_previous": True}}
+    )
+    assert switched.status_code == 200
+    assert switched.json()["session_key"] != original_session
+    assert switched.json()["report_options"]["previous_count"] == 1
+    restored = await client.patch(url, headers=owner, json={"report_options": None})
+    assert restored.json()["session_key"] == original_session
+
+
 async def test_schedule_center_pages_and_validates_queries(env: Any) -> None:
     client, _server, owner, outsider, aid = env
     for index in range(7):

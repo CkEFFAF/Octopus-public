@@ -248,6 +248,28 @@ export function ScheduleDetail({
             {item.timezone}
           </span>
         </p>
+        {item.kind === "daily_report" && item.report_options && (
+          <div className={styles.muted}>
+            <div>
+              {t("cronJobs.form.reportNewConversation")}:{" "}
+              {t(
+                item.report_options.new_conversation
+                  ? "cronJobs.col.freshThreadOn"
+                  : "cronJobs.col.freshThreadOff",
+              )}
+            </div>
+            <div>
+              {t("cronJobs.form.reportIncludePrevious")}:{" "}
+              {t(
+                item.report_options.include_previous
+                  ? "cronJobs.col.freshThreadOn"
+                  : "cronJobs.col.freshThreadOff",
+              )}
+              {item.report_options.include_previous &&
+                ` (${item.report_options.previous_count})`}
+            </div>
+          </div>
+        )}
       </header>
       <div
         className={styles.tabs}
@@ -588,17 +610,22 @@ export function ScheduleTag({ item }: { item: OctopCronRow }) {
   const { t } = useTranslation();
   const category = scheduleCategory(item);
   return (
-    <Tag
-      color={
-        category === "once"
-          ? "blue"
-          : category === "repeat"
-          ? "purple"
-          : "default"
-      }
-    >
-      {t(`workspace0034.category.${category}`)}
-    </Tag>
+    <>
+      <Tag
+        color={
+          category === "once"
+            ? "blue"
+            : category === "repeat"
+            ? "purple"
+            : "default"
+        }
+      >
+        {t(`workspace0034.category.${category}`)}
+      </Tag>
+      {item.kind === "daily_report" && (
+        <Tag>{t("cronJobs.form.taskTypeReport")}</Tag>
+      )}
+    </>
   );
 }
 

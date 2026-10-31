@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from tests.unit.agents.test_collaboration_resources import rig as sidebar_rig
@@ -67,7 +68,10 @@ async def test_activity_and_schedules_follow_actual_owned_threads(rig: Any) -> N
         ws_hub=hub, thread_registry=SimpleNamespace(get_thread=repos.thread_repo.get)
     )
     manager = CronManager(
-        gateway=gateway, delivery_service=SimpleNamespace(), repos=repos, timezone="Asia/Shanghai"
+        gateway=gateway,
+        delivery_service=SimpleNamespace(recover_report_executions=AsyncMock()),
+        repos=repos,
+        timezone="Asia/Shanghai",
     )
     repos.session_repo.upsert(
         session_key="root",

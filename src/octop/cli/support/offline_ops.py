@@ -201,11 +201,20 @@ def create_cron_offline(
     prompt: str,
     fresh_thread: bool = False,
     task_type: str = "agent",
+    report_options: dict[str, Any] | None = None,
     home: Path | None = None,
 ) -> dict[str, Any]:
+    from octop.infra.cron.report import ReportOptions, report_session_key
+
     build_trigger(trigger)
     cleaned_prompt = require_cron_prompt(prompt)
-    session_key = ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=user_id)
+    cron_id = new_cron_id()
+    report = ReportOptions.from_dict(report_options) if report_options is not None else None
+    session_key = (
+        report_session_key(agent_id=agent_id, user_id=user_id, cron_id=cron_id)
+        if report
+        else ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=user_id)
+    )
     with open_cli_services(home) as svc:
         if svc.agent_repo.get(agent_id) is None:
             raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"agent {agent_id!r} not found")
@@ -214,7 +223,6 @@ def create_cron_offline(
                 svc, agent_id=agent_id, user_id=user_id, session_key=session_key
             )
         )
-        cron_id = new_cron_id()
         svc.cron_repo.create(
             cron_id=cron_id,
             agent_id=agent_id,
@@ -222,9 +230,11 @@ def create_cron_offline(
             trigger=trigger,
             prompt=cleaned_prompt,
             session_key=session_key,
-            fresh_thread=fresh_thread,
+            fresh_thread=report.new_conversation if report else fresh_thread,
             model=None,
-            task_type=normalize_cron_task_type(task_type),
+            task_type="agent" if report else normalize_cron_task_type(task_type),
+            kind="daily_report" if report else "user",
+            meta={"daily_report": report.as_dict()} if report else None,
         )
         row = svc.cron_repo.get(cron_id)
         assert row is not None

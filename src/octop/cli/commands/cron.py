@@ -43,7 +43,7 @@ def list_jobs(agent_id: str | None, as_user: str | None) -> None:
         table.add_row(
             row.get("id", ""),
             row.get("trigger", ""),
-            row.get("task_type", ""),
+            "daily_report" if row.get("kind") == "daily_report" else row.get("task_type", ""),
             str(bool(row.get("enabled", True))),
         )
     Console(file=sys.stdout).print(table)
@@ -56,6 +56,9 @@ def list_jobs(agent_id: str | None, as_user: str | None) -> None:
 @click.option("--prompt", required=True)
 @click.option("--fresh-thread", is_flag=True, default=False)
 @click.option("--task-type", default="agent")
+@click.option("--daily-report", is_flag=True, default=False)
+@click.option("--include-previous-reports", is_flag=True, default=False)
+@click.option("--previous-report-count", type=click.IntRange(1, 30), default=1)
 def create_job(
     agent_id: str | None,
     as_user: str | None,
@@ -63,10 +66,15 @@ def create_job(
     prompt: str,
     fresh_thread: bool,
     task_type: str,
+    daily_report: bool,
+    include_previous_reports: bool,
+    previous_report_count: int,
 ) -> None:
     """Create a cron job."""
     from octop.cli.support.offline_ops import create_cron_offline, resolve_cron_user_id
 
+    if not daily_report and (include_previous_reports or previous_report_count != 1):
+        raise click.UsageError("report history options require --daily-report")
     aid = require_agent(agent_id)
     try:
         uid = resolve_cron_user_id(aid, as_user)
@@ -77,6 +85,13 @@ def create_job(
             prompt=prompt,
             fresh_thread=fresh_thread,
             task_type=task_type,
+            report_options={
+                "new_conversation": fresh_thread,
+                "include_previous": include_previous_reports,
+                "previous_count": previous_report_count,
+            }
+            if daily_report
+            else None,
         )
     except OctopError as exc:
         fail_octop(exc)
