@@ -134,6 +134,9 @@ class CronJobRow:
             "last_status": self.last_status,
             "kind": self.kind,
             "meta": dict(self.meta or {}),
+            "report_options": (self.meta or {}).get("daily_report")
+            if self.kind == "daily_report"
+            else None,
             "self_reminder": (self.kind == "self_reminder")
             or bool((self.meta or {}).get("self_reminder")),
         }
@@ -254,6 +257,8 @@ class CronJobRepo:
         task_type: CronTaskType | None = None,
         model: str | None | object = UNSET,
         mcp_servers: list[str] | None | object = UNSET,
+        kind: str | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> None:
         fields, params = partial_updates(
             [
@@ -262,6 +267,7 @@ class CronJobRepo:
                 ("prompt", prompt),
                 ("session_key", session_key),
                 ("task_type", task_type),
+                ("kind", kind),
             ]
         )
         if fresh_thread is not None:
@@ -275,6 +281,9 @@ class CronJobRepo:
             params.append(
                 _encode_mcp_servers(mcp_servers if isinstance(mcp_servers, list) else None)
             )
+        if meta is not None:
+            fields.append("meta = ?")
+            params.append(encode_meta(meta))
         if enabled is not None:
             fields.append("enabled = ?")
             params.append(bool_int(enabled))

@@ -42,7 +42,8 @@ async def test_boot_empty(tmp_path: Path) -> None:
     mgr._scheduler = MagicMock()
     mgr._scheduler.get_job = MagicMock(return_value=None)
     await mgr.boot()
-    mgr._scheduler.add_job.assert_not_called()
+    mgr._scheduler.add_job.assert_called_once()
+    assert mgr._scheduler.add_job.call_args.kwargs["id"] == "cron-report-checkpoint-cleanup"
     await mgr.shutdown()
 
 
@@ -81,7 +82,7 @@ async def test_add_and_remove(tmp_path: Path) -> None:
     mgr._scheduler = MagicMock()
     mgr._scheduler.get_job = MagicMock(return_value=None)
     await mgr.boot()
-    mgr._scheduler.add_job.assert_called_once()
+    assert mgr._scheduler.add_job.call_count == 2
 
     await mgr.delete("c1")
     assert services.cron_repo.get("c1") is None

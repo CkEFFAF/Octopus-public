@@ -39,7 +39,7 @@ def selection(
         "LEFT JOIN last_jobs x ON x.thread_id=t.thread_id "
         "LEFT JOIN thread_metadata_jobs c ON c.id=x.latest_id "
         + job_join
-        + "WHERE t.user_id=? AND (a.user_id=? OR a.is_shared=1)) "
+        + "WHERE t.user_id=? AND t.channel_type!='cron_internal' AND (a.user_id=? OR a.is_shared=1)) "
         "SELECT * FROM records WHERE 1=1"
     )
     values.extend([owner, owner])

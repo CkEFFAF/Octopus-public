@@ -33,6 +33,32 @@ const row = (id: string) =>
   }) as OctopCronRow;
 
 describe("bounded schedule browsing", () => {
+  it("shows scheduled report settings in the schedule detail", () => {
+    vi.mocked(octopCronApi.attempts).mockResolvedValue(empty);
+    render(
+      <MemoryRouter>
+        <ScheduleDetail
+          agentId="main"
+          item={{
+            ...row("Daily"),
+            kind: "daily_report",
+            report_options: {
+              new_conversation: false,
+              include_previous: true,
+              previous_count: 4,
+            },
+          }}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("cronJobs.form.taskTypeReport")).toBeVisible();
+    expect(
+      screen.getByText(/cronJobs.form.reportNewConversation/),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/cronJobs.form.reportIncludePrevious/),
+    ).toHaveTextContent("4");
+  });
   it("requests active schedules initially and completed schedules only on selection", async () => {
     vi.mocked(octopCronApi.page).mockImplementation(async (query) => ({
       items:

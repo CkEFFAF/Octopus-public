@@ -317,6 +317,9 @@ class ResourceService:
                 resource.get("scope_thread_id") == thread
                 or (resource["source_agent_id"], resource.get("source_thread_id"))
                 == (agent, thread)
+                or self.repos.cron_report_repo.allows_resource_display(
+                    owner, agent, resource.get("scope_thread_id") or "", thread
+                )
             )
         ):
             raise denied()
@@ -367,6 +370,25 @@ class ResourceService:
             self.scope(owner, resource["source_agent_id"], source_thread)
         if resource["source_agent_id"] == agent and source_thread in {None, thread}:
             return dict(resource)
+        scope = resource.get("scope_thread_id") or ""
+        if self.repos.cron_report_repo.allows_resource_display(owner, agent, scope, thread):
+            if resource["source_agent_id"] == agent and source_thread == scope:
+                return dict(resource)
+            producer = self.repo.get(
+                "collaboration_invocations", owner, resource.get("producer_invocation_id") or ""
+            )
+            if (
+                resource.get("publication_state") == "published"
+                and {
+                    "agent_id": agent,
+                    "thread_id": scope,
+                }
+                in resource.get("result_readers", [])
+                and producer
+                and (producer["callee_agent_id"], producer["child_thread_id"])
+                == (resource["source_agent_id"], source_thread)
+            ):
+                return dict(resource)
         if resource.get("publication_state") == "published" and {
             "agent_id": agent,
             "thread_id": thread,

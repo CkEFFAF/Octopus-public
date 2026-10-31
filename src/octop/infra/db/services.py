@@ -20,6 +20,7 @@ from octop.infra.db.repos.connectors import ConnectorRepo
 from octop.infra.db.repos.conversation_metadata import ConversationMetadataRepo
 from octop.infra.db.repos.cron import CronJobRepo
 from octop.infra.db.repos.cron_attempts import CronAttemptRepo
+from octop.infra.db.repos.cron_reports import CronReportRepo
 from octop.infra.db.repos.devices import DeviceRepo
 from octop.infra.db.repos.invites import InviteRepo
 from octop.infra.db.repos.knowledge import KnowledgeRepo
@@ -96,6 +97,10 @@ class RepoBundle:
     @property
     def cron_attempt_repo(self) -> CronAttemptRepo:
         return CronAttemptRepo(self.db)
+
+    @property
+    def cron_report_repo(self) -> CronReportRepo:
+        return CronReportRepo(self.db)
 
     @property
     def workbench_repo(self) -> WorkbenchRepo:

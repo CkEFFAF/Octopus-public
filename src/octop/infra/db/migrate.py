@@ -2073,11 +2073,34 @@ def _ensure_browser_sessions_schema(db: DatabasePool) -> None:
         )
 
 
+def _ensure_scheduled_report_schema(db: DatabasePool) -> None:
+    if not _table_exists(db, "cron_attempts"):
+        return
+    suffix = ".pg.sql" if db.dialect == "postgresql" else ".sql"
+    sql = (_MIGRATIONS_DIR / f"035_scheduled_reports{suffix}").read_text(encoding="utf-8")
+    sql = re.sub(r"UPDATE _schema_version SET version=35;", "", sql)
+    if db.dialect == "sqlite":
+        for column, ddl in re.findall(r"ALTER TABLE cron_attempts ADD COLUMN (\w+) ([^;]+);", sql):
+            _ensure_column(db, "cron_attempts", column, ddl)
+        sql = re.sub(r"ALTER TABLE cron_attempts ADD COLUMN \w+ [^;]+;", "", sql)
+        with db.connect() as conn:
+            conn.executescript(sql)
+    else:
+        with db.connect() as conn, conn.transaction():
+            _apply_postgresql_migration(conn, sql)
+
+
 def run_migrations(db: DatabasePool) -> None:
     if db.dialect == "sqlite":
         _repair_legacy_schema(db)
     for version, path in _discover(db.dialect):
         if version <= _current_version(db):
+            continue
+        if version == 35:
+            _ensure_scheduled_report_schema(db)
+            with db.connect() as conn:
+                placeholder = "%s" if db.dialect == "postgresql" else "?"
+                conn.execute(f"UPDATE _schema_version SET version = {placeholder}", (version,))
             continue
         if version == 34:
             _ensure_browser_sessions_schema(db)
@@ -2142,6 +2165,7 @@ def run_migrations(db: DatabasePool) -> None:
     _ensure_user_invites_schema(db)
     _ensure_thread_message_projection_schema(db)
     _ensure_cron_jobs_schema(db)
+    _ensure_scheduled_report_schema(db)
     _ensure_trajectory_events_schema(db)
     _ensure_connectors_v13_schema(db)
     _ensure_user_policy_schema(db)

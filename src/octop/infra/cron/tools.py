@@ -39,8 +39,11 @@ _TASK_TYPE_HELP = (
 )
 
 _CRONJOB_CREATE_DESC = (
-    "Create a scheduled cron job bound to the current conversation session. "
-    "Results are delivered to the same channel (QQ/WeChat/dashboard/…). "
+    "Create a scheduled cron job. Ordinary jobs use the current conversation. "
+    "For report_mode=true, reports use a task-specific dashboard conversation and are "
+    "also delivered to the original IM channel when applicable. "
+    "Configure report_new_conversation and report_include_previous independently; "
+    "report_previous_count selects how many successful reports to reference. "
     "name is required: a short label for the job list. "
     f"task_type: {_TASK_TYPE_HELP} "
     "Examples: 'remind me to drink water at 14:00 daily' → "
@@ -51,6 +54,8 @@ _CRONJOB_CREATE_DESC = (
 
 _CRONJOB_UPDATE_DESC = (
     "Update an existing cron job (trigger, prompt, enabled, task_type, …). "
+    "Use report_mode and report settings to manage scheduled reports; change the "
+    "conversation mode independently of the number of previous reports used. "
     f"task_type: {_TASK_TYPE_HELP} "
     f"trigger: {_TRIGGER_HELP}"
 )
@@ -159,6 +164,19 @@ def build_cronjob_tools(cron_manager: CronManager) -> list[StructuredTool]:
             str,
             Field(description=_TASK_TYPE_HELP),
         ] = "text",
+        report_mode: Annotated[
+            bool, Field(description="Create an isolated scheduled report.")
+        ] = False,
+        report_new_conversation: Annotated[
+            bool, Field(description="Use a new visible conversation for each report.")
+        ] = False,
+        report_include_previous: Annotated[
+            bool, Field(description="Include successful previous reports as context.")
+        ] = False,
+        report_previous_count: Annotated[
+            int,
+            Field(description="Number of previous reports to include, from 1 to 30.", ge=1, le=30),
+        ] = 1,
     ) -> str:
         try:
             agent_id, user_id, session_key = _tool_ctx()
@@ -176,6 +194,13 @@ def build_cronjob_tools(cron_manager: CronManager) -> list[StructuredTool]:
                 session_key=session_key,
                 enabled=enabled,
                 task_type=require_cron_task_type(task_type),
+                report_options={
+                    "new_conversation": report_new_conversation,
+                    "include_previous": report_include_previous,
+                    "previous_count": report_previous_count,
+                }
+                if report_mode
+                else None,
             )
             row = await mgr.create(spec)
             return _ok(row.to_public_dict())
@@ -193,11 +218,39 @@ def build_cronjob_tools(cron_manager: CronManager) -> list[StructuredTool]:
         fresh_thread: bool | None = None,
         enabled: bool | None = None,
         task_type: Annotated[str | None, Field(description=_TASK_TYPE_HELP)] = None,
+        report_mode: Annotated[
+            bool | None, Field(description="Enable or disable daily report mode.")
+        ] = None,
+        report_new_conversation: bool | None = None,
+        report_include_previous: bool | None = None,
+        report_previous_count: Annotated[int | None, Field(ge=1, le=30)] = None,
     ) -> str:
         try:
             agent_id, user_id, _session_key = _tool_ctx()
             existing = _get_owned(mgr, cron_id, agent_id, user_id)
             cleaned_prompt = require_cron_prompt(prompt) if prompt is not None else None
+            report_arg: dict[str, Any] = {}
+            if report_mode is False:
+                report_arg["report_options"] = None
+            elif report_mode is True or any(
+                item is not None
+                for item in (
+                    report_new_conversation,
+                    report_include_previous,
+                    report_previous_count,
+                )
+            ):
+                if report_mode is None and existing.kind != "daily_report":
+                    raise ValueError("enable report mode before updating report settings")
+                options = dict((existing.meta or {}).get("daily_report") or {})
+                for key, value in (
+                    ("new_conversation", report_new_conversation),
+                    ("include_previous", report_include_previous),
+                    ("previous_count", report_previous_count),
+                ):
+                    if value is not None:
+                        options[key] = value
+                report_arg["report_options"] = options
             row = await mgr.update(
                 cron_id,
                 name=(
@@ -214,6 +267,7 @@ def build_cronjob_tools(cron_manager: CronManager) -> list[StructuredTool]:
                 fresh_thread=fresh_thread,
                 enabled=int(enabled) if enabled is not None else None,
                 task_type=require_cron_task_type(task_type) if task_type is not None else None,
+                **report_arg,
             )
             return _ok(row.to_public_dict())
         except Exception as exc:

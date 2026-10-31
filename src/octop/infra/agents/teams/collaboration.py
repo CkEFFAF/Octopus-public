@@ -494,6 +494,7 @@ class CollaborationService:
         events = self.repo.events(owner, thread, after, limit + 1)
         page = events[:limit]
         artifacts = self.repo.list("collaboration_resources", owner, thread)
+        artifacts.extend(self.repo.report_resources(owner, agent, thread))
         invocations = self.repo.list("collaboration_invocations", owner, thread)
         artifact_refs = list({event["resource_id"] for event in page if event.get("resource_id")})
         invocation_refs = list(

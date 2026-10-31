@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -131,6 +132,24 @@ async def test_run_passes_delivery_command(setup) -> None:
     assert command.fresh_thread is True
     assert command.task_type == "text"
     assert command.mcp_servers == ("github__1",)
+
+
+@pytest.mark.asyncio
+async def test_report_job_preserves_mail_event_prompt_and_connector(setup) -> None:
+    cron_repo, audit, cid, _key = setup
+    cron_repo.update(cid, kind="daily_report", meta={"daily_report": {}})
+    row = cron_repo.get(cid)
+    event_row = replace(row, prompt="Read new message MESSAGE-ID", mcp_servers=["agently-event"])
+    delivery = MagicMock()
+    delivery.deliver = AsyncMock()
+    job = CronJob.from_row(
+        event_row, delivery_service=delivery, cron_repo=cron_repo, audit_repo=audit
+    )
+    await job.run()
+    command = delivery.deliver.await_args.args[0]
+    assert command.prompt == event_row.prompt
+    assert command.mcp_servers == ("agently-event",)
+    assert command.report is not None
 
 
 @pytest.mark.asyncio

@@ -61,6 +61,41 @@ class CronAttemptRepo:
                 (time.time(), time.time()),
             )
 
+    def bind_report_execution(self, owner: int, attempt: str, thread: str) -> None:
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE cron_attempts SET execution_thread_id=?,checkpoint_cleanup='pending' "
+                "WHERE owner_user_id=? AND attempt_id=? AND status='running'",
+                (thread, owner, attempt),
+            )
+
+    def report_cleanup_candidates(self, owner: int, agent: str, cron: str) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT attempt_id,execution_thread_id FROM cron_attempts "
+                "WHERE owner_user_id=? AND agent_id=? AND cron_id=? "
+                "AND checkpoint_cleanup='pending' AND status IN ('completed','failed','cancelled','unknown') "
+                "ORDER BY id LIMIT 10",
+                (owner, agent, cron),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def report_cleanup_done(self, owner: int, attempt: str) -> None:
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE cron_attempts SET checkpoint_cleanup='done' WHERE owner_user_id=? AND attempt_id=?",
+                (owner, attempt),
+            )
+
+    def report_cleanup_scopes(self) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT owner_user_id,agent_id,cron_id FROM cron_attempts "
+                "WHERE checkpoint_cleanup='pending' AND status IN ('completed','failed','cancelled','unknown') "
+                "ORDER BY owner_user_id,agent_id,cron_id LIMIT 100"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def listing(
         self, owner: int, agent: str, cron: str, before: int | None = None, limit: int = 50
     ) -> dict[str, Any]:

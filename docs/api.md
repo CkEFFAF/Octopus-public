@@ -221,7 +221,7 @@ plugin returns a large `octop_ui` payload, the backend offloads the envelope's
 | `GET`    | `/cron/settings` | user | compat alias of `/settings/timezone` |
 | `GET`    | `/agents/{aid}/cron/examples` | agent access | `{task_examples}` from workspace `.octop/manifest.json` (`{zh,en}` string arrays, display-normalized to 3 or 6); `null` if the field is absent (dashboard keeps default cards). Prefer `GET /agents/{aid}/chat/welcome` which includes the same field. |
 | `GET`    | `/agents/{aid}/cron` | owner only | list cron rows; non-owners (including admin) get `[]` |
-| `POST`   | `/agents/{aid}/cron` | owner only | body `{name?, trigger, prompt, session_key?, fresh_thread?, enabled?, model?, task_type?}` → `201` |
+| `POST`   | `/agents/{aid}/cron` | owner only | body `{name?, trigger, prompt, session_key?, fresh_thread?, enabled?, model?, task_type?, report_options?}` → `201` |
 | `GET`    | `/agents/{aid}/cron/{cid}` | owner only | cron row |
 | `PATCH`  | `/agents/{aid}/cron/{cid}` | owner only | body subset → updated row |
 | `DELETE` | `/agents/{aid}/cron/{cid}` | owner only | `204` |

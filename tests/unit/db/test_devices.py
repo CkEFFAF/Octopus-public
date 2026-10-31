@@ -279,7 +279,7 @@ def test_migration_preserves_rows_when_applied_again(
     assert repo.get(device.device_id) == device
     assert repo.get_operation(operation.operation_id) == operation
     with db.connect() as conn:
-        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 34
+        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 35
 
 
 def test_device_repo_is_wired_into_services(db: SqlitePool, tmp_path: Path) -> None:

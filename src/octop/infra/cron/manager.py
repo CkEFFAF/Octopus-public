@@ -16,6 +16,7 @@ from octop.infra.connectors.gateway.adapters.agently_cli import read_auth_status
 from octop.infra.connectors.gateway.agently_watch import AgentlyWatchManager
 from octop.infra.cron.delivery import CronDeliveryService
 from octop.infra.cron.job import CronJob
+from octop.infra.cron.report import ReportOptions, report_session_key
 from octop.infra.cron.trigger import AgentlyMailTrigger, build_trigger
 from octop.infra.db.repos.audit import ACTOR_SYSTEM
 from octop.infra.errors import ErrorCode, OctopError
@@ -53,6 +54,7 @@ class CronCreateSpec:
     meta: dict[str, Any] = field(default_factory=dict)
     kind: str = "user"
     username: str | None = None
+    report_options: dict[str, Any] | None = None
 
 
 class CronManager:
@@ -84,6 +86,11 @@ class CronManager:
     async def boot(self) -> None:
         self._repos.cron_attempt_repo.recover()
         self._scheduler.start()
+        self.schedule_system_job(
+            "cron-report-checkpoint-cleanup",
+            trigger="interval:600",
+            func=self._delivery_service.recover_report_executions,
+        )
         rows = self._repos.cron_repo.list_all(include_disabled=False)
         for row in rows:
             self._schedule(row)
@@ -118,25 +125,55 @@ class CronManager:
         if spec is None:
             spec = CronCreateSpec(**kwargs)
         self._mail_source(spec.trigger, spec.user_id)
-        session_key = spec.session_key or ThreadRegistry.dashboard_key(
-            agent_id=spec.agent_id,
-            user_id=spec.user_id,
+        report = (
+            ReportOptions.from_dict(spec.report_options)
+            if spec.report_options is not None
+            else None
+        )
+        session_key = (
+            report_session_key(agent_id=spec.agent_id, user_id=spec.user_id, cron_id=spec.cron_id)
+            if report is not None
+            else spec.session_key
+            or ThreadRegistry.dashboard_key(agent_id=spec.agent_id, user_id=spec.user_id)
         )
         await self._ensure_session(
             session_key,
             agent_id=spec.agent_id,
             user_id=spec.user_id,
         )
+        if report is not None:
+            origin_key = spec.session_key or ThreadRegistry.dashboard_key(
+                agent_id=spec.agent_id, user_id=spec.user_id
+            )
+            origin = self._repos.session_repo.get(origin_key)
+            target = self._repos.session_repo.get(session_key)
+            if origin is not None:
+                if (origin.agent_id, origin.user_id) != (spec.agent_id, spec.user_id):
+                    raise OctopError(
+                        ErrorCode.FORBIDDEN, "report source session ownership mismatch"
+                    )
+                if target is not None:
+                    await self._delivery_service.inherit_report_target(
+                        spec.user_id, origin.thread_id, target.thread_id
+                    )
         async with self._lock:
             kind = (spec.kind or "user").strip() or "user"
             meta = dict(spec.meta or {})
+            if report is not None:
+                if kind != "user":
+                    raise ValueError("a self reminder cannot be a daily report")
+                kind = "daily_report"
+                meta["daily_report"] = report.as_dict()
+                meta["previous_session_key"] = spec.session_key
+                meta["previous_task_type"] = normalize_cron_task_type(spec.task_type)
+                meta["previous_fresh_thread"] = spec.fresh_thread
             if meta.get("self_reminder") or kind == "self_reminder":
                 kind = "self_reminder"
                 meta["self_reminder"] = True
                 # Self-reminders always continue the same session thought chain.
                 fresh = False
             else:
-                fresh = spec.fresh_thread
+                fresh = report.new_conversation if report else spec.fresh_thread
             self._repos.cron_repo.create(
                 cron_id=spec.cron_id,
                 agent_id=spec.agent_id,
@@ -147,7 +184,7 @@ class CronManager:
                 session_key=session_key,
                 fresh_thread=fresh,
                 model=(spec.model or "").strip() or None,
-                task_type=normalize_cron_task_type(spec.task_type),
+                task_type="agent" if report else normalize_cron_task_type(spec.task_type),
                 mcp_servers=list(spec.mcp_servers or []),
                 enabled=spec.enabled,
                 kind=kind,
@@ -292,6 +329,7 @@ class CronManager:
         task_type: str | None = None,
         model: str | None | object = UNSET,
         mcp_servers: list[str] | None | object = UNSET,
+        report_options: dict[str, Any] | None | object = UNSET,
     ) -> CronJobRow:
         enabled_bool: bool | None = bool(enabled) if enabled is not None else None
         async with self._lock:
@@ -317,6 +355,59 @@ class CronManager:
                 repo_kwargs["mcp_servers"] = (
                     list(mcp_servers) if isinstance(mcp_servers, list) else []
                 )
+            if existing.kind == "daily_report" and report_options is UNSET:
+                saved = ReportOptions.from_dict((existing.meta or {}).get("daily_report") or {})
+                repo_kwargs["fresh_thread"] = saved.new_conversation
+                repo_kwargs["session_key"] = existing.session_key
+                repo_kwargs["task_type"] = "agent"
+            if report_options is not UNSET:
+                if existing.kind not in {"user", "daily_report"}:
+                    raise ValueError("a self reminder cannot be a daily report")
+                meta = dict(existing.meta or {})
+                if report_options is None:
+                    if existing.kind == "daily_report":
+                        repo_kwargs["kind"] = "user"
+                        meta.pop("daily_report", None)
+                        old_session = meta.pop("previous_session_key", None)
+                        old_type = meta.pop("previous_task_type", None)
+                        old_fresh = meta.pop("previous_fresh_thread", None)
+                        if task_type is None and old_type is not None:
+                            repo_kwargs["task_type"] = normalize_cron_task_type(old_type)
+                        if fresh_thread is None and old_fresh is not None:
+                            repo_kwargs["fresh_thread"] = bool(old_fresh)
+                        repo_kwargs["session_key"] = old_session or ThreadRegistry.dashboard_key(
+                            agent_id=existing.agent_id, user_id=existing.user_id
+                        )
+                else:
+                    if not isinstance(report_options, dict):
+                        raise ValueError("invalid daily report settings")
+                    prior_options = meta.get("daily_report") or {}
+                    report = ReportOptions.from_dict({**prior_options, **report_options})
+                    if existing.kind != "daily_report":
+                        meta["previous_session_key"] = existing.session_key
+                        meta["previous_task_type"] = existing.task_type
+                        meta["previous_fresh_thread"] = bool(existing.fresh_thread)
+                    meta["daily_report"] = report.as_dict()
+                    repo_kwargs["kind"] = "daily_report"
+                    repo_kwargs["task_type"] = "agent"
+                    repo_kwargs["fresh_thread"] = report.new_conversation
+                    repo_kwargs["session_key"] = report_session_key(
+                        agent_id=existing.agent_id, user_id=existing.user_id, cron_id=cron_id
+                    )
+                repo_kwargs["meta"] = meta
+                if repo_kwargs.get("session_key"):
+                    await self._ensure_session(
+                        repo_kwargs["session_key"],
+                        agent_id=existing.agent_id,
+                        user_id=existing.user_id,
+                    )
+                    if report_options is not None and existing.kind != "daily_report":
+                        origin = self._repos.session_repo.get(existing.session_key)
+                        target = self._repos.session_repo.get(repo_kwargs["session_key"])
+                        if origin is not None and target is not None:
+                            await self._delivery_service.inherit_report_target(
+                                existing.user_id, origin.thread_id, target.thread_id
+                            )
             self._repos.cron_repo.update(cron_id, **repo_kwargs)
             row = self._repos.cron_repo.get(cron_id)
             if row is None:

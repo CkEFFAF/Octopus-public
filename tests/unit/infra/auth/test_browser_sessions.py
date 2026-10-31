@@ -78,7 +78,7 @@ def test_partial_browser_session_migration_preserves_revocation(
         assert users.get(uid).auth_version == 2
         assert sessions.get("revoked") == before
         with db.connect() as conn:
-            assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 34
+            assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 35
     finally:
         db.close()
 

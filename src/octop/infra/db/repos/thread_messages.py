@@ -164,7 +164,7 @@ class ThreadMessageRepo:
                 "SELECT COALESCE(p.status, 'pending') AS status, COUNT(*) AS total "
                 "FROM threads t LEFT JOIN thread_history_projection p "
                 "ON p.thread_id = t.thread_id "
-                "WHERE t.agent_id = ? AND t.user_id = ? "
+                "WHERE t.agent_id = ? AND t.user_id = ? AND t.channel_type != 'cron_internal' "
                 "AND COALESCE(p.status, 'pending') != 'ready' "
                 "GROUP BY COALESCE(p.status, 'pending')",
                 (agent_id, user_id),
@@ -192,7 +192,7 @@ class ThreadMessageRepo:
                 "SELECT t.thread_id, COALESCE(p.status, 'pending') AS status "
                 "FROM threads t LEFT JOIN thread_history_projection p "
                 "ON p.thread_id = t.thread_id "
-                "WHERE t.agent_id = ? AND t.user_id = ? "
+                "WHERE t.agent_id = ? AND t.user_id = ? AND t.channel_type != 'cron_internal' "
                 "AND COALESCE(p.status, 'pending') != 'ready' "
                 "ORDER BY t.last_active DESC, t.thread_id DESC LIMIT ?",
                 (agent_id, user_id, limit),
@@ -208,7 +208,7 @@ class ThreadMessageRepo:
             rows = conn.execute(
                 "SELECT t.thread_id FROM threads t "
                 "JOIN thread_history_projection p ON p.thread_id = t.thread_id "
-                "WHERE t.agent_id = ? AND t.user_id = ? "
+                "WHERE t.agent_id = ? AND t.user_id = ? AND t.channel_type != 'cron_internal' "
                 "AND p.status IN ('queued', 'running')",
                 (agent_id, user_id),
             ).fetchall()
