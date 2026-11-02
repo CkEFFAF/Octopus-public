@@ -17,7 +17,7 @@ CUSTOM_MCP_KIND = "custom-mcp"
 CUSTOM_MCP_DISPLAY_NAME = "自定义 MCP"
 
 _SERVER_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-_META_KEYS = frozenset({"enabled", "display_name", "default_open", "shared"})
+_META_KEYS = frozenset({"enabled", "display_name", "description", "default_open", "shared"})
 _OAUTH_KEY = "oauth"
 _SECRET_KEYS = frozenset({_OAUTH_KEY})
 _HARNESS_STRIP_KEYS = _META_KEYS | _SECRET_KEYS
@@ -189,6 +189,12 @@ def normalize_server_spec(name: str, raw: Any) -> dict[str, Any]:
                 f"server {name!r}: display_name must be at most {_DISPLAY_NAME_MAX} characters"
             )
         spec["display_name"] = display_name
+
+    description = str(raw.get("description") or "").strip()
+    if description:
+        if len(description) > 500:
+            raise ValueError(f"server {name!r}: description must be at most 500 characters")
+        spec["description"] = description
 
     if transport == "streamable_http":
         url = validate_mcp_http_url(str(raw.get("url") or ""))
@@ -416,7 +422,9 @@ def expand_custom_instances(
                     else synthetic_instance_id(name)
                 ),
                 "kind": CUSTOM_MCP_KIND,
+                "transport": spec.get("transport"),
                 "display_name": server_display_name(name, spec),
+                "description": spec.get("description"),
                 "status": "active" if enabled else "disabled",
                 "mcp_server_name": (
                     shared_mcp_server_name(parent.instance_id, name) if shared_view else name

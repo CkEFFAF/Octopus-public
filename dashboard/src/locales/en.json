@@ -6713,6 +6713,19 @@
     }
   },
   "connectors": {
+    "sharedMcpMarket": {
+      "tab": "MCP market",
+      "title": "Shared MCP services",
+      "serviceDescription": "Service description",
+      "description": "Choose a shared service in your expert's connector settings. Sharing does not enable it for your experts automatically.",
+      "publisher": "Published by {{name}}",
+      "identity": "Calls use the publisher's configured service identity.",
+      "unverified": "Connection status has not been verified for your expert.",
+      "stdioRestricted": "This server runs on the control server and is available to administrators only.",
+      "configureExpert": "Configure an expert",
+      "empty": "No shared MCP services are available.",
+      "loadFailed": "Could not load shared MCP services."
+    },
     "agentConfigurationHint": "Ask your Agent to configure connectors or MCP in chat; saved changes refresh this list. OAuth consent still takes place on the provider’s page.",
     "imapPort": "IMAP TLS port",
     "smtpPort": "SMTP TLS port (465 / 587)",

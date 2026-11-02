@@ -154,7 +154,10 @@ class NativeTransfers:
                         )
                     temporary = target.parent / f".octop-native-{uuid.uuid4().hex}"
                     with commit():
-                        fd = os.open(temporary, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
+                        try:
+                            fd = os.open(temporary, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
+                        except (FileNotFoundError, NotADirectoryError) as exc:
+                            raise ValueError("RESOURCE_TARGET_PARENT_MISSING") from exc
                     stream = os.fdopen(fd, "w+b")
                     value = _Stream(
                         context,

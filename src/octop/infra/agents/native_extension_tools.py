@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
+import sys
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
@@ -23,6 +25,7 @@ from octop.infra.agents.settings.tool_catalog import (
 )
 from octop.infra.agents.teams import is_team_agent
 from octop.infra.connectors.credentials import redact_credential_values
+from octop.infra.connectors.execution_auth import authorize_stdio_mcp_spec
 from octop.infra.connectors.probe import probe_custom_mcp_server
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.skills.install import (
@@ -412,6 +415,8 @@ def register_extension_tools(
                     "display_name": spec.get("display_name", name),
                     "enabled": spec.get("enabled", True),
                     "default_open": spec.get("default_open", False),
+                    "shared": spec.get("shared", False),
+                    "execution_location": "control_server",
                 }
                 for name, spec in manager._connector_svc.get_custom_servers(user.id).items()
             ],
@@ -468,14 +473,23 @@ def register_extension_tools(
                 for key, value in merged.items()
                 if key not in {"headers", "env", "oauth", "args", "url", "command"} or key in server
             }
+        authorize_stdio_mcp_spec(user, merged, location="control_server")
         servers[name] = merged
         svc.put_custom_servers(user.id, servers)
+        command = str(merged.get("command") or "")
         return receipt(
             agent_id,
             instance_id=f"custom:{name}",
             mcp_server_name=name,
             authentication_verified=False,
             effective="saved_not_attached",
+            execution_location="control_server",
+            server_platform=sys.platform,
+            command_available=bool(shutil.which(command))
+            if merged.get("transport") == "stdio"
+            else None,
+            default_open=merged.get("default_open", False),
+            shared=merged.get("shared", False),
         )
 
     @operation(writes=True)
@@ -491,6 +505,7 @@ def register_extension_tools(
         spec = svc.get_custom_servers(user.id).get(name)
         if not isinstance(spec, dict) or not spec.get("enabled", True):
             raise ValueError("enabled owned MCP server required")
+        authorize_stdio_mcp_spec(user, spec, location="control_server")
         try:
             result = await probe_custom_mcp_server(spec)
         except Exception as exc:
@@ -500,4 +515,10 @@ def register_extension_tools(
 
             if not oauth_configured(spec):
                 svc.note_custom_server_oauth_required(user.id, name, required=True)
-        return {"agent_id": agent_id, "name": name, **redact_mcp_result(result, spec)}
+        return {
+            "agent_id": agent_id,
+            "name": name,
+            "execution_location": "control_server",
+            "server_platform": sys.platform,
+            **redact_mcp_result(result, spec),
+        }

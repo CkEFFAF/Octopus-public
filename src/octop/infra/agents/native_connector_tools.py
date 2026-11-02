@@ -158,9 +158,13 @@ def register_connector_tools(
     @operation()
     async def octop_connector_list() -> dict[str, Any]:
         """List your connections and visible shared connections without credentials."""
-        service()
+        svc = service()
+        user = identity()
         return {
-            "instances": [payload(row) for row in repos.connector_repo.list_visible(identity().id)]
+            "instances": [
+                {**row, "writable": row["owner_user_id"] == user.id}
+                for row in svc.list_instances_for_api(user.id)
+            ]
         }
 
     @operation()
@@ -229,6 +233,7 @@ def register_connector_tools(
         credentials: dict[str, Any] | None = None,
         status: str | None = None,
         default_open: bool | None = None,
+        shared: bool | None = None,
     ) -> dict[str, Any]:
         """Edit your connection or rotate its credentials; omitted fields stay unchanged.
 
@@ -237,6 +242,39 @@ def register_connector_tools(
         be edited. Credentials are never returned. Test again after rotation.
         """
         svc = service(writes=True)
+        if instance_id.startswith("custom:"):
+            name = instance_id.removeprefix("custom:")
+            user = identity()
+            existing = svc.get_custom_servers(user.id).get(name)
+            if not isinstance(existing, dict):
+                raise OctopError(ErrorCode.FORBIDDEN, "owned connector required")
+            if credentials is not None:
+                raise ValueError("use octop_mcp_upsert to change custom MCP connection settings")
+            if status is not None and status not in {"active", "disabled"}:
+                raise ValueError("status must be active or disabled")
+            if all(
+                value is None for value in (display_name, description, status, default_open, shared)
+            ):
+                raise ValueError("supply at least one connector configuration field")
+            if status == "active" or default_open is True or shared is True:
+                from octop.infra.connectors.execution_auth import authorize_stdio_mcp_spec
+
+                authorize_stdio_mcp_spec(user, existing, location="control_server")
+            svc.patch_custom_server(
+                user.id,
+                name,
+                enabled=None if status is None else status == "active",
+                default_open=default_open,
+                shared=shared,
+                display_name=display_name,
+                description=description,
+            )
+            item = next(
+                item
+                for item in svc.list_instances_for_api(user.id)
+                if item["instance_id"] == instance_id
+            )
+            return {**item, "agent_id": agent_id, "saved": True, "authentication_verified": False}
         row = await svc.update_instance(
             identity().id,
             instance_id,
@@ -245,6 +283,7 @@ def register_connector_tools(
             credentials=credentials,
             status=status,
             default_open=default_open,
+            shared=shared,
         )
         return {
             **payload(row),

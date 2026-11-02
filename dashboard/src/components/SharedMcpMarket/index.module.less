@@ -1,0 +1,32 @@
+.market {
+  margin-top: 24px;
+
+  h2 {
+    color: var(--fn-text-primary);
+    font-size: 16px;
+  }
+
+  p {
+    color: var(--fn-text-secondary);
+  }
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 12px;
+}
+
+.card {
+  padding: 16px;
+  border: 1px solid var(--fn-border-primary);
+  border-radius: var(--fn-radius-md, 8px);
+  background: var(--fn-bg-layout, var(--fn-bg-secondary));
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}

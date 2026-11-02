@@ -58,16 +58,18 @@ def build_resource_tools(manager: Any, agent_id: str) -> list[StructuredTool]:
         message_key = {
             "RESOURCE_DELIVERY_CONFLICT": "resources.deliveryConflict",
             "RESOURCE_DELIVERY_RECEIPT_CONFLICT": "resources.deliveryReceiptConflict",
+            "RESOURCE_TARGET_PARENT_MISSING": "resources.targetParentMissing",
+            "RESOURCE_TARGET_OFFLINE": "resources.targetOffline",
         }.get(code, "resources.unavailable")
-        return json.dumps(
-            {
-                "status": "error",
-                "code": code,
-                "retryable": False,
-                "error": tr(message_key, str(cfg.get("language") or "en")),
-            },
-            ensure_ascii=False,
-        )
+        result: dict[str, Any] = {
+            "status": "error",
+            "code": code,
+            "retryable": code in {"RESOURCE_TARGET_PARENT_MISSING", "RESOURCE_TARGET_OFFLINE"},
+            "error": tr(message_key, str(cfg.get("language") or "en")),
+        }
+        if code in {"RESOURCE_TARGET_PARENT_MISSING", "RESOURCE_TARGET_OFFLINE"}:
+            result.update({"direction": "target", "stage": "upload_begin"})
+        return json.dumps(result, ensure_ascii=False)
 
     async def read_attachment(
         resource_id: str = "",

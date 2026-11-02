@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from collections.abc import Callable
 from typing import Any
 
 from langchain_core.tools import StructuredTool
@@ -37,7 +38,9 @@ def fingerprint_mcp_spec(spec: dict[str, Any]) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
-def wrap_tools_for_shared_use(tools: list[Any], lock: asyncio.Lock) -> list[Any]:
+def wrap_tools_for_shared_use(
+    tools: list[Any], lock: asyncio.Lock, *, check_access: Callable[[], None] | None = None
+) -> list[Any]:
     """Return LangChain ``StructuredTool`` wrappers that serialize invoke/ainvoke.
 
     Must be real ``BaseTool`` instances so ``HarnessAgent.append_mcp_tools`` /
@@ -61,24 +64,32 @@ def wrap_tools_for_shared_use(tools: list[Any], lock: asyncio.Lock) -> list[Any]
         async def _acall(
             _tool: Any = tool,
             _lock: asyncio.Lock = lock,
+            _check_access: Callable[[], None] | None = check_access,
             **kwargs: Any,
         ) -> Any:
             async with _lock:
+                if _check_access is not None:
+                    await asyncio.to_thread(_check_access)
                 return await _tool.ainvoke(kwargs)
 
         def _call(
             _tool: Any = tool,
             _lock: asyncio.Lock = lock,
+            _check_access: Callable[[], None] | None = check_access,
             **kwargs: Any,
         ) -> Any:
             async def _run() -> Any:
                 async with _lock:
+                    if _check_access is not None:
+                        await asyncio.to_thread(_check_access)
                     return await _tool.ainvoke(kwargs)
 
             try:
                 asyncio.get_running_loop()
             except RuntimeError:
                 return asyncio.run(_run())
+            if _check_access is not None:
+                _check_access()
             return _tool.invoke(kwargs)
 
         st_kwargs: dict[str, Any] = {

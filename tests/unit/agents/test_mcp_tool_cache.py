@@ -108,6 +108,71 @@ async def test_get_or_load_caches_and_reuses() -> None:
 
 
 @pytest.mark.asyncio
+async def test_shared_mcp_cached_tool_rechecks_revocation_before_each_call() -> None:
+    from octop.infra.agents.manager import AgentManager
+    from octop.infra.errors import OctopError
+
+    mgr = object.__new__(AgentManager)
+    mgr._mcp_tool_cache = {}
+    mgr._mcp_tool_cache_locks = {}
+    mgr._mcp_tool_cache_guard = asyncio.Lock()
+    mgr._paths = MagicMock(root=MagicMock())
+    mgr._repos = SimpleNamespace(
+        user_repo=SimpleNamespace(get=lambda uid: SimpleNamespace(role="user"))
+    )
+    name = "custom__01ARZ3NDEKTSV4RRFFQ69G5FAV__shared"
+    spec = {"transport": "streamable_http", "url": "https://example.com/mcp"}
+    active = {name: spec}
+    mgr._connector_svc = SimpleNamespace(custom_harness_configs=lambda uid: dict(active))
+    inner = MagicMock()
+    inner.name = "shared_read"
+    inner.description = "read"
+    inner.args_schema = None
+    inner.metadata = None
+    inner.ainvoke = AsyncMock(return_value="ok")
+
+    with patch("octop_harness.mcp.aload_mcp_tools", AsyncMock(return_value=[inner])):
+        tool = (await mgr._get_or_load_mcp_tools(7, name, spec))[0]
+        assert await tool.ainvoke({}) == "ok"
+        active[name] = {**spec, "url": "https://changed.example.com/mcp"}
+        with pytest.raises(OctopError):
+            await tool.ainvoke({})
+        active[name] = spec
+        active.clear()
+        with pytest.raises(OctopError):
+            await tool.ainvoke({})
+        assert inner.ainvoke.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_cached_stdio_tool_stops_after_account_loses_admin_role() -> None:
+    from octop.infra.agents.manager import AgentManager
+    from octop.infra.errors import OctopError
+
+    mgr = object.__new__(AgentManager)
+    mgr._mcp_tool_cache = {}
+    mgr._mcp_tool_cache_locks = {}
+    mgr._mcp_tool_cache_guard = asyncio.Lock()
+    mgr._paths = MagicMock(root=MagicMock())
+    actor = SimpleNamespace(role="admin", disabled=False)
+    mgr._repos = SimpleNamespace(user_repo=SimpleNamespace(get=lambda uid: actor))
+    inner = MagicMock()
+    inner.name = "local_read"
+    inner.description = "read"
+    inner.args_schema = None
+    inner.metadata = None
+    inner.ainvoke = AsyncMock(return_value="ok")
+    spec = {"transport": "stdio", "command": "synthetic"}
+    with patch("octop_harness.mcp.aload_mcp_tools", AsyncMock(return_value=[inner])):
+        tool = (await mgr._get_or_load_mcp_tools(7, "local", spec))[0]
+        assert await tool.ainvoke({}) == "ok"
+        actor.role = "user"
+        with pytest.raises(OctopError):
+            await tool.ainvoke({})
+        assert inner.ainvoke.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_get_or_load_misses_on_fingerprint_change() -> None:
     from octop.infra.agents.manager import AgentManager
 

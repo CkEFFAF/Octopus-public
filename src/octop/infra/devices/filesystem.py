@@ -139,7 +139,10 @@ class NativeFileSystem:
                 raise ValueError("file already exists; use edit")
             if expected is not None and (not path.is_file() or self.digest(path) != expected):
                 raise ValueError("file changed since it was read")
-            fd, temporary = tempfile.mkstemp(prefix=".octop-write-", dir=path.parent)
+            try:
+                fd, temporary = tempfile.mkstemp(prefix=".octop-write-", dir=path.parent)
+            except (FileNotFoundError, NotADirectoryError) as exc:
+                raise ValueError("DEVICE_WRITE_PARENT_MISSING") from exc
             try:
                 with os.fdopen(fd, "wb") as stream:
                     stream.write(data)

@@ -105,6 +105,7 @@ def test_shared_custom_server_uses_collision_safe_name_for_viewer(
             "linear": {
                 "transport": "streamable_http",
                 "url": "https://mcp.linear.app/mcp",
+                "headers": {"Authorization": "Bearer test-secret"},
                 "shared": True,
             },
             "private": {
@@ -116,12 +117,17 @@ def test_shared_custom_server_uses_collision_safe_name_for_viewer(
 
     visible = svc.list_instances_for_api(viewer_id)
     assert [row["display_name"] for row in visible] == ["linear"]
+    assert visible[0]["transport"] == "streamable_http"
+    assert "test-secret" not in str(visible)
     shared_name = str(visible[0]["mcp_server_name"])
     assert shared_name.startswith("custom__")
     assert shared_name.endswith("__linear")
     assert svc.list_active_mcp_server_names(viewer_id) == [shared_name]
     assert list(svc.custom_harness_configs(viewer_id)) == [shared_name]
     assert svc.list_default_open_mcp_server_names(viewer_id) == []
+    svc.patch_custom_server(owner_id, "linear", shared=False)
+    assert svc.list_instances_for_api(viewer_id) == []
+    assert svc.custom_harness_configs(viewer_id) == {}
 
 
 def test_rejects_public_http_and_allows_lan():

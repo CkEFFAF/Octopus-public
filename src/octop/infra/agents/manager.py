@@ -1724,7 +1724,28 @@ class AgentManager:
 
             sanitize_plugin_tool_names(raw)
             server_lock = await self._server_lock(user_id, server_name)
-            wrapped = wrap_tools_for_shared_use(raw, server_lock)
+
+            def check_shared_access() -> None:
+                # A running agent may still hold a cached tool after its owner
+                # revokes sharing or changes the connection credentials.
+                actor = self._repos.user_repo.get(user_id)
+                if actor is None or getattr(actor, "disabled", False):
+                    raise OctopError(ErrorCode.FORBIDDEN, "connector account unavailable")
+                authorize_stdio_mcp_spec(actor, spec, location="control_server")
+                if server_name.startswith("custom__"):
+                    current = self._connector_svc.custom_harness_configs(user_id).get(server_name)
+                    if not isinstance(current, dict) or fingerprint_mcp_spec(current) != fp:
+                        raise OctopError(ErrorCode.FORBIDDEN, "shared MCP is no longer available")
+
+            wrapped = wrap_tools_for_shared_use(
+                raw,
+                server_lock,
+                check_access=(
+                    check_shared_access
+                    if server_name.startswith("custom__") or spec.get("transport") == "stdio"
+                    else None
+                ),
+            )
             self._mcp_tool_cache[cache_key] = wrapped
             stale = [
                 key

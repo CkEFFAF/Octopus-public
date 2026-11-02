@@ -81,6 +81,70 @@ async def connected(
     return connection
 
 
+@pytest.mark.parametrize(
+    "denied_action,direction", [("files.read", "source"), ("files.write_begin", "target")]
+)
+def test_transfer_authorization_reports_failed_direction(
+    rig: Any, monkeypatch: Any, denied_action: str, direction: str
+) -> None:
+    from types import SimpleNamespace
+
+    service, owner, _, _ = rig
+
+    def authorize(owner: int, device: str, action: str, params: Any, **kwargs: Any) -> Any:
+        if action == denied_action:
+            raise OctopError(ErrorCode.FORBIDDEN, "device permission denied")
+        return SimpleNamespace(grant_version=1)
+
+    monkeypatch.setattr(service, "authorize", authorize)
+    with pytest.raises(OctopError) as failure:
+        service.transfer(
+            owner,
+            {
+                "source_device_id": "source",
+                "source_root_id": "root",
+                "source_path": "in.bin",
+                "target_device_id": "target",
+                "target_root_id": "root",
+                "target_path": "out.bin",
+            },
+            agent_id="writer",
+        )
+    assert failure.value.code == ErrorCode.FORBIDDEN
+    assert failure.value.details["direction"] == direction
+
+
+@pytest.mark.asyncio
+async def test_transfer_reports_selected_target_mismatch(rig: Any) -> None:
+    import json
+
+    service, owner, _, _ = rig
+    item = enroll(service, owner)
+    selected = item["device"]["device_id"]
+    tools = {tool.name: tool for tool in build_device_tools(service, "writer")}
+    token = var_child_runnable_config.set(
+        {"configurable": {"user": owner, "octop_device_target": {"device_id": selected}}}
+    )
+    try:
+        result = json.loads(
+            await tools["device_transfer"].ainvoke(
+                {
+                    "source_device_id": selected,
+                    "source_root_id": "root",
+                    "source_path": "in.bin",
+                    "target_device_id": "another-device",
+                    "target_root_id": "root",
+                    "target_path": "out.bin",
+                }
+            )
+        )
+        assert result["error"]["code"] == "FORBIDDEN"
+        assert result["error"]["details"]["direction"] == "target"
+    finally:
+        var_child_runnable_config.reset(token)
+        await service.shutdown()
+
+
 def test_pairing_single_use_and_account_binding(rig: Any) -> None:
     service, owner, other, _ = rig
     code = service.pairing(owner)["pairing_code"]
