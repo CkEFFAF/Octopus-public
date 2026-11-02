@@ -1649,16 +1649,36 @@ class DeviceService:
             raise device_error("device operation capacity reached", status=429)
         source_id = str(params["source_device_id"])
         target_id = str(params["target_device_id"])
-        source = self.authorize(
-            owner, source_id, "files.read", {"root_id": params["source_root_id"]}, agent_id=agent_id
-        )
-        target = self.authorize(
-            owner,
-            target_id,
-            "files.write_begin",
-            {"root_id": params["target_root_id"]},
-            agent_id=agent_id,
-        )
+        try:
+            source = self.authorize(
+                owner,
+                source_id,
+                "files.read",
+                {"root_id": params["source_root_id"]},
+                agent_id=agent_id,
+            )
+        except OctopError as exc:
+            raise OctopError(
+                exc.code,
+                exc.message,
+                status=exc.status,
+                details={**exc.details, "direction": "source"},
+            ) from exc
+        try:
+            target = self.authorize(
+                owner,
+                target_id,
+                "files.write_begin",
+                {"root_id": params["target_root_id"]},
+                agent_id=agent_id,
+            )
+        except OctopError as exc:
+            raise OctopError(
+                exc.code,
+                exc.message,
+                status=exc.status,
+                details={**exc.details, "direction": "target"},
+            ) from exc
         clean = {**params, "source_grant_version": source.grant_version}
         op = self.repos.device_repo.create_operation(
             new_ulid(),

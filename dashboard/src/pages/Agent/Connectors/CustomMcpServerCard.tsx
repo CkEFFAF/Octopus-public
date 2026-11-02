@@ -236,6 +236,16 @@ export function CustomMcpServerCard({
               style={{ width: "100%" }}
             />
           </div>
+          <div className={styles.customMcpField}>
+            <label>{t("connectors.sharedMcpMarket.serviceDescription")}</label>
+            <Input.TextArea
+              value={card.description ?? ""}
+              maxLength={500}
+              onChange={(e) =>
+                onUpdate(card.key, { description: e.target.value })
+              }
+            />
+          </div>
 
           {isHttp ? (
             <>

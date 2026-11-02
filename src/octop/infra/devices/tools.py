@@ -230,7 +230,11 @@ def build_device_tools(
         target_root_id: str,
         target_path: str,
     ) -> str:
-        """Transfer a file between your permitted directories, with checksum verification."""
+        """Transfer between permitted directories with checksum verification.
+
+        The target must match the selected device. To publish from an execution
+        device and deliver to another, use publish_artifact then deliver_resource.
+        """
         try:
             uid, target = identity(target_device_id, writes=True)
             return json.dumps(
@@ -250,6 +254,12 @@ def build_device_tools(
                 ensure_ascii=False,
             )
         except OctopError as exc:
+            if exc.message in {
+                "operation targets another selected device",
+                "expert is bound to another device",
+                "operation targets another execution context",
+            }:
+                exc.details["direction"] = "target"
             return json.dumps(exc.to_envelope(), ensure_ascii=False)
 
     tools = [

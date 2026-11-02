@@ -563,11 +563,17 @@ class ConnectorService:
         enabled: bool | None = None,
         default_open: bool | None = None,
         shared: bool | None = None,
+        display_name: str | None = None,
+        description: str | None = None,
     ) -> dict[str, Any]:
         servers = dict(self.get_custom_servers(user_id))
         if server_name not in servers:
             raise KeyError(server_name)
         spec = dict(servers[server_name])
+        if display_name is not None:
+            spec["display_name"] = display_name
+        if description is not None:
+            spec["description"] = description
         if enabled is not None:
             spec["enabled"] = enabled
             if not enabled:

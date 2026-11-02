@@ -22,6 +22,7 @@ from deepagents.backends.protocol import (
 )
 from langgraph.config import get_config
 
+from octop.i18n import tr
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.execution.service import ExecutionService
 
@@ -140,6 +141,20 @@ class RequestExecutionBackend(SandboxBackendProtocol):
             )
             return WriteResult(path=value["path"])
         except (OctopError, ValueError) as exc:
+            if isinstance(exc, ValueError) or (
+                isinstance(exc, OctopError) and exc.code == ErrorCode.DEVICE_INVALID
+            ):
+                message = str(exc)
+                if message == "DEVICE_WRITE_PARENT_MISSING" or (
+                    message.startswith(("[Errno 2]", "[Errno 20]")) and ".octop-write-" in message
+                ):
+                    try:
+                        cfg = get_config().get("configurable") or {}
+                    except RuntimeError:
+                        cfg = {}
+                    return WriteResult(
+                        error=f"{file_path}: {tr('resources.targetParentMissing', str(cfg.get('language') or 'en'))}"
+                    )
             return WriteResult(error=str(exc))
 
     def edit(

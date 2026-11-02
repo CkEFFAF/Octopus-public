@@ -6713,6 +6713,19 @@
     }
   },
   "connectors": {
+    "sharedMcpMarket": {
+      "tab": "MCP 市场",
+      "title": "共享 MCP 服务",
+      "serviceDescription": "服务介绍",
+      "description": "在专家的连接器设置中选择共享服务。共享后不会自动为你的专家开启。",
+      "publisher": "发布者：{{name}}",
+      "identity": "调用使用发布者配置的服务身份。",
+      "unverified": "尚未验证此服务能否供你的专家使用。",
+      "stdioRestricted": "该服务在控制服务器运行，仅管理员可使用。",
+      "configureExpert": "前往专家设置",
+      "empty": "暂无可用的共享 MCP 服务。",
+      "loadFailed": "无法加载共享 MCP 服务。"
+    },
     "agentConfigurationHint": "可在对话中让 Agent 配置连接器或 MCP，保存后列表会同步更新。需要用户同意的 OAuth 授权仍在服务商页面完成。",
     "imapPort": "IMAP TLS 端口",
     "smtpPort": "SMTP TLS 端口（465 / 587）",

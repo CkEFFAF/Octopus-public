@@ -11,6 +11,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { pluginsApi, type MarketPlugin } from "../../../api/modules/plugins";
 import { CardSkeleton } from "../../../components/Skeleton";
+import { SharedMcpMarket } from "../../../components/SharedMcpMarket";
 import { apiErrorMessage } from "../../../utils/apiError";
 import styles from "./index.module.less";
 import { PluginIconView } from "./PluginIconView";
@@ -257,6 +258,7 @@ export function PluginMarketPanel() {
           })}
         </div>
       )}
+      <SharedMcpMarket />
     </div>
   );
 }

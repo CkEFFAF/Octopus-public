@@ -1034,6 +1034,8 @@
     }
   },
   "resources": {
+    "targetParentMissing": "目标文件的父目录不存在或不是目录。请先在目标设备上创建目录，再重试。",
+    "targetOffline": "目标设备已离线。请重新连接后重试。",
     "deliveryConflict": "已有交付正在进行，或资源状态已变化。请先核对最新回执，再决定是否重试。",
     "deliveryReceiptConflict": "交付回执未能保存。目标端可能已存在该文件，请先核对目标文件和最新回执，再决定是否重试。",
     "unavailable": "资源不可用或未获得授权。",

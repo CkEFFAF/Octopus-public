@@ -10,6 +10,7 @@ export interface ServerCardState {
   key: string;
   name: string;
   displayName: string;
+  description?: string;
   transport: CustomMcpTransport;
   url: string;
   headersText: string;
@@ -118,6 +119,7 @@ export function serversToCards(servers: CustomMcpServers): ServerCardState[] {
     key: `${name}-${index}`,
     name,
     displayName: (spec.display_name ?? "").trim(),
+    description: (spec.description ?? "").trim(),
     transport: spec.transport === "stdio" ? "stdio" : "streamable_http",
     url: spec.url ?? "",
     headersText: headersToText(spec.headers),
@@ -150,6 +152,10 @@ export function cardsToServers(cards: ServerCardState[]): CustomMcpServers {
     const displayName = card.displayName.trim();
     if (displayName) {
       spec.display_name = displayName;
+    }
+    const description = card.description?.trim();
+    if (description) {
+      spec.description = description;
     }
     if (card.defaultOpen) {
       spec.default_open = true;
@@ -255,8 +261,7 @@ export function newCard(
 }
 
 /** Notify chat composer to refresh connector list after custom MCP save. */
-export const CONNECTORS_CHANGED_EVENT = "octop:connectors-changed";
-
-export function notifyConnectorsChanged(): void {
-  window.dispatchEvent(new CustomEvent(CONNECTORS_CHANGED_EVENT));
-}
+export {
+  CONNECTORS_CHANGED_EVENT,
+  notifyConnectorsChanged,
+} from "../../../utils/connectorEvents";

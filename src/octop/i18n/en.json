@@ -1034,6 +1034,8 @@
     }
   },
   "resources": {
+    "targetParentMissing": "The destination parent directory does not exist or is not a directory. Create it on the target device, then retry.",
+    "targetOffline": "The target device is offline. Reconnect it, then retry.",
     "deliveryConflict": "Another delivery is active or the resource state changed. Inspect the latest receipt before trying again.",
     "deliveryReceiptConflict": "The delivery receipt could not be saved. The destination may already contain the file; inspect the destination and latest receipt before trying again.",
     "unavailable": "Resource unavailable or not authorized.",

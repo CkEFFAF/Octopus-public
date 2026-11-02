@@ -21,7 +21,7 @@ from octop.infra.devices.client import DeviceClient
 from octop.infra.devices.executor import DeviceExecutionError, DeviceExecutor, save_private_json
 from octop.infra.devices.filesystem import NativeFileSystem
 from octop.infra.devices.service import DeviceService
-from octop.infra.errors import OctopError
+from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.execution.backend import RequestExecutionBackend
 from octop.infra.execution.service import ExecutionService
 
@@ -1228,6 +1228,50 @@ async def test_standard_backend_tools_keep_parallel_targets_separate(fleet: Any)
     service.disconnect(second_connection)
     await first_executor.close()
     await second_executor.close()
+
+
+async def test_standard_backend_explains_missing_write_parent(fleet: Any) -> None:
+    service, owner, _, tmp = fleet
+    service.repos.agent_repo.create(agent_id="expert", user_id=owner, name="Expert")
+    device, executor, connection, _ = await attach(service, owner, tmp / "device")
+    executions = ExecutionService(service)
+    context = executions.resolve(owner, device_id=device["device"]["device_id"], agent_id="expert")
+    backend = RequestExecutionBackend(executions, "expert")
+    token = var_child_runnable_config.set(
+        {
+            "configurable": {
+                "user": owner,
+                "language": "zh",
+                "octop_execution_context": context.public(),
+            }
+        }
+    )
+    try:
+        result = await backend.awrite("missing/report.txt", "test")
+        assert result.error and "missing/report.txt" in result.error
+        assert "父目录" in result.error and ".octop-write-" not in result.error
+    finally:
+        var_child_runnable_config.reset(token)
+        service.disconnect(connection)
+        await executor.close()
+
+
+@pytest.mark.parametrize("errno", [2, 20])
+async def test_standard_backend_explains_legacy_write_parent_error(
+    monkeypatch: pytest.MonkeyPatch, errno: int
+) -> None:
+    backend = RequestExecutionBackend(None, "expert")  # type: ignore[arg-type]
+
+    async def fail(action: str, params: dict[str, Any]) -> dict[str, Any]:
+        raise OctopError(ErrorCode.DEVICE_INVALID, f"[Errno {errno}] failure: .octop-write-temp")
+
+    monkeypatch.setattr(backend, "_call", fail)
+    token = var_child_runnable_config.set({"configurable": {"language": "zh"}})
+    try:
+        result = await backend.awrite("missing/report.txt", "test")
+        assert result.error and "父目录" in result.error and ".octop-write-" not in result.error
+    finally:
+        var_child_runnable_config.reset(token)
 
 
 async def test_saved_owner_reconnects_with_missing_default_directory(tmp_path: Path) -> None:

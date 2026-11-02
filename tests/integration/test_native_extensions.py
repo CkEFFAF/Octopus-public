@@ -252,7 +252,7 @@ async def test_attach_builtin_and_custom_preserves_turn_selection_and_device_pol
 
 async def test_custom_mcp_merge_validation_secrets_and_probe(native, monkeypatch):
     client, srv, auth, _aid, uid, tools = native
-    srv.services.repos.user_repo.set_role(uid, "user")
+    srv.services.repos.user_repo.set_role(uid, "admin")
     srv.services.repos.user_repo.set_permissions(uid, ["connectors"])
     server = {
         "transport": "stdio",
@@ -262,6 +262,8 @@ async def test_custom_mcp_merge_validation_secrets_and_probe(native, monkeypatch
     }
     created = await call(tools, "octop_mcp_upsert", name="local", server=server)
     assert created.get("saved"), created
+    assert created["execution_location"] == "control_server"
+    assert created["command_available"] is False
     assert "error" in await call(tools, "octop_mcp_upsert", name="local", server={"enabled": False})
     assert (
         await call(
@@ -315,12 +317,66 @@ async def test_custom_mcp_merge_validation_secrets_and_probe(native, monkeypatch
     result = await call(tools, "octop_mcp_test", name="local")
     assert (
         result["ok"] is False
+        and result["execution_location"] == "control_server"
         and "environment-secret" not in json.dumps(result)
         and "argument-secret" not in json.dumps(result)
     )
     response = await client.get("/api/connectors/custom-mcp", headers=auth)
     assert response.status_code == 200
     assert set(response.json()["servers"]) == {"local", "other"}
+
+
+async def test_native_stdio_mcp_obeys_control_server_authorization(native, monkeypatch):
+    _client, srv, _auth, _aid, uid, tools = native
+    repo = srv.services.repos.user_repo
+    svc = srv.app_runtime.agent_registry._connector_svc
+    svc.put_custom_servers(uid, {"old": {"transport": "stdio", "command": "unused"}})
+    repo.set_role(uid, "user")
+    repo.set_permissions(uid, ["connectors"])
+    denied = await call(
+        tools, "octop_mcp_upsert", name="new", server={"transport": "stdio", "command": "unused"}
+    )
+    assert "error" in denied
+    assert "new" not in svc.get_custom_servers(uid)
+    probe = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr("octop.infra.agents.native_extension_tools.probe_custom_mcp_server", probe)
+    denied = await call(tools, "octop_mcp_test", name="old")
+    assert "error" in denied
+    probe.assert_not_awaited()
+
+
+async def test_update_custom_mcp_using_returned_instance_id(native):
+    _client, srv, _auth, _aid, uid, tools = native
+    created = await call(
+        tools,
+        "octop_mcp_upsert",
+        name="shared-demo",
+        server={
+            "transport": "streamable_http",
+            "url": "https://mcp.example.com/api",
+            "headers": {"Authorization": "Bearer private-test-token"},
+        },
+    )
+    updated = await call(
+        tools,
+        "octop_connector_update",
+        instance_id=created["instance_id"],
+        display_name="Shared demo",
+        description="A shared research service",
+        default_open=True,
+        shared=True,
+    )
+    assert updated["saved"] and updated["shared"] and updated["default_open"]
+    assert "private-test-token" not in json.dumps(updated)
+    other = srv.services.repos.user_repo.create(
+        username="market-user", password_hash="h", role="user"
+    )
+    svc = srv.app_runtime.agent_registry._connector_svc
+    visible = svc.list_instances_for_api(other)
+    item = next(row for row in visible if row["display_name"] == "Shared demo")
+    assert item["description"] == "A shared research service"
+    assert item["owner_user_id"] == uid
+    assert "private-test-token" not in json.dumps(visible)
 
 
 async def test_skill_author_install_toggle_validation_and_http_visibility(native, monkeypatch):

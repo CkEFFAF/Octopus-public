@@ -31,6 +31,7 @@ import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 
 import PageShell from "../../../layouts/PageShell";
+import { SharedMcpMarket } from "../../../components/SharedMcpMarket";
 import TabBar, { type TabBarItem } from "../../../components/TabLabel/TabBar";
 import StreamSetupGuide from "../../../components/StreamSetupGuide/StreamSetupGuide";
 import { OctopEmptyMascot } from "../../../components/EmptyState/OctopEmptyMascot";
@@ -2119,12 +2120,13 @@ function ConnectorConfigDrawer({
   );
 }
 
-type ConnectorTab = "enabled" | "builtin" | "custom";
+type ConnectorTab = "enabled" | "builtin" | "custom" | "market";
 
 const CONNECTOR_TABS: TabBarItem<ConnectorTab>[] = [
   { key: "enabled", labelKey: "connectors.tabEnabled", icon: Link2 },
   { key: "builtin", labelKey: "connectors.tabBuiltin", icon: Blocks },
   { key: "custom", labelKey: "connectors.tabCustom", icon: Wrench },
+  { key: "market", labelKey: "connectors.sharedMcpMarket.tab", icon: Blocks },
 ];
 
 export default function ConnectorsPage() {
@@ -2227,7 +2229,9 @@ export default function ConnectorsPage() {
         message={t("connectors.agentConfigurationHint")}
         style={{ marginBottom: 16 }}
       />
-      {activeTab === "custom" ? (
+      {activeTab === "market" ? (
+        <SharedMcpMarket />
+      ) : activeTab === "custom" ? (
         <CustomMcpTab focusServerName={customFocusServerName} />
       ) : activeTab === "enabled" ? (
         loading ? (

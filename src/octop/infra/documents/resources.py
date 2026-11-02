@@ -723,8 +723,8 @@ class ResourceService:
             raise ValueError("RESOURCE_DELIVERY_CONFLICT")
         attempt = new_ulid()
         current = {**resource, "delivery_status": "running", "delivery_attempt_id": attempt}
-        if current.get("error_code") == "RESOURCE_DELIVERY_FAILED":
-            current.pop("error_code")
+        if resource.get("delivery_status") == "failed":
+            current.pop("error_code", None)
         if not self.repo.save(
             "collaboration_resources",
             owner,
@@ -749,9 +749,26 @@ class ResourceService:
 
         try:
             data = await self.bytes(owner, resource)
-            begin = await call(
-                "fs.upload.begin", {"path": path, "size": len(data), "sha256": resource["version"]}
-            )
+            try:
+                begin = await call(
+                    "fs.upload.begin",
+                    {"path": path, "size": len(data), "sha256": resource["version"]},
+                )
+            except OctopError as exc:
+                # Older device clients return the failed temporary file path, not a code.
+                # This mapping applies only to upload preparation, after target authorization.
+                message = exc.message
+                if exc.code == ErrorCode.DEVICE_INVALID and (
+                    message == "RESOURCE_TARGET_PARENT_MISSING"
+                    or (
+                        message.startswith(("[Errno 2]", "[Errno 20]"))
+                        and ".octop-native-" in message
+                    )
+                ):
+                    raise ValueError("RESOURCE_TARGET_PARENT_MISSING") from exc
+                if exc.code == ErrorCode.DEVICE_OFFLINE:
+                    raise ValueError("RESOURCE_TARGET_OFFLINE") from exc
+                raise
             transfer_id = begin["transfer_id"]
             for offset in range(0, len(data), 1024 * 1024):
                 chunk = data[offset : offset + 1024 * 1024]
@@ -782,11 +799,17 @@ class ResourceService:
             }
             final = {**current, "delivery_status": "completed"}
             event = "resource.delivered"
-        except Exception:
+        except Exception as exc:
+            delivery_error = (
+                str(exc)
+                if isinstance(exc, ValueError)
+                and str(exc) in {"RESOURCE_TARGET_PARENT_MISSING", "RESOURCE_TARGET_OFFLINE"}
+                else "RESOURCE_DELIVERY_FAILED"
+            )
             final = {
                 **current,
                 "delivery_status": "failed",
-                "error_code": "RESOURCE_DELIVERY_FAILED",
+                "error_code": delivery_error,
             }
             event = "resource.delivery_failed"
             raise

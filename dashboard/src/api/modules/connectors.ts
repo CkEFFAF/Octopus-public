@@ -52,6 +52,8 @@ export interface ConnectorAuthInfo {
 export interface ConnectorInstance {
   instance_id: string;
   kind: string;
+  /** Custom MCP transport; never contains its endpoint or credentials. */
+  transport?: "stdio" | "streamable_http";
   display_name: string;
   description?: string | null;
   status: string;
@@ -145,6 +147,7 @@ export interface CustomMcpServerSpec {
   enabled?: boolean;
   /** Friendly label shown in chat / connector lists (optional). */
   display_name?: string;
+  description?: string;
   /** When true, chat composer pre-selects this MCP server. */
   default_open?: boolean;
   shared?: boolean;

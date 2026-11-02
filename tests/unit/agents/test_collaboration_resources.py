@@ -32,6 +32,88 @@ class Workspace:
         return self.files.get(path)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy_errno", [None, 2, 20])
+async def test_delivery_reports_missing_target_parent_and_can_retry(
+    rig: Any, tmp_path: Path, monkeypatch: Any, legacy_errno: int | None
+) -> None:
+    """A device's staging failure must be actionable without losing the snapshot."""
+    import contextlib
+
+    from octop.infra.devices.protocol import device_error
+    from octop.infra.devices.transfers import NativeTransfers
+
+    resource = await rig.resources.register(rig.owner, "parent", "inbound/paper.txt", thread="root")
+    state_dir = tmp_path / "device-state"
+    state_dir.mkdir()
+    transfers = NativeTransfers(state_dir)
+    target = tmp_path / "missing-parent" / "report.txt"
+    context = SimpleNamespace(
+        context_id="target-context",
+        agent_id="parent",
+        thread_id="root",
+        device_id="laptop",
+        target_kind="device",
+    )
+    calls: list[str] = []
+
+    async def execute(
+        owner: int, context_id: str, action: str, params: dict[str, Any], **_: Any
+    ) -> dict[str, Any]:
+        calls.append(action)
+        if legacy_errno is not None and action == "fs.upload.begin" and not target.parent.exists():
+            raise device_error(f"[Errno {legacy_errno}] unavailable: '.octop-native-legacy'")
+        try:
+            result = transfers.execute(
+                action,
+                {**params, "execution_context_id": context_id},
+                tmp_path,
+                contextlib.nullcontext,
+            )
+        except (OSError, ValueError) as exc:
+            raise device_error(str(exc)) from exc
+        return {"result": result}
+
+    monkeypatch.setattr(
+        "octop.infra.execution.service.ExecutionService",
+        lambda _: SimpleNamespace(get=lambda *a: context, call=execute),
+    )
+    tool = next(
+        t for t in build_resource_tools(rig.manager, "parent") if t.name == "deliver_resource"
+    )
+    token = var_child_runnable_config.set(
+        {"configurable": {"user": rig.owner, "thread_id": "root"}}
+    )
+    try:
+        args = {
+            "resource_id": resource["resource_id"],
+            "context_id": "target-context",
+            "path": str(target),
+        }
+        failed = json.loads(await tool.ainvoke(args))
+        assert failed["code"] == "RESOURCE_TARGET_PARENT_MISSING"
+        assert failed["retryable"] is True
+        assert calls == ["fs.upload.begin"]
+        stored = rig.resources.repo.get(
+            "collaboration_resources", rig.owner, resource["resource_id"]
+        )
+        assert stored["delivery_status"] == "failed"
+        assert stored["error_code"] == "RESOURCE_TARGET_PARENT_MISSING"
+
+        target.parent.mkdir()
+        completed = json.loads(await tool.ainvoke(args))
+        assert completed["status"] == "completed"
+        assert target.read_bytes() == b"A paper with source text."
+        stored = rig.resources.repo.get(
+            "collaboration_resources", rig.owner, resource["resource_id"]
+        )
+        assert stored["delivery_status"] == "completed"
+        assert "error_code" not in stored
+    finally:
+        var_child_runnable_config.reset(token)
+        transfers.close()
+
+
 @dataclass(frozen=True)
 class Options:
     target_policy: str = "member_default"
