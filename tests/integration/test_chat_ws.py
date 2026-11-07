@@ -24,6 +24,17 @@ from tests.support.fakes import FakeHarnessAgent
 from tests.support.http import chat_ws_path, ws_connect
 
 
+def _assert_turn_status(frame: dict[str, Any], *, thread_id: str, active: bool) -> None:
+    """0041 extended turn_status: require core fields; allow schema_version / runtime extras."""
+    assert frame["type"] == "turn_status"
+    assert frame["thread_id"] == thread_id
+    assert frame["active"] is active
+    assert frame["input_controls"] is True
+    assert frame.get("schema_version") == 1
+    runtime = frame.get("runtime")
+    assert runtime is None or isinstance(runtime, dict)
+
+
 def _chat_ws(c: httpx.AsyncClient, aid: str, auth: dict[str, str]) -> Any:
     return ws_connect(c._octop_app, chat_ws_path(aid, auth))  # type: ignore[attr-defined]
 
@@ -102,13 +113,7 @@ async def test_ws_rebind_after_disconnect_receives_later_chunks(env: Any) -> Non
     frames = await _turn_then_rebind(c, aid, alice_auth, tid, gate)
 
     cancel_spy.assert_not_called()
-    assert frames[0] == {
-        "type": "turn_status",
-        "thread_id": tid,
-        "active": True,
-        "runtime": None,
-        "input_controls": True,
-    }
+    _assert_turn_status(frames[0], thread_id=tid, active=True)
     contents = [f.get("content") for f in frames if f.get("type") == "token"]
     assert "second" in contents
     assert frames[-1].get("type") == "done"
@@ -193,13 +198,7 @@ async def test_ws_concurrent_subscribers_both_receive_later_chunks(env: Any) -> 
     assert a_frames[0].get("content") == "first"
     assert [f.get("content") for f in a_frames if f.get("type") == "token"] == ["first", "second"]
     assert a_frames[-1].get("type") == "done"
-    assert b_frames[0] == {
-        "type": "turn_status",
-        "thread_id": tid,
-        "active": True,
-        "runtime": None,
-        "input_controls": True,
-    }
+    _assert_turn_status(b_frames[0], thread_id=tid, active=True)
     assert [f.get("content") for f in b_frames if f.get("type") == "token"] == ["second"]
     assert b_frames[-1].get("type") == "done"
 
@@ -301,13 +300,7 @@ async def test_ws_subscribe_turn_status_idle(env: Any) -> None:
     tid = create.json()["thread_id"]
 
     frame = await _subscribe_ws(c, aid, alice_auth, tid)
-    assert frame == {
-        "type": "turn_status",
-        "thread_id": tid,
-        "active": False,
-        "runtime": None,
-        "input_controls": True,
-    }
+    _assert_turn_status(frame, thread_id=tid, active=False)
 
 
 async def test_ws_subscribe_rejects_another_users_thread(env: Any) -> None:

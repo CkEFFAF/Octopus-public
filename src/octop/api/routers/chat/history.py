@@ -294,6 +294,12 @@ async def create_thread(
         channel_type=ThreadRegistry.CHANNEL_DASHBOARD,
         channel_subject_id=str(effective_uid),
     )
+    await server.app_runtime.gateway.emit_thread_changed(
+        owner_user_id=effective_uid,
+        agent_id=agent_id,
+        thread_id=tid,
+        reason="created",
+    )
     return {"thread_id": tid, "session_key": sk}
 
 
@@ -720,6 +726,7 @@ async def delete_thread(
     _require_thread(server, agent_id, thread_id, user, as_user)
     await server.app_runtime.agent_registry.delete_thread_checkpoint(agent_id, thread_id)
     server.app_runtime.gateway.thread_registry.delete_thread(thread_id)
+    server.app_runtime.gateway.thread_events.suppress_thread(thread_id)
     runtime = getattr(server, "app_runtime", None)
     trajectory = getattr(runtime, "trajectory_service", None) if runtime is not None else None
     if isinstance(trajectory, TrajectoryService):

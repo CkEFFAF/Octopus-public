@@ -23,6 +23,7 @@ from octop.api.routers.chat.turn import (
 )
 from octop.infra.bridge.ids import parse_bridge_agent_id
 from octop.infra.errors import OctopError
+from octop.infra.gateway.thread_events import build_turn_status_frame
 from octop.infra.gateway.ws import WS_CHANNEL_ID
 
 logger = logging.getLogger(__name__)
@@ -111,15 +112,15 @@ async def dashboard_chat_ws(
                     continue
                 hub.subscribe(thread_id, connection_id)
                 await send_frame(
-                    {
-                        "type": "turn_status",
-                        "thread_id": thread_id,
-                        "active": hub.is_turn_active(thread_id),
-                        "runtime": server.app_runtime.agent_registry.steering_status(
+                    build_turn_status_frame(
+                        thread_id=thread_id,
+                        active=hub.is_turn_active(thread_id),
+                        steering=server.app_runtime.agent_registry.steering_status(
                             agent_id, thread_id
                         ),
-                        "input_controls": True,
-                    },
+                        input_controls=True,
+                        last_event_at=gateway.thread_events.last_event_at(thread_id),
+                    ),
                 )
                 continue
 

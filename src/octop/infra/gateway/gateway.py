@@ -31,6 +31,7 @@ from octop.infra.gateway.process.response_mode import (
     qq_channel_response_mode,
 )
 from octop.infra.gateway.slash.dispatcher import SlashDispatcher, build_default_dispatcher
+from octop.infra.gateway.thread_events import ThreadEventEmitter
 from octop.infra.gateway.threads import ThreadRegistry
 from octop.infra.gateway.ws import (
     WS_CHANNEL_ID,
@@ -120,6 +121,7 @@ class Gateway:
         self._dispatcher = build_default_dispatcher()
         self._slash_meta: SlashRuntimeMeta | None = None
         self._ws_hub = WebSocketHub()
+        self._thread_events = ThreadEventEmitter(self._ws_hub)
         self._cli_hub = CliHub()
         self._ws_channel: WebSocketChannel | None = None
         self._cli_channel: CliChannel | None = None
@@ -171,6 +173,10 @@ class Gateway:
         except Exception:
             logger.exception("Could not persist resumed chat input status thread=%s", thread_id)
         try:
+            await self._emit_resume_thread_event(owner, agent_id, thread_id, chunk)
+        except Exception:
+            logger.exception("Could not emit thread.changed for resume thread=%s", thread_id)
+        try:
             await self._ws_hub.push_to_thread(thread_id, chunk)
         except Exception:
             logger.exception("Could not broadcast resumed chat chunk thread=%s", thread_id)
@@ -185,12 +191,31 @@ class Gateway:
 
         async def operation() -> None:
             self._ws_hub.mark_turn_active(thread_id)
+            row = self._thread_registry.get_thread(thread_id)
+            if row is not None:
+                await self.emit_thread_changed(
+                    owner_user_id=row.user_id,
+                    agent_id=row.agent_id,
+                    thread_id=thread_id,
+                    reason="running",
+                )
+            terminal = "completed"
             try:
                 async for frame in source():
                     if listening:
                         frames.put_nowait(frame)
+            except Exception:
+                terminal = "failed"
+                raise
             finally:
                 self._ws_hub.mark_turn_idle(thread_id)
+                if row is not None:
+                    await self.emit_thread_changed(
+                        owner_user_id=row.user_id,
+                        agent_id=row.agent_id,
+                        thread_id=thread_id,
+                        reason=terminal,
+                    )
 
         async def run() -> None:
             try:
@@ -223,6 +248,32 @@ class Gateway:
     @property
     def ws_hub(self) -> WebSocketHub:
         return self._ws_hub
+
+    @property
+    def thread_events(self) -> ThreadEventEmitter:
+        return self._thread_events
+
+    async def emit_thread_changed(
+        self,
+        *,
+        owner_user_id: int,
+        agent_id: str,
+        thread_id: str,
+        reason: str,
+        run_id: str | None = None,
+        updated_at: float | None = None,
+        phase: str | None = None,
+    ) -> None:
+        """Account-scoped thread.changed helper (spec 0041); G2/G3 must call this."""
+        await self._thread_events.emit_thread_changed(
+            owner_user_id=owner_user_id,
+            agent_id=agent_id,
+            thread_id=thread_id,
+            reason=reason,
+            run_id=run_id,
+            updated_at=updated_at,
+            phase=phase,
+        )
 
     @property
     def cli_hub(self) -> CliHub:
@@ -335,6 +386,7 @@ class Gateway:
             hub=self._ws_hub,
             channel_id=WS_CHANNEL_ID,
             on_chunk=self._inputs.observe,
+            emit_thread_changed=self.emit_thread_changed,
         )
         await self._channel_manager.add_channel(self._ws_channel)
 
@@ -575,6 +627,64 @@ class Gateway:
             chat_type=subject.chat_type,
             metadata=metadata,
         )
+
+    async def _emit_resume_thread_event(
+        self,
+        owner: int,
+        agent_id: str,
+        thread_id: str,
+        chunk: dict[str, Any],
+    ) -> None:
+        """Map resume/stream control frames onto thread.changed reasons."""
+        ctype = chunk.get("type")
+        run_id = chunk.get("run_id")
+        run_id_s = str(run_id) if isinstance(run_id, str) and run_id.strip() else None
+        if ctype == "hitl_required":
+            await self.emit_thread_changed(
+                owner_user_id=owner,
+                agent_id=agent_id,
+                thread_id=thread_id,
+                reason="attention",
+                run_id=run_id_s,
+            )
+            return
+        if ctype == "error":
+            await self.emit_thread_changed(
+                owner_user_id=owner,
+                agent_id=agent_id,
+                thread_id=thread_id,
+                reason="failed",
+                run_id=run_id_s,
+            )
+            return
+        if ctype != "run_phase":
+            return
+        phase = str(chunk.get("phase") or "")
+        if phase in {"completed", "failed", "cancelled"}:
+            await self.emit_thread_changed(
+                owner_user_id=owner,
+                agent_id=agent_id,
+                thread_id=thread_id,
+                reason=phase,
+                run_id=run_id_s,
+            )
+        elif phase == "paused":
+            await self.emit_thread_changed(
+                owner_user_id=owner,
+                agent_id=agent_id,
+                thread_id=thread_id,
+                reason="attention",
+                run_id=run_id_s,
+            )
+        elif phase:
+            await self.emit_thread_changed(
+                owner_user_id=owner,
+                agent_id=agent_id,
+                thread_id=thread_id,
+                reason="running",
+                run_id=run_id_s,
+                phase=phase,
+            )
 
     async def notify_dashboard_push(
         self,
