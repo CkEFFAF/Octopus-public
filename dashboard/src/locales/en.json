@@ -2662,7 +2662,7 @@
       "supplementHint": "Text, images and files are added to the current task. Completed operations are preserved.",
       "queueHint": "Process this message after the current answer",
       "filesQueued": "Messages with files are kept in the queue until this answer finishes",
-      "uploadDoesNotBlock": "Send text while files upload; pending files stay in the composer",
+      "uploadDoesNotBlock": "Keep editing while files upload. Send the complete message once all uploads finish.",
       "fileReady": "Ready",
       "file": "file",
       "removeFile": "Remove {{name}}",

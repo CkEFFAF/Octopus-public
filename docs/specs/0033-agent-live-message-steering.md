@@ -1,8 +1,8 @@
 # 0033. Runtime message steering for agent turns
 
 **Date**: 2026-10-18 (Asia/Shanghai)
-**Revision**: 6
-**Status**: Implemented (revision6; release verification tracked in PR70)
+**Revision**: 7
+**Status**: Implemented (revision6 in PR70; revision7 fixes found during live verification)
 **Contract**: During a running local Dashboard turn, ordinary submission continues the current conversation, including uploaded files and images. Queue remains an explicit alternative. The runtime applies the verified message at a model or tool boundary without replaying completed tools. Explicit tool interruption remains a separate action.
 **Implementation**: Initial feature and UI PR31 merged through PR32 (`5eb213320f291f410efb6bf754e1e1583ed71c49`) and deployed on 2026-10-19 with combined Harness `1.0.2.post4.dev1+taskresults.1`. Revision3 follows the user's clarified queue-first UI flow; its validation and release are tracked in the existing progress document.
 
@@ -17,6 +17,8 @@ Revision6 follows the user's 2026-11-07 request for seamless insertion of text, 
 - **AC-16**: Accepted insertion preserves completed tool results. Default submission waits for admitted tools, may stop an in-progress model response cooperatively, and applies once before the next model call. A stale run or failed admission cannot silently duplicate the message. Unknown outcomes remain recoverable by receipt only.
 - **AC-17**: The current selected model is retained. A known image-incompatible running model returns an actionable Chinese error and preserves the draft; it must not silently discard an image or switch the model. Existing image materialization runs at the model request boundary.
 - **AC-18**: Several messages sent before an admitted tool returns are acknowledged individually and applied in arrival order before the next model call. The host opts into Harness buffering, bounded to ten pending messages to match durable input admission; legacy Harness callers retain explicit busy rejection by default.
+- **AC-19**: A message waits until all selected uploads are ready before button or keyboard submission. Uploading keeps the text editable and Stop available. This replaces the prior send ready text while files upload behavior, which silently split one intended message in live testing.
+- **AC-20**: Raw WebSocket user events and parsed SSE user events both project canonical inbound attachment metadata before empty-message filtering. Attachment-only messages remain visible and share the saved history identity. Regression coverage must exercise both transports.
 
 | Value | Source |
 | --- | --- |

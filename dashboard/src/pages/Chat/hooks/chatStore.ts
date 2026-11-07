@@ -15,6 +15,7 @@ import type { TokenUsage } from "../../../api/types";
 import { buildDashboardChatWsUrl } from "../../../api/modules/wsChat";
 import { rewritePeerSpeakerId } from "../../../utils/remoteExpert";
 import { generateId } from "../../../utils/messageParser";
+import { inboundAttachments } from "../../../utils/inboundAttachments";
 import type {
   ChatAttachment,
   ChatMessage,
@@ -1452,7 +1453,10 @@ function handleHarnessChunkBody(
       break;
     case "user": {
       const user = chunk as UserChunk;
-      if (!user.content.trim() && !user.snapshot?.attachments?.length) break;
+      const attachments =
+        user.snapshot?.attachments ??
+        inboundAttachments(user.inbound_attachments);
+      if (!user.content.trim() && !attachments.length) break;
       const commandId = user.command_id;
       const id = commandId
         ? user.source === "dashboard_insert"
@@ -1479,7 +1483,7 @@ function handleHarnessChunkBody(
           id,
           role: "user",
           content: user.content,
-          attachments: user.snapshot?.attachments?.map((attachment) => {
+          attachments: attachments.map((attachment) => {
             const agentId = sessionHostAgentId(state, sessionId);
             return !attachment.url && attachment.workspacePath && agentId
               ? {

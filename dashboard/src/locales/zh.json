@@ -2662,7 +2662,7 @@
       "supplementHint": "文字、图片和文件都会补充给当前任务；已执行的操作会保留。",
       "queueHint": "当前回答结束后，按顺序处理这条消息",
       "filesQueued": "附带文件的消息会保留在队列，当前回答结束后处理",
-      "uploadDoesNotBlock": "上传时可以先发文字；正在上传的文件会保留在输入框中",
+      "uploadDoesNotBlock": "附件上传中，可以继续编辑；全部上传完成后即可一起发送",
       "fileReady": "已就绪",
       "file": "文件",
       "removeFile": "移除 {{name}}",

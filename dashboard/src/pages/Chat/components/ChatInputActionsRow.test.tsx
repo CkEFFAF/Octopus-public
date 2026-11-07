@@ -84,6 +84,32 @@ describe("ChatInputActionsRow responsive toolbar", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
+  it.each([false, true])(
+    "waits for uploads before sending and keeps stop available (streaming=%s)",
+    (isStreaming) => {
+      render(
+        <MemoryRouter>
+          <ChatInputActionsRow
+            {...baseProps}
+            isStreaming={isStreaming}
+            canSend
+            uploading
+            text="with file"
+            runningSendLabel="supplement"
+          />
+        </MemoryRouter>,
+      );
+      const send = screen.getByRole("button", {
+        name: isStreaming ? "supplement" : "Send",
+      });
+      expect(send).toBeDisabled();
+      fireEvent.click(send);
+      expect(baseProps.onSubmit).not.toHaveBeenCalled();
+      if (isStreaming)
+        expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+    },
+  );
+
   it("defaults to queue on send while keeping stop available during generation", () => {
     render(
       <MemoryRouter>
