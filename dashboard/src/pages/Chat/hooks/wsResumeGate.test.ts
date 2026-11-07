@@ -40,6 +40,27 @@ describe("shouldResumeStreamAfterClose", () => {
     ).toBe(false);
   });
 
+  it("restores an idle listener without pretending a turn is running", () => {
+    expect(
+      shouldResumeStreamAfterClose({
+        intentionalClose: false,
+        isStreaming: false,
+        listenOnly: true,
+        threadId: "idle-thread",
+        sessionFocused: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldResumeStreamAfterClose({
+        intentionalClose: true,
+        isStreaming: false,
+        listenOnly: true,
+        threadId: "idle-thread",
+        sessionFocused: true,
+      }),
+    ).toBe(false);
+  });
+
   it("does not resume without a real thread id", () => {
     expect(
       shouldResumeStreamAfterClose({

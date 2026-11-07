@@ -1,9 +1,41 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getSnapshot, ingestHarnessChunk, removeSession } from "./chatStore";
+import { parseHarnessChunk } from "../../../utils/parseHarnessChunk";
 vi.mock("../../../i18n", () => ({ default: { t: (key: string) => key } }));
 const session = "synthetic-steering";
 afterEach(() => removeSession(session));
 describe("steered turn projection", () => {
+  it("keeps an attachment-only insertion once with its canonical history identity", () => {
+    const chunk = {
+      type: "user",
+      source: "dashboard_insert",
+      command_id: "media",
+      content: "",
+      inbound_attachments: [
+        {
+          filename: "补充.png",
+          workspace_path: "inbound/qa.png",
+          kind: "image",
+          resource_id: "res_qa",
+          version: "a".repeat(64),
+        },
+      ],
+    };
+    const parsed = parseHarnessChunk("data: " + JSON.stringify(chunk))!;
+    ingestHarnessChunk(session, parsed);
+    ingestHarnessChunk(session, parsed);
+    const users = getSnapshot(session).messages.filter(
+      (m) => m.role === "user",
+    );
+    expect(users).toHaveLength(1);
+    expect(users[0]).toMatchObject({
+      id: "steer:media",
+      content: "",
+      attachments: [
+        { filename: "补充.png", kind: "image", resourceId: "res_qa" },
+      ],
+    });
+  });
   it("closes an interrupted tool with a visible message and continues the inserted turn", () => {
     ingestHarnessChunk(session, {
       type: "tool_call_chunk",

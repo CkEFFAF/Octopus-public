@@ -46,6 +46,7 @@ import ScheduleBrowser, {
 } from "../../../components/ScheduleBrowser";
 import TaskActivityGraph from "./TaskActivityGraph";
 import styles from "./TaskActivity.module.less";
+import { activityLabel } from "../utils/activityLabel";
 
 export const OPEN_TASK_ACTIVITY_EVENT = "octop:open-task-activity";
 
@@ -178,12 +179,10 @@ export function NodeDetail({
   }
   return (
     <section className={styles.detail}>
-      <h3>
-        {node.type === "job" ? t("workspace0034.nodeType.job") : node.name}
-      </h3>
+      <h3>{activityLabel(node, t)}</h3>
       <p>
         {node.type === "job"
-          ? `#${String(node.details?.job_id ?? node.name).slice(-8)}`
+          ? t("workspace0034.backgroundExplanation")
           : String(
               node.details?.subagent_type ??
                 node.details?.device_id ??
@@ -549,7 +548,7 @@ export default function TaskActivity({
             )}
           </span>
           <span className={styles.rowMain}>
-            <strong>{node.name}</strong>
+            <strong>{activityLabel(node, t)}</strong>
             <small>
               {String(
                 node.details?.subagent_type ??
@@ -621,7 +620,7 @@ export default function TaskActivity({
             .slice(0, 3)
             .map((n) => (
               <div className={styles.summaryRow} key={n.id}>
-                <span>{n.name}</span>
+                <span>{activityLabel(n, t)}</span>
                 <ActivityStatus node={n} stale={stale} />
               </div>
             ))}

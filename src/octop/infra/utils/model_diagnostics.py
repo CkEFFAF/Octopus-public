@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import math
 import re
+import time
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 from pydantic import ValidationError
@@ -59,9 +62,19 @@ def safe_diagnostics(exc: Exception, *, code: str, stage: str, job_id: str) -> d
         result["http_status"] = status
     response = getattr(exc, "response", None)
     headers = getattr(response, "headers", {}) or {}
-    retry_after = str(headers.get("retry-after", ""))
-    if retry_after.isdigit():
-        result["retry_after_seconds"] = min(int(retry_after), 86400)
+    retry_after = str(headers.get("retry-after", "")).strip()
+    try:
+        seconds = float(retry_after)
+    except ValueError:
+        try:
+            seconds = parsedate_to_datetime(retry_after).timestamp() - time.time()
+        except (ValueError, TypeError, OverflowError):
+            seconds = -1
+    if math.isfinite(seconds) and seconds >= 0:
+        result["retry_after_seconds"] = min(math.ceil(seconds), 86400)
+    recovery = getattr(exc, "octop_response_recovery", None)
+    if isinstance(recovery, dict):
+        result["response_recovery"] = recovery
     request_id = getattr(exc, "request_id", None) or headers.get("x-request-id")
     if isinstance(request_id, str) and re.fullmatch(r"[a-zA-Z0-9_.:-]{1,100}", request_id):
         result["request_id"] = request_id

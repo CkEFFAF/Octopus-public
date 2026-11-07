@@ -13,6 +13,7 @@ from octop.api.routers.chat.inputs import router as inputs_router
 from octop.api.routers.chat.inspection import router as inspection_router
 from octop.api.routers.chat.metadata import router as metadata_router
 from octop.api.routers.chat.notify_ws import router as notify_ws_router
+from octop.api.routers.chat.response_recovery import router as response_recovery_router
 from octop.api.routers.chat.routes import router as routes_router
 from octop.api.routers.chat.shares import router as shares_router
 from octop.api.routers.chat.trajectory import router as trajectory_router
@@ -25,6 +26,7 @@ router.include_router(activity_router)
 router.include_router(file_sources_router)
 router.include_router(shares_router)
 router.include_router(routes_router)
+router.include_router(response_recovery_router)
 router.include_router(history_router)
 router.include_router(inspection_router)
 router.include_router(inputs_router)

@@ -95,6 +95,7 @@ function resolveModelLogo(model: {
 const _sttAvailable = isSttAvailable();
 
 interface ChatInputActionsRowProps {
+  runningSendLabel?: string;
   isMobile: boolean;
   isStreaming: boolean;
   /** Team host room — stop control uses clearer wording. */
@@ -162,6 +163,7 @@ interface ChatInputActionsRowProps {
 }
 
 export default function ChatInputActionsRow({
+  runningSendLabel,
   isMobile,
   isStreaming,
   isTeam = false,
@@ -169,7 +171,6 @@ export default function ChatInputActionsRow({
   canSend,
   text,
   polishing,
-  uploading,
   recording,
   transcribing,
   browserRecording = false,
@@ -505,6 +506,15 @@ export default function ChatInputActionsRow({
     </div>
   ) : null;
 
+  const modelLabelCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const model of availableModels ?? []) {
+      const label = modelOptionLabel(model);
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    return counts;
+  }, [availableModels]);
+
   const modelMenu = (
     <div className={styles.modelPickerPanel}>
       {!reasoningMenu && (
@@ -533,6 +543,11 @@ export default function ChatInputActionsRow({
             {availableModels?.map((model) => {
               const value = modelOptionValue(model);
               const active = selectedModel === value;
+              const label = modelOptionLabel(model);
+              const ambiguous = (modelLabelCounts.get(label) ?? 0) > 1;
+              const accessibleLabel = ambiguous
+                ? `${label} (${model.model})`
+                : label;
               const capability = model.reasoning_config;
               const summary = reasoningSummary(model, active);
               return (
@@ -545,8 +560,9 @@ export default function ChatInputActionsRow({
                   <button
                     type="button"
                     className={styles.modelMenuSelect}
+                    aria-label={accessibleLabel}
                     onClick={() => {
-                      onModelChange?.(active ? null : value);
+                      onModelChange?.(value);
                       closePlusMenu();
                     }}
                   >
@@ -556,7 +572,12 @@ export default function ChatInputActionsRow({
                       className={styles.modelMenuIcon}
                     />
                     <span className={styles.modelMenuLabel}>
-                      {modelOptionLabel(model)}
+                      {label}
+                      {ambiguous && (
+                        <small className={styles.modelMenuId}>
+                          {model.model}
+                        </small>
+                      )}
                     </span>
                   </button>
                   {capability && onReasoningChange && (
@@ -564,7 +585,7 @@ export default function ChatInputActionsRow({
                       type="button"
                       className={styles.modelMenuReasoning}
                       onClick={() => openModelReasoning(value)}
-                      aria-label={`${modelOptionLabel(model)} ${t(
+                      aria-label={`${accessibleLabel} ${t(
                         "chat.reasoningMode",
                         "思考模式",
                       )}`}
@@ -1104,7 +1125,7 @@ export default function ChatInputActionsRow({
             className={styles.secondaryBtn}
             onClick={onFileSelect}
             type="button"
-            disabled={uploading}
+            disabled={disabled}
             aria-label={t("upload.fileTooltip", "Upload attachment")}
           >
             <Paperclip size={16} />
@@ -1211,9 +1232,7 @@ export default function ChatInputActionsRow({
                 recording || transcribing ? styles.secondaryBtnActive : ""
               }`}
               type="button"
-              disabled={
-                disabled || isStreaming || transcribing || !_sttAvailable
-              }
+              disabled={disabled || transcribing || !_sttAvailable}
               onClick={onToggleVoice}
               aria-label={
                 recording
@@ -1300,16 +1319,34 @@ export default function ChatInputActionsRow({
               </button>
             </Tooltip>
             {canSend && (
-              <Tooltip title={isTeam ? t("chat.send") : t("chat.queue.action")}>
+              <Tooltip
+                title={
+                  isTeam
+                    ? t("chat.send")
+                    : runningSendLabel || t("chat.queue.action")
+                }
+              >
                 <button
                   className={styles.sendBtn}
                   onClick={onSubmit}
                   disabled={disabled}
-                  title={isTeam ? t("chat.send") : t("chat.queue.action")}
+                  title={
+                    isTeam
+                      ? t("chat.send")
+                      : runningSendLabel || t("chat.queue.action")
+                  }
                   type="button"
-                  aria-label={isTeam ? t("chat.send") : t("chat.queue.action")}
+                  aria-label={
+                    isTeam
+                      ? t("chat.send")
+                      : runningSendLabel || t("chat.queue.action")
+                  }
                 >
-                  {isTeam ? <Send size={18} /> : <ListPlus size={18} />}
+                  {isTeam || runningSendLabel ? (
+                    <Send size={18} />
+                  ) : (
+                    <ListPlus size={18} />
+                  )}
                 </button>
               </Tooltip>
             )}

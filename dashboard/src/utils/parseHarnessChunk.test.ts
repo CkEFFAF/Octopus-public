@@ -47,6 +47,19 @@ describe("parseHarnessChunk team speaker", () => {
 });
 
 describe("parseHarnessChunk usage", () => {
+  it.each(["custom", "state_update", "state_snapshot"])(
+    "retains the owning speaker on %s retry/control frames",
+    (type) => {
+      const data = {
+        octop_model_retry: { phase: "retrying", attempt: 2, max_attempts: 3 },
+      };
+      const chunk = parseHarnessChunk(
+        `data: ${JSON.stringify({ type, agent_id: "peer", data })}`,
+      );
+      expect(chunk).toMatchObject({ type, agent_id: "peer", data });
+    },
+  );
+
   it("keeps the stable call id and cache-aware usage fields", () => {
     const chunk = parseHarnessChunk(
       'data: {"type":"usage","call_id":"call-1","model":"deepseek-v4","usage":{"input_tokens":100,"uncached_input_tokens":30,"cache_read_tokens":70,"cache_write_tokens":0,"output_tokens":9,"reasoning_tokens":4,"total_tokens":109}}',

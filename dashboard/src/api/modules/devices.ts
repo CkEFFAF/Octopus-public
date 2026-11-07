@@ -134,6 +134,21 @@ export interface DeviceOperation {
   updated_at: number;
 }
 
+export interface DeviceTransfer {
+  transfer_id: string;
+  operation_id: string | null;
+  status: string;
+  preferred_transport: "auto" | "direct" | "hub";
+  actual_transport: "direct" | "hub" | null;
+  bytes_total: number | null;
+  bytes_done: number;
+  fallback_reason: string | null;
+  failure_direction: string | null;
+  error_code: string | null;
+  audit_id: string;
+  receipts: { source: boolean; target: boolean };
+}
+
 export interface DeviceFileEntry {
   name: string;
   path: string;
@@ -318,7 +333,21 @@ export const devicesApi = {
     target_device_id: string;
     target_root_id: string;
     target_path: string;
-  }) => post<DeviceOperation>("/devices/transfers", params),
+    request_id?: string;
+    preferred_transport?: "auto" | "direct" | "hub";
+  }) =>
+    post<DeviceTransfer>("/devices/transfers", {
+      ...params,
+      overwrite: false,
+      schema_version: 1,
+    }),
+  transferStatus: (id: string) =>
+    request<DeviceTransfer>(`/devices/transfers/${encodeURIComponent(id)}`),
+  cancelTransfer: (id: string) =>
+    post<DeviceTransfer>(
+      `/devices/transfers/${encodeURIComponent(id)}/cancel`,
+      {},
+    ),
   call: <K extends keyof DeviceCalls>(
     id: string,
     action: K,

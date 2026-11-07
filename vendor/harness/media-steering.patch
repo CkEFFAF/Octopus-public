@@ -1,0 +1,429 @@
+diff --git a/pyproject.toml b/pyproject.toml
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -5,7 +5,7 @@
+ [project]
+ name = "octop-harness"
+ # Single source of truth for the package version (runtime reads via importlib.metadata).
+-version = "1.0.2.post4.dev4+interrupt.2"
++version = "1.0.2.post4.dev5+media.1"
+ description = "Production-grade Harness Agent built on top of LangChain Deep Agents."
+ readme = "README.md"
+ license = { text = "MIT" }
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -457,3 +457,7 @@
+ Cancellation without a definitive task result remains `unknown`, and terminal
+ callback duplicates do not change the receipt. Existing peer delegation receipts
+ and transport/task outcome separation remain unchanged.
++
++## Structured messages during a running turn
++
++`HarnessAgent.steer_message` and `HarnessAgentManager.steer_message` accept an optional `message=HumanMessage(...)`. The host validates attachment ownership and versions before admission. Public `text` remains separate from model content. Checkpoints retain message content and metadata; user events contain public text and attachment metadata only. `queue_if_busy=True` buffers up to ten messages in arrival order at the next safe boundary. The default preserves explicit busy rejection. Completed tool results are retained.
+diff --git a/src/octop_harness/agent.py b/src/octop_harness/agent.py
+--- a/src/octop_harness/agent.py
++++ b/src/octop_harness/agent.py
+@@ -67,7 +67,7 @@
+ 
+ if TYPE_CHECKING:
+     from deepagents.backends.protocol import BackendProtocol
+-    from langchain_core.messages import BaseMessage
++    from langchain_core.messages import BaseMessage, HumanMessage
+ 
+     from octop_harness.context_usage import ContextUsage
+     from octop_harness.protocols.base import ChatProtocol
+@@ -414,16 +414,26 @@
+             event.set()
+ 
+     def steer_message(
+-        self, thread_id: str, command_id: str, text: str, *, run_id: str, cancel_tools: bool = False
++        self,
++        thread_id: str,
++        command_id: str,
++        text: str,
++        *,
++        run_id: str,
++        cancel_tools: bool = False,
++        message: HumanMessage | None = None,
++        queue_if_busy: bool = False,
+     ) -> dict[str, str]:
+-        """Insert into the identified run, optionally interrupting current tool waits."""
++        """Insert verified text or media into a run; text is the public display value."""
+         control = self._steering_runs.get(thread_id)
+         if control is None:
+             return {"status": "inactive", "phase": "idle"}
+         if control.run_id != run_id:
+             return {"status": "stale_run", "phase": control.phase, "run_id": control.run_id}
+         return {
+-            "status": control.request(command_id, text, cancel_tools=cancel_tools),
++            "status": control.request(
++                command_id, text, cancel_tools=cancel_tools, message=message, queue_if_busy=queue_if_busy
++            ),
+             "phase": control.phase,
+             "run_id": control.run_id,
+         }
+diff --git a/src/octop_harness/manager.py b/src/octop_harness/manager.py
+--- a/src/octop_harness/manager.py
++++ b/src/octop_harness/manager.py
+@@ -30,7 +30,7 @@
+ from octop_harness.teams.team_manager import TeamManager
+ 
+ if TYPE_CHECKING:
+-    from langchain_core.messages import BaseMessage
++    from langchain_core.messages import BaseMessage, HumanMessage
+ 
+     from octop_harness.context_usage import ContextUsage
+     from octop_harness.llm.factory import ChatModelFactory
+@@ -394,10 +394,24 @@
+         *,
+         run_id: str,
+         cancel_tools: bool = False,
++        message: HumanMessage | None = None,
++        queue_if_busy: bool = False,
+     ) -> dict[str, str]:
+         """Request insertion into an active stream, optionally interrupting tool waits."""
+         entry = self._registry[agent_id]
+-        return entry.agent.steer_message(thread_id, command_id, text, run_id=run_id, cancel_tools=cancel_tools)
++        options: dict[str, Any] = {}
++        if message is not None:
++            options["message"] = message
++        if queue_if_busy:
++            options["queue_if_busy"] = True
++        return entry.agent.steer_message(
++            thread_id,
++            command_id,
++            text,
++            run_id=run_id,
++            cancel_tools=cancel_tools,
++            **options,
++        )
+ 
+     def steering_status(self, agent_id: str, thread_id: str) -> dict[str, str] | None:
+         """Inspect the active steerable invocation for reconnecting clients."""
+diff --git a/src/octop_harness/steering.py b/src/octop_harness/steering.py
+--- a/src/octop_harness/steering.py
++++ b/src/octop_harness/steering.py
+@@ -4,8 +4,11 @@
+ 
+ import asyncio
+ import contextlib
++import hashlib
++import json
+ import uuid
+ from collections.abc import Awaitable, Callable
++from copy import deepcopy
+ from dataclasses import dataclass, field
+ from typing import Any
+ 
+@@ -22,6 +25,7 @@
+     command_id: str
+     text: str
+     cancel_tools: bool = False
++    message: HumanMessage | None = None
+ 
+ 
+ @dataclass
+@@ -33,25 +37,45 @@
+     interrupt_tools: asyncio.Event = field(default_factory=asyncio.Event)
+     phase: str = "llm_before"
+     pending: SteeringCommand | None = None
++    pending_queue: list[SteeringCommand] = field(default_factory=list)
+     partial_text: str = ""
+     command_status: dict[str, str] = field(default_factory=dict)
+-    command_text: dict[str, str] = field(default_factory=dict)
+-    command_cancel_tools: dict[str, bool] = field(default_factory=dict)
++    command_fingerprints: dict[str, str] = field(default_factory=dict)
+     active_tools: int = 0
+     interrupted_model: bool = False
+ 
+-    def request(self, command_id: str, text: str, *, cancel_tools: bool = False) -> str:
++    def request(
++        self,
++        command_id: str,
++        text: str,
++        *,
++        cancel_tools: bool = False,
++        message: HumanMessage | None = None,
++        queue_if_busy: bool = False,
++    ) -> str:
++        """Admit one immutable user message, preserving text-only caller compatibility."""
++        prepared = (message or HumanMessage(content=text)).model_copy(update={"id": f"steer:{command_id}"}, deep=True)
++        fingerprint = hashlib.sha256(
++            json.dumps(
++                {"text": text, "message": prepared.model_dump(mode="json"), "cancel_tools": cancel_tools},
++                sort_keys=True,
++                ensure_ascii=False,
++            ).encode("utf-8")
++        ).hexdigest()
+         if command_id in self.command_status:
+-            same = self.command_text[command_id] == text and self.command_cancel_tools[command_id] == cancel_tools
++            same = self.command_fingerprints[command_id] == fingerprint
+             return self.command_status[command_id] if same else "conflict"
+         if self.phase in {"paused", "completed", "failed", "cancelled"}:
+             return "inactive"
+-        if self.pending is not None:
++        if self.pending is not None and (not queue_if_busy or len(self.pending_queue) >= 9):
+             return "busy"
+-        self.pending = SteeringCommand(command_id=command_id, text=text, cancel_tools=cancel_tools)
++        command = SteeringCommand(command_id=command_id, text=text, cancel_tools=cancel_tools, message=prepared)
++        if self.pending is None:
++            self.pending = command
++        else:
++            self.pending_queue.append(command)
+         self.command_status[command_id] = "accepted"
+-        self.command_text[command_id] = text
+-        self.command_cancel_tools[command_id] = cancel_tools
++        self.command_fingerprints[command_id] = fingerprint
+         if cancel_tools:
+             self.interrupt_tools.set()
+         self.wake.set()
+@@ -148,29 +172,34 @@
+                 updates.append(RemoveMessage(id=last.id))
+             elif control.interrupted_model and not last.content:
+                 replace_message_state = True
+-        updates.append(HumanMessage(content=command.text, id=f"steer:{command.command_id}"))
++        commands = [command, *control.pending_queue]
++        control.pending_queue.clear()
+         control.pending = None
+         control.wake.clear()
+         control.interrupt_tools.clear()
+-        control.command_status[command.command_id] = "applied"
+-        self._emit(
+-            {
+-                "type": "steering_applied",
+-                "command_id": command.command_id,
+-                "run_id": control.run_id,
+-                "phase": boundary,
+-                "partial_output_retained": bool(control.partial_text) and control.interrupted_model,
+-            }
+-        )
+-        self._emit(
+-            {
+-                "type": "user",
+-                "content": command.text,
+-                "command_id": command.command_id,
+-                "source": "dashboard_insert",
+-                "run_id": control.run_id,
+-            }
+-        )
++        for index, command in enumerate(commands):
++            message = command.message or HumanMessage(content=command.text, id=f"steer:{command.command_id}")
++            updates.append(message)
++            control.command_status[command.command_id] = "applied"
++            self._emit(
++                {
++                    "type": "steering_applied",
++                    "command_id": command.command_id,
++                    "run_id": control.run_id,
++                    "phase": boundary,
++                    "partial_output_retained": index == 0 and bool(control.partial_text) and control.interrupted_model,
++                }
++            )
++            self._emit(
++                {
++                    "type": "user",
++                    "content": command.text,
++                    "command_id": command.command_id,
++                    "source": "dashboard_insert",
++                    "run_id": control.run_id,
++                    "inbound_attachments": deepcopy(message.additional_kwargs.get("octop_inbound_attachments", [])),
++                }
++            )
+         control.interrupted_model = False
+         result: dict[str, Any] = {
+             "messages": Overwrite([*messages[:-1], *updates]) if replace_message_state else updates
+diff --git a/tests/test_rich_steering.py b/tests/test_rich_steering.py
+--- a/tests/test_rich_steering.py
++++ b/tests/test_rich_steering.py
+@@ -0,0 +1,181 @@
++"""Structured insertion reaches the model and checkpoint without replaying tools."""
++
++from __future__ import annotations
++
++import asyncio
++from typing import Any
++
++import pytest
++from langchain.agents import create_agent
++from langchain.agents.middleware import AgentMiddleware
++from langchain_core.messages import AIMessage, HumanMessage
++from langchain_core.tools import tool
++from langgraph.checkpoint.memory import InMemorySaver
++from tests.test_steering import ToolModel, config
++
++from octop_harness.protocols.langgraph import LangGraphProtocol
++from octop_harness.steering import LiveSteeringMiddleware, StreamSteering
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("boundary", ["before", "model", "tool"])
++@pytest.mark.parametrize("image", [False, True])
++async def test_verified_message_reaches_model_and_history_once(boundary: str, image: bool) -> None:
++    control = StreamSteering()
++    model_started, tool_started, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
++    effects: list[str] = []
++    seen: list[HumanMessage] = []
++    attachments = [
++        {
++            "filename": "补充.png" if image else "补充.txt",
++            "workspace_path": "inbound/qa",
++            "resource_id": "res_qa",
++            "version": "a" * 64,
++        }
++    ]
++    content: Any = [{"type": "text", "text": "已验证的附件提示"}]
++    if image:
++        content.append({"type": "image_url", "image_url": {"url": "workspace://inbound/qa.png"}})
++    submitted = HumanMessage(
++        content=content, additional_kwargs={"octop_inbound_attachments": attachments}, id="caller-id"
++    )
++
++    @tool
++    async def save_once() -> str:
++        """Finish one synthetic side effect."""
++        effects.append("saved")
++        tool_started.set()
++        if boundary == "tool":
++            await release.wait()
++        return "saved"
++
++    class Capture(AgentMiddleware[Any, Any]):
++        first = True
++
++        async def awrap_model_call(self, request: Any, handler: Any) -> Any:
++            if self.first and boundary == "model":
++                self.first = False
++                model_started.set()
++                await asyncio.Event().wait()
++            seen.extend(m for m in request.messages if isinstance(m, HumanMessage) and m.id == "steer:media")
++            return await handler(request)
++
++    graph = create_agent(
++        ToolModel(
++            responses=[
++                AIMessage(content="", tool_calls=[{"name": "save_once", "args": {}, "id": "effect"}]),
++                AIMessage(content="已收到附件"),
++            ]
++        ),
++        tools=[save_once],
++        middleware=[LiveSteeringMiddleware({"test-thread": control}), Capture()],
++        checkpointer=InMemorySaver(),
++    )
++
++    async def consume() -> list[dict[str, Any]]:
++        return [
++            chunk
++            async for chunk in LangGraphProtocol(graph=graph).stream(
++                [HumanMessage(content="original", id="original")], config(control)
++            )
++        ]
++
++    if boundary == "before":
++        assert control.request("media", "", message=submitted) == "accepted"
++    task = asyncio.create_task(consume())
++    if boundary != "before":
++        await asyncio.wait_for((model_started if boundary == "model" else tool_started).wait(), 10)
++        assert control.request("media", "", message=submitted) == "accepted"
++        release.set()
++    chunks = await asyncio.wait_for(task, 10)
++    state = await graph.aget_state(config(control))
++    inserted = [m for m in state.values["messages"] if m.id == "steer:media"]
++    assert len(inserted) == 1
++    assert inserted[0].content == submitted.content
++    assert inserted[0].additional_kwargs == submitted.additional_kwargs
++    assert seen and all(m.content == submitted.content for m in seen)
++    assert effects == ["saved"]
++    user_events = [chunk for chunk in chunks if chunk.get("type") == "user"]
++    assert len(user_events) == 1
++    assert user_events[0]["content"] == ""
++    assert user_events[0]["inbound_attachments"] == attachments
++    assert "workspace://" not in str(user_events)
++    assert control.request("media", "", message=submitted) == "applied"
++
++
++def test_message_identity_is_immutable_and_covers_content_metadata_and_mode() -> None:
++    control = StreamSteering()
++    original = HumanMessage(
++        content=[{"type": "text", "text": "附件"}],
++        additional_kwargs={"octop_inbound_attachments": [{"version": "one"}]},
++    )
++    assert control.request("media", "补充", message=original) == "accepted"
++    same = original.model_copy(deep=True)
++    original.additional_kwargs["octop_inbound_attachments"][0]["version"] = "changed"
++    assert control.request("media", "补充", message=same) == "accepted"
++    assert control.request("media", "补充", message=original) == "conflict"
++    assert control.request("media", "另一个文字", message=same) == "conflict"
++    assert control.request("media", "补充", message=same, cancel_tools=True) == "conflict"
++    assert control.pending is not None and control.pending.message is not None
++    assert control.pending.message.id == "steer:media"
++    assert control.pending.message.content == same.content
++    assert control.pending.message.additional_kwargs == same.additional_kwargs
++
++
++@pytest.mark.asyncio
++async def test_multiple_supplements_apply_in_order_without_repeating_admitted_tool() -> None:
++    control = StreamSteering()
++    started, release = asyncio.Event(), asyncio.Event()
++    effects = []
++
++    @tool
++    async def work_once() -> str:
++        """Finish a single already admitted operation."""
++        effects.append("one")
++        started.set()
++        await release.wait()
++        return "done"
++
++    graph = create_agent(
++        ToolModel(
++            responses=[
++                AIMessage(content="", tool_calls=[{"name": "work_once", "args": {}, "id": "work"}]),
++                AIMessage(content="继续"),
++            ]
++        ),
++        tools=[work_once],
++        middleware=[LiveSteeringMiddleware({"test-thread": control})],
++        checkpointer=InMemorySaver(),
++    )
++
++    async def consume() -> list[dict[str, Any]]:
++        return [
++            chunk
++            async for chunk in LangGraphProtocol(graph=graph).stream(
++                [HumanMessage(content="original")], config(control)
++            )
++        ]
++
++    task = asyncio.create_task(consume())
++    await asyncio.wait_for(started.wait(), 10)
++    for number in range(3):
++        assert control.request(f"supplement-{number}", f"补充 {number}", queue_if_busy=True) == "accepted"
++    release.set()
++    chunks = await asyncio.wait_for(task, 10)
++    history = await graph.aget_state(config(control))
++    assert [m.content for m in history.values["messages"] if m.type == "human"] == [
++        "original",
++        "补充 0",
++        "补充 1",
++        "补充 2",
++    ]
++    assert [c["command_id"] for c in chunks if c.get("type") == "user"] == [f"supplement-{i}" for i in range(3)]
++    assert effects == ["one"]
++
++
++def test_opted_in_buffer_is_bounded_and_duplicate_does_not_consume_capacity() -> None:
++    control = StreamSteering()
++    for i in range(10):
++        assert control.request(str(i), str(i), queue_if_busy=True) == "accepted"
++        assert control.request(str(i), str(i), queue_if_busy=True) == "accepted"
++    assert control.request("overflow", "overflow", queue_if_busy=True) == "busy"
+diff --git a/tests/fixtures/plugins/echo-tool/plugin.yaml b/tests/fixtures/plugins/echo-tool/plugin.yaml
+--- a/tests/fixtures/plugins/echo-tool/plugin.yaml
++++ b/tests/fixtures/plugins/echo-tool/plugin.yaml
+@@ -0,0 +1,5 @@
++id: echo-tool
++version: 1.0.0
++name: Echo Tool
++kind: tool
++entry: main.py

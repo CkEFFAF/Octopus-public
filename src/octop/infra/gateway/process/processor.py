@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
@@ -1453,6 +1454,49 @@ class GlobalProcessor:
             locale=locale,
         )
 
+    async def prepare_steering_message(
+        self, msg: InboundMessage, agent_id: str, user_id: int, thread_id: str
+    ) -> HumanMessage:
+        """Build media from validated inbound data without changing invocation settings."""
+        from octop.infra.documents.resources import ResourceService
+
+        resources = ResourceService(self._agent_manager)
+        for attachment in (msg.metadata or {}).get(INBOUND_ATTACHMENTS_KEY, []):
+            resource = resources.authorize(user_id, attachment["resource_id"], agent_id, thread_id)
+            if resource["version"] != attachment["version"]:
+                raise ValueError("RESOURCE_VERSION_CHANGED")
+            await resources.bytes(user_id, resource)
+        locale = resolve_user_locale(
+            user_repo=self._user_repo,
+            user_id=user_id,
+            channel_type=msg.channel_type or "dashboard",
+            metadata=msg.metadata,
+        )
+        content = await build_content_from_message(
+            msg,
+            media_backend=media_backend_for_agent(self._agent_manager, agent_id),
+            locale=locale,
+        )
+        content, attachments = await self._resource_input(
+            msg, content, agent_id, user_id, thread_id, locale
+        )
+        expected_versions = {
+            item["workspace_path"]: item["version"]
+            for item in (msg.metadata or {}).get(INBOUND_ATTACHMENTS_KEY, [])
+        }
+        if any(
+            attachment.get("version") != expected_versions.get(attachment["workspace_path"])
+            for attachment in attachments
+        ):
+            raise ValueError("RESOURCE_VERSION_CHANGED")
+        return HumanMessage(
+            content=content,
+            additional_kwargs={
+                INBOUND_ATTACHMENTS_KEY: attachments,
+                "octop_display_text": msg.text,
+            },
+        )
+
     async def _resource_input(
         self,
         msg: InboundMessage,
@@ -1483,7 +1527,12 @@ class GlobalProcessor:
             )
             attachment["resource_id"] = resource["resource_id"]
             attachment["version"] = resource["version"]
-            references.append(f"{resource['resource_id']}@{resource['version']}")
+            references.append(
+                json.dumps(
+                    {"resource_id": resource["resource_id"], "version": resource["version"]},
+                    ensure_ascii=False,
+                )
+            )
         hint = tr("resources.input_hint", locale, references="\n".join(references))
         if isinstance(content, list):
             content = [*content, {"type": "text", "text": hint}]

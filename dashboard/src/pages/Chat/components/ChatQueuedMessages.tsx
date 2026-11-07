@@ -60,10 +60,8 @@ export default function ChatQueuedMessages({
     >
       {items.map((item, index) => {
         const text = previewText(item);
-        const withdrawable =
-          (!item.status || item.status === "queued") &&
-          !promotingId &&
-          !disabled;
+        const modifiable = !item.status || item.status === "queued";
+        const withdrawable = modifiable && !promotingId && !disabled;
         const attachmentCount = item.attachments?.length ?? 0;
         const dismissible = ["unknown", "failed", "rejected"].includes(
           item.status ?? "",
@@ -91,6 +89,16 @@ export default function ChatQueuedMessages({
               title={t("chat.queue.reclaim")}
             >
               <span className={styles.queuedMessageText}>{label}</span>
+              {item.attachments?.map((attachment, attachmentIndex) => (
+                <span
+                  className={styles.queuedMessageAttach}
+                  key={`${attachment.filename}-${attachmentIndex}`}
+                >
+                  <Paperclip size={12} aria-hidden />
+                  {attachment.filename ||
+                    t("chat.queue.attachmentsOnly", { count: 1 })}
+                </span>
+              ))}
               {item.status && (
                 <span
                   role="status"
@@ -118,12 +126,10 @@ export default function ChatQueuedMessages({
                 </span>
               )}
             </button>
-            {onSteer && !dismissible && (
+            {onSteer && modifiable && (
               <Tooltip
                 title={
-                  attachmentCount > 0
-                    ? t("chat.steer.attachmentsQueue")
-                    : item.text.trim().startsWith("/")
+                  item.text.trim().startsWith("/")
                     ? t("chat.steer.commandsQueue")
                     : t("chat.steer.immediateHint")
                 }
@@ -134,8 +140,7 @@ export default function ChatQueuedMessages({
                   disabled={
                     !withdrawable ||
                     !canSteer ||
-                    attachmentCount > 0 ||
-                    !item.text.trim() ||
+                    (!item.text.trim() && attachmentCount === 0) ||
                     item.text.trim().startsWith("/")
                   }
                   onClick={() => void promote(item.id, true)}
@@ -149,12 +154,10 @@ export default function ChatQueuedMessages({
                 </button>
               </Tooltip>
             )}
-            {onSteer && !dismissible && (
+            {onSteer && modifiable && (
               <Tooltip
                 title={
-                  attachmentCount > 0
-                    ? t("chat.steer.attachmentsQueue")
-                    : item.text.trim().startsWith("/")
+                  item.text.trim().startsWith("/")
                     ? t("chat.steer.commandsQueue")
                     : t("chat.steer.action")
                 }
@@ -165,8 +168,7 @@ export default function ChatQueuedMessages({
                   disabled={
                     !withdrawable ||
                     !canSteer ||
-                    attachmentCount > 0 ||
-                    !item.text.trim() ||
+                    (!item.text.trim() && attachmentCount === 0) ||
                     item.text.trim().startsWith("/")
                   }
                   onClick={() => void promote(item.id)}
@@ -192,7 +194,7 @@ export default function ChatQueuedMessages({
                   <X size={16} />
                 </button>
               </Tooltip>
-            ) : (
+            ) : modifiable ? (
               <Tooltip title={t("chat.queue.withdraw")}>
                 <button
                   type="button"
@@ -205,7 +207,7 @@ export default function ChatQueuedMessages({
                   <Undo2 size={16} />
                 </button>
               </Tooltip>
-            )}
+            ) : null}
           </div>
         );
       })}

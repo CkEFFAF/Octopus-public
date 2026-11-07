@@ -310,6 +310,12 @@ class QueuedInputBody(BaseModel):
     command_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
     turn: UserTurnWsFrame
     snapshot: dict[str, Any]
+    run_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        description="Continue this active run with the verified message; otherwise retain FIFO delivery.",
+    )
 
 
 class PromoteQueuedInputBody(BaseModel):

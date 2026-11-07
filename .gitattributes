@@ -10,3 +10,6 @@ dashboard/**/*.less text eol=lf
 dashboard/**/*.css text eol=lf
 dashboard/**/*.html text eol=lf
 dashboard/**/*.md text eol=lf
+
+# Unified diff context includes a single space on empty lines.
+vendor/harness/*.patch -whitespace

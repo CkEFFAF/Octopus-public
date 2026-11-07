@@ -21,6 +21,7 @@ interface UseChatNavigationParams {
   sessionsLoading: boolean;
   prefillInputRef: React.MutableRefObject<string>;
   loadHistory: (threadId: string) => Promise<void>;
+  refreshHistory?: (threadId?: string) => Promise<void>;
   clearMessages: () => void;
   ensureThreadInList: (threadId: string) => Promise<ThreadProbeResult>;
   fetchSessions: (activeId?: string) => Promise<Session[]>;
@@ -36,6 +37,7 @@ export function useChatNavigation({
   sessionsLoading,
   prefillInputRef,
   loadHistory,
+  refreshHistory,
   clearMessages,
   ensureThreadInList,
   fetchSessions,
@@ -77,18 +79,32 @@ export function useChatNavigation({
   }, [resolvedAgentId, refreshAgents]);
 
   useEffect(() => {
-    const refreshBadges = () => void refreshAgents({ silent: true });
+    let busy = false;
+    const refreshBadges = () => {
+      if (document.hidden || busy) return;
+      busy = true;
+      void Promise.allSettled([
+        refreshAgents({ silent: true }),
+        fetchSessions(activeThreadId ?? undefined),
+      ]).finally(() => {
+        busy = false;
+      });
+    };
     refreshBadges();
     const intervalId = window.setInterval(refreshBadges, 10_000);
     const onVisibility = () => {
       if (document.visibilityState === "visible") refreshBadges();
     };
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("online", refreshBadges);
+    window.addEventListener("focus", refreshBadges);
     return () => {
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("online", refreshBadges);
+      window.removeEventListener("focus", refreshBadges);
     };
-  }, [refreshAgents]);
+  }, [refreshAgents, fetchSessions, activeThreadId]);
 
   useEffect(() => {
     return chatStore.onStreamEvent((event) => {
@@ -97,9 +113,10 @@ export function useChatNavigation({
         event.sessionId === (activeThreadId ?? "")
       ) {
         void fetchSessions(activeThreadId ?? undefined);
+        if (refreshHistory) void refreshHistory(activeThreadId ?? undefined);
       }
     });
-  }, [activeThreadId, fetchSessions]);
+  }, [activeThreadId, fetchSessions, refreshHistory]);
 
   // A proactive run (cron) created or wrote to a thread outside the chat socket:
   // refresh the list — and the open thread's history — without a page reload.
@@ -109,11 +126,21 @@ export function useChatNavigation({
       if (event.agentId && resolvedAgentId && event.agentId !== resolvedAgentId)
         return;
       void fetchSessions(activeThreadId ?? undefined);
-      if (!activeThreadId || event.sessionId !== activeThreadId) return;
+      if (
+        !activeThreadId ||
+        (event.sessionId && event.sessionId !== activeThreadId)
+      )
+        return;
       chatStore.invalidateHistory(activeThreadId);
-      void loadHistory(activeThreadId);
+      void (refreshHistory || loadHistory)(activeThreadId);
     });
-  }, [activeThreadId, resolvedAgentId, fetchSessions, loadHistory]);
+  }, [
+    activeThreadId,
+    resolvedAgentId,
+    fetchSessions,
+    loadHistory,
+    refreshHistory,
+  ]);
 
   const initialNavDone = useRef<string | null>(null);
   const chatUrlStateRef = useRef<{ agentId?: string; threadId?: string }>({});

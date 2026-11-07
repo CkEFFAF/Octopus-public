@@ -101,6 +101,7 @@ MODULES=(
   __init__.py infra/__init__.py infra/utils/__init__.py
   infra/utils/httpx_proxy.py infra/utils/process_lock.py cli/__init__.py
   cli/device_cmd.py cli/device_startup_cmd.py infra/devices/client.py
+  cli/device_expert_cmd.py infra/devices/expert_client.py
   infra/devices/executor.py infra/devices/network.py infra/devices/autostart.py
   infra/devices/acp_process.py infra/devices/protocol.py
   infra/devices/first_run.py
@@ -133,6 +134,8 @@ cp "${REPO_ROOT}/desktop/portable/open-device.sh" "${PAYLOAD}/open-device.sh"
 cp "${REPO_ROOT}/desktop/portable/open-device-transition.sh" "${PAYLOAD}/open-device-transition.sh"
 chmod +x "${PAYLOAD}/open-device.sh" "${PAYLOAD}/open-device-transition.sh"
 cp "${REPO_ROOT}/desktop/portable/setup-device.sh" "${PAYLOAD}/setup-device.sh"
+cp "${REPO_ROOT}/desktop/portable/expert.sh" "${PAYLOAD}/expert.sh"
+chmod +x "${PAYLOAD}/expert.sh"
 cp "${REPO_ROOT}/desktop/portable/linux-device/README.md" "${PAYLOAD}/README.md"
 cp "${REPO_ROOT}/LICENSE" "${PAYLOAD}/LICENSE"
 chmod +x "${PAYLOAD}/start-device.sh" "${PAYLOAD}/setup-device.sh" "${PAYLOAD}/open-device.sh"
@@ -221,7 +224,7 @@ def distributable(info):
         return None
     info.uid = info.gid = 0
     info.uname = info.gname = ""
-    if info.name.endswith(("/setup-device.sh", "/start-device.sh", "/open-device.sh", "/open-device-transition.sh")):
+    if info.name.endswith(("/setup-device.sh", "/start-device.sh", "/open-device.sh", "/open-device-transition.sh", "/expert.sh")):
         info.mode = 0o755
     return info
 

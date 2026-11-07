@@ -132,6 +132,18 @@ def classify_stream_error_message(message: str) -> str | None:
     if re.search(r"(?:http|error code:)\s*403\b", lower) or "permissiondeniederror" in compact:
         return ACCESS_DENIED
 
+    # Providers often use HTTP 429 for exhausted billing quotas too.
+    if any(
+        value in lower
+        for value in (
+            "insufficient_quota",
+            "insufficient balance",
+            "insufficient credits",
+            "exceeded your current quota",
+        )
+    ):
+        return INSUFFICIENT_BALANCE
+
     if (
         "error code: 429" in lower
         or "http 429" in lower

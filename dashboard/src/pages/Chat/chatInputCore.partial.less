@@ -682,9 +682,13 @@
 /* ---------- Image upload & preview ---------- */
 .imagePreviewBar {
   display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
   gap: 8px;
   padding: 8px 0 4px;
-  overflow-x: auto;
+  max-height: 240px;
+  overflow-y: auto;
+  overflow-x: hidden;
   flex-shrink: 0;
 
   &::-webkit-scrollbar {
@@ -717,7 +721,9 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  max-width: 240px;
+  width: min(220px, 100%);
+  flex-shrink: 0;
+  min-height: 64px;
   padding: 12px 34px 12px 12px;
   border-radius: var(--fn-radius-sm);
   border: 1px solid var(--fn-border-secondary);
@@ -729,6 +735,7 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
+  flex: 1;
 }
 
 .attachmentPreviewIcon {
@@ -739,6 +746,7 @@
 .attachmentPreviewName {
   display: block;
   min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

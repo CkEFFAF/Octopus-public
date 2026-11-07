@@ -8,6 +8,7 @@ import type {
 } from "../../../api/modules/activity";
 import { ActivityStatus } from "./TaskActivity";
 import { activityGraphLayout } from "../utils/activityGraphLayout";
+import { activityLabel } from "../utils/activityLabel";
 import styles from "./TaskActivity.module.less";
 
 export default function TaskActivityGraph({
@@ -130,9 +131,7 @@ export default function TaskActivityGraph({
       }}
     >
       {node.type === "job" ? <Terminal size={13} /> : <Bot size={13} />}
-      <span title={node.name}>
-        {node.type === "job" ? t("workspace0034.nodeType.job") : node.name}
-      </span>
+      <span title={activityLabel(node, t)}>{activityLabel(node, t)}</span>
       <ActivityStatus node={node} stale={stale} />
     </button>
   );

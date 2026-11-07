@@ -1,12 +1,35 @@
 # 0033. Runtime message steering for agent turns
 
 **Date**: 2026-10-18 (Asia/Shanghai)
-**Revision**: 5
-**Status**: Implemented (revisions4 and5 locally verified; not released)
-**Contract**: During a running agent turn, submitting a message defaults to queue. Each queued message offers explicit interrupt-and-insert and withdraw actions. “Run now” must account for LLM and tool boundaries.
+**Revision**: 6
+**Status**: Implemented (revision6; release verification tracked in PR70)
+**Contract**: During a running local Dashboard turn, ordinary submission continues the current conversation, including uploaded files and images. Queue remains an explicit alternative. The runtime applies the verified message at a model or tool boundary without replaying completed tools. Explicit tool interruption remains a separate action.
 **Implementation**: Initial feature and UI PR31 merged through PR32 (`5eb213320f291f410efb6bf754e1e1583ed71c49`) and deployed on 2026-10-19 with combined Harness `1.0.2.post4.dev1+taskresults.1`. Revision3 follows the user's clarified queue-first UI flow; its validation and release are tracked in the existing progress document.
 
 ## Summary
+
+Revision6 follows the user's 2026-11-07 request for seamless insertion of text, files and images. It replaces the previous plain-text-only insertion restriction in AC-11/AC-12 and the snapshot boundary below. Slash commands and invocation-setting changes retain explicit queued execution. The application and pinned Harness runtime must be verified, merged and deployed together.
+
+### Revision6 requirements and sources
+
+- **AC-14**: Sending during an active local Dashboard turn immediately acknowledges the same message identity and supports text, uploaded files, images and attachment-only messages. Model-visible content and public attachment cards derive from the server-validated persisted InboundMessage, never the browser snapshot.
+- **AC-15**: Harness accepts an optional immutable HumanMessage alongside the public display text. Its complete content, additional_kwargs and interruption mode participate in idempotency. Checkpoints preserve lightweight workspace image references and verified attachment metadata; stream events expose display text and attachment cards, without base64 or internal resource instructions.
+- **AC-16**: Accepted insertion preserves completed tool results. Default submission waits for admitted tools, may stop an in-progress model response cooperatively, and applies once before the next model call. A stale run or failed admission cannot silently duplicate the message. Unknown outcomes remain recoverable by receipt only.
+- **AC-17**: The current selected model is retained. A known image-incompatible running model returns an actionable Chinese error and preserves the draft; it must not silently discard an image or switch the model. Existing image materialization runs at the model request boundary.
+- **AC-18**: Several messages sent before an admitted tool returns are acknowledged individually and applied in arrival order before the next model call. The host opts into Harness buffering, bounded to ten pending messages to match durable input admission; legacy Harness callers retain explicit busy rejection by default.
+
+| Value | Source |
+| --- | --- |
+| User display text and attachment parts | Canonical persisted inbound payload created by prepare_dashboard_turn |
+| Model message | build_content_from_message plus GlobalProcessor resource registration, using the owned expert workspace |
+| Attachment authorization/version | ResourceService current owner, expert, thread and immutable SHA256 validation |
+| Active invocation | Harness steering_status run_id and observed phase, revalidated on admission |
+| Selected model/image support | Active thread model and owner-scoped provider model declarations |
+| Message identity | Existing durable command_id and steer:{command_id} checkpoint ID |
+| Public attachment cards | Server-generated octop_inbound_attachments, projected identically in live and historical messages |
+| Delivery feedback | Durable queued/requested/accepted/applied/unknown receipts and run phases |
+
+Implementation extends the pinned Harness public message contract and the existing REST queue promotion. It reuses resource validation, upload limits, WebSocket streaming, run_events and checkpoint reducers, with no new broker or database schema. Verification covers model/tool boundaries, actual image blocks presented to the model, attachment-only input, resource denial, payload conflicts, refresh, queue races and retained side effects. The prior textual API remains compatible.
 
 Users can queue, insert after current tools finish, explicitly interrupt tool waits and insert immediately, or withdraw a queued message. The interface reports acknowledged waiting, interrupting, applied and failure states. Immediate mode returns an interrupted result for each cancelled call, without replaying it or claiming that external/background work has stopped.
 
@@ -61,7 +84,9 @@ Ordinary streaming and HITL resume use the same run-control wrapper. The graph i
 
 **API**: GET/POST `/agents/{agent}/threads/{thread}/inputs`, DELETE `.../inputs/{command}`, POST `.../inputs/steer`. Requests bind command ID, thread and run ID to the authenticated owner. The existing WebSocket supports the same steer command and streams `run_phase`, `steering_applied` and inserted `user` events. Native local one-to-one chats use server persistence. Bridge/team chats retain their previous behavior and do not advertise direct insertion.
 
-**Snapshot boundary**: Queue captures attachments, model, composer context, approval policy and explicit execution target. Admission validates without changing the running thread selection. Direct insertion currently accepts plain text and inherits the active invocation settings; attachments, slash commands and setting changes use queue. The UI states this boundary and retains the draft on rejection.
+**Snapshot boundary**: Queue captures attachments, model, composer context, approval policy and explicit execution target. Admission validates without changing the running thread selection. Direct insertion accepts text, uploaded files and images, including attachment-only messages, and inherits the active invocation settings. The server prepares a versioned, authorized HumanMessage before claiming its durable receipt. Images remain workspace references in checkpoints and are expanded from verified immutable resource bytes only for model calls, with authorization and version checks repeated at use time. Slash commands and setting changes use queue. Rejected admission retains the draft.
+
+**Continuous insertion**: The application opts into a bounded, ten-message FIFO at the next cooperative boundary. Legacy Harness clients retain the existing busy response unless they explicitly opt in. Command fingerprints include normalized message content, attachment identity and cancellation mode. Acknowledgement loss recovers the same durable receipt; edits typed while acknowledgement is pending survive, and only the submitted attachments are consumed.
 
 **Key invariants**:
 

@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { octopThreadsApi } from "../../../api/modules/octopThreads";
 import * as chatStore from "./chatStore";
@@ -12,6 +12,34 @@ afterEach(() => {
 });
 
 describe("history failures", () => {
+  it("reconciles cached history after returning online without dropping loaded older pages", async () => {
+    chatStore.setHistoryPage(
+      thread,
+      [
+        { id: "older", role: "user", content: "older", timestamp: 1 },
+        { id: "shared", role: "user", content: "old latest", timestamp: 2 },
+      ],
+      { hasMore: true, nextOffset: 50, nextCursor: "pinned" },
+    );
+    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    const history = vi.spyOn(octopThreadsApi, "history").mockResolvedValue({
+      thread_id: thread,
+      messages: [
+        { id: "shared", role: "user", content: "old latest" },
+        { id: "remote", role: "assistant", content: "finished on workstation" },
+      ],
+      has_more: true,
+    });
+    renderHook(() => useChat(thread, "agent"));
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await waitFor(() => expect(history).toHaveBeenCalled());
+    expect(
+      chatStore.getSnapshot(thread).messages.map((item) => item.id),
+    ).toEqual(["older", "shared", "remote"]);
+    expect(chatStore.getSnapshot(thread).historyNextCursor).toBe("pinned");
+  });
   it("keeps a loaded conversation and its cursor when refreshing fails", async () => {
     chatStore.setHistoryPage(
       thread,

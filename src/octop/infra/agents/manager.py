@@ -102,14 +102,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _model_retry_on_failure(exc: Exception) -> str:
-    # Feed a specific, model-visible prompt instead of raising. Inbox jobs still
-    # mark failed when the reply carries MODEL_RETRY_FAILURE_MARK.
-    from octop.i18n.domains.stream import model_retry_failure_prompt
-
-    return model_retry_failure_prompt(exc, "en")
-
-
 # Bounded parallelism for awaited provider/active-model reload batches.
 _PROVIDER_RELOAD_CONCURRENCY = 6
 # One hung remote backend must not block ``octop run`` from serving HTTP.
@@ -1376,8 +1368,25 @@ class AgentManager:
                 else self._prepare_stream_request(agent_id, request)
             )
             with hitl_thread_scope(thread_id_from_request(req)):
-                async for chunk in self._harness_manager.stream(agent_id, cast(Any, req)):
-                    yield chunk
+                from octop.infra.agents.response_recovery import ResponseRecovery
+
+                recovery = ResponseRecovery(self)
+                try:
+                    async for chunk in self._harness_manager.stream(agent_id, cast(Any, req)):
+                        yield chunk
+                except Exception as exc:
+                    try:
+                        info = await recovery.record(agent_id, req, exc)
+                        if info:
+                            exc.octop_response_recovery = info  # type: ignore[attr-defined]
+                    except Exception:
+                        logger.exception("Could not retain response recovery thread=%s", thread_id)
+                    raise
+                else:
+                    try:
+                        await recovery.record(agent_id, req)
+                    except Exception:
+                        logger.exception("Could not retain response recovery thread=%s", thread_id)
             self._apply_pending_bootstrap_graph_refresh(agent_id)
 
     async def call(self, agent_id: str, request: dict[str, Any]) -> dict[str, Any]:
@@ -1433,18 +1442,25 @@ class AgentManager:
         *,
         run_id: str,
         cancel_tools: bool = False,
+        message: Any = None,
     ) -> dict[str, str]:
         """Insert only into the identified invocation at a runtime-owned boundary."""
         if self._harness_manager is None:
             return {"status": "inactive", "phase": "idle"}
         try:
+            options: dict[str, Any] = {}
+            if cancel_tools:
+                options["cancel_tools"] = True
+            if message is not None:
+                options["message"] = message
             return self._harness_manager.steer_message(
                 agent_id,
                 thread_id,
                 command_id,
                 text,
                 run_id=run_id,
-                **({"cancel_tools": True} if cancel_tools else {}),
+                **options,
+                queue_if_busy=True,
             )
         except KeyError:
             return {"status": "inactive", "phase": "idle"}
@@ -3668,6 +3684,7 @@ class AgentManager:
         from octop.infra.agents.middleware.workspace_image import (
             WorkspaceImageMaterializeMiddleware,
         )
+        from octop.infra.documents.resources import ResourceService
         from octop.infra.execution.service import ExecutionService
         from octop.infra.execution.work_mode import WorkModeService, build_work_mode_tools
         from octop.infra.knowledge.hint import KnowledgeSearchHintMiddleware
@@ -3705,7 +3722,9 @@ class AgentManager:
                 row.agent_id,
             ),
             BinaryReadGuardMiddleware(),
-            WorkspaceImageMaterializeMiddleware(workspace=ws),
+            WorkspaceImageMaterializeMiddleware(
+                workspace=ws, resource_service=ResourceService(self), agent_id=row.agent_id
+            ),
             ThreadArtifactsMiddleware(
                 thread_repo=self._repos.thread_repo,
                 workspace_dir=harness_workspace,
@@ -3928,17 +3947,21 @@ class AgentManager:
         if interrupt_on is not applied.interrupt_on:
             applied = replace(applied, interrupt_on=interrupt_on)
         if applied.model_retry_enabled:
-            from langchain.agents.middleware import ModelRetryMiddleware
+            from octop.infra.agents.model_retry import (
+                ChatModelRetryMiddleware,
+                retryable_model_error,
+            )
 
             applied = replace(
                 applied,
                 model_retry_enabled=False,
                 middleware=[
-                    ModelRetryMiddleware(
+                    ChatModelRetryMiddleware(
                         max_retries=applied.model_retry_max_retries,
                         initial_delay=applied.model_retry_initial_delay,
                         max_delay=applied.model_retry_max_delay,
-                        on_failure=_model_retry_on_failure,
+                        on_failure="error",
+                        retry_on=retryable_model_error,
                     ),
                     *(applied.middleware or []),
                 ],

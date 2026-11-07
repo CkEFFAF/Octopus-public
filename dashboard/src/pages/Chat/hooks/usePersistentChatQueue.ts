@@ -22,10 +22,12 @@ export function usePersistentChatQueue({
   agentId,
   threadId,
   enabled = true,
+  displayedUserMessageIds,
 }: {
   agentId?: string | null;
   threadId?: string | null;
   enabled?: boolean;
+  displayedUserMessageIds?: ReadonlySet<string>;
 }) {
   const { t } = useTranslation();
   const active = Boolean(
@@ -38,6 +40,7 @@ export function usePersistentChatQueue({
   } | null>(null);
   const requestIds = useRef(new Map<string, string>());
   const requestTimes = useRef(new Map<string, number>());
+  const requestRuns = useRef(new Map<string, string>());
   const aliveKey = useRef(key);
   aliveKey.current = key;
   const refresh = useCallback(async () => {
@@ -66,6 +69,11 @@ export function usePersistentChatQueue({
   }, [active, agentId, threadId, refresh]);
   const data = state?.key === key ? state.data : null;
   const items: QueuedChatItem[] = (data?.inputs ?? [])
+    .filter(
+      (row) =>
+        row.status !== "dispatching" ||
+        !displayedUserMessageIds?.has(row.payload.command_id),
+    )
     .filter((row) =>
       [
         "queued",
@@ -100,6 +108,7 @@ export function usePersistentChatQueue({
   };
   const enqueue = async (
     input: EnqueueChatItemInput,
+    continueRunId?: string,
   ): Promise<"ok" | "empty" | "full"> => {
     if (
       !agentId ||
@@ -114,7 +123,10 @@ export function usePersistentChatQueue({
     }
     const selection = { ...getExecutionSelection(scope) };
     const fingerprint = JSON.stringify([key, input, selection]);
+    const recovering = requestIds.current.has(fingerprint);
     const id = stableId(fingerprint);
+    if (!recovering && continueRunId)
+      requestRuns.current.set(id, continueRunId);
     const snapshot: QueuedChatItem = {
       ...input,
       ...selection,
@@ -155,13 +167,65 @@ export function usePersistentChatQueue({
       work_mode: selection.workMode,
     };
     try {
-      await chatInputsApi.queue(agentId, threadId, id, snapshot, turn);
+      if (recovering) {
+        const recovered = await refresh();
+        const prior = recovered?.inputs.find(
+          (row) => row.payload.command_id === id,
+        );
+        if (prior) {
+          if (
+            [
+              "queued",
+              "dispatching",
+              "accepted",
+              "applied",
+              "completed",
+            ].includes(prior.status)
+          ) {
+            requestIds.current.delete(fingerprint);
+            requestTimes.current.delete(id);
+            requestRuns.current.delete(id);
+            return "ok";
+          }
+          message.error(t("chat.steer.status.unknown"));
+          return "empty";
+        }
+      }
+      const receipt = await chatInputsApi.queue(
+        agentId,
+        threadId,
+        id,
+        snapshot,
+        turn,
+        requestRuns.current.get(id),
+      );
+      if (
+        continueRunId &&
+        !["queued", "dispatching", "accepted", "applied", "completed"].includes(
+          receipt.status,
+        )
+      ) {
+        message.error(t("chat.steer.failed"));
+        return "empty";
+      }
       requestIds.current.delete(fingerprint);
       requestTimes.current.delete(id);
+      requestRuns.current.delete(id);
       await refresh().catch(() => null);
       return "ok";
     } catch (error) {
       if (String(error).includes("queue_full")) return "full";
+      if (String(error).includes("steering_image_model_unsupported")) {
+        message.error(t("chat.flow.imageModelUnsupported"));
+        return "empty";
+      }
+      if (
+        String(error).includes("RESOURCE_VERSION_CHANGED") ||
+        String(error).includes("RESOURCE_UNAVAILABLE")
+      ) {
+        message.error(t("chat.flow.attachmentChanged"));
+        return "empty";
+      }
       message.error(t("chat.queue.flushFailed"));
       return "empty";
     }
@@ -234,6 +298,15 @@ export function usePersistentChatQueue({
   };
   const steer = async (input: EnqueueChatItemInput): Promise<boolean> => {
     if (!agentId || !threadId) return false;
+    if (input.attachments?.length) {
+      try {
+        const current = data?.runtime ? data : await refresh();
+        return (await enqueue(input, current?.runtime?.run_id)) === "ok";
+      } catch {
+        message.error(t("chat.steer.failed"));
+        return false;
+      }
+    }
     const fingerprint = JSON.stringify([key, "steer", input.text]);
     const id = stableId(fingerprint);
     try {

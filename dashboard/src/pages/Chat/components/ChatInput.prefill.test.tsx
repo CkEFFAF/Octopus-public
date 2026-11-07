@@ -12,7 +12,16 @@ import {
   saveWithdrawnDraft,
   readWithdrawnDraft,
 } from "../utils/withdrawnDraft";
-const attachmentSpies = vi.hoisted(() => ({ restore: vi.fn() }));
+const attachmentSpies = vi.hoisted(() => ({
+  restore: vi.fn(),
+  consume: vi.fn(),
+  items: [] as Array<{
+    path: string;
+    filename: string;
+    type: "image" | "file";
+    url?: string;
+  }>,
+}));
 
 vi.mock("../../../hooks/useIsMobile", () => ({
   useIsMobile: () => false,
@@ -44,7 +53,7 @@ vi.mock("../../../hooks/viewport", () => ({
 
 vi.mock("../hooks/useChatAttachments", () => ({
   useChatAttachments: () => ({
-    attachments: [],
+    attachments: attachmentSpies.items,
     uploading: false,
     dragOver: false,
     fileInputRef: { current: null },
@@ -52,6 +61,7 @@ vi.mock("../hooks/useChatAttachments", () => ({
     handleFileChange: vi.fn(),
     removeAttachment: vi.fn(),
     clearAttachments: vi.fn(),
+    consumeAttachments: attachmentSpies.consume,
     restoreAttachments: attachmentSpies.restore,
     handlePaste: vi.fn(),
     handleDragEnter: vi.fn(),
@@ -155,9 +165,101 @@ import ChatInput, { type ChatInputHandle } from "./ChatInput";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  attachmentSpies.items = [];
 });
 
 describe("ChatInput prefill clear-on-send", () => {
+  it.each(["steer", "queue"])(
+    "preserves the next draft and consumes only submitted attachments after delayed %s acknowledgement",
+    async (intent) => {
+      const submitted = {
+        path: ".octop/inbound/first.png",
+        filename: "first.png",
+        type: "image" as const,
+      };
+      const next = {
+        path: ".octop/inbound/next.txt",
+        filename: "next.txt",
+        type: "file" as const,
+      };
+      attachmentSpies.items = [submitted];
+      let acknowledge!: (value: "ok" | boolean) => void;
+      const pending = new Promise<"ok" | boolean>((resolve) => {
+        acknowledge = resolve;
+      });
+      const submit = vi.fn((_input: unknown) => pending);
+      const props = {
+        onSend: vi.fn(),
+        onCancel: vi.fn(),
+        onNewChat: vi.fn(),
+        onQueue:
+          intent === "queue"
+            ? async (input: unknown) => {
+                await submit(input);
+                return "ok" as const;
+              }
+            : vi.fn(),
+        onSteerInput: async (input: unknown) => Boolean(await submit(input)),
+        isStreaming: true,
+        agentId: "draft-agent",
+        threadId: "draft-thread",
+        initialText: "first message",
+      };
+      const { rerender } = render(<ChatInput {...props} />);
+      if (intent === "queue")
+        fireEvent.change(
+          screen.getByRole("combobox", { name: "chat.flow.sendWhileWorking" }),
+          { target: { value: "queue" } },
+        );
+      fireEvent.click(screen.getByRole("button", { name: "send" }));
+      expect(submit).toHaveBeenCalledOnce();
+      expect(submit.mock.calls[0][0]).toEqual(
+        expect.objectContaining({ attachments: [submitted] }),
+      );
+      fireEvent.change(screen.getByRole("textbox"), {
+        target: { value: "next message" },
+      });
+      attachmentSpies.items = [submitted, next];
+      rerender(<ChatInput {...props} />);
+      await act(async () => {
+        acknowledge(intent === "queue" ? "ok" : true);
+        await pending;
+      });
+      expect(screen.getByRole("textbox")).toHaveValue("next message");
+      expect(attachmentSpies.consume).toHaveBeenCalledWith([submitted]);
+    },
+  );
+  it("opens a separate chat and progress without stopping or inserting into work", () => {
+    const cancel = vi.fn();
+    const send = vi.fn();
+    const queue = vi.fn();
+    const continueChat = vi.fn();
+    const progress = vi.fn();
+    render(
+      <App>
+        <ChatInput
+          onSend={send}
+          onQueue={queue}
+          onCancel={cancel}
+          onNewChat={vi.fn()}
+          onContinueChat={continueChat}
+          onShowProgress={progress}
+          isStreaming
+          agentId="background-agent"
+          threadId="background-thread"
+          initialText="keep draft"
+        />
+      </App>,
+    );
+    fireEvent.click(screen.getByText("chat.backgroundUi.progress"));
+    expect(progress).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByText("chat.flow.anotherChat"));
+    expect(continueChat).toHaveBeenCalledOnce();
+    expect(cancel).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+    expect(queue).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox")).toHaveValue("keep draft");
+  });
   it("asks before recovering a withdrawn message over an existing draft on mount", async () => {
     saveWithdrawnDraft("recovery-agent", "mount", {
       id: "recovered",
@@ -355,7 +457,64 @@ describe("ChatInput prefill clear-on-send", () => {
     expect(screen.getByRole("textbox")).toBeEnabled();
     expect(screen.getByRole("textbox")).toHaveValue("restored text");
   });
-  it("queues a submitted draft by default while the agent runs", async () => {
+  it.each([true, false])(
+    "supplements the active answer and preserves a rejected draft (%s)",
+    async (accepted) => {
+      const onSteerInput = vi.fn().mockResolvedValue(accepted);
+      const onQueue = vi.fn();
+      const onSend = vi.fn();
+      render(
+        <ChatInput
+          onSend={onSend}
+          onSteerInput={onSteerInput}
+          onQueue={onQueue}
+          onCancel={vi.fn()}
+          onNewChat={vi.fn()}
+          isStreaming
+          initialText="补充：请保留引用"
+        />,
+      );
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "send" }));
+        fireEvent.click(screen.getByRole("button", { name: "send" }));
+      });
+      expect(onSteerInput).toHaveBeenCalledOnce();
+      expect(onSteerInput).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "补充：请保留引用" }),
+      );
+      expect(onQueue).not.toHaveBeenCalled();
+      expect(onSend).not.toHaveBeenCalled();
+      expect(screen.getByRole("textbox")).toHaveValue(
+        accepted ? "" : "补充：请保留引用",
+      );
+    },
+  );
+  it("honors the explicit later-send choice while a turn is running", async () => {
+    const onSteerInput = vi.fn();
+    const onQueue = vi.fn().mockResolvedValue("ok");
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onSteerInput={onSteerInput}
+        onQueue={onQueue}
+        onCancel={vi.fn()}
+        onNewChat={vi.fn()}
+        isStreaming
+        initialText="下一步再做"
+      />,
+    );
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "chat.flow.sendWhileWorking" }),
+      { target: { value: "queue" } },
+    );
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "send" })),
+    );
+    expect(onQueue).toHaveBeenCalledOnce();
+    expect(onSteerInput).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox")).toHaveValue("");
+  });
+  it("queues a submitted draft when the runtime has no supplement handler", async () => {
     const onSend = vi.fn();
     const onQueue = vi.fn().mockResolvedValue("ok");
     const onSteerQueued = vi.fn();

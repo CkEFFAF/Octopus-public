@@ -1,4 +1,5 @@
 import FailureDiagnostics from "../../../components/FailureDiagnostics";
+import ChatResponseNotice from "./ChatResponseNotice";
 import { formatTokenUsage } from "../utils/chatUsage";
 import { memo, useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { Image, Tooltip } from "antd";
@@ -11,7 +12,6 @@ import {
   RotateCcw,
   Pencil,
   Volume2,
-  Settings,
   GitFork,
   PanelRight,
 } from "lucide-react";
@@ -848,16 +848,20 @@ function MessageBubble({
         ) : (
           <>
             {isError ? (
-              <div className={styles.errorMessageBox}>
-                <div className={styles.errorMessageHeader}>
-                  <span className={styles.errorMessageIcon}>⚠</span>
-                  <span className={styles.errorMessageTitle}>
-                    {t("chat.errorOccurred", "出现错误")}
-                  </span>
-                </div>
-                {errorBodyText && (
-                  <div className={styles.errorMessageBody}>{errorBodyText}</div>
-                )}
+              <ChatResponseNotice
+                message={message}
+                errorKey={modelError}
+                summary={errorBodyText}
+                onRetry={
+                  onRegenerate ? () => onRegenerate(message.id) : undefined
+                }
+                onConfigure={
+                  errorAction ? () => navigate(errorAction.path) : undefined
+                }
+                configureLabel={
+                  errorAction ? t(errorAction.labelKey) : undefined
+                }
+              >
                 <FailureDiagnostics
                   summary={errorBodyText}
                   value={
@@ -872,31 +876,7 @@ function MessageBubble({
                       : undefined
                   }
                 />
-                {(errorAction || onRegenerate) && (
-                  <div className={styles.errorActionRow}>
-                    {errorAction && (
-                      <button
-                        className={styles.errorConfigBtn}
-                        onClick={() => navigate(errorAction.path)}
-                        type="button"
-                      >
-                        <Settings size={13} />
-                        {t(errorAction.labelKey)}
-                      </button>
-                    )}
-                    {onRegenerate && (
-                      <button
-                        className={styles.errorRetryBtn}
-                        onClick={() => onRegenerate(message.id)}
-                        type="button"
-                      >
-                        <RotateCcw size={13} />
-                        {t("chat.retry", "重试")}
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
+              </ChatResponseNotice>
             ) : (
               <div className={`${styles.assistantText} ${groupCls}`}>
                 {imageAttachments.length > 0 && (

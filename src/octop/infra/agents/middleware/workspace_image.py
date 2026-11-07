@@ -7,16 +7,21 @@ base64 never lands in LangGraph state or the dashboard history payload.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
+from langgraph.config import get_config
 
+from octop.infra.documents.resources import ResourceService, denied
 from octop.infra.gateway.media.attachment_hints import (
     expand_workspace_image_ref,
     expand_workspace_image_ref_sync,
     is_workspace_image_ref,
+    workspace_path_from_image_ref,
 )
+from octop.infra.utils.browser_media import parse_octop_user_id
 
 if TYPE_CHECKING:
     from octop_harness.backends.workspace import BackendWorkspace
@@ -25,8 +30,49 @@ if TYPE_CHECKING:
 class WorkspaceImageMaterializeMiddleware(AgentMiddleware[Any, Any]):
     """Inline ``workspace://`` vision refs just before the provider call."""
 
-    def __init__(self, *, workspace: BackendWorkspace) -> None:
+    def __init__(
+        self,
+        *,
+        workspace: BackendWorkspace,
+        resource_service: ResourceService | None = None,
+        agent_id: str | None = None,
+    ) -> None:
         self._workspace = workspace
+        self._resources = resource_service
+        self._agent_id = agent_id
+
+    async def _image_source(self, msg: Any, block: dict[str, Any]) -> bytes | None:
+        """Recheck admitted resources and read their immutable version at use time."""
+        attachments = getattr(msg, "additional_kwargs", {}).get("octop_inbound_attachments")
+        if not self._resources or not isinstance(attachments, list):
+            return None
+        path = workspace_path_from_image_ref(block)
+        attachment = next(
+            (
+                item
+                for item in attachments
+                if isinstance(item, dict) and item.get("workspace_path") == path
+            ),
+            None,
+        )
+        # Legacy messages and tool screenshots have no versioned resource receipt.
+        if attachment is None or not attachment.get("resource_id"):
+            return None
+        config = get_config().get("configurable") or {}
+        owner = parse_octop_user_id(config.get("user"))
+        thread = str(config.get("thread_id") or "")
+        if owner is None or not thread or not self._agent_id:
+            raise denied()
+        resource_id = str(attachment["resource_id"])
+        resource = self._resources.authorize(owner, resource_id, self._agent_id, thread)
+        if not attachment.get("version") or resource["version"] != attachment["version"]:
+            raise denied()
+        data = await self._resources.bytes(owner, resource)
+        # A resource can be revoked while its snapshot is being read.
+        current = self._resources.authorize(owner, resource_id, self._agent_id, thread)
+        if current["version"] != resource["version"]:
+            raise denied()
+        return data
 
     def wrap_model_call(
         self,
@@ -55,7 +101,11 @@ class WorkspaceImageMaterializeMiddleware(AgentMiddleware[Any, Any]):
                 continue
             new_blocks: list[Any] = [
                 (
-                    expand_workspace_image_ref_sync(block, workspace=self._workspace)
+                    expand_workspace_image_ref_sync(
+                        block,
+                        workspace=self._workspace,
+                        source_bytes=asyncio.run(self._image_source(msg, block)),
+                    )
                     if isinstance(block, dict) and is_workspace_image_ref(block)
                     else block
                 )
@@ -77,7 +127,11 @@ class WorkspaceImageMaterializeMiddleware(AgentMiddleware[Any, Any]):
             for block in content:
                 if isinstance(block, dict) and is_workspace_image_ref(block):
                     new_blocks.append(
-                        await expand_workspace_image_ref(block, workspace=self._workspace)
+                        await expand_workspace_image_ref(
+                            block,
+                            workspace=self._workspace,
+                            source_bytes=await self._image_source(msg, block),
+                        )
                     )
                 else:
                     new_blocks.append(block)

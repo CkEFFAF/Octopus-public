@@ -997,6 +997,9 @@ def _serialize_history_message(
             locale=_user_locale(user),
             strip_empty_image=True,
         )
+    display_text = additional_kwargs.get("octop_display_text")
+    if role == "user" and isinstance(display_text, str):
+        blocks = [{"type": "text", "text": display_text}] if display_text else []
 
     if not blocks and not (role == "user" and has_user_attachments):
         return None

@@ -10,6 +10,7 @@
 import { getApiUrl } from "../../../api/config";
 import i18n from "../../../i18n";
 import { getAuthToken } from "../../../api/request";
+import { responseRecoveryPath } from "../../../api/modules/responseRecovery";
 import type { TokenUsage } from "../../../api/types";
 import { buildDashboardChatWsUrl } from "../../../api/modules/wsChat";
 import { rewritePeerSpeakerId } from "../../../utils/remoteExpert";
@@ -29,7 +30,10 @@ import {
   type UserChunk,
 } from "../../../utils/parseHarnessChunk";
 import { isChatStreamError } from "../../../utils/chatStreamError";
-import { parseToolExecutionFeedback } from "../../../utils/toolMediaBlocks";
+import {
+  agentAttachmentAccessUrl,
+  parseToolExecutionFeedback,
+} from "../../../utils/toolMediaBlocks";
 import { buildUserMessageContent } from "../utils/chatAttachments";
 import { sealPriorStreamingAssistants as sealPriorStreamingAssistantsMessages } from "./sealPriorStreamingAssistants";
 import {
@@ -391,6 +395,7 @@ export function emitSessionEvent(event: SessionEvent) {
 
 function buildSnapshot(state: SessionStreamState): SessionSnapshot {
   return {
+    ...(state.modelRetry ? { modelRetry: state.modelRetry } : {}),
     messages: state.messages,
     isStreaming: state.isStreaming,
     thinkingStartedAt: state.thinkingStartedAt,
@@ -533,6 +538,12 @@ function notify(state: SessionStreamState, batchStreamFrame = false) {
 }
 
 function beginStream(state: SessionStreamState, sessionId: string): void {
+  modelAttemptBaseline(
+    state,
+    sessionHostAgentId(state, sessionId),
+    sessionId,
+    true,
+  );
   clearAllLiveSpeakers(state);
   state.thinkingStartedAt = Date.now();
   state.isStreaming = true;
@@ -540,6 +551,7 @@ function beginStream(state: SessionStreamState, sessionId: string): void {
 }
 
 function clearStreamingFlags(state: SessionStreamState): void {
+  delete state.modelRetry;
   // Do not clear liveSpeakers — team members may keep generating after the
   // host turn unlocks the composer; process panels key off liveSpeakers.
   state.isStreaming = false;
@@ -1218,6 +1230,50 @@ const resumeEventRanges = new WeakMap<
   Map<string, Array<[number, number]>>
 >();
 const activeRunIds = new WeakMap<SessionStreamState, string>();
+const modelAttemptBaselines = new WeakMap<
+  SessionStreamState,
+  Map<string, Map<string, ChatMessage>>
+>();
+
+function modelAttemptBaseline(
+  state: SessionStreamState,
+  speaker?: string,
+  sessionId?: string,
+  capture = false,
+): Map<string, ChatMessage> {
+  const host = sessionHostAgentId(state, sessionId);
+  const key = speaker || host || "";
+  let actors = modelAttemptBaselines.get(state);
+  if (!actors) {
+    actors = new Map();
+    modelAttemptBaselines.set(state, actors);
+  }
+  let baseline = actors.get(key);
+  if (!baseline || capture) {
+    baseline = new Map(
+      state.messages
+        .filter(
+          (message) =>
+            message.role === "assistant" &&
+            sameStreamingSpeaker(
+              message.speakerAgentId,
+              speaker,
+              host,
+              Boolean(state.isTeamRoom),
+            ),
+        )
+        .map((message) => [
+          message.id,
+          {
+            ...message,
+            toolData: message.toolData ? { ...message.toolData } : undefined,
+          },
+        ]),
+    );
+    actors.set(key, baseline);
+  }
+  return baseline;
+}
 
 function rememberResumeEvent(
   state: SessionStreamState,
@@ -1282,6 +1338,7 @@ function handleHarnessChunkBody(
   sessionId?: string,
 ): void {
   const speaker = chunkSpeakerId(chunk, sessionHostAgentId(state, sessionId));
+  modelAttemptBaseline(state, speaker, sessionId);
   if (sessionId && (state.isStreaming || speaker)) {
     touchStreamActivity(sessionId);
   }
@@ -1396,8 +1453,18 @@ function handleHarnessChunkBody(
     case "user": {
       const user = chunk as UserChunk;
       if (!user.content.trim() && !user.snapshot?.attachments?.length) break;
-      const id = user.command_id || generateId();
-      if (state.messages.some((item) => item.id === id)) break;
+      const commandId = user.command_id;
+      const id = commandId
+        ? user.source === "dashboard_insert"
+          ? `steer:${commandId}`
+          : commandId
+        : generateId();
+      if (
+        state.messages.some(
+          (item) => item.id === id || (commandId && item.id === commandId),
+        )
+      )
+        break;
       finalizeStreamingMessages(
         state,
         speaker,
@@ -1412,7 +1479,19 @@ function handleHarnessChunkBody(
           id,
           role: "user",
           content: user.content,
-          attachments: user.snapshot?.attachments,
+          attachments: user.snapshot?.attachments?.map((attachment) => {
+            const agentId = sessionHostAgentId(state, sessionId);
+            return !attachment.url && attachment.workspacePath && agentId
+              ? {
+                  ...attachment,
+                  url: agentAttachmentAccessUrl(
+                    agentId,
+                    attachment.workspacePath,
+                    attachment.mediaType,
+                  ),
+                }
+              : attachment;
+          }),
           composerContext: user.snapshot?.composerContext,
           status: "done",
           timestamp: Date.now(),
@@ -1487,8 +1566,64 @@ function handleHarnessChunkBody(
       updateContextUsageFromChunk(state, chunk);
       break;
     case "custom":
-      // Debug-only — phase 15 will add a debug toggle that surfaces these.
+      if (chunk.data && typeof chunk.data === "object") {
+        const retry = (chunk.data as Record<string, unknown>).octop_model_retry;
+        if (retry && typeof retry === "object") {
+          const value = retry as Record<string, unknown>;
+          if (
+            typeof value.phase === "string" &&
+            typeof value.attempt === "number" &&
+            typeof value.max_attempts === "number"
+          ) {
+            if (value.phase === "retrying") {
+              const baseline = modelAttemptBaseline(state, speaker, sessionId);
+              state.messages = state.messages.flatMap((message) => {
+                if (
+                  message.role !== "assistant" ||
+                  !sameStreamingSpeaker(
+                    message.speakerAgentId,
+                    speaker,
+                    sessionHostAgentId(state, sessionId),
+                    Boolean(state.isTeamRoom),
+                  ) ||
+                  (state.thinkingStartedAt &&
+                    message.timestamp < state.thinkingStartedAt)
+                )
+                  return [message];
+                const committed = baseline.get(message.id);
+                if (committed) return [committed];
+                unregisterToolCallKeys(state, message.id);
+                return [];
+              });
+              state.streamId = "";
+              state.streamMsg = "";
+              state.streamBlockType = "";
+            }
+            state.modelRetry =
+              value.phase === "recovered"
+                ? undefined
+                : {
+                    phase: value.phase,
+                    attempt: value.attempt,
+                    max_attempts: value.max_attempts,
+                    retry_at:
+                      typeof value.retry_at === "number"
+                        ? value.retry_at
+                        : undefined,
+                  };
+          }
+        }
+      }
       break;
+  }
+  if (
+    chunk.type === "state_update" ||
+    chunk.type === "state_snapshot" ||
+    chunk.type === "tool_result" ||
+    chunk.type === "done" ||
+    (chunk.type === "run_phase" && chunk.phase === "preparing")
+  ) {
+    modelAttemptBaseline(state, speaker, sessionId, true);
   }
   notify(
     state,
@@ -2445,7 +2580,7 @@ export async function attachThread(
   threadId: string,
   onStreamEnd?: () => void,
   resumeAttempt = 0,
-  opts?: { afterUnexpectedDrop?: boolean },
+  opts?: { afterUnexpectedDrop?: boolean; refreshStatus?: boolean },
 ): Promise<void> {
   if (!agentId || !threadId || threadId === "__empty__") return;
 
@@ -2460,7 +2595,16 @@ export async function attachThread(
     existing.threadId === threadId &&
     isLiveSocketOpen(sessionId)
   ) {
-    // Already bound — do not re-send subscribe (avoids turn_status churn).
+    if (opts?.refreshStatus && existing.ws.readyState === WebSocket.OPEN) {
+      try {
+        existing.ws.send(
+          JSON.stringify({ type: "subscribe", thread_id: threadId }),
+        );
+      } catch {
+        // A concurrent socket close is recovered by the normal reconnect path.
+      }
+    }
+    // Normal attachments reuse the socket without requesting another snapshot.
     return;
   }
 
@@ -2661,24 +2805,28 @@ export async function attachThread(
         shouldResumeStreamAfterClose({
           intentionalClose: wasIntentional,
           isStreaming: stillStreaming,
+          listenOnly: live.listenOnly,
           threadId,
           attempt: resumeAttempt,
           maxAttempts: MAX_STREAM_RESUME_ATTEMPTS,
           sessionFocused: focused,
         })
       ) {
-        setTimeout(() => {
-          void attachThread(
-            sessionId,
-            agentId,
-            threadId,
-            onStreamEnd,
-            resumeAttempt + 1,
-            opts,
-          );
-        }, 400);
+        setTimeout(
+          () => {
+            void attachThread(
+              sessionId,
+              agentId,
+              threadId,
+              onStreamEnd,
+              resumeAttempt + 1,
+              opts,
+            );
+          },
+          Math.min(400 * 2 ** resumeAttempt, 15000),
+        );
       } else if (
-        stillStreaming &&
+        (stillStreaming || live.listenOnly) &&
         !wasIntentional &&
         !focused &&
         resumeAttempt < MAX_STREAM_RESUME_ATTEMPTS
@@ -3062,6 +3210,94 @@ export async function sendTurn(
   }
 }
 
+/** Recover a response using its existing model checkpoint, never a user_turn. */
+export async function recoverResponse(
+  sessionId: string,
+  agentId: string,
+  responseId: string,
+  commandId: string,
+  modelRef?: string | null,
+): Promise<"completed" | "failed" | "cancelled" | "unknown"> {
+  const state = getOrCreate(sessionId);
+  if (state.isStreaming) throw new Error(i18n.t("chat.recovery.busy"));
+  const predecessorRunId = activeRunIds.get(state);
+  const controller = new AbortController();
+  state.abortController = controller;
+  beginStream(state, sessionId);
+  notify(state);
+  let finished = false;
+  let outcome: "completed" | "failed" | "cancelled" | "unknown" = "unknown";
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    if (state.abortController !== controller) return;
+    clearStreamingFlags(state);
+    clearStreamActivity(sessionId);
+    state.abortController = null;
+    state.streamId = "";
+    state.streamMsg = "";
+    state.streamBlockType = "";
+    sealInFlightAssistantMessages(state);
+    notify(state);
+    emitStreamEvent({ kind: "streamEnd", sessionId });
+  };
+  try {
+    const token = getAuthToken();
+    const res = await fetch(
+      getApiUrl(responseRecoveryPath(agentId, sessionId)),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+          "Accept-Language": i18n.language,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          response_id: responseId,
+          command_id: commandId,
+          ...(modelRef ? { model: modelRef } : {}),
+        }),
+        signal: controller.signal,
+      },
+    );
+    if (!res.ok) throw new Error(i18n.t("chat.recovery.unavailable"));
+    await consumeSseResponse(
+      state,
+      sessionId,
+      res,
+      controller,
+      finish,
+      undefined,
+      predecessorRunId,
+      (chunk) => {
+        if (chunk.type === "error") outcome = "failed";
+        else if (chunk.type === "run_phase" && chunk.phase === "cancelled")
+          outcome = "cancelled";
+        else if (chunk.type === "run_phase" && chunk.phase === "completed")
+          outcome = "completed";
+        else if (
+          chunk.type === "custom" &&
+          chunk.data &&
+          typeof chunk.data === "object"
+        ) {
+          const data = chunk.data as Record<string, unknown>;
+          if (
+            data.type === "recovery_ack" &&
+            ["completed", "failed", "cancelled"].includes(String(data.status))
+          )
+            outcome = data.status as typeof outcome;
+        }
+      },
+    );
+  } catch (error) {
+    if ((error as Error).name !== "AbortError") throw error;
+  } finally {
+    finish();
+  }
+  return outcome;
+}
+
 async function consumeSseResponse(
   state: SessionStreamState,
   sessionId: string,
@@ -3070,6 +3306,7 @@ async function consumeSseResponse(
   finish: () => void,
   onRunId?: (runId: string) => void,
   predecessorRunId?: string,
+  onChunk?: (chunk: HarnessChunk) => void,
 ): Promise<void> {
   const reader = res.body?.getReader();
   if (!reader) {
@@ -3083,6 +3320,7 @@ async function consumeSseResponse(
   let obsolete = false;
 
   const observe = (chunk: HarnessChunk) => {
+    onChunk?.(chunk);
     const firstPhase = chunk.type === "run_phase" && !streamRunId;
     if (chunk.type === "run_phase" && firstPhase) {
       streamRunId = chunk.run_id;

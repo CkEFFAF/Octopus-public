@@ -8,6 +8,7 @@ import {
   type DeviceCalls,
   type DeviceFileEntry,
   type DeviceOperation,
+  type DeviceTransfer,
 } from "../../api/modules/devices";
 import {
   base64ToBytes,
@@ -26,6 +27,7 @@ import {
 } from "../../api/modules/execution";
 import { apiErrorMessage } from "../../utils/apiError";
 import styles from "./RestrictedDeviceFiles.module.less";
+import TransferReceipt from "./TransferReceipt";
 
 const CHUNK_SIZE = 1024 * 1024;
 
@@ -61,6 +63,7 @@ type FileDevice = Pick<
   | "revoked_at"
   | "capabilities"
   | "permissions"
+  | "runtime"
 >;
 interface RestrictedFilesProps {
   device: FileDevice;
@@ -116,6 +119,11 @@ function RestrictedFiles({
   const [sourcePath, setSourcePath] = useState("");
   const [targetPath, setTargetPath] = useState("");
   const [transferBusy, setTransferBusy] = useState(false);
+  const [preferredTransport, setPreferredTransport] = useState<
+    "auto" | "direct" | "hub"
+  >("auto");
+  const [transfer, setTransfer] = useState<DeviceTransfer | null>(null);
+  const transferRequest = useRef<{ key: string; id: string } | null>(null);
   const controller = useRef<AbortController | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const downloadUrl = useRef("");
@@ -133,6 +141,9 @@ function RestrictedFiles({
       item.roots.some((item) => item.write),
   );
   const target = targets.find((item) => item.device_id === targetId);
+  const supportsDirect =
+    (device.runtime?.transfer_protocol_version ?? 0) >= 2 &&
+    (target?.runtime?.transfer_protocol_version ?? 0) >= 2;
   const targetRoot = target?.roots.find(
     (item) => item.id === targetRootId && item.write,
   );
@@ -594,21 +605,36 @@ function RestrictedFiles({
                 !readable ||
                 !targetRoot ||
                 !sourcePath.trim() ||
-                !targetPath.trim()
+                !targetPath.trim() ||
+                (preferredTransport === "direct" && !supportsDirect)
               }
               onClick={async () => {
                 if (!targetRoot) return;
                 setTransferBusy(true);
                 try {
-                  const operation = await devicesApi.transfer({
+                  const params = {
                     source_device_id: device.device_id,
                     source_root_id: rootId,
                     source_path: sourcePath,
                     target_device_id: targetId,
                     target_root_id: targetRootId,
                     target_path: targetPath,
+                    preferred_transport: preferredTransport,
+                  };
+                  const key = JSON.stringify(params);
+                  if (transferRequest.current?.key !== key)
+                    transferRequest.current = { key, id: crypto.randomUUID() };
+                  const result = await devicesApi.transfer({
+                    ...params,
+                    request_id: transferRequest.current.id,
                   });
-                  onOperation(operation);
+                  setTransfer(result);
+                  transferRequest.current = null;
+                  if (result.operation_id)
+                    void devicesApi
+                      .operation(result.operation_id)
+                      .then(onOperation)
+                      .catch(onError);
                 } catch (error) {
                   onError(error);
                 } finally {
@@ -618,7 +644,27 @@ function RestrictedFiles({
             >
               {t("devices.startTransfer")}
             </Button>
+            <label className="devices-field">
+              <span>{t("devices.p2p.channel")}</span>
+              <Select
+                aria-label={t("devices.p2p.channel")}
+                value={preferredTransport}
+                onChange={setPreferredTransport}
+                options={[
+                  { value: "auto", label: t("devices.p2p.auto") },
+                  {
+                    value: "direct",
+                    label: t("devices.p2p.directOnly"),
+                    disabled: !supportsDirect,
+                  },
+                  { value: "hub", label: t("devices.p2p.hubOnly") },
+                ]}
+              />
+            </label>
             <p className="devices-muted">{t("devices.transferHint")}</p>
+            {transfer && (
+              <TransferReceipt key={transfer.transfer_id} initial={transfer} />
+            )}
           </div>
         </details>
       )}

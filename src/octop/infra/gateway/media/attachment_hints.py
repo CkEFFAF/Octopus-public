@@ -486,6 +486,7 @@ async def expand_workspace_image_ref(
     *,
     workspace: BackendWorkspace,
     locale: str | Locale = "en",
+    source_bytes: bytes | None = None,
 ) -> dict[str, Any]:
     """Turn a path-only vision ref into an inlined ``data:`` block for the model.
 
@@ -498,7 +499,7 @@ async def expand_workspace_image_ref(
     if not path:
         return _image_unavailable_block(locale=locale)
     try:
-        data = await workspace.adownload_bytes(path)
+        data = source_bytes if source_bytes is not None else await workspace.adownload_bytes(path)
     except Exception:
         logger.warning("vision rematerialize failed for %s", path, exc_info=True)
         data = None
@@ -518,6 +519,7 @@ def expand_workspace_image_ref_sync(
     *,
     workspace: BackendWorkspace,
     locale: str | Locale = "en",
+    source_bytes: bytes | None = None,
 ) -> dict[str, Any]:
     """Sync counterpart of :func:`expand_workspace_image_ref`."""
     if not is_workspace_image_ref(block):
@@ -526,7 +528,7 @@ def expand_workspace_image_ref_sync(
     if not path:
         return _image_unavailable_block(locale=locale)
     try:
-        data = workspace.download_bytes(path)
+        data = source_bytes if source_bytes is not None else workspace.download_bytes(path)
     except Exception:
         logger.warning("vision rematerialize failed for %s", path, exc_info=True)
         data = None

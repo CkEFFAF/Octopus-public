@@ -247,7 +247,7 @@
     "targetRoot": "目标共享目录",
     "targetFile": "目标文件路径",
     "startTransfer": "开始设备间传输",
-    "transferHint": "当前所选设备是来源。控制中心中继传输并在账本记录进度；提交后关闭本页仍会继续。",
+    "transferHint": "所有渠道均由云端授权并记录审计；关闭此页面后传输仍会继续。",
     "workingRoot": "命令工作目录",
     "argv": "参数（JSON 字符串数组）",
     "timeout": "超时秒数",
@@ -360,6 +360,35 @@
       "saveFailed": "保存设备策略包失败",
       "missingTitle": "缺工具 / 未授权",
       "missingDesc": "下列 MCP 在设备包中引用，但当前账号不可用：{{names}}"
+    },
+    "p2p": {
+      "channel": "传输渠道",
+      "auto": "自动选择，可回退云端",
+      "directOnly": "仅设备直连",
+      "hubOnly": "仅云端中转",
+      "receipt": "传输与审计状态",
+      "direct": "设备直连 / P2P",
+      "hub": "经云端中转",
+      "unconfirmed": "渠道尚未确认",
+      "fallback": "已回退云端：{{reason}}",
+      "audit": "审计记录",
+      "stale": "暂时无法更新传输状态，正在保留上次记录。",
+      "direction": {
+        "source": "来源设备发生错误",
+        "target": "目标设备发生错误"
+      },
+      "status": {
+        "queued": "等待传输",
+        "negotiating": "正在协商渠道",
+        "transferring": "正在传输",
+        "verifying": "正在校验文件",
+        "pending_receipt": "等待双端回执，审计尚未完成",
+        "unknown": "状态待确认，审计尚未完成",
+        "completed": "传输及双端审计完成",
+        "failed": "传输失败",
+        "cancelled": "传输已取消",
+        "expired": "传输已过期"
+      }
     }
   },
   "octopus": {
@@ -734,7 +763,8 @@
     "TRANSFER_CAPACITY": "并发文件传输数量已达上限。",
     "TRANSFER_IO": "因存储容量或 I/O 错误导致传输失败。",
     "TRANSFER_CANCELLED": "传输已取消。",
-    "TRANSFER_NOT_FOUND": "未找到传输会话。"
+    "TRANSFER_NOT_FOUND": "未找到传输会话。",
+    "RESPONSE_RECOVERY_CONFLICT": "当前回答已变化、仍在执行，或尚不支持恢复。请刷新状态后再试，原消息不会重新发送。"
   },
   "nav": {
     "devices": "设备",
@@ -2014,7 +2044,7 @@
     "forkFailed": "创建分叉失败",
     "forkDisabledWhileBusy": "请等待当前回复或审批完成后再分叉",
     "forkNoAssistant": "当前对话还没有可分叉的 AI 回复",
-    "retry": "重试",
+    "retry": "继续原回答",
     "like": "有帮助",
     "dislike": "没帮助",
     "selectModel": "模型",
@@ -2053,7 +2083,7 @@
     "processSummaryThinkingOnly": "{{thinking}} 次深度思考",
     "processRunningTool": "正在调用 {{name}}",
     "processRunningTools": "正在调用工具",
-    "processThinkingLive": "深度思考中",
+    "processThinkingLive": "正在分析你的问题",
     "send": "发送",
     "stop": "停止",
     "queue": {
@@ -2075,9 +2105,9 @@
       "flushFailed": "排队消息发送失败，已放回队列。",
       "status": {
         "queued": "排队中",
-        "dispatching": "正在提交",
+        "dispatching": "已接收，正在处理",
         "requested": "请求中",
-        "accepted": "等待安全节点",
+        "accepted": "已收到，当前操作结束后处理",
         "interrupting": "正在打断工具并插入",
         "unknown": "结果未确认",
         "failed": "执行失败",
@@ -2093,7 +2123,7 @@
       "toolInterrupted": "工具调用已被用户打断，Agent 将继续处理插入消息。外部或后台任务的停止状态尚未确认，可能仍在运行。",
       "promoteFailed": "暂时无法插入，请查看此消息的最新状态；仍在排队的消息会继续保留。",
       "attachmentsQueue": "直接插入暂不支持附件，请使用排队发送。",
-      "waiting": "插入请求已送达，等待当前安全节点。",
+      "waiting": "已收到补充，当前操作结束后会继续处理。",
       "applied": "消息已插入，Agent 正在按新消息继续。",
       "failed": "插入失败，请重试或排队发送。",
       "unavailable": "当前运行无法接收插入消息，请排队发送。",
@@ -2105,13 +2135,17 @@
       },
       "interrupted": "已按新指令停止生成，以上内容已保留",
       "phase": {
-        "llm_before": "正在准备模型调用",
-        "llm_running": "正在生成；直接插入会停止本次生成",
-        "llm_after": "模型生成结束，正在处理新指令",
-        "tool_before": "正在准备工具调用",
-        "tool_running": "工具执行中；可等完成后插入，或立即打断并插入",
+        "llm_before": "正在准备思考",
+        "llm_running": "正在思考",
+        "llm_after": "正在整理本轮结果",
+        "tool_before": "正在准备执行工具",
+        "tool_running": "正在执行工具",
         "tool_interrupting": "正在打断工具调用，即将处理插入消息",
-        "tool_after": "工具执行完毕，即将处理新指令"
+        "tool_after": "工具已返回，继续处理",
+        "paused": "等待你的确认",
+        "completed": "本轮已完成",
+        "failed": "执行遇到问题",
+        "cancelled": "已停止"
       }
     },
     "agentNoDescription": "暂无描述",
@@ -2562,7 +2596,109 @@
     "unpinExpert": "取消置顶专家",
     "pinnedExperts": "置顶",
     "pinnedSessions": "置顶会话",
-    "recentSessions": "最近会话"
+    "recentSessions": "最近会话",
+    "workItems": {
+      "title": "后台任务",
+      "new": "新建任务",
+      "hint": "后台任务独立执行。你可以继续聊天；查看进度不会给任务发送消息。",
+      "thisChat": "此会话",
+      "allChats": "全部会话",
+      "list": "后台任务列表",
+      "empty": "还没有后台任务。",
+      "recentOnly": "显示最近 50 个任务。",
+      "chooseTask": "选择一个任务查看进度，或新建后台任务。",
+      "taskTitle": "任务名称",
+      "instructions": "任务要求",
+      "start": "开始后台执行",
+      "executionHint": "沿用当前会话选择的执行设备和目录。",
+      "selectExecution": "请先在聊天输入区选择执行设备和自主执行模式。",
+      "stale": "状态更新失败，保留上次结果。请重试。",
+      "requestFailed": "请求尚未确认，请先刷新任务列表；重试将沿用同一请求。",
+      "stage": "当前阶段",
+      "tools": "正在使用",
+      "updated": "最近更新",
+      "noProgress": "暂无进度记录",
+      "noTools": "暂无工具运行",
+      "needsApproval": "任务需要你处理权限确认。",
+      "needsCredential": "任务需要补充凭据。",
+      "permissionDenied": "执行权限被拒绝。",
+      "blocked": "任务遇到阻塞，请查看任务记录。",
+      "originMissing": "发起会话已不可用，任务记录仍保留。",
+      "openOrigin": "打开发起会话和成果",
+      "addRequirements": "补充任务要求",
+      "sendRequirements": "发送给此任务",
+      "cancel": "停止此任务",
+      "status": {
+        "queued": "等待执行",
+        "running": "正在执行",
+        "waiting_input": "等待处理补充要求",
+        "waiting_review": "等待验收",
+        "blocked": "遇到阻塞",
+        "failed": "执行失败",
+        "completed": "执行结束",
+        "cancelled": "已停止",
+        "unknown": "状态待确认",
+        "cancelling": "正在请求停止"
+      }
+    },
+    "backgroundUi": {
+      "running": "工作仍在此会话中进行。",
+      "continue": "另聊一件事",
+      "progress": "查看进度"
+    },
+    "deliverables": {
+      "title": "交付文件",
+      "open": "预览 {{name}}",
+      "refreshFailed": "交付文件刷新失败，请重试。"
+    },
+    "flow": {
+      "working": "正在处理你的请求",
+      "keepTalking": "可以继续补充消息，也可以随时上传文件",
+      "anotherChat": "另开聊天",
+      "elapsed": "本次已用时 {{seconds}} 秒",
+      "sendWhileWorking": "发送方式",
+      "supplement": "补充当前回答",
+      "queue": "稍后发送",
+      "supplementHint": "文字、图片和文件都会补充给当前任务；已执行的操作会保留。",
+      "queueHint": "当前回答结束后，按顺序处理这条消息",
+      "filesQueued": "附带文件的消息会保留在队列，当前回答结束后处理",
+      "uploadDoesNotBlock": "上传时可以先发文字；正在上传的文件会保留在输入框中",
+      "fileReady": "已就绪",
+      "file": "文件",
+      "removeFile": "移除 {{name}}",
+      "downloadFile": "下载 {{name}}",
+      "imageModelUnsupported": "图片已保留在输入框。当前正在使用的模型不支持识图，请等本轮结束后选择支持图片的模型再发送。",
+      "attachmentChanged": "附件已变化或已不可用，输入内容已保留。请重新上传后发送。"
+    },
+    "recovery": {
+      "title": "这次回答未完成",
+      "busyTitle": "模型暂时繁忙",
+      "rateHint": "模型服务正在限制请求。等待结束后，可以继续这次回答。",
+      "retained": "原问题、附件和已完成的步骤均已保留，无需重新发送。",
+      "resuming": "正在恢复原回答…",
+      "retryIn": "{{seconds}} 秒后可继续",
+      "waiting": "等待模型恢复，{{seconds}} 秒后重试（第 {{attempt}} / {{max}} 次）",
+      "retrying": "正在重新连接模型（第 {{attempt}} / {{max}} 次）",
+      "busy": "当前回答仍在进行，请等待或停止后再尝试。",
+      "unavailable": "这条回答暂时无法安全恢复。请刷新查看最新状态；旧记录不会被重复发送。",
+      "latestOnly": "只能恢复最新一轮回答。较早的回答可以分支后继续。"
+    },
+    "toolFeedback": {
+      "external": "调用外部工具",
+      "failed": "执行失败",
+      "returned": "已返回结果",
+      "backgroundRunning": "后台继续运行",
+      "exitCode": "退出码 {{code}}",
+      "bytes": "{{count}} 字节",
+      "lines": "{{count}} 行",
+      "resourceReady": "附件可读取",
+      "readAttachment": "读取{{name}}",
+      "attachedFile": "本次附件",
+      "startJob": "启动后台任务",
+      "job_status": "检查后台任务进度",
+      "job_logs": "读取后台任务日志",
+      "job_cancel": "请求停止后台任务"
+    }
   },
   "tools": {
     "get_conversation_brief": "读取会话概览",
@@ -4718,7 +4854,10 @@
     "fileTooltip": "上传附件",
     "unsupportedType": "不支持的文件类型：{{type}}",
     "tooLarge": "文件过大（最大 {{maxMb}}MB）：{{name}}",
-    "failed": "上传失败"
+    "failed": "上传失败",
+    "inProgress": "正在上传",
+    "registering": "上传已完成，正在确认文件",
+    "dismiss": "移除"
   },
   "mention": {
     "empty": "没有匹配项",
@@ -7952,7 +8091,9 @@
     "runningSummary": "{{count}} 个活动会话 · {{jobs}} 个后台执行任务",
     "noBackgroundTasks": "当前没有运行中的会话或后台执行任务。定时任务与提醒在其他标签查看。",
     "observationStale": "状态待确认",
-    "inspectTasks": "查看运行与计划"
+    "inspectTasks": "查看运行与计划",
+    "jobProgram": "运行 {{name}}",
+    "backgroundExplanation": "任务在后台独立执行，可查看实际状态和日志。"
   },
   "conversationMetadata": {
     "settingsTitle": "会话整理",

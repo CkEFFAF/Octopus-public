@@ -167,7 +167,11 @@ class RunEventRepo:
                 "status": r["status"],
                 "updated_at": r["updated_at"],
                 "stale": time.time() - r["updated_at"] > 45,
-                "name": str(json.loads(r["payload_json"]).get("job_id") or "Background job")[:100],
+                "name": str(
+                    json.loads(r["payload_json"]).get("program")
+                    or json.loads(r["payload_json"]).get("job_id")
+                    or r["event_id"]
+                )[:100],
             }
             for r in rows
         ]

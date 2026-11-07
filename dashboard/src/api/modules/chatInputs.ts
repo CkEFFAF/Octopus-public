@@ -34,10 +34,16 @@ export const chatInputsApi = {
     commandId: string,
     snapshot: Snapshot,
     turn: Record<string, unknown>,
+    runId?: string,
   ) =>
     request<ChatInputReceipt>(path(agent, thread), {
       method: "POST",
-      body: JSON.stringify({ command_id: commandId, snapshot, turn }),
+      body: JSON.stringify({
+        command_id: commandId,
+        snapshot,
+        turn,
+        ...(runId ? { run_id: runId } : {}),
+      }),
     }),
   withdraw: (agent: string, thread: string, id: string) =>
     request<ChatInputReceipt>(

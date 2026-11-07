@@ -39,4 +39,15 @@ describe("workspaceIoPath", () => {
     expect(toWorkspaceApiPath("/outbound/a.txt")).toBe("outbound/a.txt");
     expect(toDockWorkspaceApiPath("/outbound/a.txt")).toBe("outbound/a.txt");
   });
+
+  it("downloads explicitly addressed expert artifacts through the workspace API", () => {
+    expect(toDockWorkspaceApiPath("/.agent/outbound/main_en_文件报告.md")).toBe(
+      "outbound/main_en_文件报告.md",
+    );
+    expect(
+      toDockWorkspaceApiPath(
+        "/.agent/root/OctopData/agents/Y39HY4/outbound/report.md",
+      ),
+    ).toBe("file:///root/OctopData/agents/Y39HY4/outbound/report.md");
+  });
 });

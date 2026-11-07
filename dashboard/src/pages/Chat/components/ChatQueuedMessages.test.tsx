@@ -8,6 +8,24 @@ const items = [
 ];
 
 describe("queued message controls", () => {
+  it("shows an accepted processing receipt without offering unavailable queue actions", () => {
+    render(
+      <ChatQueuedMessages
+        items={[{ ...items[0], status: "dispatching" }]}
+        onReclaim={vi.fn()}
+        onSteer={vi.fn()}
+        canSteer
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("dispatching");
+    for (const name of [
+      "chat.steer.action",
+      "chat.steer.immediateAction",
+      "chat.queue.withdraw",
+    ]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+  });
   it("lets an unconfirmed receipt be dismissed without inserting or reclaiming it", async () => {
     const onSteer = vi.fn();
     const onReclaim = vi.fn();
@@ -100,7 +118,7 @@ describe("queued message controls", () => {
     expect(onSteer).not.toHaveBeenCalled();
   });
 
-  it("keeps attachments and commands queued and prevents modifying accepted work", () => {
+  it("allows inserting attachments while guarding commands and accepted work", () => {
     render(
       <ChatQueuedMessages
         items={[
@@ -119,13 +137,13 @@ describe("queued message controls", () => {
       />,
     );
     for (const name of ["chat.steer.action", "chat.steer.immediateAction"]) {
-      for (const button of screen.getAllByRole("button", { name })) {
-        expect(button).toBeDisabled();
-      }
+      const buttons = screen.getAllByRole("button", { name });
+      expect(buttons[0]).toBeDisabled();
+      expect(buttons[1]).toBeEnabled();
     }
     expect(
-      screen.getAllByRole("button", { name: "chat.queue.withdraw" })[2],
-    ).toBeDisabled();
+      screen.getAllByRole("button", { name: "chat.queue.withdraw" }),
+    ).toHaveLength(2);
   });
 
   it("keeps insertion disabled after the active run ends", () => {
