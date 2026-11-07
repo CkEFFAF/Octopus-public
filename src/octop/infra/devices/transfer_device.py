@@ -49,7 +49,7 @@ def _guess_advertise_ipv4() -> str | None:
     try:
         # No packets are sent; the kernel picks the outbound interface address.
         probe.connect(("8.8.8.8", 80))
-        ip = probe.getsockname()[0]
+        ip = str(probe.getsockname()[0])
     except OSError:
         return None
     finally:

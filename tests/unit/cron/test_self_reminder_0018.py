@@ -165,8 +165,8 @@ async def test_one_shot_disables_after_fire(tmp_path: Path) -> None:
     mgr = _make_manager(services)
     session_key = ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=user_id)
     # Seed a real thread so prepare_self_reminder_command can resolve/backfill origin.
-    from octop.infra.db.repos.threads import ThreadRepo
     from octop.infra.db.repos.sessions import SessionRepo
+    from octop.infra.db.repos.threads import ThreadRepo
 
     thr = "thr_oneshot"
     ThreadRepo(services.db).insert(

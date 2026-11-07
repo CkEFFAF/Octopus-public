@@ -82,6 +82,13 @@ Actual CLI authentication and an OpenClaw Gateway are separate prerequisites.
 
 ## Review checklist
 
+The inverse connection (`octop acp-remote`, local standard ACP client → hub
+expert) uses a separate restricted `oaa_` credential. It never starts a local
+server, maps local cwd onto hub execution, or grants device/P2P access.
+Credential-scoped sessions/tasks and current scopes are enforced on every
+authenticated HTTP request; broad account/device sockets reject machine JWTs.
+See [remote ACP](../acp-remote.md).
+
 - Provider SQL lookups and mutations require an owner; cross-account methods
   are explicitly named and limited to authorized administration/system use.
 - User-facing catalogs and active-model selections do not expose other

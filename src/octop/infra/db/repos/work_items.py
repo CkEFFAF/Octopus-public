@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import time
 from typing import Any
@@ -128,9 +129,21 @@ class WorkItemRepo:
         status_group: str = "open",
         before: float | None = None,
         limit: int = 50,
-    ) -> list[dict[str, Any]]:
+        credential_id: str | None = None,
+        command_id: str | None = None,
+    ) -> builtins.list[dict[str, Any]]:
         sql = "SELECT * FROM work_items WHERE owner_user_id = ?"
         values: list[Any] = [owner]
+        if credential_id is not None:
+            sql += (
+                " AND EXISTS (SELECT 1 FROM agent_access_object_grants g "
+                "WHERE g.credential_id = ? AND g.object_kind = 'work_item' "
+                "AND g.object_id = work_items.task_id)"
+            )
+            values.append(credential_id)
+        if command_id is not None:
+            sql += " AND command_id = ?"
+            values.append(command_id)
         if origin_thread_id:
             sql += " AND origin_thread_id = ?"
             values.append(origin_thread_id)
@@ -147,7 +160,7 @@ class WorkItemRepo:
             rows = conn.execute(sql, values).fetchall()
         return [self._public(row) for row in rows]
 
-    def list_recoverable(self) -> list[dict[str, Any]]:
+    def list_recoverable(self) -> builtins.list[dict[str, Any]]:
         """Rows that may need post-restart observation (no auto-replay)."""
         placeholders = ", ".join("?" for _ in OPEN_STATUSES)
         with self.db.connect() as conn:

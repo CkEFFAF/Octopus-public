@@ -104,9 +104,7 @@ def _make_agent(
     config.default_model = "openai/gpt-4o-mini"
     config.locale = "zh-CN"
     agent.config = config
-    agent.aappend_messages = AsyncMock(
-        side_effect=lambda thread_id, messages: list(messages)
-    )
+    agent.aappend_messages = AsyncMock(side_effect=lambda thread_id, messages: list(messages))
     return agent
 
 

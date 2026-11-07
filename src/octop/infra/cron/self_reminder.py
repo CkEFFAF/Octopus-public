@@ -162,7 +162,9 @@ def mark_needs_retarget(meta: dict[str, Any] | None) -> dict[str, Any]:
     return out
 
 
-def preserve_origin_keys(existing: dict[str, Any] | None, incoming: dict[str, Any]) -> dict[str, Any]:
+def preserve_origin_keys(
+    existing: dict[str, Any] | None, incoming: dict[str, Any]
+) -> dict[str, Any]:
     """Merge meta updates without allowing origin_thread_id to change once set."""
     out = dict(incoming)
     prior = origin_thread_id(existing)

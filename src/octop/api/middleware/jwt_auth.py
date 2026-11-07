@@ -16,15 +16,18 @@ from typing import Any
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from octop.api.common.machine_access import require_machine_http_access
 from octop.api.deps import (
     ACCESS_TOKEN_RESPONSE_HEADER,
     authenticate_request,
     extract_raw_token,
     is_jwt_exempt_request,
+    machine_principal_of,
     maybe_sliding_renew_token,
 )
 from octop.api.middleware.key_sessions import AccessKeyWebSocketMiddleware
 from octop.infra.errors import OctopError
+from octop.infra.utils.locale import resolve_request_locale
 from octop.infra.utils.log_redaction import redact_secrets
 
 _INSTALL_ATTR = "_octop_jwt_auth_installed"
@@ -52,7 +55,12 @@ def install(app: Any, server: Any) -> None:
         )
         try:
             request.state.octop_user = authenticate_request(request, server)
+            require_machine_http_access(request, server)
         except OctopError as exc:
+            if principal := machine_principal_of(request):
+                server.app_runtime.devices.agent_access_keys.record_access(
+                    principal, method=request.method, path=path, status=exc.status
+                )
             # Middleware returns directly (skips FastAPI exception handlers).
             if exc.status >= 500:
                 logger.error(
@@ -62,9 +70,20 @@ def install(app: Any, server: Any) -> None:
                     exc.message,
                     exc_info=exc,
                 )
-            return JSONResponse(status_code=exc.status, content=exc.to_envelope())
+            return JSONResponse(
+                status_code=exc.status,
+                content=exc.to_envelope(
+                    locale=resolve_request_locale(request)
+                    if machine_principal_of(request)
+                    else None
+                ),
+            )
 
         response = await call_next(request)
+        if principal := machine_principal_of(request):
+            server.app_runtime.devices.agent_access_keys.record_access(
+                principal, method=request.method, path=path, status=response.status_code
+            )
         if raw is not None:
             try:
                 renewed = maybe_sliding_renew_token(server, raw, request.state.octop_user)

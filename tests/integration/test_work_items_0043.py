@@ -118,9 +118,7 @@ async def test_origin_deleted_still_gettable(env: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_job_reconciler_path_updates_without_blind_replay(
-    env: Any, tmp_path: Path
-) -> None:
+async def test_job_reconciler_path_updates_without_blind_replay(env: Any, tmp_path: Path) -> None:
     """AC-0043-08: real Jobs + reconciler; unknown observation does not resubmit."""
     c, srv, _alice_auth, admin_auth = env
     # Prefer the bootstrapped admin account (local Jobs require admin).

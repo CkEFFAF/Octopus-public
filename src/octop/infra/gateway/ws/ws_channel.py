@@ -165,7 +165,7 @@ class WebSocketChannel(BaseChannel):
             thread_id=thread_id,
             reason="running",
         )
-        terminal_reason = "completed"
+        terminal_reason: str | None = "completed"
         last_run_id: str | None = None
         try:
             async for chunk in processor.iter_turn_chunks(message):

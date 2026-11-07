@@ -497,7 +497,6 @@ async def test_direct_tls_peer_transfer_hub_does_not_forward(rig: Any) -> None:
     await service.shutdown()
 
 
-
 def test_advertise_host_not_loopback_for_lan(monkeypatch: Any) -> None:
     """Cross-host path must advertise a routable host, never 127.0.0.1."""
     monkeypatch.setenv("OCTOP_TRANSFER_ADVERTISE_HOST", "192.168.50.20")

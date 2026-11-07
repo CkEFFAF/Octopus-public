@@ -63,9 +63,7 @@ class TransferRow:
             transfer_id=str(row["transfer_id"]),
             request_id=(str(row["request_id"]) if row["request_id"] is not None else None),
             owner_user_id=int(row["owner_user_id"]),
-            actor_user_id=(
-                int(row["actor_user_id"]) if row["actor_user_id"] is not None else None
-            ),
+            actor_user_id=(int(row["actor_user_id"]) if row["actor_user_id"] is not None else None),
             agent_id=(str(row["agent_id"]) if row["agent_id"] is not None else None),
             source_device_id=str(row["source_device_id"]),
             source_root_id=str(row["source_root_id"]),
@@ -80,14 +78,10 @@ class TransferRow:
             policy_version=int(row["policy_version"]),
             ticket_hash=(str(row["ticket_hash"]) if row["ticket_hash"] is not None else None),
             ticket_expires_at=(
-                float(row["ticket_expires_at"])
-                if row["ticket_expires_at"] is not None
-                else None
+                float(row["ticket_expires_at"]) if row["ticket_expires_at"] is not None else None
             ),
             ticket_consumed_at=(
-                float(row["ticket_consumed_at"])
-                if row["ticket_consumed_at"] is not None
-                else None
+                float(row["ticket_consumed_at"]) if row["ticket_consumed_at"] is not None else None
             ),
             preferred_transport=str(row["preferred_transport"]),
             actual_transport=(

@@ -276,9 +276,7 @@ class ProactiveCareService:
         thread_message_repo = getattr(repos, "thread_message_repo", None) if repos else None
         already = False
         if thread_message_repo is not None and hasattr(thread_message_repo, "has_message_id"):
-            already = (
-                thread_message_repo.has_message_id(session.thread_id, assistant_id) is True
-            )
+            already = thread_message_repo.has_message_id(session.thread_id, assistant_id) is True
 
         if not already:
             try:
@@ -313,9 +311,7 @@ class ProactiveCareService:
         try:
 
             async def _locked() -> None:
-                await self._gateway.push_session_text(
-                    session, care_text, title_source=care_text
-                )
+                await self._gateway.push_session_text(session, care_text, title_source=care_text)
                 if session.channel_type == ThreadRegistry.CHANNEL_DASHBOARD:
                     await self._gateway.notify_dashboard_push(
                         session,

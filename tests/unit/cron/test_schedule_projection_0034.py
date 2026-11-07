@@ -37,14 +37,19 @@ async def test_real_scheduler_fires_once_and_persists_attempt(rig: Any) -> None:
     async def locked(agent: str, key: str, operation: Any) -> None:
         await operation()
 
+    async def locked_on_session(actual: Any, operation: Any) -> None:
+        assert actual.thread_id == "root"
+        await operation()
+
     gateway = SimpleNamespace(
         run_in_session=locked,
+        run_locked_on_session=locked_on_session,
         require_session=lambda a, k: original,
         thread_registry=SimpleNamespace(get_session=lambda key: original),
     )
     delivery = CronDeliveryService(gateway=gateway, agent_manager=rig.manager, repos=rig.repos)
 
-    async def text(command: Any, actual: Any) -> None:
+    async def text(command: Any, actual: Any, *, attempt: str) -> None:
         delivered.set()
 
     delivery._deliver_text = text

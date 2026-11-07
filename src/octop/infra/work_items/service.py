@@ -8,6 +8,7 @@ import logging
 import time
 from typing import Any
 
+from octop.infra.cron.delivery import WorkItemInteractionRequired
 from octop.infra.db.repos.work_items import WorkItemRepo
 from octop.infra.db.services import RepoBundle
 from octop.infra.errors import ErrorCode, OctopError
@@ -49,6 +50,7 @@ class WorkItemsService:
         self._jobs: dict[str, asyncio.Task[None]] = {}
         self._bg_slots = asyncio.Semaphore(_MAX_BACKGROUND)
         self._repo = WorkItemRepo(repos.db)
+        self._live_output: dict[str, str] = {}
 
     def replace_repos(self, repos: RepoBundle) -> None:
         self._repos = repos
@@ -102,11 +104,17 @@ class WorkItemsService:
 
     # ── create ──────────────────────────────────────────────────────────
 
-    async def create(self, owner: int, body: WorkItemCreate) -> dict[str, Any]:
+    async def create(
+        self, owner: int, body: WorkItemCreate, *, credential_id: str | None = None
+    ) -> dict[str, Any]:
         command_id = body.command_id.strip()
         existing = self._repo.get_by_command(owner, command_id)
         fingerprint = create_fingerprint(body)
         if existing is not None:
+            if credential_id and not self._repos.agent_access_key_repo.has_object_grant(
+                credential_id, "work_item", str(existing["task_id"])
+            ):
+                raise OctopError.localized(ErrorCode.FORBIDDEN)
             if self._fingerprint_of(existing) != fingerprint:
                 raise OctopError(
                     ErrorCode.WORK_ITEM_COMMAND_CONFLICT,
@@ -124,14 +132,14 @@ class WorkItemsService:
         agent = self._repos.agent_repo.get(body.agent_id.strip())
         if agent is None:
             raise OctopError(ErrorCode.AGENT_NOT_FOUND, "agent not found")
-        if agent.user_id is not None and int(agent.user_id) != int(owner) and not int(
-            getattr(agent, "is_shared", 0) or 0
+        if (
+            agent.user_id is not None
+            and int(agent.user_id) != int(owner)
+            and not int(getattr(agent, "is_shared", 0) or 0)
         ):
             raise OctopError(ErrorCode.WORK_ITEM_FORBIDDEN, "agent not accessible")
         if origin.agent_id != body.agent_id.strip():
-            raise OctopError(
-                ErrorCode.WORK_ITEM_INVALID, "origin_thread agent_id mismatch"
-            )
+            raise OctopError(ErrorCode.WORK_ITEM_INVALID, "origin_thread agent_id mismatch")
 
         user = self._repos.user_repo.get(owner)
         if user is not None and getattr(user, "disabled", False):
@@ -146,9 +154,7 @@ class WorkItemsService:
             except OctopError:
                 raise
             except Exception as exc:
-                raise OctopError(
-                    ErrorCode.WORK_ITEM_FORBIDDEN, "device not authorized"
-                ) from exc
+                raise OctopError(ErrorCode.WORK_ITEM_FORBIDDEN, "device not authorized") from exc
 
         task_id = new_ulid()
         artifacts = [r.model_dump() for r in body.resources]
@@ -168,6 +174,8 @@ class WorkItemsService:
                 "artifacts": artifacts,
             }
         )
+        if credential_id:
+            self._repos.agent_access_key_repo.grant_object(credential_id, "work_item", task_id)
         # Store fingerprint in a phase event for conflict checks on replay.
         self._record_event(
             owner=owner,
@@ -229,7 +237,8 @@ class WorkItemsService:
         self._jobs[task_id] = asyncio.create_task(_runner(), name=f"work-item:{task_id}")
 
         def _done(task: asyncio.Task[None]) -> None:
-            self._jobs.pop(task_id, None)
+            if self._jobs.get(task_id) is task:
+                self._jobs.pop(task_id, None)
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 task.result()
 
@@ -254,11 +263,11 @@ class WorkItemsService:
                 channel_metadata={"work_item_id": task_id, "kind": "work_item"},
             )
             run_id = new_ulid()
+            self._repos.agent_access_key_repo.grant_worker_thread(task_id, worker_thread_id)
             attempt_id = new_ulid()
             context_id = None
-            if (
-                self._execution is not None
-                and (row.get("device_id") or (row.get("target_kind") or "") == "local")
+            if self._execution is not None and (
+                row.get("device_id") or (row.get("target_kind") or "") == "local"
             ):
                 try:
                     ctx = self._execution.resolve(
@@ -280,15 +289,18 @@ class WorkItemsService:
             else:
                 context_id = self._create_context(owner, row, worker_thread_id, run_id)
 
-            row = self._repo.update(
-                owner,
-                task_id,
-                status="running",
-                worker_thread_id=worker_thread_id,
-                current_run_id=run_id,
-                current_attempt_id=attempt_id,
-                context_id=context_id,
-            ) or row
+            row = (
+                self._repo.update(
+                    owner,
+                    task_id,
+                    status="running",
+                    worker_thread_id=worker_thread_id,
+                    current_run_id=run_id,
+                    current_attempt_id=attempt_id,
+                    context_id=context_id,
+                )
+                or row
+            )
             self._record_event(
                 owner=owner,
                 task=row,
@@ -317,6 +329,8 @@ class WorkItemsService:
                     await self._confirm_cancel(owner, task_id)
                 return
             await self._complete(owner, task_id, output=output or "")
+        except WorkItemInteractionRequired:
+            await self._waiting_permission(owner, task_id)
         except asyncio.CancelledError:
             row = self._repo.get(owner, task_id)
             if (
@@ -395,13 +409,18 @@ class WorkItemsService:
                 mcp_servers=(),
                 device_id=row["device_id"],
                 task_run_id=row["current_run_id"],
+                allow_interaction=True,
+                on_chunk=lambda chunk: self._observe_output(row["task_id"], chunk),
                 device_grant_version=(
                     self._devices.owned(int(row["owner_user_id"]), row["device_id"]).grant_version
                     if row["device_id"] and self._devices is not None
                     else 0
                 ),
             )
-            return str(await self._delivery.deliver(command) or "")
+            try:
+                return str(await self._delivery.deliver(command) or "")
+            finally:
+                self._live_output.pop(row["task_id"], None)
         # Lightweight path for tests without harness: durable phase event only.
         self._record_event(
             owner=int(row["owner_user_id"]),
@@ -414,20 +433,23 @@ class WorkItemsService:
             context_id=row.get("context_id"),
         )
         await self._emit_task(row, reason="progress", phase="tool_running")
-        return row["instructions"] or row["title"]
+        return str(row["instructions"] or row["title"])
 
     async def _complete(self, owner: int, task_id: str, *, output: str) -> None:
         row = self._repo.get(owner, task_id)
         if row is None or row["status"] in _TERMINAL:
             return
         summary = (output or "").strip()[:4000] or f"Work item {row['title']} completed."
-        row = self._repo.update(
-            owner,
-            task_id,
-            status="completed",
-            reported_outcome=summary[:1000],
-            block_reason=None,
-        ) or row
+        row = (
+            self._repo.update(
+                owner,
+                task_id,
+                status="completed",
+                reported_outcome=summary[:1000],
+                block_reason=None,
+            )
+            or row
+        )
         attempt_id = row["current_attempt_id"] or "final"
         self._record_event(
             owner=owner,
@@ -466,9 +488,7 @@ class WorkItemsService:
         )
         asyncio.create_task(self._emit_task(row, reason="failed"), name=f"work-fail:{task_id}")
 
-    async def _deliver_result(
-        self, row: dict[str, Any], *, summary: str, attempt_id: str
-    ) -> None:
+    async def _deliver_result(self, row: dict[str, Any], *, summary: str, attempt_id: str) -> None:
         origin_id = row.get("origin_thread_id")
         if not origin_id:
             return
@@ -538,6 +558,8 @@ class WorkItemsService:
         status_group: str = "open",
         before: float | None = None,
         limit: int = 50,
+        credential_id: str | None = None,
+        command_id: str | None = None,
     ) -> dict[str, Any]:
         fetch = min(max(int(limit), 1), 200) + 1
         rows = self._repo.list(
@@ -546,6 +568,8 @@ class WorkItemsService:
             status_group=status_group,
             before=before,
             limit=fetch,
+            credential_id=credential_id,
+            command_id=command_id,
         )
         has_more = len(rows) > limit
         items = rows[:limit]
@@ -553,6 +577,7 @@ class WorkItemsService:
             "items": [
                 {
                     "task_id": r["task_id"],
+                    "agent_id": r["agent_id"],
                     "title": r["title"],
                     "status": r["status"],
                     "origin_thread_id": r["origin_thread_id"],
@@ -664,9 +689,7 @@ class WorkItemsService:
         if events:
             payload = events[0].get("payload") or {}
             phase = payload.get("phase")
-            active_tools = [
-                str(n) for n in (payload.get("active_tools") or []) if str(n).strip()
-            ]
+            active_tools = [str(n) for n in (payload.get("active_tools") or []) if str(n).strip()]
             last_event_at = events[0].get("created_at") or last_event_at
         return {
             "phase": phase,
@@ -676,24 +699,238 @@ class WorkItemsService:
             "needs_approval": row.get("needs_approval", False),
             "needs_credential": row.get("needs_credential", False),
             "permission_denied": row.get("permission_denied", False),
+            "permission_request": self._permission_request(row),
+            "output_text": self._live_output.get(row["task_id"], ""),
         }
+
+    def _observe_output(self, task_id: str, chunk: dict[str, Any]) -> None:
+        if chunk.get("type") in {"token", "delta"}:
+            text = str(chunk.get("content") or chunk.get("text") or "")
+            self._live_output[task_id] = (self._live_output.get(task_id, "") + text)[-128_000:]
+
+    def _pending_permission(self, row: dict[str, Any]) -> Any:
+        if not row.get("worker_thread_id"):
+            return None
+        return self._gateway.processor.hitl_coordinator.store.resolve_pending_for_thread(
+            row["worker_thread_id"], agent_id=row["agent_id"], user_id=int(row["owner_user_id"])
+        )
+
+    def _permission_request(self, row: dict[str, Any]) -> dict[str, Any] | None:
+        if row["status"] != "waiting_review" or row.get("cancel_requested"):
+            return None
+        pending = self._pending_permission(row)
+        if pending is None:
+            return None
+        configs = {
+            c["action_name"]: c.get("allowed_decisions", []) for c in pending.review_configs or []
+        }
+        return {
+            "pending_id": pending.pending_id,
+            "actions": [
+                {
+                    "name": a.get("name", ""),
+                    "allowed_decisions": configs.get(a.get("name"), ["approve", "reject"]),
+                }
+                for a in pending.action_requests
+            ],
+        }
+
+    async def _waiting_permission(self, owner: int, task_id: str) -> None:
+        row = self._require(owner, task_id)
+        if row.get("cancel_requested"):
+            await self._confirm_cancel(owner, task_id)
+            return
+        if self._pending_permission(row) is None:
+            self._fail(
+                owner,
+                task_id,
+                "worker interaction unavailable",
+                block_reason="interaction_unavailable",
+            )
+            return
+        row = self._repo.update(owner, task_id, status="waiting_review", needs_approval=1) or row
+        self._record_event(
+            owner=owner,
+            task=row,
+            kind="work_item",
+            status="waiting_review",
+            payload={"phase": "waiting_review", "active_tools": []},
+            event_id=f"work:{task_id}:permission:{new_ulid()}",
+            run_id=row.get("current_run_id"),
+        )
+        await self._emit_task(row, reason="waiting")
+
+    def input_receipt(self, owner: int, task_id: str, command_id: str) -> dict[str, Any] | None:
+        self._require(owner, task_id)
+        saved = self._repo.get_input_by_command(owner, command_id)
+        if saved is None or saved["task_id"] != task_id:
+            return None
+        return {"input_id": saved["input_id"], "task_id": task_id, "status": saved["status"]}
+
+    async def answer_permission(
+        self,
+        owner: int,
+        task_id: str,
+        *,
+        command_id: str,
+        pending_id: str,
+        attempt_id: str,
+        decisions: list[str],
+    ) -> dict[str, Any]:
+        from octop.infra.gateway.hitl.coordinator import decision_rejection_reason
+
+        row = self._require(owner, task_id)
+        payload = {"pending_id": pending_id, "decisions": decisions}
+        existing = self._repo.get_input_by_command(owner, command_id)
+        if existing:
+            if (existing["task_id"], existing["target_attempt_id"], existing["payload"]) != (
+                task_id,
+                attempt_id,
+                payload,
+            ):
+                raise OctopError.localized(ErrorCode.WORK_ITEM_COMMAND_CONFLICT)
+            return {
+                "input_id": existing["input_id"],
+                "task_id": task_id,
+                "status": existing["status"],
+            }
+        pending = self._pending_permission(row)
+        if (
+            row["status"] != "waiting_review"
+            or row.get("cancel_requested")
+            or row["current_attempt_id"] != attempt_id
+            or pending is None
+            or pending.pending_id != pending_id
+        ):
+            raise OctopError.localized(ErrorCode.WORK_ITEM_RUN_CONFLICT)
+        resolved = [{"type": decision} for decision in decisions]
+        if any(d not in {"approve", "reject"} for d in decisions) or decision_rejection_reason(
+            pending, resolved
+        ):
+            raise OctopError.localized(ErrorCode.WORK_ITEM_INVALID)
+        saved = self._repo.insert_input(
+            {
+                "input_id": new_ulid(),
+                "task_id": task_id,
+                "owner_user_id": owner,
+                "command_id": command_id,
+                "target_attempt_id": attempt_id,
+                "payload": payload,
+                "status": "accepted",
+            }
+        )
+        self._gateway.processor.hitl_coordinator.store.mark_resolved(
+            pending_id, "rejected" if "reject" in decisions else "approved"
+        )
+        self._repo.update(owner, task_id, status="running", needs_approval=0)
+        task = asyncio.create_task(
+            self._resume_permission(row, resolved), name=f"work-permission:{task_id}"
+        )
+        self._jobs[task_id] = task
+
+        def done(completed: asyncio.Task[None]) -> None:
+            if self._jobs.get(task_id) is completed:
+                self._jobs.pop(task_id, None)
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                completed.result()
+
+        task.add_done_callback(done)
+        return {"input_id": saved["input_id"], "task_id": task_id, "status": saved["status"]}
+
+    async def _resume_permission(
+        self, row: dict[str, Any], decisions: list[dict[str, Any]]
+    ) -> None:
+        async with self._bg_slots:
+            await self._resume_permission_turn(row, decisions)
+
+    async def _resume_permission_turn(
+        self, row: dict[str, Any], decisions: list[dict[str, Any]]
+    ) -> None:
+        from octop.infra.gateway.hitl.coordinator import HitlStreamContext
+        from octop.infra.gateway.hitl.format import normalize_hitl_request
+
+        owner, task_id = int(row["owner_user_id"]), str(row["task_id"])
+        parts = []
+        paused = False
+        try:
+            async for chunk in self._gateway.processor.iter_hitl_resume_chunks(
+                agent_id=row["agent_id"],
+                thread_id=row["worker_thread_id"],
+                user_id=owner,
+                decisions=decisions,
+            ):
+                await self._gateway.observe_dashboard_resume(
+                    owner, row["agent_id"], row["worker_thread_id"], chunk
+                )
+                kind = chunk.get("type")
+                self._observe_output(task_id, chunk)
+                if kind in {"token", "delta"}:
+                    parts.append(str(chunk.get("content") or chunk.get("text") or ""))
+                elif kind == "error":
+                    raise RuntimeError("worker permission resume failed")
+                elif kind == "hitl_required" and isinstance(chunk.get("request"), dict):
+                    self._gateway.processor.hitl_coordinator.register_from_request(
+                        normalize_hitl_request(chunk["request"]),
+                        ctx=HitlStreamContext(
+                            thread_id=row["worker_thread_id"],
+                            agent_id=row["agent_id"],
+                            user_id=owner,
+                            session_key=f"{row['agent_id']}:dashboard:{owner}:work-item-{task_id}",
+                            channel_type="dashboard",
+                        ),
+                    )
+                    paused = True
+            if paused:
+                await self._waiting_permission(owner, task_id)
+            elif self._require(owner, task_id).get("cancel_requested"):
+                if not self._has_open_external_jobs(owner, task_id):
+                    await self._confirm_cancel(owner, task_id)
+            else:
+                await self._complete(owner, task_id, output="".join(parts))
+        except asyncio.CancelledError:
+            if self._require(owner, task_id).get(
+                "cancel_requested"
+            ) and not self._has_open_external_jobs(owner, task_id):
+                await self._confirm_cancel(owner, task_id)
+            raise
+        except Exception:
+            logger.exception("work item permission resume failed task=%s", task_id)
+            self._fail(
+                owner,
+                task_id,
+                "worker permission resume failed",
+                block_reason="permission_resume_error",
+            )
+        finally:
+            self._live_output.pop(task_id, None)
 
     # ── inputs / cancel ─────────────────────────────────────────────────
 
-    async def add_input(self, owner: int, task_id: str, body: WorkItemInputCreate) -> dict[str, Any]:
+    async def add_input(
+        self, owner: int, task_id: str, body: WorkItemInputCreate
+    ) -> dict[str, Any]:
         row = self._require(owner, task_id)
+        existing = self._repo.get_input_by_command(owner, body.command_id.strip())
+        if existing:
+            if (
+                existing["task_id"],
+                existing["payload"],
+                existing["target_run_id"],
+                existing["target_attempt_id"],
+            ) != (task_id, {"text": body.text}, body.target_run_id, body.target_attempt_id):
+                raise OctopError.localized(ErrorCode.WORK_ITEM_COMMAND_CONFLICT)
+            return {
+                "input_id": existing["input_id"],
+                "task_id": task_id,
+                "status": existing["status"],
+                "schema_version": WORK_ITEM_SCHEMA_VERSION,
+            }
         if row["status"] in _TERMINAL:
-            raise OctopError(
-                ErrorCode.WORK_ITEM_RUN_CONFLICT, "work item already terminal"
-            )
+            raise OctopError(ErrorCode.WORK_ITEM_RUN_CONFLICT, "work item already terminal")
         if body.target_run_id and body.target_run_id != row.get("current_run_id"):
-            raise OctopError(
-                ErrorCode.WORK_ITEM_RUN_CONFLICT, "target_run_id is not current"
-            )
+            raise OctopError(ErrorCode.WORK_ITEM_RUN_CONFLICT, "target_run_id is not current")
         if body.target_attempt_id and body.target_attempt_id != row.get("current_attempt_id"):
-            raise OctopError(
-                ErrorCode.WORK_ITEM_RUN_CONFLICT, "target_attempt_id is not current"
-            )
+            raise OctopError(ErrorCode.WORK_ITEM_RUN_CONFLICT, "target_attempt_id is not current")
         try:
             saved = self._repo.insert_input(
                 {
@@ -745,9 +982,7 @@ class WorkItemsService:
             if not body.attempt_id:
                 raise OctopError(ErrorCode.WORK_ITEM_INVALID, "attempt_id required")
             if body.attempt_id != row.get("current_attempt_id"):
-                raise OctopError(
-                    ErrorCode.WORK_ITEM_RUN_CONFLICT, "attempt_id is not current"
-                )
+                raise OctopError(ErrorCode.WORK_ITEM_RUN_CONFLICT, "attempt_id is not current")
         if row["status"] == "cancelled":
             return {
                 "task_id": task_id,
@@ -759,12 +994,15 @@ class WorkItemsService:
             }
         now = time.time()
         if not row["cancel_requested"]:
-            row = self._repo.update(
-                owner,
-                task_id,
-                cancel_requested=1,
-                cancel_requested_at=now,
-            ) or row
+            row = (
+                self._repo.update(
+                    owner,
+                    task_id,
+                    cancel_requested=1,
+                    cancel_requested_at=now,
+                )
+                or row
+            )
             self._record_event(
                 owner=owner,
                 task=row,
@@ -822,9 +1060,7 @@ class WorkItemsService:
 
     def mark_unknown(self, owner: int, task_id: str, *, reason: str = "unconfirmed") -> None:
         """Surface unknown without replaying side-effect tools (DEC-0043-13 / AC-06)."""
-        row = self._repo.update(
-            owner, task_id, status="unknown", block_reason=reason
-        )
+        row = self._repo.update(owner, task_id, status="unknown", block_reason=reason)
         if row is None:
             return
         self._record_event(

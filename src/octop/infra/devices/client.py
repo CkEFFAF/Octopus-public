@@ -828,7 +828,7 @@ class DeviceClient:
                             )
                         )
                     elif role == "source":
-                        self._pending_direct_source = {
+                        self._pending_direct_source: dict[str, Any] | None = {
                             "ticket": ticket,
                             "claims": claims,
                             "path": path,
@@ -837,10 +837,9 @@ class DeviceClient:
                         }
                 elif kind == "transfer.peer":
                     pending_src = getattr(self, "_pending_direct_source", None)
-                    if (
-                        isinstance(pending_src, dict)
-                        and pending_src.get("transfer_id") == frame.get("transfer_id")
-                    ):
+                    if isinstance(pending_src, dict) and pending_src.get(
+                        "transfer_id"
+                    ) == frame.get("transfer_id"):
                         from octop.infra.devices.transfer_device import run_direct_source
 
                         async def _hub_send_src(msg: dict[str, Any]) -> None:
