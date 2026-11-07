@@ -21,6 +21,7 @@ from octop.infra.db.repos.conversation_metadata import ConversationMetadataRepo
 from octop.infra.db.repos.cron import CronJobRepo
 from octop.infra.db.repos.cron_attempts import CronAttemptRepo
 from octop.infra.db.repos.cron_reports import CronReportRepo
+from octop.infra.db.repos.device_transfers import DeviceTransferRepo
 from octop.infra.db.repos.devices import DeviceRepo
 from octop.infra.db.repos.invites import InviteRepo
 from octop.infra.db.repos.knowledge import KnowledgeRepo
@@ -42,8 +43,8 @@ from octop.infra.db.repos.usage import UsageRepo
 from octop.infra.db.repos.user_policies import UserPolicyRepo
 from octop.infra.db.repos.users import UserRepo
 from octop.infra.db.repos.voice_providers import VoiceProviderRepo
-from octop.infra.db.repos.workbench import WorkbenchRepo
 from octop.infra.db.repos.work_items import WorkItemRepo
+from octop.infra.db.repos.workbench import WorkbenchRepo
 from octop.infra.utils.paths import PathLayout
 
 
@@ -110,6 +111,10 @@ class RepoBundle:
     @property
     def work_item_repo(self) -> WorkItemRepo:
         return WorkItemRepo(self.db)
+
+    @property
+    def device_transfer_repo(self) -> DeviceTransferRepo:
+        return DeviceTransferRepo(self.db)
 
     @classmethod
     def from_pool(cls, db: DatabasePool) -> RepoBundle:

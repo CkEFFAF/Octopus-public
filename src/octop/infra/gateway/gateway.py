@@ -34,6 +34,7 @@ from octop.infra.gateway.slash.dispatcher import SlashDispatcher, build_default_
 from octop.infra.gateway.task_events import TaskEventEmitter
 from octop.infra.gateway.thread_events import ThreadEventEmitter
 from octop.infra.gateway.threads import ThreadRegistry
+from octop.infra.gateway.transfer_events import TransferEventEmitter
 from octop.infra.gateway.ws import (
     WS_CHANNEL_ID,
     WebSocketChannel,
@@ -124,6 +125,7 @@ class Gateway:
         self._ws_hub = WebSocketHub()
         self._thread_events = ThreadEventEmitter(self._ws_hub)
         self._task_events = TaskEventEmitter(self._ws_hub)
+        self._transfer_events = TransferEventEmitter(self._ws_hub)
         self._cli_hub = CliHub()
         self._ws_channel: WebSocketChannel | None = None
         self._cli_channel: CliChannel | None = None
@@ -315,6 +317,34 @@ class Gateway:
             run_id=run_id,
             updated_at=updated_at,
             phase=phase,
+        )
+
+    @property
+    def transfer_events(self) -> TransferEventEmitter:
+        return self._transfer_events
+
+    async def emit_transfer_changed(
+        self,
+        *,
+        owner_user_id: int,
+        transfer_id: str,
+        status: str,
+        actual_transport: str | None = None,
+        bytes_total: int | None = None,
+        bytes_done: int | None = None,
+        fallback_reason: str | None = None,
+        updated_at: float | None = None,
+    ) -> None:
+        """Account-scoped transfer.changed helper (spec 0044)."""
+        await self._transfer_events.emit_transfer_changed(
+            owner_user_id=owner_user_id,
+            transfer_id=transfer_id,
+            status=status,
+            actual_transport=actual_transport,
+            bytes_total=bytes_total,
+            bytes_done=bytes_done,
+            fallback_reason=fallback_reason,
+            updated_at=updated_at,
         )
 
     @property

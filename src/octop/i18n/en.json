@@ -521,7 +521,18 @@
     "WORK_ITEM_RUN_CONFLICT": "The work-item run or attempt is no longer current.",
     "WORK_ITEM_INVALID": "Invalid work-item request.",
     "WORK_ITEM_FORBIDDEN": "Not allowed to use this work item or its execution target.",
-    "EXECUTION_TARGET_REQUIRED": "Choose an authorized execution device or local target"
+    "EXECUTION_TARGET_REQUIRED": "Choose an authorized execution device or local target",
+    "TRANSFER_UNAUTHORIZED": "File transfer is not authorized for the source or target device.",
+    "TRANSFER_PATH_DENIED": "Transfer path is outside the granted device root.",
+    "TRANSFER_TARGET_EXISTS": "Target file already exists and overwrite was not allowed.",
+    "TRANSFER_TICKET_INVALID": "Transfer ticket is invalid, expired, replayed, or revoked.",
+    "TRANSFER_PEER_MISMATCH": "Peer device does not match the transfer ticket binding.",
+    "TRANSFER_SOURCE_CHANGED": "Source file size or checksum changed during transfer.",
+    "TRANSFER_DIRECT_UNAVAILABLE": "Direct transfer was required but is not available.",
+    "TRANSFER_CAPACITY": "Too many concurrent file transfers.",
+    "TRANSFER_IO": "Transfer failed due to storage capacity or I/O error.",
+    "TRANSFER_CANCELLED": "Transfer was cancelled.",
+    "TRANSFER_NOT_FOUND": "Transfer session was not found."
   },
   "desktop": {
     "consent": {

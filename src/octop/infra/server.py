@@ -520,6 +520,7 @@ class OctopServer:
         from octop.infra.devices.service import DeviceService
 
         devices = DeviceService(self.services.repos, local_state_dir=self.paths.root / "execution")
+        devices.set_notification_hub(gateway.ws_hub)
         from octop.infra.execution.service import ExecutionService
 
         execution = ExecutionService(devices)

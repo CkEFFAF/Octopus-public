@@ -175,6 +175,10 @@ class TransferBody(StrictBody):
     target_device_id: str
     target_root_id: str
     target_path: str = Field(min_length=1, max_length=4096)
+    request_id: str | None = Field(default=None, min_length=1, max_length=128)
+    preferred_transport: str = Field(default="auto", pattern="^(auto|direct|hub)$")
+    overwrite: bool = False
+    schema_version: int = 1
 
 
 @router.get("/devices")
@@ -334,6 +338,24 @@ async def transfer(
     service: DeviceService = Depends(device_service),
 ) -> dict[str, Any]:
     return service.transfer(int(user.id), body.model_dump())
+
+
+@router.get("/devices/transfers/{transfer_id}")
+async def get_transfer(
+    transfer_id: str,
+    user: Any = Depends(current_user),
+    service: DeviceService = Depends(device_service),
+) -> dict[str, Any]:
+    return service.get_transfer(int(user.id), transfer_id)
+
+
+@router.post("/devices/transfers/{transfer_id}/cancel")
+async def cancel_transfer(
+    transfer_id: str,
+    user: Any = Depends(current_user),
+    service: DeviceService = Depends(device_service),
+) -> dict[str, Any]:
+    return await service.cancel_transfer(int(user.id), transfer_id)
 
 
 @router.patch("/devices/{device_id}")
