@@ -516,6 +516,11 @@
     "TEAM_NOT_SHAREABLE": "当前版本不支持分享团队。",
     "SKILL_PACKAGE_COPY_DENIED": "该技能包的创建者已禁止复制其中的技能。",
     "SKILL_PACKAGE_LOCKED": "此技能复制自锁定策略的技能包，无法在工作区编辑。",
+    "WORK_ITEM_NOT_FOUND": "找不到该工作项。",
+    "WORK_ITEM_COMMAND_CONFLICT": "工作项命令与先前请求冲突。",
+    "WORK_ITEM_RUN_CONFLICT": "工作项 run/attempt 已不是当前尝试。",
+    "WORK_ITEM_INVALID": "工作项请求无效。",
+    "WORK_ITEM_FORBIDDEN": "无权使用该工作项或其执行目标。",
     "EXECUTION_TARGET_REQUIRED": "请选择已授权的执行设备或本机位置"
   },
   "desktop": {

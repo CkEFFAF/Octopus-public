@@ -115,6 +115,7 @@ class RunInspectionService:
             context_id=context.context_id,
             kind="interaction",
             status="completed",
+            work_item_id=getattr(context, "work_item_id", None),
             payload={
                 "action": action,
                 "device_id": context.device_id,
@@ -172,6 +173,7 @@ class RunInspectionService:
             context_id=context.context_id,
             kind="device",
             status=status,
+            work_item_id=getattr(context, "work_item_id", None),
             payload=summary,
         )
 
@@ -208,6 +210,7 @@ class RunInspectionService:
             context_id=context.context_id,
             kind="job",
             status=status,
+            work_item_id=getattr(context, "work_item_id", None),
             payload={
                 "device_id": context.device_id,
                 "target_kind": context.target_kind,

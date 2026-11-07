@@ -59,11 +59,20 @@ Account-scoped thread lifecycle hints use the same notifications socket with
 (opaque ids only — never tokens). Chat WS `subscribe` returns an extended `turn_status`
 snapshot (`schema_version=1`) for reconnect catch-up; HTTP history remains authoritative.
 
+Independent background work items (0043) use `/api/work-items*` and emit
+`{"type":"task.changed","schema_version":1,"reason":"created|running|progress|waiting|blocked|completed|failed|cancelled|unknown",...}`
+on the same notifications socket. Progress GETs are read-only and must not steer
+or cancel the worker. HTTP work-item detail/events remain authoritative.
+
 HITL resume still uses `POST /api/agents/{agent_id}/chat/hitl/resume` (SSE).
 """
 
 OPENAPI_TAGS: list[dict[str, str]] = [
     {"name": "task-board", "description": "Durable user task ledger and host execution."},
+    {
+        "name": "work-items",
+        "description": "Independent chat work items (0043): create/list/progress/events/input/cancel; task.changed notifications.",
+    },
     {
         "name": "setup",
         "description": "First-run wizard: create the admin user and optional LLM provider.",

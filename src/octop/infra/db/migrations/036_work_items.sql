@@ -1,0 +1,53 @@
+-- 0043 independent work items (G3): authoritative ledger + optional work_item_id links.
+CREATE TABLE IF NOT EXISTS work_items (
+  task_id TEXT PRIMARY KEY,
+  owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
+  command_id TEXT NOT NULL,
+  origin_thread_id TEXT,
+  worker_thread_id TEXT,
+  title TEXT NOT NULL,
+  instructions TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  reported_outcome TEXT,
+  cancel_requested INTEGER NOT NULL DEFAULT 0,
+  cancel_requested_at REAL,
+  current_run_id TEXT,
+  current_attempt_id TEXT,
+  context_id TEXT,
+  target_kind TEXT NOT NULL DEFAULT 'device',
+  device_id TEXT,
+  working_dir TEXT,
+  board_task_id TEXT,
+  block_reason TEXT,
+  needs_approval INTEGER NOT NULL DEFAULT 0,
+  needs_credential INTEGER NOT NULL DEFAULT 0,
+  permission_denied INTEGER NOT NULL DEFAULT 0,
+  artifacts_json TEXT NOT NULL DEFAULT '[]',
+  created_at REAL NOT NULL,
+  updated_at REAL NOT NULL,
+  UNIQUE (owner_user_id, command_id)
+);
+CREATE INDEX IF NOT EXISTS idx_work_items_owner_status ON work_items(owner_user_id, status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_work_items_origin ON work_items(owner_user_id, origin_thread_id, updated_at);
+
+CREATE TABLE IF NOT EXISTS work_item_inputs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  input_id TEXT NOT NULL UNIQUE,
+  task_id TEXT NOT NULL REFERENCES work_items(task_id) ON DELETE CASCADE,
+  owner_user_id INTEGER NOT NULL,
+  command_id TEXT NOT NULL,
+  target_run_id TEXT,
+  target_attempt_id TEXT,
+  status TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  created_at REAL NOT NULL,
+  updated_at REAL NOT NULL,
+  UNIQUE (owner_user_id, command_id)
+);
+
+ALTER TABLE run_events ADD COLUMN work_item_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_run_events_work_item ON run_events(owner_user_id, work_item_id, id);
+
+ALTER TABLE execution_contexts ADD COLUMN work_item_id TEXT;
+UPDATE _schema_version SET version=36;

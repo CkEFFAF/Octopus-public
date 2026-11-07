@@ -162,6 +162,7 @@ class ExecutionService:
         working_dir: str | None = None,
         work_mode: str | None = None,
         binding: dict[str, Any] | None = None,
+        work_item_id: str | None = None,
     ) -> ExecutionContext:
         if thread_id is not None:
             thread = self.devices.repos.thread_repo.get(thread_id)
@@ -254,6 +255,7 @@ class ExecutionService:
             agent_id=agent_id,
             thread_id=thread_id,
             run_id=run_id,
+            work_item_id=work_item_id,
         )
 
     def peek_resolved_device_id(
@@ -414,6 +416,7 @@ class ExecutionService:
                 agent_id=agent_id,
                 thread_id=thread_id,
                 run_id=run_id,
+                work_item_id=origin.work_item_id,
             )
         RunInspectionService(self.devices.repos).events.save(
             event_id=f"context:{context.context_id}",

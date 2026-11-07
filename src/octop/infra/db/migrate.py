@@ -2090,6 +2090,76 @@ def _ensure_scheduled_report_schema(db: DatabasePool) -> None:
             _apply_postgresql_migration(conn, sql)
 
 
+def _ensure_work_items_schema(db: DatabasePool) -> None:
+    """Idempotent 036 work_items + work_item_id columns (0043)."""
+    if not _table_exists(db, "users"):
+        return
+    if db.dialect == "sqlite":
+        with db.connect() as conn:
+            conn.executescript(
+                """
+CREATE TABLE IF NOT EXISTS work_items (
+  task_id TEXT PRIMARY KEY,
+  owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
+  command_id TEXT NOT NULL,
+  origin_thread_id TEXT,
+  worker_thread_id TEXT,
+  title TEXT NOT NULL,
+  instructions TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  reported_outcome TEXT,
+  cancel_requested INTEGER NOT NULL DEFAULT 0,
+  cancel_requested_at REAL,
+  current_run_id TEXT,
+  current_attempt_id TEXT,
+  context_id TEXT,
+  target_kind TEXT NOT NULL DEFAULT 'device',
+  device_id TEXT,
+  working_dir TEXT,
+  board_task_id TEXT,
+  block_reason TEXT,
+  needs_approval INTEGER NOT NULL DEFAULT 0,
+  needs_credential INTEGER NOT NULL DEFAULT 0,
+  permission_denied INTEGER NOT NULL DEFAULT 0,
+  artifacts_json TEXT NOT NULL DEFAULT '[]',
+  created_at REAL NOT NULL,
+  updated_at REAL NOT NULL,
+  UNIQUE (owner_user_id, command_id)
+);
+CREATE INDEX IF NOT EXISTS idx_work_items_owner_status ON work_items(owner_user_id, status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_work_items_origin ON work_items(owner_user_id, origin_thread_id, updated_at);
+CREATE TABLE IF NOT EXISTS work_item_inputs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  input_id TEXT NOT NULL UNIQUE,
+  task_id TEXT NOT NULL REFERENCES work_items(task_id) ON DELETE CASCADE,
+  owner_user_id INTEGER NOT NULL,
+  command_id TEXT NOT NULL,
+  target_run_id TEXT,
+  target_attempt_id TEXT,
+  status TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  created_at REAL NOT NULL,
+  updated_at REAL NOT NULL,
+  UNIQUE (owner_user_id, command_id)
+);
+"""
+            )
+        _ensure_column(db, "run_events", "work_item_id", "TEXT")
+        _ensure_column(db, "execution_contexts", "work_item_id", "TEXT")
+        with db.connect() as conn:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_run_events_work_item "
+                "ON run_events(owner_user_id, work_item_id, id)"
+            )
+        return
+    suffix = ".pg.sql"
+    sql = (_MIGRATIONS_DIR / f"036_work_items{suffix}").read_text(encoding="utf-8")
+    sql = re.sub(r"UPDATE _schema_version SET version=36;", "", sql)
+    with db.connect() as conn, conn.transaction():
+        _apply_postgresql_migration(conn, sql)
+
+
 def run_migrations(db: DatabasePool) -> None:
     if db.dialect == "sqlite":
         _repair_legacy_schema(db)
@@ -2098,6 +2168,12 @@ def run_migrations(db: DatabasePool) -> None:
             continue
         if version == 35:
             _ensure_scheduled_report_schema(db)
+            with db.connect() as conn:
+                placeholder = "%s" if db.dialect == "postgresql" else "?"
+                conn.execute(f"UPDATE _schema_version SET version = {placeholder}", (version,))
+            continue
+        if version == 36:
+            _ensure_work_items_schema(db)
             with db.connect() as conn:
                 placeholder = "%s" if db.dialect == "postgresql" else "?"
                 conn.execute(f"UPDATE _schema_version SET version = {placeholder}", (version,))

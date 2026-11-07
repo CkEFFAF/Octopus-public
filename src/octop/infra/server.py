@@ -222,6 +222,7 @@ class AppRuntime:
     history_archive: Any | None = None
     bridge_manager: Any | None = None
     task_board: Any | None = None
+    work_items: Any | None = None
     devices: Any | None = None
     execution: Any | None = None
 
@@ -238,6 +239,8 @@ class AppRuntime:
         self.cron_manager.replace_repos(services.repos)
         if self.task_board is not None:
             self.task_board.replace_repos(services.repos)
+        if self.work_items is not None:
+            self.work_items.replace_repos(services.repos)
         if self.devices is not None:
             self.devices.replace_repos(services.repos)
         self.proactive_scheduler.replace_persistence(
@@ -527,6 +530,17 @@ class OctopServer:
         task_board.set_device_service(devices)
         task_board.set_peer_service(gateway.processor.teams)
         registry.set_task_board(task_board)
+        from octop.infra.work_items.service import WorkItemsService
+
+        work_items = WorkItemsService(
+            repos=self.services.repos,
+            gateway=gateway,
+            registry=registry,
+            delivery=cron_delivery,
+            devices=devices,
+            execution=execution,
+        )
+        work_items.recover()
         registry.set_cron_manager(cron_mgr)
         registry.set_team_processor(gateway.processor.teams)
         hitl_session_store = gateway.processor.hitl_coordinator.session_policies
@@ -616,6 +630,7 @@ class OctopServer:
             history_archive=history_archive,
             bridge_manager=bridge_mgr,
             task_board=task_board,
+            work_items=work_items,
             devices=devices,
             execution=execution,
         )
@@ -673,6 +688,8 @@ class OctopServer:
                     await rt.devices.shutdown()
                 if rt.task_board is not None:
                     await rt.task_board.shutdown()
+                if rt.work_items is not None:
+                    await rt.work_items.shutdown()
                 await rt.proactive_scheduler.shutdown()
                 await rt.cron_manager.shutdown()
                 await rt.gateway.shutdown()
