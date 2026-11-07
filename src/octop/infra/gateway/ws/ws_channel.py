@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from octop_gateway.channel import BaseChannel, MessageProcessor
@@ -42,10 +42,12 @@ class WebSocketChannel(BaseChannel):
         hub: WebSocketHub,
         channel_id: str = WS_CHANNEL_ID,
         on_chunk: Callable[[InboundMessage, dict[str, Any]], None] | None = None,
+        emit_thread_changed: Callable[..., Awaitable[None]] | None = None,
     ) -> None:
         super().__init__(processor, channel_id=channel_id, debounce_seconds=0.0)
         self._hub = hub
         self._on_chunk = on_chunk
+        self._emit_thread_changed = emit_thread_changed
 
     def _default_constraints(self) -> ChannelConstraints:
         return ChannelConstraints(
@@ -146,7 +148,25 @@ class WebSocketChannel(BaseChannel):
             await self._hub.push_to_thread(thread_id, {"type": "done"})
             return
 
+        owner_user_id = _owner_user_id(message)
+        agent_id = str(message.tenant_id or "").strip()
+        # Queued HTTP inputs already emitted ``input`` on enqueue.
+        if not conn_id.startswith("queue:"):
+            await self._emit_lifecycle(
+                owner_user_id=owner_user_id,
+                agent_id=agent_id,
+                thread_id=thread_id,
+                reason="input",
+            )
         self._hub.mark_turn_active(thread_id)
+        await self._emit_lifecycle(
+            owner_user_id=owner_user_id,
+            agent_id=agent_id,
+            thread_id=thread_id,
+            reason="running",
+        )
+        terminal_reason = "completed"
+        last_run_id: str | None = None
         try:
             async for chunk in processor.iter_turn_chunks(message):
                 if self._on_chunk is not None:
@@ -154,6 +174,43 @@ class WebSocketChannel(BaseChannel):
                         self._on_chunk(message, chunk)
                     except Exception:
                         logger.exception("Could not persist chat input status thread=%s", thread_id)
+                run_id = chunk.get("run_id") if isinstance(chunk, dict) else None
+                if isinstance(run_id, str) and run_id.strip():
+                    last_run_id = run_id.strip()
+                ctype = chunk.get("type") if isinstance(chunk, dict) else None
+                if ctype == "hitl_required":
+                    terminal_reason = None
+                    await self._emit_lifecycle(
+                        owner_user_id=owner_user_id,
+                        agent_id=agent_id,
+                        thread_id=thread_id,
+                        reason="attention",
+                        run_id=last_run_id,
+                    )
+                elif ctype == "error":
+                    terminal_reason = "failed"
+                elif ctype == "run_phase":
+                    phase = str(chunk.get("phase") or "")
+                    if phase in {"completed", "failed", "cancelled"}:
+                        terminal_reason = phase
+                    elif phase == "paused":
+                        terminal_reason = None
+                        await self._emit_lifecycle(
+                            owner_user_id=owner_user_id,
+                            agent_id=agent_id,
+                            thread_id=thread_id,
+                            reason="attention",
+                            run_id=last_run_id,
+                        )
+                    elif phase:
+                        await self._emit_lifecycle(
+                            owner_user_id=owner_user_id,
+                            agent_id=agent_id,
+                            thread_id=thread_id,
+                            reason="running",
+                            run_id=last_run_id,
+                            phase=phase,
+                        )
                 # Never let delivery failures abort the harness turn — otherwise a
                 # flaky client disconnect can stop generation mid-node and leave
                 # an incomplete checkpoint.
@@ -166,6 +223,7 @@ class WebSocketChannel(BaseChannel):
                     )
         except Exception as exc:
             logger.exception("websocket turn failed")
+            terminal_reason = "failed"
             err_meta = message.metadata if isinstance(message.metadata, dict) else None
             locale = resolve_locale(
                 channel_type=str(getattr(message, "channel_type", "") or ""),
@@ -181,6 +239,39 @@ class WebSocketChannel(BaseChannel):
                 logger.exception("websocket failed to deliver error frame thread=%s", thread_id)
         finally:
             self._hub.mark_turn_idle(thread_id)
+            if terminal_reason:
+                await self._emit_lifecycle(
+                    owner_user_id=owner_user_id,
+                    agent_id=agent_id,
+                    thread_id=thread_id,
+                    reason=terminal_reason,
+                    run_id=last_run_id,
+                )
+
+    async def _emit_lifecycle(
+        self,
+        *,
+        owner_user_id: int | None,
+        agent_id: str,
+        thread_id: str,
+        reason: str,
+        run_id: str | None = None,
+        phase: str | None = None,
+    ) -> None:
+        emit = self._emit_thread_changed
+        if emit is None or owner_user_id is None or not agent_id:
+            return
+        try:
+            await emit(
+                owner_user_id=owner_user_id,
+                agent_id=agent_id,
+                thread_id=thread_id,
+                reason=reason,
+                run_id=run_id,
+                phase=phase,
+            )
+        except Exception:
+            logger.exception("thread.changed emit failed thread=%s reason=%s", thread_id, reason)
 
     async def _send_text(self, subject: ChannelSubject, text: str) -> None:
         if not text:
@@ -227,6 +318,17 @@ class WebSocketChannel(BaseChannel):
             await self._hub.push_to_thread(thread_id, frame)
         else:
             await self._hub.push(conn_id, frame)
+
+
+def _owner_user_id(message: InboundMessage) -> int | None:
+    subject = message.channel_subject
+    if subject is None:
+        return None
+    raw = subject.subject_id
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def _media_kind(media: ContentPart) -> str:

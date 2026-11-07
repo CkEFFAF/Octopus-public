@@ -82,7 +82,7 @@ async def queue_input(
             ws_connection_id=f"queue:{body.command_id}",
             user_is_admin=bool(getattr(user, "is_admin", False)),
         )
-        return service.enqueue(
+        receipt = service.enqueue(
             int(user.id),
             agent_id,
             thread_id,
@@ -91,6 +91,13 @@ async def queue_input(
             inbound,
             request_key=request_key,
         )
+        await server.app_runtime.gateway.emit_thread_changed(
+            owner_user_id=int(user.id),
+            agent_id=agent_id,
+            thread_id=thread_id,
+            reason="input",
+        )
+        return receipt
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
 

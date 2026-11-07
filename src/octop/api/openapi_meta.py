@@ -54,6 +54,11 @@ Text-type dashboard pushes (cron reminders, proactive care) also emit
 `{"type":"dashboard_push", ...}` on `/api/notifications/ws` (same `?token=` auth) so the
 SPA can show a toast even when the chat socket is not subscribed.
 
+Account-scoped thread lifecycle hints use the same notifications socket with
+`{"type":"thread.changed","schema_version":1,"reason":"created|input|running|attention|completed|failed|cancelled",...}`
+(opaque ids only — never tokens). Chat WS `subscribe` returns an extended `turn_status`
+snapshot (`schema_version=1`) for reconnect catch-up; HTTP history remains authoritative.
+
 HITL resume still uses `POST /api/agents/{agent_id}/chat/hitl/resume` (SSE).
 """
 
