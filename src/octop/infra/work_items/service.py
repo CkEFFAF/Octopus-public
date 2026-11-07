@@ -846,7 +846,20 @@ class WorkItemsService:
         events = self._repos.run_event_repo.list_for_work_item(
             owner, task_id, kind="job", limit=200
         )
-        return any((event.get("status") or "") in _OPEN_JOB_STATUSES for event in events)
+        if any((event.get("status") or "") in _OPEN_JOB_STATUSES for event in events):
+            return True
+        # Belt: older job rows may lack work_item_id; join via work item context_id.
+        row = self._repo.get(owner, task_id)
+        context_id = row.get("context_id") if row else None
+        if not context_id:
+            return False
+        with self._repos.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT status FROM run_events "
+                "WHERE owner_user_id = ? AND context_id = ? AND kind = ?",
+                (owner, context_id, "job"),
+            ).fetchall()
+        return any((r["status"] or "") in _OPEN_JOB_STATUSES for r in rows)
 
     def _should_confirm_cancel_now(self, row: dict[str, Any]) -> bool:
         """DEC-0043-09: terminal cancel only with no open Jobs and in-process work finished."""

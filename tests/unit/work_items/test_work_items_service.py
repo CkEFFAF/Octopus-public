@@ -12,8 +12,10 @@ import pytest
 
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.pool import SqlitePool
+from octop.infra.db.repos.execution import ExecutionContextRepo
 from octop.infra.db.services import RepoBundle
 from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.execution.events import RunInspectionService
 from octop.infra.gateway.task_events import TaskEventEmitter
 from octop.infra.work_items.models import WorkItemCancel, WorkItemCreate, WorkItemInputCreate
 from octop.infra.work_items.service import WorkItemsService
@@ -345,3 +347,99 @@ async def test_add_input_sets_waiting_and_injects_worker(rig: Any) -> None:
     assert rig.repos.thread_message_repo.has_message_id(worker_id, message_id) is True
     # Never append inputs onto the origin thread.
     assert rig.repos.thread_message_repo.has_message_id("origin-1", message_id) is False
+
+
+@pytest.mark.asyncio
+async def test_job_observation_persists_work_item_id(rig: Any) -> None:
+    """job_observation must stamp work_item_id so cancel can see open Jobs."""
+    created = await rig.service.create(rig.uid, _create_body(command_id="cmd-job-obs"))
+    task_id = created["task_id"]
+    for job in list(rig.service._jobs.values()):
+        job.cancel()
+    await asyncio.sleep(0.02)
+    rig.service._jobs.clear()
+
+    ctx = ExecutionContextRepo(rig.repos.db).create(
+        owner_user_id=rig.uid,
+        device_id=None,
+        working_dir="/tmp",
+        policy_revision=0,
+        grant_version=0,
+        work_mode="agentic",
+        source="work_item",
+        target_kind="device",
+        agent_id="agent-a",
+        thread_id="origin-1",
+        run_id="run-job-obs",
+        work_item_id=task_id,
+    )
+    rig.repos.work_item_repo.update(
+        rig.uid, task_id, status="running", context_id=ctx.context_id
+    )
+    RunInspectionService(rig.repos).job_observation(
+        ctx,
+        {"job_id": "external-1", "status": "running", "observed_at": 1.0},
+    )
+    events = rig.repos.run_event_repo.list_for_work_item(rig.uid, task_id, kind="job", limit=20)
+    assert events, "expected job event joinable by work_item_id"
+    assert events[0]["work_item_id"] == task_id
+    assert events[0]["status"] == "running"
+    assert events[0]["payload"]["job_id"] == "external-1"
+
+
+@pytest.mark.asyncio
+async def test_cancel_holds_while_open_job_event_exists(rig: Any) -> None:
+    """DEC-0043-09: open kind=job event blocks terminal cancel even if asyncio job is done."""
+    created = await rig.service.create(rig.uid, _create_body(command_id="cmd-cancel-open-job"))
+    task_id = created["task_id"]
+    for job in list(rig.service._jobs.values()):
+        job.cancel()
+    await asyncio.sleep(0.02)
+    rig.service._jobs.clear()
+
+    ctx = ExecutionContextRepo(rig.repos.db).create(
+        owner_user_id=rig.uid,
+        device_id=None,
+        working_dir="/tmp",
+        policy_revision=0,
+        grant_version=0,
+        work_mode="agentic",
+        source="work_item",
+        target_kind="device",
+        agent_id="agent-a",
+        thread_id="origin-1",
+        run_id="run-cancel-open",
+        work_item_id=task_id,
+    )
+    rig.repos.work_item_repo.update(
+        rig.uid,
+        task_id,
+        status="running",
+        worker_thread_id="worker-thread-1",
+        context_id=ctx.context_id,
+    )
+    if rig.repos.thread_repo.get("worker-thread-1") is None:
+        rig.repos.thread_repo.insert(
+            thread_id="worker-thread-1",
+            agent_id="agent-a",
+            user_id=rig.uid,
+            channel_type="dashboard",
+            session_key="worker-key-open-job",
+        )
+
+    RunInspectionService(rig.repos).job_observation(
+        ctx,
+        {"job_id": "host-training", "status": "running", "observed_at": 2.0},
+    )
+
+    result = await rig.service.cancel(
+        rig.uid,
+        task_id,
+        WorkItemCancel(command_id="cancel-open-job-1", scope="task", schema_version=1),
+    )
+    assert result["cancel_requested"] is True
+    assert result["terminated"] is False
+    assert result["status"] != "cancelled"
+    detail = rig.service.detail(rig.uid, task_id)
+    assert detail["cancel_requested"] is True
+    assert detail["status"] == "running"
