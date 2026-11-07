@@ -535,6 +535,9 @@ async def test_resume_holds_dashboard_lock_until_completion_and_updates_receipts
     )
     gateway._inputs = queue
     gateway._dashboard_operations = set()
+    gateway._resume_terminal_emitted = set()
+    gateway._thread_registry = SimpleNamespace(get_thread=repos.thread_repo.get)
+    gateway.emit_thread_changed = AsyncMock()
     started, release = asyncio.Event(), asyncio.Event()
 
     async def source():

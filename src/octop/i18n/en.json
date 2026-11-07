@@ -1063,5 +1063,27 @@
     "not_applicable": "Only a running delegated child task can report a task result. In an ordinary conversation, answer directly and do not retry this tool.",
     "unavailable": "Task result could not be recorded.",
     "guidance": "Before your final public response, call report_task_result with succeeded, blocked, failed or needs_input and a concise public summary. Report your business outcome honestly; call completion is separate. Use only resources you published in this invocation, or no resources for text-only tasks."
+  },
+  "acp_remote": {
+    "token_hint": "Save the secret in a private file and set OCTOP_ACP_TOKEN_FILE to its path. Keep secrets out of IDE arguments.",
+    "https_required": "Remote ACP requires HTTPS; HTTP is allowed only on loopback.",
+    "allow_once": "Allow once",
+    "reject": "Reject",
+    "status": {
+      "queued": "Queued",
+      "running": "Working",
+      "waiting_input": "Waiting for input",
+      "waiting_review": "Waiting for approval",
+      "blocked": "Blocked",
+      "completed": "Completed",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "unknown": "Status unconfirmed"
+    },
+    "empty_token": "The token file is empty.",
+    "missing_token": "Set --token-file / OCTOP_ACP_TOKEN_FILE (or OCTOP_ACP_TOKEN).",
+    "missing_server": "Set --server or OCTOP_ACP_SERVER.",
+    "missing_expert": "Set --expert or OCTOP_ACP_EXPERT.",
+    "missing_token_file": "Token file not found: {path}"
   }
 }

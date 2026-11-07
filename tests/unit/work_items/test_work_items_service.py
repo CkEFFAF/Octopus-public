@@ -298,9 +298,7 @@ async def test_recover_reschedules_never_started_queued(rig: Any) -> None:
         job.cancel()
     await asyncio.sleep(0.02)
     rig.service._jobs.clear()
-    rig.repos.work_item_repo.update(
-        rig.uid, task_id, status="queued", worker_thread_id=None
-    )
+    rig.repos.work_item_repo.update(rig.uid, task_id, status="queued", worker_thread_id=None)
     rig.service.recover()
     assert task_id in rig.service._jobs
     assert not rig.service._jobs[task_id].done()
@@ -373,9 +371,7 @@ async def test_job_observation_persists_work_item_id(rig: Any) -> None:
         run_id="run-job-obs",
         work_item_id=task_id,
     )
-    rig.repos.work_item_repo.update(
-        rig.uid, task_id, status="running", context_id=ctx.context_id
-    )
+    rig.repos.work_item_repo.update(rig.uid, task_id, status="running", context_id=ctx.context_id)
     RunInspectionService(rig.repos).job_observation(
         ctx,
         {"job_id": "external-1", "status": "running", "observed_at": 1.0},

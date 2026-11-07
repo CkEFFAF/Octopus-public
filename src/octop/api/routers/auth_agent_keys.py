@@ -13,11 +13,14 @@ from octop.api.common.client_ip import resolve_client_ip
 from octop.api.deps import (
     current_user,
     get_server,
+    machine_principal_of,
     require_human_session,
     sign_token,
 )
-from octop.infra.auth.agent_access_keys import AGENT_SCOPES, AgentAccessKeyService
+from octop.i18n import tr
+from octop.infra.auth.agent_access_keys import AgentAccessKeyService
 from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.utils.locale import locale_from_user_row, resolve_request_locale
 
 router = APIRouter()
 
@@ -81,11 +84,49 @@ class ExpertCandidate(BaseModel):
     kind: str
 
 
+class AgentKeyIdentity(BaseModel):
+    credential_id: str
+    scopes: list[AgentScope]
+    expert_ids: list[str]
+    experts: list[ExpertCandidate]
+    locale: Literal["zh", "en"]
+
+
 def _svc(server: Any) -> AgentAccessKeyService:
     return cast(AgentAccessKeyService, server.app_runtime.devices.agent_access_keys)
 
 
-def _acp_launch(*, server_url: str, expert_id: str) -> dict[str, Any]:
+@router.get(
+    "/agent-access-keys/identity",
+    summary="Inspect the authenticated machine credential and permitted experts",
+    response_model=AgentKeyIdentity,
+)
+async def agent_key_identity(
+    request: Request,
+    user: Any = Depends(current_user),
+    server: Any = Depends(get_server),
+) -> dict[str, Any]:
+    principal = machine_principal_of(request)
+    if principal is None:
+        raise OctopError.localized(ErrorCode.FORBIDDEN)
+    experts = []
+    if principal.has_scope("experts.read"):
+        for expert_id in sorted(principal.expert_allowlist):
+            try:
+                row = _svc(server).require_expert(principal, expert_id)
+            except OctopError:
+                continue
+            experts.append({"expert_id": expert_id, "name": row.name, "kind": "agent"})
+    return {
+        "credential_id": principal.credential_id,
+        "scopes": sorted(principal.scopes),
+        "expert_ids": sorted(principal.expert_allowlist),
+        "experts": experts,
+        "locale": locale_from_user_row(user),
+    }
+
+
+def _acp_launch(*, server_url: str, expert_id: str, locale: str) -> dict[str, Any]:
     return {
         "command": "octop",
         "args": [
@@ -94,8 +135,6 @@ def _acp_launch(*, server_url: str, expert_id: str) -> dict[str, Any]:
             server_url,
             "--expert",
             expert_id,
-            "--token-file",
-            "%OCTOP_ACP_TOKEN_FILE%",
         ],
         "env_names": ["OCTOP_ACP_SERVER", "OCTOP_ACP_EXPERT", "OCTOP_ACP_TOKEN_FILE"],
         "protocol": {
@@ -104,10 +143,7 @@ def _acp_launch(*, server_url: str, expert_id: str) -> dict[str, Any]:
             "schema_ref": "refs/tags/schema-v1.16.0",
             "protocol_version": 1,
         },
-        "notes": (
-            "Put the secret in a private file referenced by OCTOP_ACP_TOKEN_FILE. "
-            "Never paste the secret into IDE args."
-        ),
+        "notes": tr("acp_remote.token_hint", locale),
     }
 
 
@@ -128,10 +164,12 @@ def _public_base(request: Request, server: Any) -> str:
 async def create_agent_access_key(
     body: CreateAgentKeyBody,
     request: Request,
+    response: Response,
     user: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     require_human_session(request)
+    response.headers["Cache-Control"] = "no-store"
     # Validate experts are accessible to this user (agent ids).
     for expert_id in body.expert_ids:
         row = server.services.agent_repo.get(expert_id.strip())
@@ -155,7 +193,11 @@ async def create_agent_access_key(
     return {
         "key": created["key"],
         "secret": created["secret"],
-        "acp_launch": _acp_launch(server_url=_public_base(request, server), expert_id=expert),
+        "acp_launch": _acp_launch(
+            server_url=_public_base(request, server),
+            expert_id=expert,
+            locale=resolve_request_locale(request),
+        ),
     }
 
 
@@ -221,9 +263,11 @@ async def list_agent_key_experts(
 async def exchange_agent_access_key(
     body: ExchangeBody,
     request: Request,
+    response: Response,
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     principal = _svc(server).authenticate(body.secret, resolve_client_ip(request))
+    response.headers["Cache-Control"] = "no-store"
     user = server.user_manager.get_by_id(principal.owner_user_id)
     if user is None:
         raise OctopError(ErrorCode.AUTH_FAILED, "invalid agent access key")
@@ -251,7 +295,3 @@ async def exchange_agent_access_key(
         "scopes": sorted(principal.scopes),
         "experts": sorted(principal.expert_allowlist),
     }
-
-
-# Silence unused import lint for AGENT_SCOPES documentation surface
-_ = AGENT_SCOPES

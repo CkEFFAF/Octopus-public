@@ -60,9 +60,7 @@ def test_empty_scopes_rejected(repos: RepoBundle, owner: int) -> None:
 
 def test_empty_experts_rejected(repos: RepoBundle, owner: int) -> None:
     with pytest.raises(OctopError) as ei:
-        _svc(repos).create(
-            owner, name="x", days=7, scopes=["tasks.read"], expert_ids=[]
-        )
+        _svc(repos).create(owner, name="x", days=7, scopes=["tasks.read"], expert_ids=[])
     assert ei.value.status == 422
 
 
@@ -110,9 +108,7 @@ def test_object_grants(repos: RepoBundle, owner: int) -> None:
 
 def test_public_never_includes_hash(repos: RepoBundle, owner: int) -> None:
     svc = _svc(repos)
-    created = svc.create(
-        owner, name="p", days=7, scopes=["experts.read"], expert_ids=["e1"]
-    )
+    created = svc.create(owner, name="p", days=7, scopes=["experts.read"], expert_ids=["e1"])
     blob = json.dumps(created["key"])
     assert "secret_hash" not in blob
     assert AGENT_KEY_PREFIX not in blob or created["key"]["prefix"] == AGENT_KEY_PREFIX

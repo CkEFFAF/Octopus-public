@@ -1694,9 +1694,7 @@ class DeviceService:
             existing = self.repos.device_transfer_repo.get_by_request_id(owner, request_id.strip())
             if existing is not None:
                 return self._transfer_public(existing)
-        preferred = normalize_preferred(
-            str(params.get("preferred_transport") or "auto")
-        )
+        preferred = normalize_preferred(str(params.get("preferred_transport") or "auto"))
         overwrite = bool(params.get("overwrite") or False)
         source_id = str(params["source_device_id"])
         target_id = str(params["target_device_id"])
@@ -1820,7 +1818,8 @@ class DeviceService:
             status="cancelled",
             error_code="TRANSFER_CANCELLED",
             expected_statuses=tuple(
-                s for s in (
+                s
+                for s in (
                     "queued",
                     "negotiating",
                     "transferring",
@@ -1846,7 +1845,7 @@ class DeviceService:
         }
 
     def _transfer_public(self, row: Any) -> dict[str, Any]:
-        return row.public(include_paths=True)
+        return dict(row.public(include_paths=True))
 
     def _launch_transfer(self, transfer_id: str, operation_id: str) -> None:
         task = asyncio.create_task(
@@ -1914,11 +1913,7 @@ class DeviceService:
             )
             raise
         except Exception as exc:
-            code = (
-                str(exc.code)
-                if isinstance(exc, OctopError)
-                else "TRANSFER_IO"
-            )
+            code = str(exc.code) if isinstance(exc, OctopError) else "TRANSFER_IO"
             self.repos.device_transfer_repo.update(
                 transfer_id,
                 status="failed",
@@ -2142,9 +2137,7 @@ class DeviceService:
             status="transferring",
             attempts=list(attempts),
         )
-        self._schedule_transfer_emit(
-            self.repos.device_transfer_repo.get(transfer_id) or session
-        )
+        self._schedule_transfer_emit(self.repos.device_transfer_repo.get(transfer_id) or session)
         try:
             try:
                 offer = await asyncio.wait_for(offer_fut, timeout=offer_timeout)
@@ -2295,10 +2288,7 @@ class DeviceService:
             updates: dict[str, Any] = {"receipts": receipts}
             if receipt.get("bytes_done") is not None:
                 updates["bytes_done"] = int(receipt["bytes_done"])
-            if (
-                receipt.get("transport_used") == "direct"
-                and session.actual_transport is None
-            ):
+            if receipt.get("transport_used") == "direct" and session.actual_transport is None:
                 updates["actual_transport"] = "direct"
             self.repos.device_transfer_repo.update(session.transfer_id, **updates)
         elif receipt["phase"] in {"failed", "cancelled"}:
@@ -2306,9 +2296,7 @@ class DeviceService:
             self.repos.device_transfer_repo.update(
                 session.transfer_id,
                 status=status,
-                error_code=(
-                    "TRANSFER_CANCELLED" if status == "cancelled" else "TRANSFER_IO"
-                ),
+                error_code=("TRANSFER_CANCELLED" if status == "cancelled" else "TRANSFER_IO"),
                 failure_direction=side,
             )
         session = self.repos.device_transfer_repo.get(session.transfer_id)

@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from langchain_core.messages import AIMessage
 
 from octop.infra.cron.origin_target import care_session_key
 from octop.infra.db.migrate import run_migrations
@@ -71,13 +70,12 @@ async def test_care_persists_before_push_and_rereads(tmp_path: Path) -> None:
     harness.aappend_messages = aappend
     # Minimal memory/picker path short-circuit: patch run internals by feeding after LLM
     gateway = MagicMock()
-    gateway.require_session = MagicMock(
-        return_value=SessionRepo(db).get(key)
-    )
+    gateway.require_session = MagicMock(return_value=SessionRepo(db).get(key))
     gateway._repos = MagicMock(thread_message_repo=msgs)
     gateway.push_session_text = AsyncMock()
     gateway.notify_dashboard_push = AsyncMock()
     gateway.emit_thread_changed = AsyncMock()
+
     async def _await_op(session, op):
         await op()
 

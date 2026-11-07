@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 import json
 import time
@@ -279,7 +280,7 @@ class RunEventRepo:
         run_id: str | None = None,
         limit: int = 100,
         kind: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> builtins.list[dict[str, Any]]:
         with self.db.connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM run_events WHERE owner_user_id = ? AND agent_id = ? AND thread_id = ? "
@@ -319,7 +320,7 @@ class RunEventRepo:
         before: int | None = None,
         limit: int = 100,
         kind: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> builtins.list[dict[str, Any]]:
         with self.db.connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM run_events WHERE owner_user_id = ? AND work_item_id = ? "

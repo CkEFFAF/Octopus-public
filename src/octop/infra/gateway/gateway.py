@@ -831,9 +831,7 @@ class Gateway:
         payload["event_id"] = eid
         if delivery_id:
             payload["delivery_id"] = str(delivery_id)
-        payload["created_at"] = (
-            int(created_at) if created_at is not None else int(time.time())
-        )
+        payload["created_at"] = int(created_at) if created_at is not None else int(time.time())
         if source_kind:
             payload["source_kind"] = str(source_kind)
         await self._ws_hub.push_to_user(session.user_id, payload)

@@ -1063,5 +1063,27 @@
     "not_applicable": "只有正在运行且已绑定的委派子任务才能报告任务结果。普通对话请直接回答，不要重试此工具。",
     "unavailable": "任务结果未能记录。",
     "guidance": "在最终公开回复前，调用 report_task_result，诚实报告 succeeded、blocked、failed 或 needs_input 及简短公开摘要。任务结果与调用完成独立；只引用本次调用已发布的资源，纯文本任务可不附资源。"
+  },
+  "acp_remote": {
+    "token_hint": "将密钥保存在私有文件中，并把文件路径设为 OCTOP_ACP_TOKEN_FILE。不要将密钥写进 IDE 启动参数。",
+    "https_required": "远程 ACP 必须使用 HTTPS；仅回环地址允许 HTTP。",
+    "allow_once": "仅允许本次",
+    "reject": "拒绝",
+    "status": {
+      "queued": "排队中",
+      "running": "工作中",
+      "waiting_input": "等待补充信息",
+      "waiting_review": "等待权限确认",
+      "blocked": "受阻",
+      "completed": "已完成",
+      "failed": "失败",
+      "cancelled": "已取消",
+      "unknown": "状态未确认"
+    },
+    "empty_token": "密钥文件为空。",
+    "missing_token": "请设置 --token-file / OCTOP_ACP_TOKEN_FILE（或 OCTOP_ACP_TOKEN）。",
+    "missing_server": "请设置 --server 或 OCTOP_ACP_SERVER。",
+    "missing_expert": "请设置 --expert 或 OCTOP_ACP_EXPERT。",
+    "missing_token_file": "找不到密钥文件：{path}"
   }
 }

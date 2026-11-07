@@ -49,9 +49,7 @@ def test_migration_036_creates_tables(tmp_path: Path) -> None:
         assert int(version) >= 36
         tables = {
             r[0]
-            for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
         assert "work_items" in tables
         assert "work_item_inputs" in tables

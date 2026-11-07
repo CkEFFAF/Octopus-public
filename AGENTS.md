@@ -259,6 +259,8 @@ name-keyed config (`providers`, `voice_providers`, `storage_backends`); append-o
 
 **Provider ownership (0011):** provider queries require `user_id`; equal names are unique per account. Shared experts resolve their owner's model factory. Provider edits refresh that owner's factories; global plugin model access is disabled until harness supports account-scoped contexts. Upgrade and ACP credential boundaries: `docs/octopus/configuration-ownership.md`.
 
+**Remote ACP (0045):** `oaa_` and machine JWT requests use the explicit default-deny surface in `api/common/machine_access.py`; adding a route requires a scope and current object/expert checks. Never reuse the owner's admin authority. `infra/acp_remote/` runs without a local server, persists pending command IDs before dispatch, and recovers unconfirmed effects through GET receipts only. Work-item approvals resume the current worker HITL pause; they do not change policy or approve human task-board acceptance. See `docs/acp-remote.md`.
+
 **Slash commands:** `infra/gateway/slash/dispatcher.py` routes; `handlers/` implements; catalog in `catalog.py`.
 
 **Internationalization (i18n):** Supported locales are **`zh`** and **`en`** (`en` is the fallback). User-facing text produced by the **server** (slash replies, IM/channel status, API error messages, tool display names, CLI output) must come from backend bundles — not hard-coded English in `infra/` when the string is shown to end users.

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from octop.api.common.agent import require_agent_row, user_owns_agent
 from octop.api.common.agent_workspace import resolve_agent_workspace_dir
-from octop.api.deps import current_user, get_server
+from octop.api.deps import current_user, get_server, machine_principal_of
 from octop.api.routers.chat.models import (
     ForkThreadBody,
     RebindSessionBody,
@@ -280,11 +280,19 @@ async def start_history_migration(
 @router.post("/agents/{agent_id}/threads", status_code=201, summary="New thread")
 async def create_thread(
     agent_id: str,
+    request: Request,
     as_user: int | None = None,
     user: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
     """Start a new conversation (/new equivalent for dashboard)."""
+    principal = machine_principal_of(request)
+    if principal is not None:
+        return dict(
+            await server.app_runtime.devices.agent_access_keys.create_session(
+                principal, agent_id, server.app_runtime.gateway.thread_registry
+            )
+        )
     require_agent_row(agent_id, user=user, as_user=as_user, server=server)
     effective_uid = as_user if as_user is not None else user.id
     sk = ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=effective_uid)

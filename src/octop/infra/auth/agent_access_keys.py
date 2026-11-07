@@ -12,6 +12,7 @@ from typing import Any
 from octop.infra.auth.ldap.throttle import LdapBindThrottle
 from octop.infra.db.services import RepoBundle
 from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.gateway.threads import ThreadRegistry
 from octop.infra.utils.ulid import new_ulid
 
 AGENT_KEY_PREFIX = "oaa_"
@@ -210,3 +211,83 @@ class AgentAccessKeyService:
         return self.repos.agent_access_key_repo.has_object_grant(
             principal.credential_id, object_kind, object_id
         )
+
+    @staticmethod
+    def require_scope(principal: MachinePrincipal, scope: str) -> None:
+        if not principal.has_scope(scope):
+            raise OctopError.localized(ErrorCode.FORBIDDEN)
+
+    def record_access(
+        self, principal: MachinePrincipal, *, method: str, path: str, status: int
+    ) -> None:
+        if method == "GET" and status < 400:
+            return
+        self.repos.audit_repo.write(
+            actor=f"machine:{principal.credential_id}",
+            action="auth.machine_request",
+            target=path,
+            payload=json.dumps(
+                {"owner_user_id": principal.owner_user_id, "method": method, "status": status}
+            ),
+        )
+
+    def require_expert(self, principal: MachinePrincipal, expert_id: str) -> Any:
+        row = self.repos.agent_repo.get(expert_id)
+        if (
+            not principal.allows_expert(expert_id)
+            or row is None
+            or (row.user_id != principal.owner_user_id and not row.is_shared)
+        ):
+            raise OctopError.localized(ErrorCode.FORBIDDEN)
+        return row
+
+    def require_thread(self, principal: MachinePrincipal, agent_id: str, thread_id: str) -> None:
+        self.require_expert(principal, agent_id)
+        row = self.repos.thread_repo.get(thread_id)
+        if (
+            row is None
+            or row.agent_id != agent_id
+            or row.user_id != principal.owner_user_id
+            or not (
+                self.owns_object(principal, "thread", thread_id) or principal.allow_existing_threads
+            )
+        ):
+            raise OctopError.localized(ErrorCode.FORBIDDEN)
+
+    def require_task(self, principal: MachinePrincipal, task_id: str) -> dict[str, Any]:
+        task = self.repos.work_item_repo.get(principal.owner_user_id, task_id)
+        if task is None or not self.owns_object(principal, "work_item", task_id):
+            raise OctopError.localized(ErrorCode.FORBIDDEN)
+        self.require_expert(principal, str(task["agent_id"]))
+        return task
+
+    @staticmethod
+    def require_task_target(
+        *, target_kind: str, device_id: str | None, working_dir: str | None, has_resources: bool
+    ) -> None:
+        # S0 keys have no device/local execution grant or attachment-input scope.
+        # In particular an admin-issued key must not borrow host admin authority.
+        if (
+            target_kind != "device"
+            or device_id is not None
+            or working_dir is not None
+            or has_resources
+        ):
+            raise OctopError.localized(ErrorCode.FORBIDDEN)
+
+    async def create_session(
+        self, principal: MachinePrincipal, agent_id: str, registry: ThreadRegistry
+    ) -> dict[str, str]:
+        self.require_scope(principal, "tasks.create")
+        self.require_expert(principal, agent_id)
+        # A machine session never rebinds the human dashboard's current thread.
+        session_key = f"{agent_id}:dashboard:{principal.owner_user_id}:acp-{new_ulid()}"
+        thread_id = await registry.get_or_create_by_key(
+            session_key=session_key,
+            agent_id=agent_id,
+            user_id=principal.owner_user_id,
+            channel_type="dashboard",
+            channel_metadata={"source": "acp-remote", "credential_id": principal.credential_id},
+        )
+        self.grant_object(principal, "thread", thread_id)
+        return {"thread_id": thread_id, "session_key": session_key}

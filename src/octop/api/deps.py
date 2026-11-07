@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import Depends, Header, Query, Request
 
+from octop.infra.auth.agent_access_keys import MachinePrincipal
 from octop.infra.auth.tokens import InvalidToken as InvalidToken
 from octop.infra.auth.tokens import TokenExpired as TokenExpired
 from octop.infra.auth.tokens import decode_token as decode_token
@@ -149,6 +150,10 @@ def _decode(server: OctopServer, token: str) -> dict[str, Any]:
 
 def resolve_user_from_token(server: OctopServer, token: str) -> User:
     payload = _decode(server, token)
+    if payload.get("actor_kind") == "machine":
+        # Remote ACP uses scoped HTTP polling. Account/device/browser sockets
+        # carry broader streams and are never part of the machine surface.
+        raise OctopError.localized(ErrorCode.FORBIDDEN)
     assert server.user_manager is not None
     user = server.user_manager.get_by_id(int(payload["sub"]))
     if user is None:
@@ -162,7 +167,9 @@ def _client_ip_from_request(request: Request) -> str:
     return resolve_client_ip(request)
 
 
-def resolve_machine_from_request(request: Request, server: OctopServer, raw: str):
+def resolve_machine_from_request(
+    request: Request, server: OctopServer, raw: str
+) -> MachinePrincipal | None:
     """Authenticate Bearer oaa_ or machine JWT; attach principal on request.state."""
     from octop.infra.auth.agent_access_keys import (
         AGENT_KEY_PREFIX,
@@ -180,24 +187,27 @@ def resolve_machine_from_request(request: Request, server: OctopServer, raw: str
     if raw.startswith(AGENT_KEY_PREFIX):
         if server.app_runtime is None or server.app_runtime.devices is None:
             raise OctopError(ErrorCode.AUTH_FAILED, "invalid agent access key")
-        principal = server.app_runtime.devices.agent_access_keys.authenticate(
-            raw, _client_ip_from_request(request)
+        principal = cast(
+            MachinePrincipal,
+            server.app_runtime.devices.agent_access_keys.authenticate(
+                raw, _client_ip_from_request(request)
+            ),
         )
         request.state.octop_machine = principal
         return principal
 
     # Machine short JWT (optional exchange)
     payload = _decode(server, raw)
-    principal = payload.get("_machine_principal")
-    if principal is None:
+    exchanged_principal = payload.get("_machine_principal")
+    if exchanged_principal is None:
         return None
-    request.state.octop_machine = principal
-    return cast(MachinePrincipal, principal)
+    request.state.octop_machine = exchanged_principal
+    return cast(MachinePrincipal, exchanged_principal)
 
 
-def machine_principal_of(request: Request):
+def machine_principal_of(request: Request) -> MachinePrincipal | None:
     """Return machine principal if this request was authenticated as machine."""
-    return getattr(request.state, "octop_machine", None)
+    return cast(MachinePrincipal | None, getattr(request.state, "octop_machine", None))
 
 
 def require_human_session(request: Request) -> None:
@@ -275,6 +285,7 @@ def authenticate_request(request: Request, server: OctopServer) -> User:
         raise OctopError(ErrorCode.AUTH_FAILED, "browser access key cannot act as agent bearer")
     if raw.startswith(AGENT_KEY_PREFIX):
         principal = resolve_machine_from_request(request, server, raw)
+        assert principal is not None
         assert server.user_manager is not None
         user = server.user_manager.get_by_id(int(principal.owner_user_id))
         if user is None:

@@ -7,7 +7,6 @@ import time
 from typing import TYPE_CHECKING
 
 from octop.i18n.domains.stream import format_stream_error
-from octop.infra.cron.delivery import CronDeliveryCommand
 from octop.infra.cron.report import ReportOptions, report_options
 from octop.infra.cron.task_type import normalize_cron_task_type
 from octop.infra.db.repos.audit import ACTOR_SYSTEM
@@ -116,8 +115,7 @@ class CronJob:
                 model=self._model if self._model is not None else command.model,
                 mcp_servers=tuple(self._mcp_servers) if self._mcp_servers else command.mcp_servers,
                 report=self._report if self._report is not None else command.report,
-                report_origin_session=self._report_origin_session
-                or command.report_origin_session,
+                report_origin_session=self._report_origin_session or command.report_origin_session,
             )
             try:
                 if is_self_reminder_row(row):
@@ -130,14 +128,10 @@ class CronJob:
                     )
             except OriginThreadError as exc:
                 METRICS.inc("cron_errors_total")
-                logger.warning(
-                    "cron job %s skipped: %s", self._cron_id, exc.code
-                )
+                logger.warning("cron job %s skipped: %s", self._cron_id, exc.code)
                 # §4.4: public/last_error is the stable code, not format_stream_error.
                 err = exc.code
-                self._cron_repo.set_run_status(
-                    self._cron_id, ts=ts, status="error", error=err
-                )
+                self._cron_repo.set_run_status(self._cron_id, ts=ts, status="error", error=err)
                 self._audit_repo.write(
                     actor=ACTOR_SYSTEM,
                     action="cron.run_failed",

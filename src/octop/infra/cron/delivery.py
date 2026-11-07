@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import weakref
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
@@ -34,6 +35,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class WorkItemInteractionRequired(Exception):
+    """The work-item worker paused; its registered request must be answered."""
+
+
 @dataclass(frozen=True)
 class CronDeliveryCommand:
     """Immutable inputs for one scheduled delivery attempt."""
@@ -57,6 +62,8 @@ class CronDeliveryCommand:
     origin_thread_id: str | None = None
     delivery_id: str | None = None
     source_kind: str | None = None
+    allow_interaction: bool = False
+    on_chunk: Callable[[dict[str, Any]], None] | None = None
 
 
 class CronDeliveryService:
@@ -146,9 +153,7 @@ class CronDeliveryService:
                 else:
                     original = self._gateway.require_session(command.agent_id, command.session_key)
                     if (original.user_id, original.agent_id) != (command.user_id, command.agent_id):
-                        raise ValueError(
-                            "cron session does not belong to user or agent (mismatch)"
-                        )
+                        raise ValueError("cron session does not belong to user or agent (mismatch)")
             except OriginThreadError:
                 raise
             if command.fresh_thread and not command.origin_thread_id:
@@ -233,6 +238,9 @@ class CronDeliveryService:
                 await self._gateway.run_locked_on_session(target, _locked)
             else:
                 await self._gateway.run_in_session(command.agent_id, command.session_key, _locked)
+        except WorkItemInteractionRequired:
+            attempts.update(command.user_id, attempt, "paused")
+            raise
         except asyncio.CancelledError:
             attempts.update(
                 command.user_id, attempt, "cancelled", error="Scheduled delivery was cancelled"
@@ -319,7 +327,10 @@ class CronDeliveryService:
             )
             title_source = human_text
             assistant_id = f"cron:{delivery_id}:assistant"
-            if self._repos.thread_message_repo.has_message_id(session.thread_id, assistant_id) is True:
+            if (
+                self._repos.thread_message_repo.has_message_id(session.thread_id, assistant_id)
+                is True
+            ):
                 already_persisted = True
             else:
                 canonical = [
@@ -368,7 +379,8 @@ class CronDeliveryService:
             command.agent_id,
             command.prompt,
             delivery_id=delivery_id,
-            source_kind=command.source_kind or ("self_reminder" if command.origin_thread_id else "cron"),
+            source_kind=command.source_kind
+            or ("self_reminder" if command.origin_thread_id else "cron"),
             emit_changed=bool(command.origin_thread_id) or (command.source_kind == "self_reminder"),
         )
         if not push_ok:
@@ -391,14 +403,11 @@ class CronDeliveryService:
         origin_canonical = (
             command.report is None
             and session.channel_type == ThreadRegistry.CHANNEL_DASHBOARD
-            and (
-                bool(command.origin_thread_id) or command.source_kind == "self_reminder"
-            )
+            and (bool(command.origin_thread_id) or command.source_kind == "self_reminder")
         )
         assistant_id = f"cron:{delivery_id}:assistant"
         if origin_canonical and (
-            self._repos.thread_message_repo.has_message_id(session.thread_id, assistant_id)
-            is True
+            self._repos.thread_message_repo.has_message_id(session.thread_id, assistant_id) is True
         ):
             outbound = (command.prompt or "").strip()
             await self._gateway.push_session_text(
@@ -475,6 +484,8 @@ class CronDeliveryService:
 
             with write_scope(allowed=False):
                 async for chunk in self._agent_manager.stream(command.agent_id, request):
+                    if command.on_chunk is not None:
+                        command.on_chunk(chunk)
                     tracker.observe(chunk)
                     usage.observe(chunk)
                     kind = chunk.get("type")
@@ -514,12 +525,33 @@ class CronDeliveryService:
                         parts.append(str(chunk.get("content") or chunk.get("text") or ""))
                     elif chunk.get("type") == "hitl_required":
                         interaction_required = True
+                        if command.allow_interaction:
+                            from octop.infra.gateway.hitl.coordinator import HitlStreamContext
+                            from octop.infra.gateway.hitl.format import normalize_hitl_request
+
+                            raw = chunk.get("request")
+                            if isinstance(raw, dict):
+                                self._gateway.processor.hitl_coordinator.register_from_request(
+                                    normalize_hitl_request(raw),
+                                    ctx=HitlStreamContext(
+                                        thread_id=session.thread_id,
+                                        agent_id=command.agent_id,
+                                        user_id=command.user_id,
+                                        session_key=session.session_key,
+                                        channel_type=session.channel_type,
+                                    ),
+                                )
             if interaction_required:
+                if command.allow_interaction:
+                    raise WorkItemInteractionRequired()
                 raise RuntimeError("cron agent run requires user interaction")
             outbound = strip_thinking("".join(parts)).strip()
             if not outbound:
                 raise RuntimeError("cron agent run produced no visible response")
             fallback_phase = "completed"
+        except WorkItemInteractionRequired:
+            fallback_phase = "paused"
+            raise
         except asyncio.CancelledError:
             fallback_phase = "cancelled"
             raise
@@ -620,8 +652,7 @@ class CronDeliveryService:
             delivery_id=delivery_id,
             source_kind=command.source_kind
             or ("self_reminder" if command.origin_thread_id else "cron"),
-            emit_changed=bool(command.origin_thread_id)
-            or (command.source_kind == "self_reminder"),
+            emit_changed=bool(command.origin_thread_id) or (command.source_kind == "self_reminder"),
         )
         if command.report is not None and command.report_origin_session:
             original = await asyncio.to_thread(

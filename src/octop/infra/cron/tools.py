@@ -378,9 +378,7 @@ def build_self_reminder_tools(cron_manager: CronManager) -> list[StructuredTool]
             cfg = get_config().get("configurable") or {}
             origin = str(cfg.get("thread_id") or "").strip()
             if not origin:
-                await mgr._ensure_session(
-                    session_key, agent_id=agent_id, user_id=user_id
-                )
+                await mgr._ensure_session(session_key, agent_id=agent_id, user_id=user_id)
                 bound = mgr._gateway.thread_registry.get_bound_thread_id(session_key)
                 origin = str(bound or "").strip()
             if not origin:

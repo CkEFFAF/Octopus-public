@@ -1,6 +1,7 @@
 -- 0045 restricted agent access keys + object grants (G5).
 CREATE TABLE IF NOT EXISTS agent_access_keys (
-  key_id TEXT PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key_id TEXT NOT NULL UNIQUE,
   owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   secret_hash TEXT NOT NULL UNIQUE,
@@ -16,7 +17,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_access_keys_owner
   ON agent_access_keys(owner_user_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS agent_access_object_grants (
-  credential_id TEXT NOT NULL,
+  credential_id TEXT NOT NULL REFERENCES agent_access_keys(key_id) ON DELETE CASCADE,
   object_kind TEXT NOT NULL,
   object_id TEXT NOT NULL,
   created_at REAL NOT NULL,

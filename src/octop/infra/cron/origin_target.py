@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 
 from octop.infra.cron.self_reminder import (
-    ERR_ORIGIN_THREAD_MISSING,
     ERR_ORIGIN_THREAD_UNAVAILABLE,
     backfill_origin_from_session,
     is_self_reminder_row,
-    origin_thread_id,
     preserve_origin_keys,
 )
 from octop.infra.db.repos.sessions import SessionRow
@@ -66,7 +63,7 @@ def ensure_pin_session(
     channel_type: str = ThreadRegistry.CHANNEL_DASHBOARD,
 ) -> SessionRow:
     """Return a session bound to *thread_id*, creating a pin key if rebound away."""
-    bound = [
+    bound: list[SessionRow] = [
         s
         for s in session_repo.list_by_thread(thread_id)
         if s.agent_id == agent_id and int(s.user_id) == int(user_id)
@@ -99,7 +96,7 @@ def ensure_pin_session(
             "origin_pin": True,
         },
     )
-    row = session_repo.get(pin_key)
+    row: SessionRow | None = session_repo.get(pin_key)
     if row is None:
         raise OriginThreadError(ERR_ORIGIN_THREAD_UNAVAILABLE, "failed to pin origin session")
     return row
@@ -168,7 +165,7 @@ def resolve_delivery_session(
         )
 
     # Non-origin path: live session_key binding (reports / ordinary cron / IM).
-    session = gateway.require_session(command.agent_id, command.session_key)
+    session: SessionRow = gateway.require_session(command.agent_id, command.session_key)
     if (session.user_id, session.agent_id) != (command.user_id, command.agent_id):
         raise ValueError("cron session does not belong to user or agent (mismatch)")
     return session

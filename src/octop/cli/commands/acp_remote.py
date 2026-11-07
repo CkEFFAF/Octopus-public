@@ -8,6 +8,9 @@ from pathlib import Path
 
 import click
 
+from octop.i18n import tr
+from octop.infra.utils.locale import DEFAULT_LOCALE
+
 
 @click.command("acp-remote")
 @click.option("--server", default=None, help="Cloud Octop base URL (or OCTOP_ACP_SERVER)")
@@ -33,13 +36,15 @@ def acp_remote_cmd(
         token_file = Path(env_path) if env_path else None
     token = os.environ.get("OCTOP_ACP_TOKEN")
     if not server:
-        raise click.ClickException("--server or OCTOP_ACP_SERVER required")
+        raise click.ClickException(tr("acp_remote.missing_server", DEFAULT_LOCALE))
     if not expert:
-        raise click.ClickException("--expert or OCTOP_ACP_EXPERT required")
+        raise click.ClickException(tr("acp_remote.missing_expert", DEFAULT_LOCALE))
     if token_file is None and not token:
-        raise click.ClickException("--token-file / OCTOP_ACP_TOKEN_FILE (or OCTOP_ACP_TOKEN) required")
+        raise click.ClickException(tr("acp_remote.missing_token", DEFAULT_LOCALE))
     if token_file is not None and not token_file.exists():
-        raise click.ClickException(f"token file not found: {token_file}")
+        raise click.ClickException(
+            tr("acp_remote.missing_token_file", DEFAULT_LOCALE, path=token_file)
+        )
 
     from octop.infra.acp_remote import run_acp_remote
 

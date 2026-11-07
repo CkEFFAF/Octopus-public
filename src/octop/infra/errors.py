@@ -323,7 +323,6 @@ _DEFAULT_STATUS: dict[ErrorCode, int] = {
     ErrorCode.TRANSFER_IO: 507,
     ErrorCode.TRANSFER_CANCELLED: 409,
     ErrorCode.TRANSFER_NOT_FOUND: 404,
-
 }
 
 

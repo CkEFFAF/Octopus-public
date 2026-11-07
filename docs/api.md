@@ -22,6 +22,11 @@ admin can clear the lockout with `POST /api/users/{id}/unlock-login`.
 
 ### Auth column legend
 
+Restricted local-agent credentials use a separate `oaa_` Bearer surface. They
+default to deny outside their explicit work-item, session/history and resource
+scopes, even when issued by an administrator. See [remote ACP](acp-remote.md)
+for key lifecycle, standard-client launch configuration and permission receipts.
+
 - **public** — no token required.
 - **user** — any logged-in account.
 - **owner** — same user that owns the resource (or admin).

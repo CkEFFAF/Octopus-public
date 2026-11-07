@@ -51,8 +51,7 @@ class AgentAccessKeyRepo:
     def list_for_owner(self, owner: int) -> list[dict[str, Any]]:
         with self.db.connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM agent_access_keys WHERE owner_user_id = ? "
-                "ORDER BY created_at DESC",
+                "SELECT * FROM agent_access_keys WHERE owner_user_id = ? ORDER BY created_at DESC",
                 (owner,),
             ).fetchall()
         return [dict(row) for row in rows]
@@ -90,3 +89,14 @@ class AgentAccessKeyRepo:
                 (credential_id, object_kind, object_id),
             ).fetchone()
         return row is not None
+
+    def grant_worker_thread(self, task_id: str, thread_id: str) -> None:
+        with self.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO agent_access_object_grants "
+                "(credential_id, object_kind, object_id, created_at) "
+                "SELECT credential_id, 'thread', ?, ? FROM agent_access_object_grants "
+                "WHERE object_kind = 'work_item' AND object_id = ? "
+                "ON CONFLICT(credential_id, object_kind, object_id) DO NOTHING",
+                (thread_id, time.time(), task_id),
+            )

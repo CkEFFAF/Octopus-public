@@ -227,6 +227,7 @@ def test_active_mcp_names_passes_config_path(
     repos.connector_repo = MagicMock()
     repos.secret_repo = MagicMock()
     repos.settings_repo = MagicMock()
+    repos.settings_repo.get.return_value = None
     service = DeviceService(repos)
     names = service._active_mcp_names_for_owner(1)
     assert names == {"ok", "jdcloud-mon"}

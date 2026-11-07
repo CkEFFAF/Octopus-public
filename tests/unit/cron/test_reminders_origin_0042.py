@@ -9,28 +9,25 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage
 from langgraph.config import var_child_runnable_config
 
 from octop.config import OctopConfig
 from octop.infra.cron.delivery import CronDeliveryCommand, CronDeliveryService, command_from_row
-from octop.infra.cron.manager import CronCreateSpec, CronManager
-from octop.infra.cron.origin_target import OriginThreadError, prepare_self_reminder_command
+from octop.infra.cron.manager import CronManager
+from octop.infra.cron.origin_target import OriginThreadError
 from octop.infra.cron.self_reminder import (
     ERR_ORIGIN_THREAD_MISSING,
     ERR_ORIGIN_THREAD_UNAVAILABLE,
     NEEDS_RETARGET_KEY,
     ORIGIN_THREAD_ID_KEY,
     backfill_origin_from_session,
-    build_wakeup_prompt,
-    is_self_reminder_row,
     stamp_origin_meta,
 )
 from octop.infra.cron.tools import build_self_reminder_tools
 from octop.infra.db.migrate import run_migrations
 from octop.infra.db.pool import SqlitePool
 from octop.infra.db.repos.agents import AgentRepo
-from octop.infra.db.repos.cron_attempts import CronAttemptRepo
 from octop.infra.db.repos.sessions import SessionRepo
 from octop.infra.db.repos.thread_messages import ThreadMessageRepo
 from octop.infra.db.repos.threads import ThreadRepo
@@ -206,6 +203,7 @@ async def test_ac_0042_01_rebind_writes_only_origin_history(tmp_path: Path) -> N
     agent_manager.get_agent.return_value = harness
 
     gateway = MagicMock()
+
     async def _await_op(session, op):
         await op()
 
@@ -292,6 +290,7 @@ async def test_ac_0042_03_idempotent_same_delivery_id(tmp_path: Path) -> None:
     agent_manager.get_agent.return_value = harness
 
     gateway = MagicMock()
+
     async def _await_op(session, op):
         await op()
 
@@ -336,6 +335,7 @@ async def test_ac_0042_05_deleted_origin_fails(tmp_path: Path) -> None:
 
     services = build_shared_services(db=db, paths=PathLayout(tmp_path), config=OctopConfig())
     gateway = MagicMock()
+
     async def _await_op(session, op):
         await op()
 
@@ -345,9 +345,7 @@ async def test_ac_0042_05_deleted_origin_fails(tmp_path: Path) -> None:
     gateway.thread_registry = ThreadRegistry(
         session_repo=services.repos.session_repo, thread_repo=services.repos.thread_repo
     )
-    service = CronDeliveryService(
-        gateway=gateway, agent_manager=MagicMock(), repos=services.repos
-    )
+    service = CronDeliveryService(gateway=gateway, agent_manager=MagicMock(), repos=services.repos)
     command = CronDeliveryCommand(
         cron_id="j1",
         cron_name="self",
@@ -526,9 +524,7 @@ async def test_ac_0042_03_agent_idempotent_same_delivery_id(tmp_path: Path) -> N
     out2 = await service.deliver(command)
     assert append_calls == []
     assert stream_calls == []
-    assert services.repos.thread_message_repo.has_message_id(
-        thr_a, "cron:agent-same:assistant"
-    )
+    assert services.repos.thread_message_repo.has_message_id(thr_a, "cron:agent-same:assistant")
     gateway.push_session_text.assert_awaited()
     gateway.notify_dashboard_push.assert_awaited()
     assert out1 == "wake"
@@ -609,9 +605,7 @@ async def test_agent_origin_persists_stable_ids_once(tmp_path: Path) -> None:
     assert len(append_calls) == 1
     ids = [getattr(m, "id", None) for m in append_calls[0]]
     assert ids == ["cron:agent-once:human", "cron:agent-once:assistant"]
-    assert services.repos.thread_message_repo.has_message_id(
-        thr_a, "cron:agent-once:assistant"
-    )
+    assert services.repos.thread_message_repo.has_message_id(thr_a, "cron:agent-once:assistant")
 
     await service.deliver(command)
     assert len(append_calls) == 1  # second delivery skipped aappend
@@ -639,9 +633,7 @@ async def test_origin_thread_error_attempt_stores_code(tmp_path: Path) -> None:
     gateway.thread_registry = ThreadRegistry(
         session_repo=services.repos.session_repo, thread_repo=services.repos.thread_repo
     )
-    service = CronDeliveryService(
-        gateway=gateway, agent_manager=MagicMock(), repos=services.repos
-    )
+    service = CronDeliveryService(gateway=gateway, agent_manager=MagicMock(), repos=services.repos)
     command = CronDeliveryCommand(
         cron_id="j1",
         cron_name="self",
@@ -660,9 +652,7 @@ async def test_origin_thread_error_attempt_stores_code(tmp_path: Path) -> None:
     with pytest.raises(OriginThreadError) as ei:
         await service.deliver(command)
     assert ei.value.code == ERR_ORIGIN_THREAD_UNAVAILABLE
-    attempts = services.repos.cron_attempt_repo.listing(
-        user_id, agent_id, "j1", limit=5
-    )["items"]
+    attempts = services.repos.cron_attempt_repo.listing(user_id, agent_id, "j1", limit=5)["items"]
     assert attempts
     failed = [a for a in attempts if a.get("attempt_id") == "err-code-1"]
     assert failed
