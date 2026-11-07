@@ -262,6 +262,75 @@ async def test_completed_report_resources_are_readable_from_display_thread(rig: 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("locale", ["zh", "en"])
+@pytest.mark.parametrize("multimodal", [False, True])
+async def test_upload_hint_resource_id_is_directly_readable(
+    rig: Any, locale: str, multimodal: bool
+) -> None:
+    """The model can copy the displayed resource_id into the real read tool."""
+    from octop_gateway.models import FileContent, InboundMessage
+
+    from octop.infra.gateway.process.processor import GlobalProcessor
+
+    text = "要求一：保留中文。\n要求二：只读本附件。\n要求三：列出三条。"
+    path = "inbound/中文 交互验收.txt"
+    rig.workspaces["parent"].files[path] = text.encode("utf-8")
+    uploaded = await rig.resources.register(
+        rig.owner, "parent", path, data=text.encode("utf-8"), media_type="text/plain"
+    )
+    message = InboundMessage(
+        channel_id="octop-dashboard",
+        channel_type="dashboard",
+        content=[
+            FileContent(filename="中文 交互验收.txt", mime_type="text/plain", local_path=path)
+        ],
+    )
+    content: Any = [{"type": "text", "text": "只读取本次附件"}] if multimodal else "只读取本次附件"
+    processor = object.__new__(GlobalProcessor)
+    processor._agent_manager = rig.manager
+    prepared, attachments = await processor._resource_input(
+        message, content, "parent", rig.owner, "root", locale
+    )
+    if multimodal:
+        assert prepared[:-1] == content
+        hint = prepared[-1]["text"]
+    else:
+        assert prepared.startswith(content)
+        hint = prepared
+    decoder = json.JSONDecoder()
+    references = []
+    for offset, character in enumerate(hint):
+        if character != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(hint[offset:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and "resource_id" in value and "version" in value:
+            references.append(value)
+    assert len(references) == 1, (
+        "Upload hint must separate resource_id and version in a JSON object"
+    )
+    reference = references[0]
+    assert reference["resource_id"] == uploaded["resource_id"] == attachments[0]["resource_id"]
+    assert reference["version"] == uploaded["version"] == attachments[0]["version"]
+    tool = next(
+        t for t in build_resource_tools(rig.manager, "parent") if t.name == "read_attachment"
+    )
+    token = var_child_runnable_config.set(
+        {"configurable": {"user": rig.owner, "thread_id": "root", "language": locale}}
+    )
+    try:
+        result = json.loads(await tool.ainvoke({"resource_id": reference["resource_id"]}))
+    finally:
+        var_child_runnable_config.reset(token)
+    assert result["status"] == "ready"
+    assert result["text"] == text
+    assert result["resource_id"] == reference["resource_id"]
+    assert result["version"] == attachments[0]["version"]
+
+
+@pytest.mark.asyncio
 async def test_actual_read_tool_does_not_need_device_and_revalidates_source(rig: Any) -> None:
     tool = next(
         tool

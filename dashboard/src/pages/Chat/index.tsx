@@ -892,10 +892,18 @@ function ChatPageInner() {
     onFlush: flushQueuedItem,
     shouldDeferFlush: shouldDeferQueueFlush,
   });
+  const displayedUserMessageIds = useMemo(
+    () =>
+      new Set(
+        messages.filter((item) => item.role === "user").map((item) => item.id),
+      ),
+    [messages],
+  );
   const persistentQueue = usePersistentChatQueue({
     agentId: resolvedAgentId,
     threadId: activeThreadId,
     enabled: !isTeamChat,
+    displayedUserMessageIds,
   });
   const {
     items: queuedItems,

@@ -2105,7 +2105,7 @@
       "flushFailed": "排队消息发送失败，已放回队列。",
       "status": {
         "queued": "排队中",
-        "dispatching": "正在提交",
+        "dispatching": "已接收，正在处理",
         "requested": "请求中",
         "accepted": "等待安全节点",
         "interrupting": "正在打断工具并插入",

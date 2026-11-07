@@ -22,10 +22,12 @@ export function usePersistentChatQueue({
   agentId,
   threadId,
   enabled = true,
+  displayedUserMessageIds,
 }: {
   agentId?: string | null;
   threadId?: string | null;
   enabled?: boolean;
+  displayedUserMessageIds?: ReadonlySet<string>;
 }) {
   const { t } = useTranslation();
   const active = Boolean(
@@ -66,6 +68,11 @@ export function usePersistentChatQueue({
   }, [active, agentId, threadId, refresh]);
   const data = state?.key === key ? state.data : null;
   const items: QueuedChatItem[] = (data?.inputs ?? [])
+    .filter(
+      (row) =>
+        row.status !== "dispatching" ||
+        !displayedUserMessageIds?.has(row.payload.command_id),
+    )
     .filter((row) =>
       [
         "queued",

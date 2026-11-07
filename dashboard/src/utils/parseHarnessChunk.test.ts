@@ -54,7 +54,7 @@ describe("parseHarnessChunk usage", () => {
         octop_model_retry: { phase: "retrying", attempt: 2, max_attempts: 3 },
       };
       const chunk = parseHarnessChunk(
-        JSON.stringify({ type, agent_id: "peer", data }),
+        `data: ${JSON.stringify({ type, agent_id: "peer", data })}`,
       );
       expect(chunk).toMatchObject({ type, agent_id: "peer", data });
     },

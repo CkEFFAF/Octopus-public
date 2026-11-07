@@ -8,6 +8,24 @@ const items = [
 ];
 
 describe("queued message controls", () => {
+  it("shows an accepted processing receipt without offering unavailable queue actions", () => {
+    render(
+      <ChatQueuedMessages
+        items={[{ ...items[0], status: "dispatching" }]}
+        onReclaim={vi.fn()}
+        onSteer={vi.fn()}
+        canSteer
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("dispatching");
+    for (const name of [
+      "chat.steer.action",
+      "chat.steer.immediateAction",
+      "chat.queue.withdraw",
+    ]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+  });
   it("lets an unconfirmed receipt be dismissed without inserting or reclaiming it", async () => {
     const onSteer = vi.fn();
     const onReclaim = vi.fn();
@@ -124,8 +142,8 @@ describe("queued message controls", () => {
       }
     }
     expect(
-      screen.getAllByRole("button", { name: "chat.queue.withdraw" })[2],
-    ).toBeDisabled();
+      screen.getAllByRole("button", { name: "chat.queue.withdraw" }),
+    ).toHaveLength(2);
   });
 
   it("keeps insertion disabled after the active run ends", () => {

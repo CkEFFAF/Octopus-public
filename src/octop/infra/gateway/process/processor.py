@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
@@ -1483,7 +1484,12 @@ class GlobalProcessor:
             )
             attachment["resource_id"] = resource["resource_id"]
             attachment["version"] = resource["version"]
-            references.append(f"{resource['resource_id']}@{resource['version']}")
+            references.append(
+                json.dumps(
+                    {"resource_id": resource["resource_id"], "version": resource["version"]},
+                    ensure_ascii=False,
+                )
+            )
         hint = tr("resources.input_hint", locale, references="\n".join(references))
         if isinstance(content, list):
             content = [*content, {"type": "text", "text": hint}]

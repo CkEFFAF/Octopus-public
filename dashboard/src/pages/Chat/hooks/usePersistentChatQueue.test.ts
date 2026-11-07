@@ -30,6 +30,59 @@ const empty = {
   capabilities: { queue: true, steer: true },
 };
 describe("durable chat input acknowledgement", () => {
+  it("removes an acknowledged dispatch from the queue once its user bubble is visible, while retaining uncertain receipts", async () => {
+    vi.mocked(chatInputsApi.list).mockResolvedValue({
+      ...empty,
+      inputs: [
+        {
+          kind: "chat_input",
+          status: "dispatching",
+          payload: {
+            command_id: "visible",
+            snapshot: { id: "visible", text: "received", createdAt: 1 },
+          },
+        },
+        {
+          kind: "chat_input",
+          status: "dispatching",
+          payload: {
+            command_id: "pending",
+            snapshot: {
+              id: "pending",
+              text: "not yet in history",
+              createdAt: 2,
+            },
+          },
+        },
+        {
+          kind: "chat_input",
+          status: "unknown",
+          payload: {
+            command_id: "uncertain",
+            snapshot: { id: "uncertain", text: "needs status", createdAt: 3 },
+          },
+        },
+      ],
+    } as never);
+    const { result, rerender, unmount } = renderHook(
+      ({ ids }: { ids: ReadonlySet<string> }) =>
+        usePersistentChatQueue({
+          agentId: "agent",
+          threadId: "thread",
+          displayedUserMessageIds: ids,
+        }),
+      { initialProps: { ids: new Set<string>() } },
+    );
+    await waitFor(() => expect(result.current.items).toHaveLength(3));
+    rerender({ ids: new Set(["visible", "uncertain"]) });
+    expect(result.current.items.map((item) => item.id)).toEqual([
+      "pending",
+      "uncertain",
+    ]);
+    expect(chatInputsApi.queue).not.toHaveBeenCalled();
+    expect(chatInputsApi.withdraw).not.toHaveBeenCalled();
+    unmount();
+  });
   it("dismisses only a terminal receipt and refreshes without resending", async () => {
     const { result, unmount } = mount();
     await waitFor(() => expect(result.current.runtime?.run_id).toBe("run"));

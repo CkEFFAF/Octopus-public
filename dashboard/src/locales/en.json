@@ -2105,7 +2105,7 @@
       "flushFailed": "Couldn't send the queued message; it's back in the queue.",
       "status": {
         "queued": "Queued",
-        "dispatching": "Submitting",
+        "dispatching": "Received, processing",
         "requested": "Requested",
         "accepted": "Waiting for a safe point",
         "interrupting": "Interrupting tools and inserting",

@@ -506,6 +506,15 @@ export default function ChatInputActionsRow({
     </div>
   ) : null;
 
+  const modelLabelCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const model of availableModels ?? []) {
+      const label = modelOptionLabel(model);
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    return counts;
+  }, [availableModels]);
+
   const modelMenu = (
     <div className={styles.modelPickerPanel}>
       {!reasoningMenu && (
@@ -534,6 +543,11 @@ export default function ChatInputActionsRow({
             {availableModels?.map((model) => {
               const value = modelOptionValue(model);
               const active = selectedModel === value;
+              const label = modelOptionLabel(model);
+              const ambiguous = (modelLabelCounts.get(label) ?? 0) > 1;
+              const accessibleLabel = ambiguous
+                ? `${label} (${model.model})`
+                : label;
               const capability = model.reasoning_config;
               const summary = reasoningSummary(model, active);
               return (
@@ -546,8 +560,9 @@ export default function ChatInputActionsRow({
                   <button
                     type="button"
                     className={styles.modelMenuSelect}
+                    aria-label={accessibleLabel}
                     onClick={() => {
-                      onModelChange?.(active ? null : value);
+                      onModelChange?.(value);
                       closePlusMenu();
                     }}
                   >
@@ -557,7 +572,12 @@ export default function ChatInputActionsRow({
                       className={styles.modelMenuIcon}
                     />
                     <span className={styles.modelMenuLabel}>
-                      {modelOptionLabel(model)}
+                      {label}
+                      {ambiguous && (
+                        <small className={styles.modelMenuId}>
+                          {model.model}
+                        </small>
+                      )}
                     </span>
                   </button>
                   {capability && onReasoningChange && (
@@ -565,7 +585,7 @@ export default function ChatInputActionsRow({
                       type="button"
                       className={styles.modelMenuReasoning}
                       onClick={() => openModelReasoning(value)}
-                      aria-label={`${modelOptionLabel(model)} ${t(
+                      aria-label={`${accessibleLabel} ${t(
                         "chat.reasoningMode",
                         "思考模式",
                       )}`}

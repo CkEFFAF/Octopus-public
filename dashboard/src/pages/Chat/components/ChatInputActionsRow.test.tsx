@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResolvedModel } from "../../../api/types";
@@ -183,6 +183,49 @@ describe("ChatInputActionsRow responsive toolbar", () => {
     expect(baseProps.onModelChange).toHaveBeenCalledWith(
       "Provider/compact-model",
     );
+  });
+
+  it("keeps an explicitly selected model when its option is clicked again", async () => {
+    render(
+      <MemoryRouter>
+        <ChatInputActionsRow
+          {...baseProps}
+          selectedModel="Provider/compact-model"
+        />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByTestId("composer-model"));
+    fireEvent.click(await screen.findByText("Provider / Compact Model"));
+    expect(baseProps.onModelChange).toHaveBeenCalledWith(
+      "Provider/compact-model",
+    );
+    expect(baseProps.onModelChange).not.toHaveBeenCalledWith(null);
+  });
+
+  it("distinguishes models with the same provider and display name", async () => {
+    render(
+      <MemoryRouter>
+        <ChatInputActionsRow
+          {...baseProps}
+          availableModels={[
+            { ...models[0], model: "version-a" },
+            { ...models[0], model: "version-b" },
+          ]}
+        />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByTestId("composer-model"));
+    const first = await screen.findByRole("button", {
+      name: "Provider / Compact Model (version-a)",
+    });
+    await waitFor(() => expect(first).toBeVisible());
+    const second = screen.getByRole("button", {
+      name: "Provider / Compact Model (version-b)",
+    });
+    expect(screen.getByText("version-a")).toBeVisible();
+    expect(screen.getByText("version-b")).toBeVisible();
+    fireEvent.click(second);
+    expect(baseProps.onModelChange).toHaveBeenCalledWith("Provider/version-b");
   });
 
   it("keeps the current model directly selectable in a narrow desktop composer", async () => {
