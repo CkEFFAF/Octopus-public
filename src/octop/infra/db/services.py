@@ -43,6 +43,7 @@ from octop.infra.db.repos.user_policies import UserPolicyRepo
 from octop.infra.db.repos.users import UserRepo
 from octop.infra.db.repos.voice_providers import VoiceProviderRepo
 from octop.infra.db.repos.workbench import WorkbenchRepo
+from octop.infra.db.repos.work_items import WorkItemRepo
 from octop.infra.utils.paths import PathLayout
 
 
@@ -105,6 +106,10 @@ class RepoBundle:
     @property
     def workbench_repo(self) -> WorkbenchRepo:
         return WorkbenchRepo(self.db)
+
+    @property
+    def work_item_repo(self) -> WorkItemRepo:
+        return WorkItemRepo(self.db)
 
     @classmethod
     def from_pool(cls, db: DatabasePool) -> RepoBundle:

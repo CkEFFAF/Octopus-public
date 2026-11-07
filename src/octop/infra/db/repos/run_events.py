@@ -34,6 +34,7 @@ class RunEventRepo:
         payload: dict[str, Any],
         created_at: float | None = None,
         replace: bool = True,
+        work_item_id: str | None = None,
     ) -> None:
         now = time.time()
         with self.db.transaction() as conn:
@@ -42,10 +43,11 @@ class RunEventRepo:
                 (event_id, owner),
             ).fetchone()
             saved = conn.execute(
-                "INSERT INTO run_events(event_id, owner_user_id, agent_id, thread_id, run_id, context_id, created_at, updated_at, kind, status, payload_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(event_id) "
+                "INSERT INTO run_events(event_id, owner_user_id, agent_id, thread_id, run_id, context_id, created_at, updated_at, kind, status, payload_json, work_item_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(event_id) "
                 + (
-                    "DO UPDATE SET updated_at = excluded.updated_at, status = excluded.status, payload_json = excluded.payload_json "
+                    "DO UPDATE SET updated_at = excluded.updated_at, status = excluded.status, payload_json = excluded.payload_json, "
+                    "work_item_id = COALESCE(excluded.work_item_id, run_events.work_item_id) "
                     "WHERE run_events.owner_user_id = excluded.owner_user_id AND run_events.run_id = excluded.run_id"
                     if replace
                     else "DO NOTHING"
@@ -62,6 +64,7 @@ class RunEventRepo:
                     kind,
                     status,
                     json.dumps(payload, ensure_ascii=False),
+                    work_item_id,
                 ),
             ).rowcount
             if saved:
@@ -308,23 +311,52 @@ class RunEventRepo:
             ).fetchall()
         return {row["event_id"]: self._public(row) for row in rows}
 
+    def list_for_work_item(
+        self,
+        owner: int,
+        work_item_id: str,
+        *,
+        before: int | None = None,
+        limit: int = 100,
+        kind: str | None = None,
+    ) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM run_events WHERE owner_user_id = ? AND work_item_id = ? "
+                + ("AND id < ? " if before is not None else "")
+                + ("AND kind = ? " if kind is not None else "")
+                + "ORDER BY id DESC LIMIT ?",
+                [
+                    owner,
+                    work_item_id,
+                    *([before] if before is not None else []),
+                    *([kind] if kind is not None else []),
+                    limit,
+                ],
+            ).fetchall()
+        return [self._public(row) for row in rows]
+
     @staticmethod
     def _public(row: Any) -> dict[str, Any]:
+        keys = [
+            "event_id",
+            "agent_id",
+            "thread_id",
+            "run_id",
+            "context_id",
+            "kind",
+            "status",
+            "created_at",
+            "updated_at",
+        ]
+        # work_item_id exists after migration 036; tolerate older rows/tests.
+        try:
+            work_item_id = row["work_item_id"]
+        except (KeyError, IndexError):
+            work_item_id = None
         return {
             "seq": row["id"],
-            **{
-                key: row[key]
-                for key in (
-                    "event_id",
-                    "agent_id",
-                    "thread_id",
-                    "run_id",
-                    "context_id",
-                    "kind",
-                    "status",
-                    "created_at",
-                    "updated_at",
-                )
-            },
+            **{key: row[key] for key in keys},
+            "work_item_id": work_item_id,
             "payload": json.loads(row["payload_json"]),
         }

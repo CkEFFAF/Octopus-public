@@ -221,6 +221,7 @@ def build_app(server: OctopServer) -> FastAPI:
         user_roles,
         users,
         voice,
+        work_items,
         workspace,
     )
     from octop.api.routers.filesystem import router as filesystem_router
@@ -261,6 +262,7 @@ def build_app(server: OctopServer) -> FastAPI:
             _RouterMount(channels.router, "/api", ["channels"]),
             _RouterMount(cron.router, "/api", ["cron"]),
             _RouterMount(task_board.router, "/api", ["task-board"]),
+            _RouterMount(work_items.router, "/api", ["work-items"]),
             _RouterMount(settings.router, "/api", ["settings"]),
             _RouterMount(envs.router, "/api", ["envs"]),
             _RouterMount(search.router, "/api", ["search"]),

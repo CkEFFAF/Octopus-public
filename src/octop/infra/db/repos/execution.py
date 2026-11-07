@@ -24,6 +24,7 @@ class ExecutionContext:
     agent_id: str | None = None
     thread_id: str | None = None
     run_id: str | None = None
+    work_item_id: str | None = None
     created_at: float = 0
 
     def public(self) -> dict[str, Any]:

@@ -31,6 +31,7 @@ from octop.infra.gateway.process.response_mode import (
     qq_channel_response_mode,
 )
 from octop.infra.gateway.slash.dispatcher import SlashDispatcher, build_default_dispatcher
+from octop.infra.gateway.task_events import TaskEventEmitter
 from octop.infra.gateway.thread_events import ThreadEventEmitter
 from octop.infra.gateway.threads import ThreadRegistry
 from octop.infra.gateway.ws import (
@@ -122,6 +123,7 @@ class Gateway:
         self._slash_meta: SlashRuntimeMeta | None = None
         self._ws_hub = WebSocketHub()
         self._thread_events = ThreadEventEmitter(self._ws_hub)
+        self._task_events = TaskEventEmitter(self._ws_hub)
         self._cli_hub = CliHub()
         self._ws_channel: WebSocketChannel | None = None
         self._cli_channel: CliChannel | None = None
@@ -280,6 +282,36 @@ class Gateway:
             agent_id=agent_id,
             thread_id=thread_id,
             reason=reason,
+            run_id=run_id,
+            updated_at=updated_at,
+            phase=phase,
+        )
+
+    @property
+    def task_events(self) -> TaskEventEmitter:
+        return self._task_events
+
+    async def emit_task_changed(
+        self,
+        *,
+        owner_user_id: int,
+        task_id: str,
+        agent_id: str,
+        reason: str,
+        status: str,
+        origin_thread_id: str | None = None,
+        run_id: str | None = None,
+        updated_at: float | None = None,
+        phase: str | None = None,
+    ) -> None:
+        """Account-scoped task.changed helper (spec 0043); do not hand-roll the JSON."""
+        await self._task_events.emit_task_changed(
+            owner_user_id=owner_user_id,
+            task_id=task_id,
+            agent_id=agent_id,
+            reason=reason,
+            status=status,
+            origin_thread_id=origin_thread_id,
             run_id=run_id,
             updated_at=updated_at,
             phase=phase,
