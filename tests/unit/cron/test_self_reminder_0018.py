@@ -48,6 +48,7 @@ def _make_manager(services) -> CronManager:
     gw = MagicMock()
     gw.thread_registry = MagicMock()
     gw.thread_registry.get_session = MagicMock(return_value=None)
+    gw.thread_registry.get_bound_thread_id = MagicMock(return_value="thr_test")
     gw.thread_registry.get_or_create_by_key = AsyncMock(return_value="thr_test")
     mgr = CronManager(
         gateway=gw,
@@ -108,6 +109,7 @@ async def test_schedule_self_check_persists_and_hides_from_default_list(tmp_path
     assert row.fresh_thread == 0
     assert row.task_type == "agent"
     assert (row.meta or {}).get("self_reminder") is True
+    assert (row.meta or {}).get("origin_thread_id") == "thr_test"
 
     hidden = mgr.list_by_agent(agent_id, include_self_reminders=False)
     assert all(not is_self_reminder_row(r) for r in hidden)
@@ -162,6 +164,27 @@ async def test_one_shot_disables_after_fire(tmp_path: Path) -> None:
     services.repos.agent_repo.create(agent_id=agent_id, user_id=user_id, name="a4")
     mgr = _make_manager(services)
     session_key = ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=user_id)
+    # Seed a real thread so prepare_self_reminder_command can resolve/backfill origin.
+    from octop.infra.db.repos.threads import ThreadRepo
+    from octop.infra.db.repos.sessions import SessionRepo
+
+    thr = "thr_oneshot"
+    ThreadRepo(services.db).insert(
+        thread_id=thr,
+        agent_id=agent_id,
+        user_id=user_id,
+        channel_type=ThreadRegistry.CHANNEL_DASHBOARD,
+        session_key=session_key,
+    )
+    SessionRepo(services.db).upsert(
+        session_key=session_key,
+        agent_id=agent_id,
+        user_id=user_id,
+        channel_type=ThreadRegistry.CHANNEL_DASHBOARD,
+        chat_type=ThreadRegistry.CHAT_TYPE_DM,
+        thread_id=thr,
+    )
+    mgr._gateway.thread_registry.get_bound_thread_id = MagicMock(return_value=thr)
     fire = datetime.now(UTC) + timedelta(seconds=5)
     spec = CronCreateSpec(
         cron_id=new_ulid(),
@@ -174,13 +197,21 @@ async def test_one_shot_disables_after_fire(tmp_path: Path) -> None:
         fresh_thread=False,
         task_type="agent",
         kind="self_reminder",
-        meta={"self_reminder": True, "max_fires": 1, "fires": 0},
+        meta={
+            "self_reminder": True,
+            "max_fires": 1,
+            "fires": 0,
+            "origin_thread_id": thr,
+            "origin_bound_at": 1,
+            "needs_retarget": False,
+        },
     )
     row = await mgr.create(spec)
     assert command_from_row(row).fresh_thread is False
 
     delivery = MagicMock()
     delivery.deliver = AsyncMock(return_value="ok")
+    delivery._repos = services.repos
     job = CronJob.from_row(
         row,
         delivery_service=delivery,

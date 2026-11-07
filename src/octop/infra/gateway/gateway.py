@@ -567,13 +567,47 @@ class Gateway:
     ) -> None:
         """Serialize a proactive operation with inbound turns for its session."""
         session = self.require_session(agent_id, session_key)
+        await self.run_locked_on_session(session, operation)
+
+    async def run_locked_on_session(
+        self,
+        session: SessionRow,
+        operation: Callable[[], Awaitable[None]],
+    ) -> None:
+        """Hold the channel session lock for an already-resolved session row.
+
+        Dashboard locks use ``thread:{thread_id}`` so a later dashboard_key
+        rebind cannot steal the lock or redirect writes (0042).
+        """
         manager = self._require_channel_manager()
         channel_id = self._channel_id_for_session(session)
         lock_key = (
             f"thread:{session.thread_id}"
             if session.channel_type == ThreadRegistry.CHANNEL_DASHBOARD
-            else session_key
+            else session.session_key
         )
+        await manager.run_in_session(channel_id, lock_key, operation)
+
+    async def run_locked_on_thread(
+        self,
+        *,
+        thread_id: str,
+        channel_type: str,
+        operation: Callable[[], Awaitable[None]],
+        session_key: str | None = None,
+    ) -> None:
+        """Serialize on ``thread:{thread_id}`` (dashboard) without live session_key rebind."""
+        manager = self._require_channel_manager()
+        if channel_type == ThreadRegistry.CHANNEL_DASHBOARD:
+            channel_id = WS_CHANNEL_ID
+            lock_key = f"thread:{thread_id}"
+        elif channel_type == ThreadRegistry.CHANNEL_CLI:
+            channel_id = CLI_CHANNEL_ID
+            lock_key = session_key or thread_id
+        else:
+            # IM: lock by session_key when provided; otherwise thread id.
+            channel_id = channel_type
+            lock_key = session_key or thread_id
         await manager.run_in_session(channel_id, lock_key, operation)
 
     async def push_text_from_session(
@@ -703,23 +737,44 @@ class Gateway:
         session: SessionRow,
         agent_id: str,
         text: str,
+        *,
+        event_id: str | None = None,
+        delivery_id: str | None = None,
+        created_at: float | int | None = None,
+        source_kind: str | None = None,
+        thread_id: str | None = None,
+        schema_version: int = 1,
     ) -> None:
-        """Fan out a toast payload to the owner's dashboard notification sockets."""
+        """Fan out a toast payload to the owner's dashboard notification sockets.
+
+        Extended fields (0042): ``event_id`` / ``delivery_id`` / ``created_at`` /
+        ``source_kind`` / ``schema_version`` — keep ``type=dashboard_push``.
+        """
         if not text.strip():
             return
+        from octop.infra.utils.ulid import new_ulid
+
         row = self._agent_manager.get_row(agent_id)
         name = getattr(row, "name", None) if row is not None else None
         agent_name = str(name).strip() if isinstance(name, str) and name.strip() else agent_id
-        await self._ws_hub.push_to_user(
-            session.user_id,
-            {
-                "type": "dashboard_push",
-                "agent_id": agent_id,
-                "thread_id": session.thread_id,
-                "text": text,
-                "agent_name": agent_name,
-            },
+        payload: dict[str, Any] = {
+            "type": "dashboard_push",
+            "agent_id": agent_id,
+            "thread_id": thread_id or session.thread_id,
+            "text": text,
+            "agent_name": agent_name,
+            "schema_version": int(schema_version),
+        }
+        eid = (event_id or "").strip() or new_ulid()
+        payload["event_id"] = eid
+        if delivery_id:
+            payload["delivery_id"] = str(delivery_id)
+        payload["created_at"] = (
+            int(created_at) if created_at is not None else int(time.time())
         )
+        if source_kind:
+            payload["source_kind"] = str(source_kind)
+        await self._ws_hub.push_to_user(session.user_id, payload)
 
     def _require_channel_manager(self) -> ChannelManager:
         if self._channel_manager is None:

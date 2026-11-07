@@ -346,24 +346,27 @@ class ProactiveCareScheduler:
                 )
                 continue  # go straight to the next loop iteration and recompute the next trigger
 
-            # Get the agent's active session
-            sessions = self._session_repo.list_by_agent(agent_id, limit=10)
-            if not sessions:
+            # 0042: fixed care target — never list_by_agent(limit=10) (DEC-0042-05).
+            try:
+                session_key = await self._resolve_care_session_key(agent_id)
+            except Exception as exc:
+                logger.error(
+                    "ProactiveCareScheduler: agent=%s resolve care target failed: %s",
+                    agent_id,
+                    exc,
+                    exc_info=exc,
+                )
+                continue
+            if not session_key:
                 logger.info(
-                    "ProactiveCareScheduler: agent=%s has no active session, skipping this push",
+                    "ProactiveCareScheduler: agent=%s has no care target, skipping this push",
                     agent_id,
                 )
                 continue
 
-            # Prefer an IM session (non-empty channel_id), otherwise pick the most recently active session
-            target_session = next(
-                (s for s in sessions if s.channel_id),
-                sessions[0],
-            )
-
             # Perform the push
             try:
-                await self._care_service.run(agent_id, target_session.session_key)
+                await self._care_service.run(agent_id, session_key)
             except Exception as exc:
                 logger.error(
                     "ProactiveCareScheduler: agent=%s push error: %s",

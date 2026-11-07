@@ -6,8 +6,8 @@ Procedural flow (bypasses the LangGraph ReAct loop):
 3. Use EpisodePicker to select the Top-3 most care-worthy episodes.
 4. Read the agent's SOUL.md and embed it into the LLM system prompt.
 5. Call a lightweight LLM to generate a care message (<=200 chars).
-6. Push to the current session via Gateway.push_text_from_session.
-7. Write a dedup record to care_push_records after a successful push.
+6. Persist care text via harness.aappend_messages (stable delivery_id), project history.
+7. Push + notify + emit thread.changed (0041); only then write care_push_records.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from octop.i18n.loader import tr as i18n_tr
 from octop.infra.proactive.picker import EpisodePicker
@@ -114,12 +114,19 @@ class ProactiveCareService:
         """Point dedup storage at a rebound control-plane pool."""
         self._care_push_repo = care_push_repo
 
-    async def run(self, agent_id: str, session_key: str) -> None:
+    async def run(
+        self,
+        agent_id: str,
+        session_key: str,
+        *,
+        delivery_id: str | None = None,
+    ) -> None:
         """Run one proactive care push.
 
         Args:
             agent_id: The agent ID to push for.
-            session_key: The session key to push to.
+            session_key: The session key to push to (fixed care / configured thread).
+            delivery_id: Stable idempotency key; defaults to a new ULID.
         """
         logger.info(
             "ProactiveCareService: starting push agent=%s session=%s", agent_id, session_key
@@ -247,19 +254,95 @@ class ProactiveCareService:
             logger.warning("ProactiveCareService: LLM call failed agent=%s: %s", agent_id, exc)
             return  # do not push, do not write a record
 
-        # 7. Push the message directly without invoking the agent.
+        # 7. Persist → project → push/notify → thread.changed (DEC-0042-06/07/08/09).
+        from octop.infra.gateway.threads import ThreadRegistry
+        from octop.infra.history.projection import message_inputs
+        from octop.infra.utils.ulid import new_ulid
+
+        did = (delivery_id or "").strip() or new_ulid()
+        assistant_id = f"care:{did}:assistant"
         try:
-            await self._gateway.push_text_from_session(agent_id, session_key, care_text)
+            session = self._gateway.require_session(agent_id, session_key)
         except Exception as exc:
             logger.warning(
-                "ProactiveCareService: push failed agent=%s session=%s: %s",
+                "ProactiveCareService: session unavailable agent=%s session=%s: %s",
                 agent_id,
                 session_key,
                 exc,
             )
-            return  # do not write a record
+            return
 
-        # 8. Write the dedup record (only after a successful push)
+        repos = getattr(self._gateway, "_repos", None)
+        thread_message_repo = getattr(repos, "thread_message_repo", None) if repos else None
+        already = False
+        if thread_message_repo is not None and hasattr(thread_message_repo, "has_message_id"):
+            already = (
+                thread_message_repo.has_message_id(session.thread_id, assistant_id) is True
+            )
+
+        if not already:
+            try:
+                harness = self._agent_manager.get_agent(agent_id)
+                appended = await harness.aappend_messages(
+                    session.thread_id,
+                    [AIMessage(content=care_text, id=assistant_id)],
+                )
+                if thread_message_repo is not None:
+                    try:
+                        thread_message_repo.append_if_ready(
+                            session.thread_id,
+                            message_inputs(appended, dedupe_missing_ids=True),
+                        )
+                    except Exception:
+                        logger.warning(
+                            "ProactiveCareService: projection failed agent=%s thread=%s",
+                            agent_id,
+                            session.thread_id,
+                            exc_info=True,
+                        )
+            except Exception as exc:
+                logger.warning(
+                    "ProactiveCareService: persist_failed agent=%s thread=%s: %s",
+                    agent_id,
+                    session.thread_id,
+                    exc,
+                )
+                return  # must not claim delivery (DEC-0042-06)
+
+        # Push / notify are best-effort after persist (DEC-0042-08).
+        try:
+
+            async def _locked() -> None:
+                await self._gateway.push_session_text(
+                    session, care_text, title_source=care_text
+                )
+                if session.channel_type == ThreadRegistry.CHANNEL_DASHBOARD:
+                    await self._gateway.notify_dashboard_push(
+                        session,
+                        agent_id,
+                        care_text,
+                        delivery_id=did,
+                        source_kind="proactive_care",
+                        thread_id=session.thread_id,
+                    )
+                    await self._gateway.emit_thread_changed(
+                        owner_user_id=session.user_id,
+                        agent_id=agent_id,
+                        thread_id=session.thread_id,
+                        reason="input",
+                    )
+
+            await self._gateway.run_locked_on_session(session, _locked)
+        except Exception as exc:
+            logger.warning(
+                "ProactiveCareService: push/notify failed after persist agent=%s session=%s: %s",
+                agent_id,
+                session_key,
+                exc,
+            )
+            # Still record dedup — body is persisted; do not re-append on retry.
+
+        # 8. Write the dedup record after successful persist
         episode_ids = [ep.id for ep in pick_result.episodes]
         try:
             self._care_push_repo.insert(
@@ -268,15 +351,15 @@ class ProactiveCareService:
                 episode_ids=episode_ids,
             )
         except Exception as exc:
-            # A failed write does not affect the push result; just log it
             logger.warning(
                 "ProactiveCareService: failed to write push record agent=%s: %s", agent_id, exc
             )
 
         logger.info(
-            "ProactiveCareService: push succeeded agent=%s session=%s episodes=%d window_days=%d",
+            "ProactiveCareService: delivery persisted agent=%s session=%s delivery_id=%s episodes=%d window_days=%d",
             agent_id,
             session_key,
+            did,
             len(episode_ids),
             pick_result.window_days,
         )

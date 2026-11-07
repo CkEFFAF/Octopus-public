@@ -95,23 +95,57 @@ class CronJob:
                 return
             if (report_options(row) is not None) != (self._report is not None):
                 return
+            from octop.infra.cron.delivery import command_from_row
+            from octop.infra.cron.origin_target import (
+                OriginThreadError,
+                prepare_self_reminder_command,
+            )
             from octop.infra.cron.self_reminder import is_self_reminder_row
 
-            command = CronDeliveryCommand(
-                cron_id=self._cron_id,
+            command = command_from_row(row)
+            # Preserve reason + any in-memory overrides from the CronJob handle.
+            from dataclasses import replace
+
+            command = replace(
+                command,
                 reason=reason,
-                cron_name=self._name,
-                agent_id=self._agent_id,
-                user_id=self._user_id,
-                session_key=self._session_key,
-                prompt=self._prompt,
+                cron_name=self._name or command.cron_name,
+                prompt=self._prompt or command.prompt,
                 fresh_thread=self._fresh_thread and not is_self_reminder_row(row),
                 task_type=self._task_type,
-                model=self._model,
-                mcp_servers=tuple(self._mcp_servers),
-                report=self._report,
-                report_origin_session=self._report_origin_session,
+                model=self._model if self._model is not None else command.model,
+                mcp_servers=tuple(self._mcp_servers) if self._mcp_servers else command.mcp_servers,
+                report=self._report if self._report is not None else command.report,
+                report_origin_session=self._report_origin_session
+                or command.report_origin_session,
             )
+            try:
+                if is_self_reminder_row(row):
+                    command = prepare_self_reminder_command(
+                        command,
+                        row,
+                        session_repo=self._delivery_service._repos.session_repo,
+                        thread_repo=self._delivery_service._repos.thread_repo,
+                        cron_repo=self._cron_repo,
+                    )
+            except OriginThreadError as exc:
+                METRICS.inc("cron_errors_total")
+                logger.warning(
+                    "cron job %s skipped: %s", self._cron_id, exc.code
+                )
+                err = format_stream_error(exc, "en")
+                self._cron_repo.set_run_status(
+                    self._cron_id, ts=ts, status="error", error=err
+                )
+                self._audit_repo.write(
+                    actor=ACTOR_SYSTEM,
+                    action="cron.run_failed",
+                    target=self._cron_id,
+                    payload=exc.code,
+                )
+                if raise_on_error:
+                    raise
+                return
             await self._delivery_service.deliver(command)
         except Exception as exc:
             METRICS.inc("cron_errors_total")
@@ -144,11 +178,14 @@ class CronJob:
 
         if not is_self_reminder_row(row):
             return
+        from octop.infra.cron.self_reminder import preserve_origin_keys
+
         meta = dict(row.meta or {})
         fires = int(meta.get("fires") or 0) + 1
         max_fires = int(meta.get("max_fires") or 1)
         max_fires = max(1, min(max_fires, MAX_FIRES_HARD_CAP))
         meta["fires"] = fires
+        meta = preserve_origin_keys(row.meta or {}, meta)
         self._cron_repo.set_meta(self._cron_id, meta)
         if fires >= max_fires:
             self._cron_repo.update(self._cron_id, enabled=False)

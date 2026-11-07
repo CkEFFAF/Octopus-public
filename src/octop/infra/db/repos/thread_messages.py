@@ -130,7 +130,21 @@ class ThreadMessageRepo:
                 mark_metadata_dirty(conn, thread_id, "message")
         return count
 
+    def has_message_id(self, thread_id: str, message_id: str) -> bool:
+        """True when the projection already stores *message_id* for *thread_id*."""
+        mid = (message_id or "").strip()
+        tid = (thread_id or "").strip()
+        if not mid or not tid:
+            return False
+        with self._db.connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM thread_messages WHERE thread_id=? AND message_id=?",
+                (tid, mid),
+            ).fetchone()
+        return row is not None
+
     def projection_status(self, thread_id: str) -> str:
+
         with self._db.connect() as conn:
             row = conn.execute(
                 "SELECT status FROM thread_history_projection WHERE thread_id = ?",
