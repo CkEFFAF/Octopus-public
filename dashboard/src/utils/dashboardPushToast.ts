@@ -1,9 +1,13 @@
+export const WORK_ITEMS_CHANGED_EVENT = "octop:work-items-changed";
+
 export type DashboardPushEvent = {
   type: "dashboard_push";
   agent_id: string;
   thread_id: string;
   text: string;
   agent_name?: string;
+  event_id?: string;
+  delivery_id?: string;
 };
 
 export function parseDashboardPushFrame(
@@ -24,6 +28,12 @@ export function parseDashboardPushFrame(
     thread_id: threadId,
     text,
     ...(name ? { agent_name: name } : {}),
+    ...(typeof obj.event_id === "string" && obj.event_id.trim()
+      ? { event_id: obj.event_id.trim() }
+      : {}),
+    ...(typeof obj.delivery_id === "string" && obj.delivery_id.trim()
+      ? { delivery_id: obj.delivery_id.trim() }
+      : {}),
   };
 }
 

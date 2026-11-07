@@ -532,7 +532,8 @@
     "TRANSFER_CAPACITY": "并发文件传输数量已达上限。",
     "TRANSFER_IO": "因存储容量或 I/O 错误导致传输失败。",
     "TRANSFER_CANCELLED": "传输已取消。",
-    "TRANSFER_NOT_FOUND": "未找到传输会话。"
+    "TRANSFER_NOT_FOUND": "未找到传输会话。",
+    "RESPONSE_RECOVERY_CONFLICT": "当前回答已变化、仍在执行，或尚不支持恢复。请刷新状态后再试，原消息不会重新发送。"
   },
   "desktop": {
     "consent": {

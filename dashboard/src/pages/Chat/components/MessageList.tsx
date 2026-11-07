@@ -89,6 +89,7 @@ const virtuosoComponents: Components<MessageGroup, VirtuosoListContext> = {
 };
 
 interface MessageListProps {
+  deliverables?: ReactNode;
   messageAnchor?: ScheduleMessageAnchor;
   messageAnchorKey?: string;
   messages: ChatMessage[];
@@ -256,6 +257,7 @@ function renderMessageGroup(
 
 export default function MessageList(props: MessageListProps) {
   const {
+    deliverables,
     messages,
     agentId,
     composerLookups,
@@ -842,6 +844,7 @@ export default function MessageList(props: MessageListProps) {
   const footer = useMemo(
     () => (
       <>
+        {deliverables}
         {showGenerating && (
           <div className={styles.generatingSlot}>
             <GeneratingIndicator
@@ -862,10 +865,12 @@ export default function MessageList(props: MessageListProps) {
       generatingMembersOnly,
       liveSpeakerNames,
       refreshFooter,
+      deliverables,
     ],
   );
 
-  const hasFooter = showGenerating || Boolean(refreshFooter);
+  const hasFooter =
+    showGenerating || Boolean(refreshFooter) || Boolean(deliverables);
 
   const virtuosoContext = useMemo<VirtuosoListContext>(
     () => ({

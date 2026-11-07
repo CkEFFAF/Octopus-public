@@ -220,6 +220,8 @@ function projectHarnessChunk(
   const agentId = optionalAgentId(obj);
 
   switch (t) {
+    case "custom":
+      return { type: "custom", data: obj.data };
     case "token":
       return {
         type: "token",

@@ -68,6 +68,55 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 describe("dashboard push visibility", () => {
+  it("reconciles on reconnect and deduplicates stable delivery events", () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    render(
+      <MemoryRouter initialEntries={["/chat/main/current"]}>
+        <Host />
+      </MemoryRouter>,
+    );
+    act(() => socket.onopen?.());
+    expect(mocks.emit).toHaveBeenCalledWith({
+      kind: "sessionsChanged",
+      sessionId: "",
+    });
+    const frame = {
+      type: "dashboard_push",
+      agent_id: "main",
+      thread_id: "other",
+      event_id: "delivery-1",
+      text: "same reminder",
+    };
+    act(() => {
+      socket.onmessage?.({ data: JSON.stringify(frame) });
+      socket.onmessage?.({ data: JSON.stringify(frame) });
+    });
+    expect(mocks.open).toHaveBeenCalledTimes(1);
+    act(
+      () =>
+        socket.onmessage?.({
+          data: JSON.stringify({ ...frame, event_id: "delivery-2" }),
+        }),
+    );
+    expect(mocks.open).toHaveBeenCalledTimes(2);
+    act(() => {
+      socket.onmessage?.({
+        data: JSON.stringify({
+          ...frame,
+          event_id: "retry-1",
+          delivery_id: "origin-delivery",
+        }),
+      });
+      socket.onmessage?.({
+        data: JSON.stringify({
+          ...frame,
+          event_id: "retry-2",
+          delivery_id: "origin-delivery",
+        }),
+      });
+    });
+    expect(mocks.open).toHaveBeenCalledTimes(3);
+  });
   it("refreshes visible current history without a toast and keeps other-thread notices", () => {
     vi.stubGlobal("WebSocket", FakeSocket);
     vi.spyOn(document, "hidden", "get").mockReturnValue(false);

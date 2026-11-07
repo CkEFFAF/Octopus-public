@@ -291,6 +291,8 @@ i18n/
 
 **IM channels:** Tool names and hint lines must be localized in `stream_project.py` — pass localized `tool_name` and pre-formatted `tool_hint_text` on `MessageEvent.tool_start/end` (octop-gateway reads `tool_hint_text` when present). Do not rely on English `ChannelConstraints.tool_hint_template` alone.
 
+**Chat answer recovery:** Use the authenticated `response-recovery` endpoint and stable `command_id` to resume the original model checkpoint. Never implement retry by submitting another `user_turn`. Keep completed tools and attachments, and revalidate the owner and execution context. See `docs/specs/0046-chat-response-recovery.md`.
+
 **Frontend split**
 
 - **Dashboard chrome** (nav, forms, buttons): `dashboard/src/locales/{en,zh}.json` via i18next.

@@ -247,7 +247,7 @@
     "targetRoot": "Target shared directory",
     "targetFile": "Target file path",
     "startTransfer": "Start device transfer",
-    "transferHint": "The selected device is the source. The control center relays this transfer, tracks progress in the ledger, and continues with this page closed.",
+    "transferHint": "Every channel is authorized and audited by the cloud. Transfers continue when this page closes.",
     "workingRoot": "Command working directory",
     "argv": "Arguments (JSON string array)",
     "timeout": "Timeout in seconds",
@@ -360,6 +360,35 @@
       "saveFailed": "Failed to save device capability pack",
       "missingTitle": "Missing or unauthorized",
       "missingDesc": "These MCP names are on the device pack but unavailable to your account: {{names}}"
+    },
+    "p2p": {
+      "channel": "Transfer channel",
+      "auto": "Automatic, with cloud fallback",
+      "directOnly": "Device direct only",
+      "hubOnly": "Cloud relay only",
+      "receipt": "Transfer and audit status",
+      "direct": "Device direct / P2P",
+      "hub": "Via cloud relay",
+      "unconfirmed": "Channel not confirmed",
+      "fallback": "Fell back to cloud relay: {{reason}}",
+      "audit": "Audit record",
+      "stale": "Cannot update transfer status. Keeping the last record.",
+      "direction": {
+        "source": "Source device error",
+        "target": "Target device error"
+      },
+      "status": {
+        "queued": "Queued",
+        "negotiating": "Negotiating channel",
+        "transferring": "Transferring",
+        "verifying": "Verifying file",
+        "pending_receipt": "Waiting for both receipts; audit incomplete",
+        "unknown": "Status unconfirmed; audit incomplete",
+        "completed": "Transfer and both receipts verified",
+        "failed": "Transfer failed",
+        "cancelled": "Transfer cancelled",
+        "expired": "Transfer expired"
+      }
     }
   },
   "octopus": {
@@ -734,7 +763,8 @@
     "TRANSFER_CAPACITY": "Too many concurrent file transfers.",
     "TRANSFER_IO": "Transfer failed due to storage capacity or I/O error.",
     "TRANSFER_CANCELLED": "Transfer was cancelled.",
-    "TRANSFER_NOT_FOUND": "Transfer session was not found."
+    "TRANSFER_NOT_FOUND": "Transfer session was not found.",
+    "RESPONSE_RECOVERY_CONFLICT": "The answer has changed, is still running, or cannot be safely resumed. Refresh its status; the original message will not be resent."
   },
   "nav": {
     "devices": "Devices",
@@ -2014,7 +2044,7 @@
     "forkFailed": "Failed to fork this conversation",
     "forkDisabledWhileBusy": "Wait for the current reply or approval to finish",
     "forkNoAssistant": "No AI reply to fork from yet",
-    "retry": "Retry",
+    "retry": "Continue this answer",
     "like": "Helpful",
     "dislike": "Not helpful",
     "selectModel": "Model",
@@ -2053,7 +2083,7 @@
     "processSummaryThinkingOnly": "{{thinking}} deep thoughts",
     "processRunningTool": "Calling {{name}}",
     "processRunningTools": "Calling tools",
-    "processThinkingLive": "Thinking",
+    "processThinkingLive": "Analyzing your question",
     "send": "Send",
     "stop": "Stop",
     "queue": {
@@ -2562,7 +2592,91 @@
     "unpinExpert": "Unpin expert",
     "pinnedExperts": "Pinned",
     "pinnedSessions": "Pinned chats",
-    "recentSessions": "Recent chats"
+    "recentSessions": "Recent chats",
+    "workItems": {
+      "title": "Background tasks",
+      "new": "New task",
+      "hint": "Tasks run independently. Keep chatting; checking progress sends no messages to the task.",
+      "thisChat": "This chat",
+      "allChats": "All chats",
+      "list": "Background task list",
+      "empty": "No background tasks yet.",
+      "recentOnly": "Showing the most recent 50 tasks.",
+      "chooseTask": "Choose a task to see its progress, or create a task.",
+      "taskTitle": "Task name",
+      "instructions": "Instructions",
+      "start": "Start background task",
+      "executionHint": "Uses the execution device and directory selected in this chat.",
+      "selectExecution": "Select an execution device and Agentic mode in the chat composer first.",
+      "stale": "Could not update status. Keeping the last result. Retry to refresh.",
+      "requestFailed": "The request is unconfirmed. Refresh the task list first; retry uses the same request.",
+      "stage": "Current stage",
+      "tools": "Active tools",
+      "updated": "Last updated",
+      "noProgress": "No progress recorded yet",
+      "noTools": "No tools running",
+      "needsApproval": "This task needs your permission decision.",
+      "needsCredential": "This task needs credentials.",
+      "permissionDenied": "Execution permission was denied.",
+      "blocked": "This task is blocked. Check its record.",
+      "originMissing": "The originating chat is unavailable. The task record is retained.",
+      "openOrigin": "Open originating chat and results",
+      "addRequirements": "Additional instructions",
+      "sendRequirements": "Send to this task",
+      "cancel": "Stop this task",
+      "status": {
+        "queued": "Queued",
+        "running": "Running",
+        "waiting_input": "Processing additional instructions",
+        "waiting_review": "Awaiting review",
+        "blocked": "Blocked",
+        "failed": "Failed",
+        "completed": "Execution finished",
+        "cancelled": "Stopped",
+        "unknown": "Status unconfirmed",
+        "cancelling": "Stop requested"
+      }
+    },
+    "backgroundUi": {
+      "running": "Work continues in this conversation.",
+      "continue": "Chat separately",
+      "progress": "View progress"
+    },
+    "deliverables": {
+      "title": "Delivered files",
+      "open": "Preview {{name}}",
+      "refreshFailed": "Could not refresh delivered files. Try again."
+    },
+    "flow": {
+      "working": "Working on your request",
+      "keepTalking": "Keep adding messages or upload files at any time",
+      "anotherChat": "Another chat",
+      "elapsed": "{{seconds}} seconds elapsed",
+      "sendWhileWorking": "Send as",
+      "supplement": "Add to this answer",
+      "queue": "Send later",
+      "supplementHint": "Read at the next step; running tools will finish",
+      "queueHint": "Process this message after the current answer",
+      "filesQueued": "Messages with files are kept in the queue until this answer finishes",
+      "uploadDoesNotBlock": "Send text while files upload; pending files stay in the composer",
+      "fileReady": "Ready",
+      "file": "file",
+      "removeFile": "Remove {{name}}",
+      "downloadFile": "Download {{name}}"
+    },
+    "recovery": {
+      "title": "This answer did not finish",
+      "busyTitle": "The model is temporarily busy",
+      "rateHint": "The model service is limiting requests. Continue this answer when the wait ends.",
+      "retained": "Your question, files, and completed steps are saved. No need to send them again.",
+      "resuming": "Resuming this answer…",
+      "retryIn": "Continue in {{seconds}}s",
+      "waiting": "Waiting for the model, retrying in {{seconds}}s ({{attempt}} / {{max}})",
+      "retrying": "Reconnecting to the model ({{attempt}} / {{max}})",
+      "busy": "This answer is still running. Wait or stop it before trying again.",
+      "unavailable": "This answer cannot be safely resumed yet. Refresh for the latest status; old messages will not be resent.",
+      "latestOnly": "Only the latest answer can be resumed. Fork an earlier answer to continue it."
+    }
   },
   "tools": {
     "get_conversation_brief": "Read conversation overview",
@@ -4718,7 +4832,10 @@
     "fileTooltip": "Upload attachment",
     "unsupportedType": "Unsupported file type: {{type}}",
     "tooLarge": "File too large (max {{maxMb}}MB): {{name}}",
-    "failed": "Upload failed"
+    "failed": "Upload failed",
+    "inProgress": "Uploading",
+    "registering": "Upload sent, confirming file",
+    "dismiss": "Dismiss"
   },
   "mention": {
     "empty": "No matches",

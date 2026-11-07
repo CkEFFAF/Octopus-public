@@ -532,7 +532,8 @@
     "TRANSFER_CAPACITY": "Too many concurrent file transfers.",
     "TRANSFER_IO": "Transfer failed due to storage capacity or I/O error.",
     "TRANSFER_CANCELLED": "Transfer was cancelled.",
-    "TRANSFER_NOT_FOUND": "Transfer session was not found."
+    "TRANSFER_NOT_FOUND": "Transfer session was not found.",
+    "RESPONSE_RECOVERY_CONFLICT": "The answer has changed, is still running, or cannot be safely resumed. Refresh its status; the original message will not be resent."
   },
   "desktop": {
     "consent": {

@@ -158,6 +158,37 @@ beforeEach(() => {
 });
 
 describe("ChatInput prefill clear-on-send", () => {
+  it("opens a separate chat and progress without stopping or inserting into work", () => {
+    const cancel = vi.fn();
+    const send = vi.fn();
+    const queue = vi.fn();
+    const continueChat = vi.fn();
+    const progress = vi.fn();
+    render(
+      <App>
+        <ChatInput
+          onSend={send}
+          onQueue={queue}
+          onCancel={cancel}
+          onNewChat={vi.fn()}
+          onContinueChat={continueChat}
+          onShowProgress={progress}
+          isStreaming
+          agentId="background-agent"
+          threadId="background-thread"
+          initialText="keep draft"
+        />
+      </App>,
+    );
+    fireEvent.click(screen.getByText("chat.backgroundUi.progress"));
+    expect(progress).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByText("chat.flow.anotherChat"));
+    expect(continueChat).toHaveBeenCalledOnce();
+    expect(cancel).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+    expect(queue).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox")).toHaveValue("keep draft");
+  });
   it("asks before recovering a withdrawn message over an existing draft on mount", async () => {
     saveWithdrawnDraft("recovery-agent", "mount", {
       id: "recovered",
@@ -355,7 +386,62 @@ describe("ChatInput prefill clear-on-send", () => {
     expect(screen.getByRole("textbox")).toBeEnabled();
     expect(screen.getByRole("textbox")).toHaveValue("restored text");
   });
-  it("queues a submitted draft by default while the agent runs", async () => {
+  it.each([true, false])(
+    "supplements the active answer and preserves a rejected draft (%s)",
+    async (accepted) => {
+      const onSteerInput = vi.fn().mockResolvedValue(accepted);
+      const onQueue = vi.fn();
+      const onSend = vi.fn();
+      render(
+        <ChatInput
+          onSend={onSend}
+          onSteerInput={onSteerInput}
+          onQueue={onQueue}
+          onCancel={vi.fn()}
+          onNewChat={vi.fn()}
+          isStreaming
+          initialText="补充：请保留引用"
+        />,
+      );
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "send" }));
+        fireEvent.click(screen.getByRole("button", { name: "send" }));
+      });
+      expect(onSteerInput).toHaveBeenCalledOnce();
+      expect(onSteerInput).toHaveBeenCalledWith({ text: "补充：请保留引用" });
+      expect(onQueue).not.toHaveBeenCalled();
+      expect(onSend).not.toHaveBeenCalled();
+      expect(screen.getByRole("textbox")).toHaveValue(
+        accepted ? "" : "补充：请保留引用",
+      );
+    },
+  );
+  it("honors the explicit later-send choice while a turn is running", async () => {
+    const onSteerInput = vi.fn();
+    const onQueue = vi.fn().mockResolvedValue("ok");
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onSteerInput={onSteerInput}
+        onQueue={onQueue}
+        onCancel={vi.fn()}
+        onNewChat={vi.fn()}
+        isStreaming
+        initialText="下一步再做"
+      />,
+    );
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "chat.flow.sendWhileWorking" }),
+      { target: { value: "queue" } },
+    );
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "send" })),
+    );
+    expect(onQueue).toHaveBeenCalledOnce();
+    expect(onSteerInput).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox")).toHaveValue("");
+  });
+  it("queues a submitted draft when the runtime has no supplement handler", async () => {
     const onSend = vi.fn();
     const onQueue = vi.fn().mockResolvedValue("ok");
     const onSteerQueued = vi.fn();

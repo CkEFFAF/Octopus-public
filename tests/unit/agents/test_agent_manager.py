@@ -976,14 +976,15 @@ async def test_model_retry_exhaustion_fails_background_job(
     from octop_harness.teams.inbox import HarnessAgentInboxManager, InboxMessage
     from octop_harness.teams.processor import default_compose_followup
 
+    from octop.infra.agents.model_retry import ModelCallFailure
+
     cfg = manager._build_harness_config(_row())
     retries = [m for m in cfg.middleware or [] if isinstance(m, ModelRetryMiddleware)]
     assert len(retries) == 1
-    assert not cfg.model_retry_enabled  # Do not nest the harness's continue-on-error retry.
+    assert not cfg.model_retry_enabled
     retry = retries[0]
+    assert retry.on_failure == "error"
     assert retry.max_retries == cfg.model_retry_max_retries
-    assert retry.initial_delay == cfg.model_retry_initial_delay
-    assert retry.max_delay == cfg.model_retry_max_delay
     retry.initial_delay = 0
     failure = failure_type("provider unavailable")
     attempts = 0
@@ -997,20 +998,15 @@ async def test_model_retry_exhaustion_fails_background_job(
         response = await retry.awrap_model_call(None, fail)
         return {"messages": response.result}
 
-    # Exhausted retries become a model-visible prompt, not a raised exception.
-    response = await retry.awrap_model_call(None, fail)
-    text = str(response.result[0].content)
-    assert any(
-        key in text for key in ("stream_errors.model_call_failed", "stream_errors.timeout_network")
-    )
-    assert "[model_call_failed]" in text
-    assert attempts == cfg.model_retry_max_retries + 1
+    # Failure stays a failure; it must never look like a successful AI reply.
+    with pytest.raises(ModelCallFailure if failure_type is httpx.ReadTimeout else failure_type):
+        await retry.awrap_model_call(None, fail)
+    expected = cfg.model_retry_max_retries + 1 if failure_type is httpx.ReadTimeout else 1
+    assert attempts == expected
     attempts = 0
-
     source = AsyncMock(return_value={"messages": [AIMessage(content="failure relayed")]})
     processor = SimpleNamespace(
-        compose_followup=MagicMock(side_effect=default_compose_followup),
-        on_reply=AsyncMock(),
+        compose_followup=MagicMock(side_effect=default_compose_followup), on_reply=AsyncMock()
     )
     inbox = HarnessAgentInboxManager(call_agent=source, processor=processor, invoke_target=target)
     msg = InboxMessage(
@@ -1022,22 +1018,11 @@ async def test_model_retry_exhaustion_fails_background_job(
         user_id=1,
     )
     await inbox._process(msg)
-    assert attempts == cfg.model_retry_max_retries + 1
-    try:
-        from octop_harness.messages import is_model_retry_failure_text
-    except ImportError:
-        is_model_retry_failure_text = None  # type: ignore[assignment]
-    if is_model_retry_failure_text is None:
-        # Published harness still treats a continue-on-error AIMessage as success.
-        assert msg.status == "done"
-        return
-    assert is_model_retry_failure_text(text)
+    assert attempts == expected
     assert msg.status == "failed"
     event = processor.on_reply.call_args.args[0]
     assert event.status == "failed"
-    assert "[model_call_failed]" in event.error_text
     assert processor.compose_followup.call_args.kwargs["result_text"] is None
-    assert processor.compose_followup.call_args.kwargs["error_text"] == event.error_text
 
 
 def test_model_retry_sync_failure_and_recovery(manager: AgentManager) -> None:
@@ -1047,14 +1032,12 @@ def test_model_retry_sync_failure_and_recovery(manager: AgentManager) -> None:
     cfg = manager._build_harness_config(_row())
     retry = next(m for m in cfg.middleware or [] if isinstance(m, ModelRetryMiddleware))
     retry.initial_delay = 0
-    failure = TypeError("model failed")
-    handler = MagicMock(side_effect=failure)
-    exhausted = retry.wrap_model_call(None, handler)
-    assert "stream_errors.model_call_failed" in str(exhausted.result[0].content)
-    assert "[model_call_failed]" in str(exhausted.result[0].content)
-    assert handler.call_count == cfg.model_retry_max_retries + 1
+    handler = MagicMock(side_effect=TypeError("invalid input"))
+    with pytest.raises(TypeError):
+        retry.wrap_model_call(None, handler)
+    assert handler.call_count == 1
     response = ModelResponse(result=[AIMessage(content="recovered")])
-    handler = MagicMock(side_effect=[failure, response])
+    handler = MagicMock(side_effect=[httpx.ReadTimeout("timeout"), response])
     assert retry.wrap_model_call(None, handler) is response
     assert handler.call_count == 2
 

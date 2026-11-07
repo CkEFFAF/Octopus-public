@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import MessageBubble from "./MessageBubble";
 import type { ChatMessage } from "../hooks/useChat";
@@ -75,8 +75,10 @@ describe("MessageBubble user avatar", () => {
       screen.getByText("stream_errors.insufficient_balance"),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Do not pretend/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "chat.retry" }));
-    expect(retry).toHaveBeenCalledWith("u1");
+    expect(
+      screen.queryByRole("button", { name: "chat.retry" }),
+    ).not.toBeInTheDocument();
+    expect(retry).not.toHaveBeenCalled();
   });
   it("shows the account preset icon instead of name initials", () => {
     currentUser.avatar_icon = "business";

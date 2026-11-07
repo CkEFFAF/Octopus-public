@@ -836,6 +836,11 @@ export function collectToolMediaFromToolData(
   videos: ToolMediaItem[];
   files: Array<{ url: string; filename?: string }>;
 } {
+  // Publication paths belong to the producing device/store. The authorized
+  // immutable resource list renders these files; never guess a workspace URL.
+  if (/(^|[._])publish_artifact$/.test(toolData?.name ?? "")) {
+    return { images: [], videos: [], files: [] };
+  }
   const fromOutput = collectToolMediaFromOutput(toolData?.output, agentId);
   const images = [...fromOutput.images];
   const videos = [...fromOutput.videos];

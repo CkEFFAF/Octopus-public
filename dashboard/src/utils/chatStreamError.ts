@@ -138,6 +138,17 @@ export function classifyChatStreamError(
   }
 
   if (
+    [
+      "insufficient_quota",
+      "insufficient balance",
+      "insufficient credits",
+      "exceeded your current quota",
+    ].some((value) => lower.includes(value))
+  ) {
+    return "stream_errors.insufficient_balance";
+  }
+
+  if (
     lower.includes("error code: 429") ||
     lower.includes("http 429") ||
     lower.includes("rate_limit") ||

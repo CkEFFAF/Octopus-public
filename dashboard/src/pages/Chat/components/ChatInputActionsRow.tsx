@@ -95,6 +95,7 @@ function resolveModelLogo(model: {
 const _sttAvailable = isSttAvailable();
 
 interface ChatInputActionsRowProps {
+  runningSendLabel?: string;
   isMobile: boolean;
   isStreaming: boolean;
   /** Team host room — stop control uses clearer wording. */
@@ -162,6 +163,7 @@ interface ChatInputActionsRowProps {
 }
 
 export default function ChatInputActionsRow({
+  runningSendLabel,
   isMobile,
   isStreaming,
   isTeam = false,
@@ -169,7 +171,6 @@ export default function ChatInputActionsRow({
   canSend,
   text,
   polishing,
-  uploading,
   recording,
   transcribing,
   browserRecording = false,
@@ -1104,7 +1105,7 @@ export default function ChatInputActionsRow({
             className={styles.secondaryBtn}
             onClick={onFileSelect}
             type="button"
-            disabled={uploading}
+            disabled={disabled}
             aria-label={t("upload.fileTooltip", "Upload attachment")}
           >
             <Paperclip size={16} />
@@ -1211,9 +1212,7 @@ export default function ChatInputActionsRow({
                 recording || transcribing ? styles.secondaryBtnActive : ""
               }`}
               type="button"
-              disabled={
-                disabled || isStreaming || transcribing || !_sttAvailable
-              }
+              disabled={disabled || transcribing || !_sttAvailable}
               onClick={onToggleVoice}
               aria-label={
                 recording
@@ -1300,16 +1299,34 @@ export default function ChatInputActionsRow({
               </button>
             </Tooltip>
             {canSend && (
-              <Tooltip title={isTeam ? t("chat.send") : t("chat.queue.action")}>
+              <Tooltip
+                title={
+                  isTeam
+                    ? t("chat.send")
+                    : runningSendLabel || t("chat.queue.action")
+                }
+              >
                 <button
                   className={styles.sendBtn}
                   onClick={onSubmit}
                   disabled={disabled}
-                  title={isTeam ? t("chat.send") : t("chat.queue.action")}
+                  title={
+                    isTeam
+                      ? t("chat.send")
+                      : runningSendLabel || t("chat.queue.action")
+                  }
                   type="button"
-                  aria-label={isTeam ? t("chat.send") : t("chat.queue.action")}
+                  aria-label={
+                    isTeam
+                      ? t("chat.send")
+                      : runningSendLabel || t("chat.queue.action")
+                  }
                 >
-                  {isTeam ? <Send size={18} /> : <ListPlus size={18} />}
+                  {isTeam || runningSendLabel ? (
+                    <Send size={18} />
+                  ) : (
+                    <ListPlus size={18} />
+                  )}
                 </button>
               </Tooltip>
             )}

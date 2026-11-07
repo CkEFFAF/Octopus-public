@@ -138,6 +138,19 @@ class RecordingTracker(TurnHistoryTracker):
     def observe(self, chunk: dict[str, Any]) -> None:
         super().observe(chunk)
         kind = chunk.get("type")
+        retry = (
+            (chunk.get("data") or {}).get("octop_model_retry")
+            if kind == "custom" and isinstance(chunk.get("data"), dict)
+            else None
+        )
+        if (
+            isinstance(retry, dict)
+            and retry.get("phase") == "retrying"
+            and self._assistant is not None
+        ):
+            self._assistant["data"]["content"] = ""
+            self._assistant["data"].get("additional_kwargs", {}).pop("reasoning_content", None)
+            self._mark_changed(self._assistant)
         if kind in ("state_snapshot", "state_update"):
             from octop.infra.history.projection import (
                 _chunk_messages,  # noqa: PLC0415
@@ -249,6 +262,8 @@ class RecordingTracker(TurnHistoryTracker):
             if not text:
                 return
             error_extra: dict[str, Any] = {STREAM_ERROR_FLAG: True}
+            if isinstance(chunk.get("diagnostic"), dict):
+                error_extra["octop_error_diagnostic"] = chunk["diagnostic"]
             code = chunk.get("error_code")
             if code:
                 error_extra[STREAM_ERROR_CODE_KEY] = str(code)

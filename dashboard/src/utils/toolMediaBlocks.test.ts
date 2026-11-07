@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agentAttachmentAccessUrl,
+  collectToolMediaFromToolData,
   agentMediaPreviewUrl,
   canonicalizeMediaApiUrl,
   isHostAbsoluteMediaPath,
@@ -11,6 +12,26 @@ import {
   extractImagePathFromText,
   workspaceDownloadUrl,
 } from "./toolMediaBlocks";
+
+it.each(["published", "error"])(
+  "never guesses device image URLs from a %s publication",
+  (status) => {
+    expect(
+      collectToolMediaFromToolData(
+        {
+          name: "publish_artifact",
+          arguments: JSON.stringify({ path: "C:/Temp/result.png" }),
+          output: JSON.stringify({
+            status,
+            resource_id: "res-result",
+            content_url: "https://untrusted.example/result.png",
+          }),
+        },
+        "parent",
+      ),
+    ).toEqual({ images: [], videos: [], files: [] });
+  },
+);
 
 describe("extractImagePathFromText", () => {
   it.each([

@@ -10,6 +10,7 @@
 import { getApiUrl } from "../../../api/config";
 import i18n from "../../../i18n";
 import { getAuthToken } from "../../../api/request";
+import { responseRecoveryPath } from "../../../api/modules/responseRecovery";
 import type { TokenUsage } from "../../../api/types";
 import { buildDashboardChatWsUrl } from "../../../api/modules/wsChat";
 import { rewritePeerSpeakerId } from "../../../utils/remoteExpert";
@@ -391,6 +392,7 @@ export function emitSessionEvent(event: SessionEvent) {
 
 function buildSnapshot(state: SessionStreamState): SessionSnapshot {
   return {
+    ...(state.modelRetry ? { modelRetry: state.modelRetry } : {}),
     messages: state.messages,
     isStreaming: state.isStreaming,
     thinkingStartedAt: state.thinkingStartedAt,
@@ -540,6 +542,7 @@ function beginStream(state: SessionStreamState, sessionId: string): void {
 }
 
 function clearStreamingFlags(state: SessionStreamState): void {
+  delete state.modelRetry;
   // Do not clear liveSpeakers — team members may keep generating after the
   // host turn unlocks the composer; process panels key off liveSpeakers.
   state.isStreaming = false;
@@ -1487,7 +1490,41 @@ function handleHarnessChunkBody(
       updateContextUsageFromChunk(state, chunk);
       break;
     case "custom":
-      // Debug-only — phase 15 will add a debug toggle that surfaces these.
+      if (chunk.data && typeof chunk.data === "object") {
+        const retry = (chunk.data as Record<string, unknown>).octop_model_retry;
+        if (retry && typeof retry === "object") {
+          const value = retry as Record<string, unknown>;
+          if (
+            typeof value.phase === "string" &&
+            typeof value.attempt === "number" &&
+            typeof value.max_attempts === "number"
+          ) {
+            if (value.phase === "retrying") {
+              state.messages = state.messages.filter(
+                (message) =>
+                  message.id !== state.streamId ||
+                  message.toolData ||
+                  message.status !== "streaming",
+              );
+              state.streamId = "";
+              state.streamMsg = "";
+              state.streamBlockType = "";
+            }
+            state.modelRetry =
+              value.phase === "recovered"
+                ? undefined
+                : {
+                    phase: value.phase,
+                    attempt: value.attempt,
+                    max_attempts: value.max_attempts,
+                    retry_at:
+                      typeof value.retry_at === "number"
+                        ? value.retry_at
+                        : undefined,
+                  };
+          }
+        }
+      }
       break;
   }
   notify(
@@ -2445,7 +2482,7 @@ export async function attachThread(
   threadId: string,
   onStreamEnd?: () => void,
   resumeAttempt = 0,
-  opts?: { afterUnexpectedDrop?: boolean },
+  opts?: { afterUnexpectedDrop?: boolean; refreshStatus?: boolean },
 ): Promise<void> {
   if (!agentId || !threadId || threadId === "__empty__") return;
 
@@ -2460,7 +2497,16 @@ export async function attachThread(
     existing.threadId === threadId &&
     isLiveSocketOpen(sessionId)
   ) {
-    // Already bound — do not re-send subscribe (avoids turn_status churn).
+    if (opts?.refreshStatus && existing.ws.readyState === WebSocket.OPEN) {
+      try {
+        existing.ws.send(
+          JSON.stringify({ type: "subscribe", thread_id: threadId }),
+        );
+      } catch {
+        // A concurrent socket close is recovered by the normal reconnect path.
+      }
+    }
+    // Normal attachments reuse the socket without requesting another snapshot.
     return;
   }
 
@@ -2661,24 +2707,28 @@ export async function attachThread(
         shouldResumeStreamAfterClose({
           intentionalClose: wasIntentional,
           isStreaming: stillStreaming,
+          listenOnly: live.listenOnly,
           threadId,
           attempt: resumeAttempt,
           maxAttempts: MAX_STREAM_RESUME_ATTEMPTS,
           sessionFocused: focused,
         })
       ) {
-        setTimeout(() => {
-          void attachThread(
-            sessionId,
-            agentId,
-            threadId,
-            onStreamEnd,
-            resumeAttempt + 1,
-            opts,
-          );
-        }, 400);
+        setTimeout(
+          () => {
+            void attachThread(
+              sessionId,
+              agentId,
+              threadId,
+              onStreamEnd,
+              resumeAttempt + 1,
+              opts,
+            );
+          },
+          Math.min(400 * 2 ** resumeAttempt, 15000),
+        );
       } else if (
-        stillStreaming &&
+        (stillStreaming || live.listenOnly) &&
         !wasIntentional &&
         !focused &&
         resumeAttempt < MAX_STREAM_RESUME_ATTEMPTS
@@ -3062,6 +3112,94 @@ export async function sendTurn(
   }
 }
 
+/** Recover a response using its existing model checkpoint, never a user_turn. */
+export async function recoverResponse(
+  sessionId: string,
+  agentId: string,
+  responseId: string,
+  commandId: string,
+  modelRef?: string | null,
+): Promise<"completed" | "failed" | "cancelled" | "unknown"> {
+  const state = getOrCreate(sessionId);
+  if (state.isStreaming) throw new Error(i18n.t("chat.recovery.busy"));
+  const predecessorRunId = activeRunIds.get(state);
+  const controller = new AbortController();
+  state.abortController = controller;
+  beginStream(state, sessionId);
+  notify(state);
+  let finished = false;
+  let outcome: "completed" | "failed" | "cancelled" | "unknown" = "unknown";
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    if (state.abortController !== controller) return;
+    clearStreamingFlags(state);
+    clearStreamActivity(sessionId);
+    state.abortController = null;
+    state.streamId = "";
+    state.streamMsg = "";
+    state.streamBlockType = "";
+    sealInFlightAssistantMessages(state);
+    notify(state);
+    emitStreamEvent({ kind: "streamEnd", sessionId });
+  };
+  try {
+    const token = getAuthToken();
+    const res = await fetch(
+      getApiUrl(responseRecoveryPath(agentId, sessionId)),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+          "Accept-Language": i18n.language,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          response_id: responseId,
+          command_id: commandId,
+          ...(modelRef ? { model: modelRef } : {}),
+        }),
+        signal: controller.signal,
+      },
+    );
+    if (!res.ok) throw new Error(i18n.t("chat.recovery.unavailable"));
+    await consumeSseResponse(
+      state,
+      sessionId,
+      res,
+      controller,
+      finish,
+      undefined,
+      predecessorRunId,
+      (chunk) => {
+        if (chunk.type === "error") outcome = "failed";
+        else if (chunk.type === "run_phase" && chunk.phase === "cancelled")
+          outcome = "cancelled";
+        else if (chunk.type === "run_phase" && chunk.phase === "completed")
+          outcome = "completed";
+        else if (
+          chunk.type === "custom" &&
+          chunk.data &&
+          typeof chunk.data === "object"
+        ) {
+          const data = chunk.data as Record<string, unknown>;
+          if (
+            data.type === "recovery_ack" &&
+            ["completed", "failed", "cancelled"].includes(String(data.status))
+          )
+            outcome = data.status as typeof outcome;
+        }
+      },
+    );
+  } catch (error) {
+    if ((error as Error).name !== "AbortError") throw error;
+  } finally {
+    finish();
+  }
+  return outcome;
+}
+
 async function consumeSseResponse(
   state: SessionStreamState,
   sessionId: string,
@@ -3070,6 +3208,7 @@ async function consumeSseResponse(
   finish: () => void,
   onRunId?: (runId: string) => void,
   predecessorRunId?: string,
+  onChunk?: (chunk: HarnessChunk) => void,
 ): Promise<void> {
   const reader = res.body?.getReader();
   if (!reader) {
@@ -3083,6 +3222,7 @@ async function consumeSseResponse(
   let obsolete = false;
 
   const observe = (chunk: HarnessChunk) => {
+    onChunk?.(chunk);
     const firstPhase = chunk.type === "run_phase" && !streamRunId;
     if (chunk.type === "run_phase" && firstPhase) {
       streamRunId = chunk.run_id;

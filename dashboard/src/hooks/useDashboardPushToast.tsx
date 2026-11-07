@@ -14,6 +14,7 @@ import {
 import {
   parseDashboardPushFrame,
   truncatePushText,
+  WORK_ITEMS_CHANGED_EVENT,
 } from "../utils/dashboardPushToast";
 import styles from "./useDashboardPushToast.module.less";
 
@@ -46,6 +47,7 @@ export function useDashboardPushToast(): void {
   const routeRef = useRef(location.pathname);
   routeRef.current = location.pathname;
   const notices = useRef(new Map<string, Set<string>>());
+  const seenEvents = useRef(new Set<string>());
   const visibleThread = useCallback(() => {
     if (document.hidden) return null;
     const match = /^\/chat\/([^/]+)\/([^/]+)\/?$/.exec(routeRef.current);
@@ -129,6 +131,7 @@ export function useDashboardPushToast(): void {
       ws = socket;
       socket.onopen = () => {
         retry = 0;
+        emitSessionEvent({ kind: "sessionsChanged", sessionId: "" });
       };
       socket.onmessage = (event) => {
         let raw: unknown;
@@ -144,17 +147,34 @@ export function useDashboardPushToast(): void {
         ) {
           return;
         }
+        if (
+          raw &&
+          typeof raw === "object" &&
+          (raw as { type?: string }).type === "task.changed"
+        ) {
+          const frame = raw as { task_id?: unknown; agent_id?: unknown };
+          if (
+            typeof frame.task_id === "string" &&
+            typeof frame.agent_id === "string"
+          )
+            window.dispatchEvent(new Event(WORK_ITEMS_CHANGED_EVENT));
+          return;
+        }
         const parsed = parseDashboardPushFrame(raw);
         if (
           raw &&
           typeof raw === "object" &&
-          (raw as { type?: string }).type === "thread_metadata.updated"
+          ["thread_metadata.updated", "thread.changed"].includes(
+            (raw as { type?: string }).type ?? "",
+          )
         ) {
           const frame = raw as { thread_id?: unknown; agent_id?: unknown };
           if (
             typeof frame.thread_id === "string" &&
             typeof frame.agent_id === "string"
           ) {
+            if ((raw as { type?: string }).type === "thread.changed")
+              invalidateHistory(frame.thread_id);
             emitSessionEvent({
               kind: "sessionsChanged",
               sessionId: frame.thread_id,
@@ -164,6 +184,20 @@ export function useDashboardPushToast(): void {
           return;
         }
         if (!parsed) return;
+        const deliveryIdentity = parsed.delivery_id || parsed.event_id;
+        if (deliveryIdentity) {
+          const identity = JSON.stringify([
+            parsed.agent_id,
+            parsed.thread_id,
+            deliveryIdentity,
+          ]);
+          if (seenEvents.current.has(identity)) return;
+          seenEvents.current.add(identity);
+          if (seenEvents.current.size > 500)
+            seenEvents.current.delete(
+              seenEvents.current.values().next().value!,
+            );
+        }
         void refreshRef.current({ silent: true });
         // A proactive run wrote to this thread outside the chat socket. Stale it
         // here (not in the chat page listener) so the cached page is dropped

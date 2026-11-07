@@ -480,7 +480,9 @@ export function useSessions(agentId: string | null) {
         // Agent switched while the probe was in flight — do not rewrite URL.
         if (_storeAgentId !== agentId) return "unknown";
         const found = valid.some((s) => s.id === threadId);
-        if (!found) return "missing";
+        // A bounded page cannot prove deletion. Keep an older chat URL rather
+        // than redirecting it to an unrelated recent conversation.
+        if (!found) return more ? "unknown" : "missing";
         applySessionPage(
           valid,
           more || valid.length > limit,

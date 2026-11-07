@@ -47,6 +47,7 @@ export interface HitlRequestData {
 }
 
 export interface ChatAttachment {
+  size?: number;
   url: string;
   filename?: string;
   mediaType?: string;
@@ -101,6 +102,12 @@ export interface ChatMessage {
 
 /** Per-session state held in the chat store's module-scoped Map. */
 export interface SessionStreamState {
+  modelRetry?: {
+    phase: string;
+    attempt: number;
+    max_attempts: number;
+    retry_at?: number;
+  };
   messages: ChatMessage[];
   isStreaming: boolean;
   /** Wall-clock ms when the current user turn started waiting on the model. */
@@ -146,6 +153,7 @@ export interface SessionStreamState {
 
 /** Read-only snapshot shape exposed via ``chatStore.getSnapshot``. */
 export interface SessionSnapshot {
+  modelRetry?: SessionStreamState["modelRetry"];
   messages: ChatMessage[];
   isStreaming: boolean;
   thinkingStartedAt: number | null;

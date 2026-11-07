@@ -19,6 +19,7 @@ export const STREAM_STALE_WITHOUT_SOCKET_MS = 20_000;
 export function shouldResumeStreamAfterClose(opts: {
   intentionalClose: boolean;
   isStreaming: boolean;
+  listenOnly?: boolean;
   threadId: string | null | undefined;
   /** 0-based attempt counter for this resume streak */
   attempt?: number;
@@ -36,7 +37,7 @@ export function shouldResumeStreamAfterClose(opts: {
   if (opts.sessionFocused === false) return false;
   return (
     !opts.intentionalClose &&
-    opts.isStreaming &&
+    (opts.isStreaming || opts.listenOnly === true) &&
     tid.length > 0 &&
     tid !== "__empty__"
   );

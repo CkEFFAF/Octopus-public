@@ -152,6 +152,21 @@ describe("useSessions agent switch", () => {
     expect(probe).toBe("missing");
   });
 
+  it("does not treat an older thread outside a bounded page as deleted", async () => {
+    listMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValue(
+        Array.from({ length: 51 }, (_, index) => threadRow("recent-" + index)),
+      );
+    const { result } = renderHook(() => useSessions("agent-new"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    let probe: string | undefined;
+    await act(async () => {
+      probe = await result.current.ensureThreadInList("older-thread");
+    });
+    expect(probe).toBe("unknown");
+  });
+
   it("ensureThreadInList returns found when the thread is already listed", async () => {
     listMock.mockResolvedValue([threadRow("thr_ok")]);
 

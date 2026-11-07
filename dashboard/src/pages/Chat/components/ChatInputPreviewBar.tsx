@@ -1,8 +1,10 @@
-import { Image } from "antd";
-import { X, FileText } from "lucide-react";
+import { Image, Progress, Button } from "antd";
+import { X, FileText, RotateCcw, UploadCloud } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { formatBytes } from "../../../utils/embeddingDownload";
 import { useAuthImageSrc } from "../../../hooks/useAuthImageSrc";
 import type { ChatAttachment } from "../hooks/useChat";
+import type { AttachmentUpload } from "../hooks/useChatAttachments";
 import type { KnowledgeBase } from "../../../api/modules/knowledgeBases";
 import { ConnectorLogo } from "../../Agent/Connectors/connectorDefs";
 import { knowledgeIconForName } from "../../KnowledgeBases/knowledgeIcons";
@@ -14,6 +16,9 @@ import styles from "../index.module.less";
 interface ChatInputPreviewBarProps {
   attachments: ChatAttachment[];
   uploading: boolean;
+  uploads?: AttachmentUpload[];
+  onCancelUpload?: (id: string) => void;
+  onRetryUpload?: (id: string) => void;
   selectedConnectors: string[];
   selectedKnowledgeBaseIds: string[];
   availableConnectors?: {
@@ -87,6 +92,9 @@ function ComposerImagePreview({
 export default function ChatInputPreviewBar({
   attachments,
   uploading,
+  uploads = [],
+  onCancelUpload,
+  onRetryUpload,
   selectedConnectors,
   selectedKnowledgeBaseIds,
   availableConnectors,
@@ -95,9 +103,11 @@ export default function ChatInputPreviewBar({
   onConnectorsChange,
   onKnowledgeBaseIdsChange,
 }: ChatInputPreviewBarProps) {
+  const { t } = useTranslation();
   const hasContent =
     attachments.length > 0 ||
     uploading ||
+    uploads.length > 0 ||
     selectedConnectors.length > 0 ||
     selectedKnowledgeBaseIds.length > 0;
 
@@ -134,6 +144,9 @@ export default function ChatInputPreviewBar({
                 <button
                   className={styles.imagePreviewRemove}
                   onClick={() => onRemoveAttachment(idx)}
+                  aria-label={t("chat.flow.removeFile", {
+                    name: attachment.filename || t("chat.flow.file"),
+                  })}
                   type="button"
                 >
                   <X size={12} />
@@ -171,6 +184,9 @@ export default function ChatInputPreviewBar({
               <button
                 className={styles.imagePreviewRemove}
                 onClick={() => onRemoveAttachment(idx)}
+                aria-label={t("chat.flow.removeFile", {
+                  name: attachment.filename || t("chat.flow.file"),
+                })}
                 type="button"
               >
                 <X size={12} />
@@ -187,11 +203,26 @@ export default function ChatInputPreviewBar({
               <FileText size={14} className={styles.attachmentPreviewIcon} />
               <span className={styles.attachmentPreviewName}>
                 {attachment.filename || attachment.url}
+                <small
+                  style={{
+                    display: "block",
+                    color: "var(--fn-text-secondary)",
+                    fontWeight: 400,
+                  }}
+                >
+                  {attachment.size !== undefined
+                    ? `${formatBytes(attachment.size)} · `
+                    : ""}
+                  {t("chat.flow.fileReady")}
+                </small>
               </span>
             </div>
             <button
               className={styles.imagePreviewRemove}
               onClick={() => onRemoveAttachment(idx)}
+              aria-label={t("chat.flow.removeFile", {
+                name: attachment.filename || t("chat.flow.file"),
+              })}
               type="button"
             >
               <X size={12} />
@@ -199,7 +230,65 @@ export default function ChatInputPreviewBar({
           </div>
         );
       })}
+      {uploads.map((item) => (
+        <div
+          className={styles.uploadQueueItem}
+          key={item.id}
+          data-status={item.status}
+        >
+          <div className={styles.uploadQueueHeading}>
+            <UploadCloud size={15} aria-hidden />
+            <span className={styles.uploadQueueName} title={item.filename}>
+              {item.filename}
+            </span>
+          </div>
+          {item.status === "failed" ? (
+            <span role="alert" className={styles.uploadQueueError}>
+              {item.error}
+            </span>
+          ) : (
+            <>
+              <Progress
+                percent={item.percent}
+                size="small"
+                status="normal"
+                strokeColor="var(--fn-color-primary)"
+              />
+              <span role="status">
+                {t(
+                  item.percent === 100
+                    ? "upload.registering"
+                    : "upload.inProgress",
+                )}
+              </span>
+            </>
+          )}
+          <div className={styles.uploadQueueActions}>
+            {item.status === "failed" && (
+              <Button
+                size="small"
+                icon={<RotateCcw size={12} />}
+                onClick={() => onRetryUpload?.(item.id)}
+              >
+                {t("common.retry")}
+              </Button>
+            )}
+            <Button
+              type="text"
+              size="small"
+              onClick={() => onCancelUpload?.(item.id)}
+            >
+              {t(item.status === "failed" ? "upload.dismiss" : "common.cancel")}
+            </Button>
+          </div>
+        </div>
+      ))}
       {uploading && (
+        <span role="status" className={styles.uploadPendingHint}>
+          {t("chat.flow.uploadDoesNotBlock")}
+        </span>
+      )}
+      {uploading && uploads.length === 0 && (
         <div className={styles.imagePreviewItem}>
           <div className={styles.imagePreviewLoading}>
             <div className={styles.uploadSpinner} />

@@ -38,6 +38,7 @@ import {
 import ChatQueuedMessages from "./ChatQueuedMessages";
 import { useVoiceInput } from "../../../hooks/useVoiceInput";
 import { useChatAttachments } from "../hooks/useChatAttachments";
+import ChatWorkStatus from "./ChatWorkStatus";
 import { useSlashMentionInput } from "../hooks/useSlashMentionInput";
 import { stripThinkingTags } from "../utils/chatAttachments";
 import { isSlashCommandText } from "../utils/slashText";
@@ -104,6 +105,11 @@ interface ChatInputProps {
   ) => QueuedChatItem | null | Promise<QueuedChatItem | null>;
   onCancel: () => void;
   onNewChat: () => void;
+  onContinueChat?: () => void;
+  onSteerInput?: (input: EnqueueChatItemInput) => Promise<boolean>;
+  modelRetry?: import("../hooks/sseHelpers").SessionSnapshot["modelRetry"];
+  startedAt?: number | null;
+  onShowProgress?: () => void;
   onUserInput?: () => void;
   browserRecording?: boolean;
   browserReplayBusy?: boolean;
@@ -160,6 +166,7 @@ interface ChatInputProps {
   onInspectContext?: () => void;
   deviceControl?: React.ReactNode;
   runtimePhase?: string;
+  backgroundWork?: ReactNode;
 }
 
 const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
@@ -171,10 +178,16 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       onSteerQueued,
       onDismissQueued,
       runtimePhase,
+      backgroundWork,
       queuedItems = [],
       onReclaimQueued,
       onCancel,
       onNewChat,
+      onContinueChat,
+      onSteerInput,
+      modelRetry,
+      startedAt,
+      onShowProgress,
       onUserInput,
       browserRecording,
       browserReplayBusy,
@@ -222,6 +235,9 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     ref,
   ) {
     const { t, i18n } = useTranslation();
+    const [busyIntent, setBusyIntent] = useState<"supplement" | "queue">(
+      "supplement",
+    );
     const scope = executionScope(agentId, threadId);
     const { workMode: selectedWorkMode } = useExecutionSelection(scope);
     const setSelectedWorkMode = (mode: WorkMode) =>
@@ -288,12 +304,16 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     const {
       attachments,
       uploading,
+      uploads,
+      cancelUpload,
+      retryUpload,
       dragOver,
       fileInputRef,
       handleFileSelect,
       handleFileChange,
       removeAttachment,
       clearAttachments,
+      consumeAttachments,
       restoreAttachments,
       handlePaste,
       handleDragEnter,
@@ -301,7 +321,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       handleDragOver,
       handleDrop,
       processFiles,
-    } = useChatAttachments(agentId);
+    } = useChatAttachments(agentId, threadId);
 
     // Expose an imperative handle so the parent can push a new prefill without
     // triggering a prop change that would cause a re-render cascade.
@@ -633,7 +653,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       (_prevHeight: number, submittedText: string) => {
         setText("");
         writeInputDraft(agentId, threadId, "");
-        clearAttachments();
+        (consumeAttachments ?? clearAttachments)(attachments);
         userHasEditedRef.current = false;
         // Parent may re-pass the same prefill as initialText on the next render
         // (skill-card / cron keep it in a ref). Ignore that exact value once.
@@ -641,7 +661,15 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
         prevInitialTextRef.current = initialText;
         onComposerCleared?.();
       },
-      [agentId, threadId, clearAttachments, initialText, onComposerCleared],
+      [
+        agentId,
+        threadId,
+        clearAttachments,
+        consumeAttachments,
+        attachments,
+        initialText,
+        onComposerCleared,
+      ],
     );
 
     const submitMessage = useCallback(async () => {
@@ -667,6 +695,30 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       const prevHeight = ta ? ta.getBoundingClientRect().height : 0;
 
       if (isStreaming && !isTeam) {
+        if (
+          onSteerInput &&
+          busyIntent === "supplement" &&
+          wireText.trim() &&
+          !attachments.length &&
+          !isSlashCommandText(wireText)
+        ) {
+          if (submissionPending.current) return;
+          submissionPending.current = true;
+          try {
+            const accepted = await onSteerInput({ text: wireText });
+            if (
+              accepted &&
+              latestComposer.current.text === text &&
+              latestComposer.current.agentId === agentId &&
+              latestComposer.current.threadId === threadId
+            ) {
+              resetComposerAfterSubmit(prevHeight, trimmed);
+            }
+          } finally {
+            submissionPending.current = false;
+          }
+          return;
+        }
         if (!onQueue) return;
         if (submissionPending.current) return;
         submissionPending.current = true;
@@ -697,7 +749,6 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
         if (result === "empty") return;
         if (
           latestComposer.current.text === text &&
-          latestComposer.current.attachments === attachments &&
           latestComposer.current.agentId === agentId &&
           latestComposer.current.threadId === threadId
         ) {
@@ -713,6 +764,8 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       attachments,
       onSend,
       onQueue,
+      onSteerInput,
+      busyIntent,
       disabled,
       isStreaming,
       isTeam,
@@ -878,13 +931,42 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
           handleDrop(event);
         }}
       >
-        {isStreaming && runtimePhase ? (
-          <div className={styles.runtimePhase} role="status">
-            {t(`chat.steer.phase.${runtimePhase}`, {
-              defaultValue: runtimePhase,
-            })}
-          </div>
+        {backgroundWork}
+        {isStreaming && onContinueChat ? (
+          <ChatWorkStatus
+            onContinueChat={onContinueChat}
+            onShowProgress={onShowProgress}
+            phase={runtimePhase}
+            startedAt={startedAt}
+            retry={modelRetry}
+          />
         ) : null}
+        {isStreaming && !isTeam && onSteerInput && (
+          <div className={styles.busySendIntent}>
+            <label>
+              {t("chat.flow.sendWhileWorking")}
+              <select
+                aria-label={t("chat.flow.sendWhileWorking")}
+                value={busyIntent}
+                onChange={(event) =>
+                  setBusyIntent(event.target.value as "supplement" | "queue")
+                }
+              >
+                <option value="supplement">{t("chat.flow.supplement")}</option>
+                <option value="queue">{t("chat.flow.queue")}</option>
+              </select>
+            </label>
+            <span>
+              {t(
+                attachments.length
+                  ? "chat.flow.filesQueued"
+                  : busyIntent === "supplement"
+                  ? "chat.flow.supplementHint"
+                  : "chat.flow.queueHint",
+              )}
+            </span>
+          </div>
+        )}
         {onReclaimQueued && (
           <ChatQueuedMessages
             items={queuedItems}
@@ -920,6 +1002,9 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
           <ChatInputPreviewBar
             attachments={attachments}
             uploading={uploading}
+            uploads={uploads}
+            onCancelUpload={cancelUpload}
+            onRetryUpload={retryUpload}
             selectedConnectors={selectedConnectors}
             availableConnectors={availableConnectors}
             availableKnowledgeBases={availableKnowledgeBases}
@@ -1033,6 +1118,14 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
           )}
 
           <ChatInputActionsRow
+            runningSendLabel={
+              onSteerInput &&
+              busyIntent === "supplement" &&
+              !attachments.length &&
+              !isSlashCommandText(text)
+                ? t("chat.flow.supplement")
+                : undefined
+            }
             isMobile={isMobile}
             isStreaming={isStreaming}
             isTeam={isTeam}

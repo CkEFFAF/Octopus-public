@@ -1,0 +1,90 @@
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--fn-border-primary);
+  border-radius: 12px;
+  background: var(--fn-bg-secondary);
+  color: var(--fn-text-primary);
+}
+.icon {
+  display: flex;
+  padding-top: 1px;
+  color: var(--fn-text-secondary);
+  flex-shrink: 0;
+}
+.content {
+  min-width: 0;
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.65;
+  > strong {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  > p {
+    margin: 5px 0;
+    overflow-wrap: anywhere;
+  }
+}
+.retained {
+  color: var(--fn-text-secondary);
+  font-size: 12px;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  &:empty {
+    display: none;
+  }
+  button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 36px;
+    padding: 6px 12px;
+    border: 1px solid var(--fn-border-primary);
+    border-radius: 7px;
+    background: var(--fn-bg-primary);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    &:hover:not(:disabled) {
+      background: var(--fn-bg-active);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--fn-color-primary);
+      outline-offset: 2px;
+    }
+    &:disabled {
+      color: var(--fn-text-secondary);
+      cursor: default;
+    }
+  }
+}
+.spin {
+  animation: recoverySpin 1s linear infinite;
+}
+@keyframes recoverySpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+@media (max-width: 600px) {
+  .notice {
+    padding: 14px 12px;
+    gap: 9px;
+  }
+  .actions button {
+    min-height: 44px;
+  }
+}

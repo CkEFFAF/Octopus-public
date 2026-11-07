@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  createElement,
+  useContext,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   collaborationApi,
   type CollaborationPage,
@@ -19,7 +28,11 @@ function mergeBy<T>(old: T[], next: T[], key: (item: T) => string): T[] {
 }
 
 /** Mount with the thread as React key so in-flight reads cannot cross chats. */
-export function useCollaboration(agentId: string, threadId: string) {
+function useCollaborationState(
+  agentId: string,
+  threadId: string,
+  enabled = true,
+) {
   const [page, setPage] = useState(empty);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -27,6 +40,7 @@ export function useCollaboration(agentId: string, threadId: string) {
   const busy = useRef(false);
   const mounted = useRef(false);
   const refresh = useCallback(async () => {
+    if (!enabled || !agentId || !threadId) return;
     if (busy.current) return;
     busy.current = true;
     setLoading(true);
@@ -62,9 +76,10 @@ export function useCollaboration(agentId: string, threadId: string) {
       busy.current = false;
       if (mounted.current) setLoading(false);
     }
-  }, [agentId, threadId]);
+  }, [agentId, threadId, enabled]);
 
   useEffect(() => {
+    if (!enabled || !agentId || !threadId) return;
     mounted.current = true;
     void refresh();
     const recover = () => {
@@ -81,6 +96,37 @@ export function useCollaboration(agentId: string, threadId: string) {
       window.removeEventListener("online", recover);
       document.removeEventListener("visibilitychange", recover);
     };
-  }, [refresh]);
+  }, [refresh, enabled, agentId, threadId]);
   return { page, loading, error, refresh };
+}
+
+const CollaborationContext = createContext<{
+  agentId: string;
+  threadId: string;
+  value: ReturnType<typeof useCollaborationState>;
+} | null>(null);
+
+/** Key this provider by account/expert/thread so cursor and reads never cross chats. */
+export function CollaborationProvider({
+  agentId,
+  threadId,
+  children,
+}: {
+  agentId: string;
+  threadId: string;
+  children: ReactNode;
+}) {
+  const value = useCollaborationState(agentId, threadId);
+  return createElement(
+    CollaborationContext.Provider,
+    { value: { agentId, threadId, value } },
+    children,
+  );
+}
+
+export function useCollaboration(agentId: string, threadId: string) {
+  const shared = useContext(CollaborationContext);
+  const matches = shared?.agentId === agentId && shared?.threadId === threadId;
+  const fallback = useCollaborationState(agentId, threadId, !matches);
+  return matches ? shared.value : fallback;
 }
