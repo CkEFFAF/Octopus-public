@@ -131,3 +131,34 @@ async def test_care_persists_before_push_and_rereads(tmp_path: Path) -> None:
     with patch("octop.infra.proactive.service.ainvoke_text", AsyncMock(return_value="关心一下")):
         await service.run(agent_id, key, delivery_id="care1")
     assert appended == []
+
+
+@pytest.mark.asyncio
+async def test_scheduler_resolves_dedicated_care_session(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock
+
+    from octop.infra.proactive.scheduler import ProactiveCareScheduler
+
+    db = SqlitePool(tmp_path / "octop.db")
+    run_migrations(db)
+    user_id = UserRepo(db).create(username="u", password_hash="h", role="user")
+    agent_id = new_ulid()
+    AgentRepo(db).create(agent_id=agent_id, user_id=user_id, name="bot")
+    sessions = SessionRepo(db)
+    threads = ThreadRepo(db)
+    registry = ThreadRegistry(session_repo=sessions, thread_repo=threads)
+    care = MagicMock()
+    care._gateway = MagicMock(thread_registry=registry)
+    sched = ProactiveCareScheduler(
+        care_service=care,
+        config_repo=MagicMock(),
+        session_repo=sessions,
+        agent_repo=AgentRepo(db),
+        user_repo=UserRepo(db),
+    )
+    key = await sched._resolve_care_session_key(agent_id)
+    assert key == care_session_key(agent_id=agent_id, owner_user_id=user_id)
+    row = sessions.get(key)
+    assert row is not None
+    assert row.agent_id == agent_id
+    assert int(row.user_id) == user_id

@@ -376,7 +376,70 @@ class ProactiveCareScheduler:
                 )
             # Regardless of success or failure, continue to the next scheduling round
 
+    async def _resolve_care_session_key(self, agent_id: str) -> str | None:
+        """Return configured care thread session or dedicated care session key."""
+        from octop.infra.cron.origin_target import (
+            care_session_key,
+            ensure_pin_session,
+            read_configured_care_thread_id,
+        )
+        from octop.infra.gateway.threads import ThreadRegistry
+
+        if self._agent_repo is None:
+            return None
+        agent = self._agent_repo.get(agent_id)
+        if agent is None or agent.user_id is None:
+            return None
+        owner = int(agent.user_id)
+        gateway = getattr(self._care_service, "_gateway", None)
+        registry = getattr(gateway, "thread_registry", None) if gateway is not None else None
+
+        configured = read_configured_care_thread_id(agent)
+        if configured:
+            thread_repo = getattr(registry, "_threads", None) if registry is not None else None
+            thread = thread_repo.get(configured) if thread_repo is not None else None
+            if (
+                thread is not None
+                and str(thread.agent_id) == agent_id
+                and int(thread.user_id) == owner
+            ):
+                session = ensure_pin_session(
+                    session_repo=self._session_repo,
+                    thread_id=configured,
+                    agent_id=agent_id,
+                    user_id=owner,
+                )
+                return session.session_key
+            logger.warning(
+                "ProactiveCareScheduler: agent=%s care_thread_id=%s unavailable; falling back",
+                agent_id,
+                configured,
+            )
+
+        key = care_session_key(agent_id=agent_id, owner_user_id=owner)
+        existing = self._session_repo.get(key)
+        if existing is not None and (
+            existing.agent_id == agent_id and int(existing.user_id) == owner
+        ):
+            return key
+        if registry is not None:
+            await registry.get_or_create_by_key(
+                session_key=key,
+                agent_id=agent_id,
+                user_id=owner,
+                channel_type=ThreadRegistry.CHANNEL_DASHBOARD,
+                channel_chat_type="care",
+                channel_metadata={
+                    "channel_type": ThreadRegistry.CHANNEL_DASHBOARD,
+                    "user_id": owner,
+                    "care": True,
+                },
+            )
+            return key
+        return None
+
     def _resolve_tz_for_agent(self, agent_id: str) -> str:
+
         if self._agent_repo is None or self._user_repo is None:
             return self._default_timezone
 
