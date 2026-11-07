@@ -166,6 +166,9 @@ Only `launch.py` may import both `infra/server` and `api/app` in the same module
 | **Offline** | Read/write local `~/.octop` SQLite only | `user *`, `provider *`, `cron` list/create/delete, `agent list/delete`, `chats` CRUD, `models` presets/list/active, `channel` CRUD, `admin`, `skills` enable/disable |
 | **Embedded** | Needs harness/gateway runtime; boots in-process `OctopServer` | `chats send/repl`, `chats get` (history), `cron run-now`, `agent` create/start/stop/reload, `provider test`, `channel test`, `skills list`, `acp` |
 | **External** | Talks to OS/daemon directly, no Octop HTTP | `models ollama-*`, channel QR bind (WeCom/WeChat), Feishu bot-creator subprocess |
+| **Remote** | Calls scoped cloud APIs without a local server or account DB | `acp-remote`, `device expert` |
+
+**Device expert client (0046):** `octop device expert` and portable `expert.bat` / `expert.sh` use a separate `oaa_` credential in private device state. Keep the standalone client free of server/LLM dependencies; retain the command journal and read-only recovery of unconfirmed sends. Usage: `docs/device-expert.md`.
 
 No `octop user login` — CLI trusts local filesystem access to `~/.octop`. Pin acting user with `octop config set-user` or root `--user`; pin agent with `octop agent use` or root `--agent`. If `octop run` is already running, config CLI writes take effect after server restart (cron, channels loaded at boot).
 
@@ -212,6 +215,8 @@ make build-frontend                     # dashboard/ → src/octop/dashboard/
 **Agent workspace I/O:** All reads/writes of agent workspace **content files** go through `HarnessAgent.workspace` (`BackendWorkspace` from `octop-harness`). Do **not** use `agent.backend` directly, `resolve_harness_backend`, or `Path.write_text` / `read_text` on `~/.octop/agents/<id>/` for workspace content. Do **not** branch on backend type or `virtual_mode` in Octop — path rules live in `BackendWorkspace`.
 
 **Native project execution (0015 revision 3):** expert content stays in `agent.agent_store` (`/.agent/` in graph tools); project operations use `agent.project_backend` and a persisted authenticated ExecutionContext. Do not resolve project paths through the expert store or mutate a shared agent target. Empty device IDs never select the host: local execution requires explicit `target_kind=local` and current admin authority. The context's working directory is not an owner-mode sandbox. Device native runtimes intentionally own their capture/PTY worker threads and durable Job processes; controller orchestration stays asynchronous. See `docs/specs/0015-device-execution-and-context-inspection.md`.
+
+Chat delivery cards explicitly pass the expert workspace source when opening the dock. Keep expert storage separate from execution paths, including when both have the same relative filename; mixed historical artifact paths alone do not establish their source.
 
 New agents additionally keep system-scoped files under `{workspace}/.octop/` (e.g. sessions/sqlite, skills/agents system trees, auth tokens under `.octop/auth`). `system_files_path` is internal and not user-configurable; the `.octop` directory is created on first harness workspace init. Legacy agents keep auth at `{workspace}/.octop-auth`.
 

@@ -149,3 +149,9 @@ Notes
 
 Windows: if import pywintypes fails, rebuild from a current
   green package (launch.py + pywin32 DLL copy). Do not set PYTHONPATH manually.
+
+Local coding agents can contact cloud experts through expert.bat (Windows)
+or ./expert.sh (Linux). Run expert.bat configure --server https://YOUR_SERVER
+to save an expert token using a hidden prompt, then expert.bat list.
+Use ask --expert ID --message TEXT, reply --task ID --message TEXT, get, or wait.
+Results are UTF-8 JSON. See docs/device-expert.md in the source repository.

@@ -1064,6 +1064,24 @@
     "unavailable": "任务结果未能记录。",
     "guidance": "在最终公开回复前，调用 report_task_result，诚实报告 succeeded、blocked、failed 或 needs_input 及简短公开摘要。任务结果与调用完成独立；只引用本次调用已发布的资源，纯文本任务可不附资源。"
   },
+  "device_expert": {
+    "token_prompt": "专家接入 token",
+    "not_configured": "请先使用 device expert configure 配置专家连接。",
+    "invalid_config": "专家配置无效，请重新配置连接。",
+    "invalid_server": "请使用不含凭据或控制字符的 HTTPS 服务器地址，回环地址允许 HTTP。",
+    "invalid_token": "请使用专家专用的 oaa_ 接入 token。",
+    "auth_failed": "token 无效、过期、已撤销，或没有本次操作所需的权限。",
+    "request_rejected": "服务器拒绝了请求，请检查 HTTP 状态和任务当前状态。",
+    "request_unconfirmed": "请求结果尚未确认，请先用 find 或 get 查询，再决定是否发送。",
+    "unavailable": "专家服务器暂时不可用，可重试读取操作确认状态。",
+    "invalid_response": "无法读取响应或本地输入，请检查连接与输入文件。",
+    "select_server": "请指定 --server，或使用 --controller 选择唯一一个已保存的控制端。",
+    "invalid_message": "请通过 --message、--message-file 或标准输入提供一条非空消息，最多 50000 字符。",
+    "missing_expert": "请使用 --expert 选择专家。",
+    "unknown_task": "任务状态未知，请先查询确认，再发送下一条消息。",
+    "command_conflict": "该 command ID 已被其他消息或专家使用。",
+    "command_busy": "该命令正在执行，请用 find 或 get 查询结果。"
+  },
   "acp_remote": {
     "token_hint": "将密钥保存在私有文件中，并把文件路径设为 OCTOP_ACP_TOKEN_FILE。不要将密钥写进 IDE 启动参数。",
     "https_required": "远程 ACP 必须使用 HTTPS；仅回环地址允许 HTTP。",

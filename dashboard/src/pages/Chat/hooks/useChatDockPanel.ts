@@ -279,13 +279,18 @@ export function useChatDockPanel(
   );
 
   const openFileAt = useCallback(
-    (path?: string | null, fileAgentId?: string | null) => {
+    (
+      path?: string | null,
+      fileAgentId?: string | null,
+      source?: "workspace",
+    ) => {
       if (!path?.trim()) {
         openFileList();
         return;
       }
       if (
         agentId &&
+        source !== "workspace" &&
         !path.startsWith("/.agent/") &&
         (!fileAgentId || fileAgentId === agentId)
       ) {
