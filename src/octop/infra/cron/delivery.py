@@ -242,8 +242,9 @@ class CronDeliveryService:
             from octop.infra.cron.origin_target import OriginThreadError
 
             # Transport exceptions may contain provider URLs, headers or credentials.
+            # OriginThreadError: persist §4.4 codes (origin_thread_missing|unavailable|…).
             public = (
-                str(exc)
+                exc.code
                 if isinstance(exc, OriginThreadError)
                 else f"Scheduled delivery failed ({type(exc).__name__})"
             )
@@ -384,6 +385,39 @@ class CronDeliveryService:
         *,
         attempt: str = "",
     ) -> str:
+        delivery_id = (command.delivery_id or attempt or new_ulid()).strip() or new_ulid()
+        # Dashboard self-reminder / origin_thread: stable cron:{delivery_id}:* like text path
+        # (REQ-0042-07). Report and IM/non-origin agent paths keep prior behavior.
+        origin_canonical = (
+            command.report is None
+            and session.channel_type == ThreadRegistry.CHANNEL_DASHBOARD
+            and (
+                bool(command.origin_thread_id) or command.source_kind == "self_reminder"
+            )
+        )
+        assistant_id = f"cron:{delivery_id}:assistant"
+        if origin_canonical and (
+            self._repos.thread_message_repo.has_message_id(session.thread_id, assistant_id)
+            is True
+        ):
+            outbound = (command.prompt or "").strip()
+            await self._gateway.push_session_text(
+                session,
+                outbound,
+                title_source=command.prompt,
+            )
+            await self._notify_best_effort(
+                session,
+                command.agent_id,
+                outbound,
+                delivery_id=delivery_id,
+                source_kind=command.source_kind
+                or ("self_reminder" if command.origin_thread_id else "cron"),
+                emit_changed=bool(command.origin_thread_id)
+                or (command.source_kind == "self_reminder"),
+            )
+            return outbound
+
         request = await self._build_agent_request(command, session)
         execution_thread = ""
         if command.report is not None:
@@ -506,7 +540,8 @@ class CronDeliveryService:
         finally:
             # ``fresh_thread`` already put an empty thread on the session, so a run
             # that raised before this left a conversation with no rows at all.
-            if command.report is None:
+            # Origin/self-reminder dashboard: project stable aappend below, not tracker.
+            if command.report is None and not origin_canonical:
                 self._project_best_effort(session.thread_id, tracker.inputs)
             if dashboard:
                 if run_id and not terminal_seen:
@@ -541,6 +576,29 @@ class CronDeliveryService:
             self._project_best_effort(
                 session.thread_id, message_inputs(appended, dedupe_missing_ids=True)
             )
+        elif origin_canonical:
+            if (
+                self._repos.thread_message_repo.has_message_id(session.thread_id, assistant_id)
+                is not True
+            ):
+                harness = self._agent_manager.get_agent(command.agent_id)
+                canonical = [
+                    HumanMessage(content=command.prompt, id=f"cron:{delivery_id}:human"),
+                    AIMessage(content=outbound, id=assistant_id),
+                ]
+                try:
+                    appended = await harness.aappend_messages(session.thread_id, canonical)
+                except Exception:
+                    logger.warning(
+                        "cron agent persist_failed thread=%s delivery_id=%s",
+                        session.thread_id,
+                        delivery_id,
+                        exc_info=True,
+                    )
+                    raise
+                self._project_best_effort(
+                    session.thread_id, message_inputs(appended, dedupe_missing_ids=True)
+                )
         if usage.usage is not None:
             record_turn_usage(
                 self._repos.usage_repo,
@@ -559,7 +617,7 @@ class CronDeliveryService:
             session,
             command.agent_id,
             outbound,
-            delivery_id=attempt or command.delivery_id,
+            delivery_id=delivery_id,
             source_kind=command.source_kind
             or ("self_reminder" if command.origin_thread_id else "cron"),
             emit_changed=bool(command.origin_thread_id)

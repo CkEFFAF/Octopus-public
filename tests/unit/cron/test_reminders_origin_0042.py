@@ -445,3 +445,226 @@ def test_command_from_row_carries_origin() -> None:
     assert cmd.origin_thread_id == "thr_x"
     assert cmd.fresh_thread is False
     assert cmd.source_kind == "self_reminder"
+
+
+@pytest.mark.asyncio
+async def test_ac_0042_03_agent_idempotent_same_delivery_id(tmp_path: Path) -> None:
+    """task_type=agent + origin_thread: same delivery_id must not double-write history."""
+    db, agent_id, session_key, thr_a, user_id, _thr_b = _seed_threads(tmp_path)
+    sessions = SessionRepo(db)
+    threads = ThreadRepo(db)
+    from octop.config import OctopConfig
+    from octop.infra.db.services import build_shared_services
+    from octop.infra.history.projection import message_inputs
+    from octop.infra.utils.paths import PathLayout
+
+    services = build_shared_services(db=db, paths=PathLayout(tmp_path), config=OctopConfig())
+
+    # Pre-seed projection as already persisted (crash after first success).
+    services.repos.thread_message_repo.append_if_ready(
+        thr_a,
+        message_inputs(
+            [AIMessage(content="prior reply", id="cron:agent-same:assistant")],
+            dedupe_missing_ids=True,
+        ),
+    )
+
+    append_calls: list[str] = []
+    stream_calls: list[int] = []
+
+    async def append(thread_id: str, msgs):
+        append_calls.append(thread_id)
+        return list(msgs)
+
+    async def _stream(_aid: str, _request: dict):
+        stream_calls.append(1)
+        yield {"type": "token", "content": "should not stream"}
+
+    harness = MagicMock()
+    harness.aappend_messages = append
+    agent_manager = MagicMock()
+    agent_manager.get_agent.return_value = harness
+    agent_manager.merge_turn_mcp_servers = MagicMock(return_value=None)
+    agent_manager.prepare_chat_mcp = AsyncMock(return_value=[])
+    agent_manager.stream = _stream
+    agent_manager.get_row = MagicMock(return_value=None)
+    agent_manager.default_mcp_servers = MagicMock(return_value=[])
+    agent_manager.device_mcp_pack_for_turn = MagicMock(return_value=([], []))
+    agent_manager.default_knowledge_base_ids = MagicMock(return_value=[])
+
+    gateway = MagicMock()
+
+    async def _await_op(session, op):
+        await op()
+
+    gateway.run_locked_on_session = AsyncMock(side_effect=_await_op)
+    gateway.push_session_text = AsyncMock()
+    gateway.notify_dashboard_push = AsyncMock()
+    gateway.emit_thread_changed = AsyncMock()
+    gateway.observe_dashboard_resume = AsyncMock()
+    gateway.thread_registry = ThreadRegistry(session_repo=sessions, thread_repo=threads)
+
+    service = CronDeliveryService(
+        gateway=gateway, agent_manager=agent_manager, repos=services.repos
+    )
+    command = CronDeliveryCommand(
+        cron_id="j1",
+        cron_name="self",
+        agent_id=agent_id,
+        user_id=user_id,
+        session_key=session_key,
+        prompt="wake",
+        fresh_thread=False,
+        task_type="agent",
+        model=None,
+        mcp_servers=(),
+        origin_thread_id=thr_a,
+        delivery_id="agent-same",
+        source_kind="self_reminder",
+    )
+    out1 = await service.deliver(command)
+    out2 = await service.deliver(command)
+    assert append_calls == []
+    assert stream_calls == []
+    assert services.repos.thread_message_repo.has_message_id(
+        thr_a, "cron:agent-same:assistant"
+    )
+    gateway.push_session_text.assert_awaited()
+    gateway.notify_dashboard_push.assert_awaited()
+    assert out1 == "wake"
+    assert out2 == "wake"
+
+
+@pytest.mark.asyncio
+async def test_agent_origin_persists_stable_ids_once(tmp_path: Path) -> None:
+    """First agent origin delivery aappends cron:{delivery_id}:*; second skips."""
+    db, agent_id, session_key, thr_a, user_id, _thr_b = _seed_threads(tmp_path)
+    sessions = SessionRepo(db)
+    threads = ThreadRepo(db)
+    from octop.config import OctopConfig
+    from octop.infra.db.services import build_shared_services
+    from octop.infra.utils.paths import PathLayout
+
+    services = build_shared_services(db=db, paths=PathLayout(tmp_path), config=OctopConfig())
+
+    append_calls: list[list] = []
+
+    async def append(thread_id: str, msgs):
+        append_calls.append(list(msgs))
+        # Mirror harness: also project so has_message_id sees stable ids on retry.
+        from octop.infra.history.projection import message_inputs
+
+        services.repos.thread_message_repo.append_if_ready(
+            thread_id, message_inputs(msgs, dedupe_missing_ids=True)
+        )
+        return list(msgs)
+
+    async def _stream(_aid: str, _request: dict):
+        yield {"type": "token", "content": "agent reply body"}
+
+    harness = MagicMock()
+    harness.aappend_messages = append
+    agent_manager = MagicMock()
+    agent_manager.get_agent.return_value = harness
+    agent_manager.merge_turn_mcp_servers = MagicMock(return_value=None)
+    agent_manager.prepare_chat_mcp = AsyncMock(return_value=[])
+    agent_manager.stream = _stream
+    agent_manager.get_row = MagicMock(return_value=None)
+    agent_manager.default_mcp_servers = MagicMock(return_value=[])
+    agent_manager.device_mcp_pack_for_turn = MagicMock(return_value=([], []))
+    agent_manager.default_knowledge_base_ids = MagicMock(return_value=[])
+
+    gateway = MagicMock()
+
+    async def _await_op(session, op):
+        await op()
+
+    gateway.run_locked_on_session = AsyncMock(side_effect=_await_op)
+    gateway.push_session_text = AsyncMock()
+    gateway.notify_dashboard_push = AsyncMock()
+    gateway.emit_thread_changed = AsyncMock()
+    gateway.observe_dashboard_resume = AsyncMock()
+    gateway.thread_registry = ThreadRegistry(session_repo=sessions, thread_repo=threads)
+
+    service = CronDeliveryService(
+        gateway=gateway, agent_manager=agent_manager, repos=services.repos
+    )
+    command = CronDeliveryCommand(
+        cron_id="j1",
+        cron_name="self",
+        agent_id=agent_id,
+        user_id=user_id,
+        session_key=session_key,
+        prompt="check in",
+        fresh_thread=False,
+        task_type="agent",
+        model=None,
+        mcp_servers=(),
+        origin_thread_id=thr_a,
+        delivery_id="agent-once",
+        source_kind="self_reminder",
+    )
+    out = await service.deliver(command)
+    assert out == "agent reply body"
+    assert len(append_calls) == 1
+    ids = [getattr(m, "id", None) for m in append_calls[0]]
+    assert ids == ["cron:agent-once:human", "cron:agent-once:assistant"]
+    assert services.repos.thread_message_repo.has_message_id(
+        thr_a, "cron:agent-once:assistant"
+    )
+
+    await service.deliver(command)
+    assert len(append_calls) == 1  # second delivery skipped aappend
+
+
+@pytest.mark.asyncio
+async def test_origin_thread_error_attempt_stores_code(tmp_path: Path) -> None:
+    """delivery attempt.error must be §4.4 code, not format_stream_error text."""
+    db, agent_id, session_key, thr_a, user_id, _thr_b = _seed_threads(tmp_path)
+    threads = ThreadRepo(db)
+    threads.delete(thr_a)
+    from octop.config import OctopConfig
+    from octop.infra.db.services import build_shared_services
+    from octop.infra.utils.paths import PathLayout
+
+    services = build_shared_services(db=db, paths=PathLayout(tmp_path), config=OctopConfig())
+    gateway = MagicMock()
+
+    async def _await_op(session, op):
+        await op()
+
+    gateway.run_locked_on_session = AsyncMock(side_effect=_await_op)
+    gateway.push_session_text = AsyncMock()
+    gateway.notify_dashboard_push = AsyncMock()
+    gateway.thread_registry = ThreadRegistry(
+        session_repo=services.repos.session_repo, thread_repo=services.repos.thread_repo
+    )
+    service = CronDeliveryService(
+        gateway=gateway, agent_manager=MagicMock(), repos=services.repos
+    )
+    command = CronDeliveryCommand(
+        cron_id="j1",
+        cron_name="self",
+        agent_id=agent_id,
+        user_id=user_id,
+        session_key=session_key,
+        prompt="wake",
+        fresh_thread=False,
+        task_type="text",
+        model=None,
+        mcp_servers=(),
+        origin_thread_id=thr_a,
+        delivery_id="err-code-1",
+        source_kind="self_reminder",
+    )
+    with pytest.raises(OriginThreadError) as ei:
+        await service.deliver(command)
+    assert ei.value.code == ERR_ORIGIN_THREAD_UNAVAILABLE
+    attempts = services.repos.cron_attempt_repo.listing(
+        user_id, agent_id, "j1", limit=5
+    )["items"]
+    assert attempts
+    failed = [a for a in attempts if a.get("attempt_id") == "err-code-1"]
+    assert failed
+    assert failed[0].get("public_error") == ERR_ORIGIN_THREAD_UNAVAILABLE
+    assert failed[0].get("status") == "failed"

@@ -190,3 +190,67 @@ async def test_from_row_reads_persisted_session_key(setup) -> None:
     assert job._task_type == "agent"
     assert job._name == row.name
     assert job._user_id == 1
+
+
+@pytest.mark.asyncio
+async def test_run_records_origin_thread_error_code(setup) -> None:
+    """§4.4: OriginThreadError last_error is the stable code, not format_stream_error."""
+    from octop.infra.cron.self_reminder import ERR_ORIGIN_THREAD_MISSING
+
+    cron_repo, audit, cid, session_key = setup
+    cron_repo.update(
+        cid,
+        kind="self_reminder",
+        meta={"self_reminder": True, "needs_retarget": True},
+    )
+    delivery = MagicMock()
+    delivery.deliver = AsyncMock()
+    delivery._repos = MagicMock()
+    delivery._repos.session_repo = MagicMock()
+    delivery._repos.session_repo.get = MagicMock(return_value=None)
+    delivery._repos.thread_repo = MagicMock()
+    delivery._repos.thread_repo.get = MagicMock(return_value=None)
+
+    job = _job(
+        cron_repo=cron_repo,
+        audit=audit,
+        cid=cid,
+        session_key=session_key,
+        delivery_service=delivery,
+    )
+    await job.run()
+    row = cron_repo.get(cid)
+    assert row.last_status == "error"
+    assert row.last_error == ERR_ORIGIN_THREAD_MISSING
+    assert "model call failed" not in (row.last_error or "")
+    delivery.deliver.assert_not_awaited()
+    rows = audit.query(action="cron.run_failed")
+    assert rows
+    assert rows[0].payload == ERR_ORIGIN_THREAD_MISSING
+
+
+@pytest.mark.asyncio
+async def test_run_records_origin_thread_error_from_deliver(setup) -> None:
+    """OriginThreadError raised by deliver() also stores §4.4 code on last_error."""
+    from octop.infra.cron.origin_target import OriginThreadError
+    from octop.infra.cron.self_reminder import ERR_ORIGIN_THREAD_UNAVAILABLE
+
+    cron_repo, audit, cid, session_key = setup
+    delivery = MagicMock()
+    delivery.deliver = AsyncMock(
+        side_effect=OriginThreadError(
+            ERR_ORIGIN_THREAD_UNAVAILABLE, "delivery session thread drifted"
+        )
+    )
+
+    job = _job(
+        cron_repo=cron_repo,
+        audit=audit,
+        cid=cid,
+        session_key=session_key,
+        delivery_service=delivery,
+    )
+    await job.run()
+    row = cron_repo.get(cid)
+    assert row.last_status == "error"
+    assert row.last_error == ERR_ORIGIN_THREAD_UNAVAILABLE

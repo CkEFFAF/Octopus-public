@@ -133,7 +133,8 @@ class CronJob:
                 logger.warning(
                     "cron job %s skipped: %s", self._cron_id, exc.code
                 )
-                err = format_stream_error(exc, "en")
+                # §4.4: public/last_error is the stable code, not format_stream_error.
+                err = exc.code
                 self._cron_repo.set_run_status(
                     self._cron_id, ts=ts, status="error", error=err
                 )
@@ -148,15 +149,23 @@ class CronJob:
                 return
             await self._delivery_service.deliver(command)
         except Exception as exc:
+            from octop.infra.cron.origin_target import OriginThreadError
+
             METRICS.inc("cron_errors_total")
-            logger.exception("cron job %s failed", self._cron_id)
-            err = format_stream_error(exc, "en")
+            if isinstance(exc, OriginThreadError):
+                logger.warning("cron job %s failed: %s", self._cron_id, exc.code)
+                err = exc.code
+                audit_payload = exc.code
+            else:
+                logger.exception("cron job %s failed", self._cron_id)
+                err = format_stream_error(exc, "en")
+                audit_payload = err
             self._cron_repo.set_run_status(self._cron_id, ts=ts, status="error", error=err)
             self._audit_repo.write(
                 actor=ACTOR_SYSTEM,
                 action="cron.run_failed",
                 target=self._cron_id,
-                payload=err,
+                payload=audit_payload,
             )
             if raise_on_error:
                 raise
