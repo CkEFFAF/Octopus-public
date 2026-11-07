@@ -39,6 +39,8 @@ from octop.infra.devices.protocol import (
 from octop.infra.devices.transfer_protocol import (
     cancel_frame,
     negotiate_frame,
+    peer_frame,
+    validate_offer_frame,
     validate_receipt_frame,
 )
 from octop.infra.devices.transfer_session import (
@@ -96,6 +98,10 @@ class DeviceService:
         self._takeover_events: list[dict[str, Any]] = []
         self._notification_hub: Any | None = None
         self._transfer_jobs: dict[str, asyncio.Task[None]] = {}
+        # transfer_id -> Future[{host,port}] filled by target transfer.offer
+        self._transfer_offers: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        # transfer_id -> Future set when both receipts complete (direct wait)
+        self._direct_waiters: dict[str, asyncio.Future[bool]] = {}
         secret_hex = repos.settings_repo.get("devices.transfer_ticket_secret")
         if not secret_hex:
             secret_hex = secrets.token_hex(32)
@@ -542,6 +548,8 @@ class DeviceService:
             connection.root_candidates = candidates
         elif frame.get("type") == "transfer.receipt":
             await self._handle_transfer_receipt(row.device_id, frame)
+        elif frame.get("type") == "transfer.offer":
+            await self._handle_transfer_offer(row.device_id, frame)
         else:
             raise device_error("invalid device frame")
 
@@ -1272,9 +1280,11 @@ class DeviceService:
             raise OctopError(
                 ErrorCode.FORBIDDEN, "native filesystem requires trusted device protocol v3"
             )
-        if action.startswith(("fs.upload.", "fs.download.")) and (
-            (row.runtime_metadata or {}).get("transfer_protocol_version") != 1
-        ):
+        try:
+            _xfer_proto = int((row.runtime_metadata or {}).get("transfer_protocol_version") or 0)
+        except (TypeError, ValueError):
+            _xfer_proto = 0
+        if action.startswith(("fs.upload.", "fs.download.")) and _xfer_proto < 1:
             raise device_error(
                 "CLIENT_OUTDATED: device does not support native file transfers", status=409
             )
@@ -1990,37 +2000,54 @@ class DeviceService:
 
         if preferred == "hub":
             use_hub = True
-        elif preferred == "direct":
-            if not (both_p2p and both_online):
-                raise OctopError(
-                    ErrorCode.TRANSFER_DIRECT_UNAVAILABLE,
-                    "direct transfer unavailable",
-                )
-            # S0: control plane negotiates; without confirmed peer TLS completion,
-            # we do not claim direct success. Fall through records attempt then hub
-            # only when preferred is auto — explicit direct stays unavailable.
-            attempts.append(
-                {"transport": "direct", "result": "unreachable", "at": time.time()}
-            )
-            self.repos.device_transfer_repo.update(
-                transfer_id,
+        elif preferred in {"direct", "auto"} and both_p2p and both_online:
+            direct_ok = await self._try_direct_transfer(
+                session,
+                ticket=ticket,
+                size=size,
+                sha256=sha256,
                 attempts=attempts,
-                fallback_reason="direct_unreachable",
             )
+            if direct_ok:
+                use_hub = False
+                actual = "direct"
+                self.repos.device_repo.update_operation(
+                    op.operation_id,
+                    status="completed",
+                    result=ledger_result(
+                        op.action,
+                        {
+                            "bytes_done": size,
+                            "sha256": sha256,
+                            "actual_transport": "direct",
+                        },
+                    ),
+                    expected_statuses=("queued", "running", "unknown"),
+                )
+                session = self.repos.device_transfer_repo.get(transfer_id)
+                if session is not None:
+                    self._schedule_transfer_emit(session)
+                    self._maybe_complete_from_receipts(session)
+            else:
+                if preferred == "direct":
+                    self.repos.device_transfer_repo.update(
+                        transfer_id,
+                        attempts=attempts,
+                        fallback_reason="direct_unreachable",
+                    )
+                    raise OctopError(
+                        ErrorCode.TRANSFER_DIRECT_UNAVAILABLE,
+                        "direct data plane not confirmed",
+                    )
+                fallback_reason = "direct_unreachable"
+                use_hub = True
+        elif preferred == "direct":
             raise OctopError(
                 ErrorCode.TRANSFER_DIRECT_UNAVAILABLE,
-                "direct data plane not confirmed",
+                "direct transfer unavailable",
             )
-        else:  # auto
-            if both_p2p and both_online:
-                attempts.append(
-                    {"transport": "direct", "result": "unreachable", "at": time.time()}
-                )
-                fallback_reason = "direct_unreachable"
-            elif not both_p2p:
-                fallback_reason = "capability_missing"
-            else:
-                fallback_reason = "no_inbound"
+        else:  # auto without p2p/online
+            fallback_reason = "capability_missing" if not both_p2p else "no_inbound"
             use_hub = True
 
         if use_hub:
@@ -2064,6 +2091,117 @@ class DeviceService:
             if session is not None:
                 self._schedule_transfer_emit(session)
                 self._maybe_complete_from_receipts(session)
+
+    async def _handle_transfer_offer(self, device_id: str, frame: dict[str, Any]) -> None:
+        try:
+            offer = validate_offer_frame(frame)
+        except ValueError as exc:
+            raise device_error(str(exc)) from exc
+        if offer["device_id"] != device_id:
+            raise OctopError(ErrorCode.TRANSFER_PEER_MISMATCH, "offer device mismatch")
+        session = self.repos.device_transfer_repo.get(offer["transfer_id"])
+        if session is None:
+            return
+        # Only the target publishes a listen endpoint.
+        if device_id != session.target_device_id:
+            raise OctopError(ErrorCode.TRANSFER_PEER_MISMATCH, "offer peer mismatch")
+        if session.revoked_at is not None or session.status in TERMINAL_STATUSES:
+            return
+        fut = self._transfer_offers.get(session.transfer_id)
+        if fut is not None and not fut.done():
+            fut.set_result({"host": offer["host"], "port": offer["port"]})
+
+    async def _try_direct_transfer(
+        self,
+        session: Any,
+        *,
+        ticket: str,
+        size: int,
+        sha256: str,
+        attempts: list[dict[str, Any]],
+        offer_timeout: float = 5.0,
+        transfer_timeout: float = 30.0,
+    ) -> bool:
+        """Attempt peer TLS data plane. True only when both receipts complete.
+
+        Hub never forwards file bytes on this path; devices stream over TLS after
+        the target publishes ``transfer.offer`` and Hub relays ``transfer.peer``.
+        """
+        transfer_id = session.transfer_id
+        loop = asyncio.get_running_loop()
+        offer_fut: asyncio.Future[dict[str, Any]] = loop.create_future()
+        done_fut: asyncio.Future[bool] = loop.create_future()
+        self._transfer_offers[transfer_id] = offer_fut
+        self._direct_waiters[transfer_id] = done_fut
+        attempts.append({"transport": "direct", "result": "started", "at": time.time()})
+        self.repos.device_transfer_repo.update(
+            transfer_id,
+            status="transferring",
+            attempts=list(attempts),
+        )
+        self._schedule_transfer_emit(
+            self.repos.device_transfer_repo.get(transfer_id) or session
+        )
+        try:
+            try:
+                offer = await asyncio.wait_for(offer_fut, timeout=offer_timeout)
+            except TimeoutError:
+                attempts[-1]["result"] = "unreachable"
+                self.repos.device_transfer_repo.update(transfer_id, attempts=list(attempts))
+                return False
+            source_conn = self._connections.get(session.source_device_id)
+            if source_conn is None:
+                attempts[-1]["result"] = "unreachable"
+                self.repos.device_transfer_repo.update(transfer_id, attempts=list(attempts))
+                return False
+            with contextlib.suppress(Exception):
+                await source_conn.send(
+                    peer_frame(
+                        transfer_id=transfer_id,
+                        host=str(offer["host"]),
+                        port=int(offer["port"]),
+                    )
+                )
+            try:
+                ok = await asyncio.wait_for(done_fut, timeout=transfer_timeout)
+            except TimeoutError:
+                attempts[-1]["result"] = "unreachable"
+                self.repos.device_transfer_repo.update(transfer_id, attempts=list(attempts))
+                return False
+            if not ok:
+                attempts[-1]["result"] = "failed"
+                self.repos.device_transfer_repo.update(transfer_id, attempts=list(attempts))
+                return False
+            attempts[-1]["result"] = "completed"
+            current = self.repos.device_transfer_repo.get(transfer_id)
+            if current is not None and current.status == "completed":
+                self.repos.device_transfer_repo.update(
+                    transfer_id,
+                    actual_transport="direct",
+                    bytes_done=size,
+                    size=size,
+                    sha256=sha256,
+                    attempts=list(attempts),
+                    fallback_reason=None,
+                )
+            else:
+                self.repos.device_transfer_repo.update(
+                    transfer_id,
+                    status="pending_receipt",
+                    actual_transport="direct",
+                    bytes_done=size,
+                    size=size,
+                    sha256=sha256,
+                    attempts=list(attempts),
+                    fallback_reason=None,
+                    expected_statuses=("transferring", "verifying", "pending_receipt"),
+                )
+            return True
+        finally:
+            self._transfer_offers.pop(transfer_id, None)
+            waiter = self._direct_waiters.pop(transfer_id, None)
+            if waiter is not None and not waiter.done():
+                waiter.cancel()
 
     async def _send_negotiate(
         self,
@@ -2143,17 +2281,23 @@ class DeviceService:
         receipts = dict(session.receipts or {})
         side = "source" if device_id == session.source_device_id else "target"
         if receipt["phase"] == "completed":
-            receipts[side] = True
+            detail: dict[str, Any] = {"ok": True}
             if receipt.get("bytes_done") is not None:
-                self.repos.device_transfer_repo.update(
-                    session.transfer_id,
-                    bytes_done=int(receipt["bytes_done"]),
-                    receipts=receipts,
-                )
-            else:
-                self.repos.device_transfer_repo.update(
-                    session.transfer_id, receipts=receipts
-                )
+                detail["bytes_done"] = int(receipt["bytes_done"])
+            if receipt.get("sha256") is not None:
+                detail["sha256"] = str(receipt["sha256"]).lower()
+            if receipt.get("transport_used") is not None:
+                detail["transport_used"] = str(receipt["transport_used"])
+            receipts[side] = detail
+            updates: dict[str, Any] = {"receipts": receipts}
+            if receipt.get("bytes_done") is not None:
+                updates["bytes_done"] = int(receipt["bytes_done"])
+            if (
+                receipt.get("transport_used") == "direct"
+                and session.actual_transport is None
+            ):
+                updates["actual_transport"] = "direct"
+            self.repos.device_transfer_repo.update(session.transfer_id, **updates)
         elif receipt["phase"] in {"failed", "cancelled"}:
             status = "failed" if receipt["phase"] == "failed" else "cancelled"
             self.repos.device_transfer_repo.update(
@@ -2166,8 +2310,34 @@ class DeviceService:
             )
         session = self.repos.device_transfer_repo.get(session.transfer_id)
         if session is not None:
+            self._signal_direct_waiter(session)
             self._maybe_complete_from_receipts(session)
             self._schedule_transfer_emit(session)
+
+    def _signal_direct_waiter(self, session: Any) -> None:
+        waiter = self._direct_waiters.get(session.transfer_id)
+        if waiter is None or waiter.done():
+            return
+        receipts = session.receipts or {}
+        if not (receipts.get("source") and receipts.get("target")):
+            return
+        expected = (session.sha256 or "").lower()
+        ok = True
+        if expected:
+            for side in ("source", "target"):
+                got = self._receipt_sha256(receipts.get(side))
+                if got is not None and got != expected:
+                    ok = False
+                    break
+        waiter.set_result(ok)
+
+    def _receipt_sha256(self, value: Any) -> str | None:
+        if value is True:
+            return None
+        if isinstance(value, dict):
+            raw = value.get("sha256")
+            return str(raw).lower() if raw is not None else None
+        return None
 
     def _maybe_complete_from_receipts(self, session: Any) -> None:
         receipts = session.receipts or {}
@@ -2177,6 +2347,25 @@ class DeviceService:
             return
         if not can_transition(session.status, "completed"):
             return
+        expected = (session.sha256 or "").lower()
+        if expected:
+            for side in ("source", "target"):
+                got = self._receipt_sha256(receipts.get(side))
+                if got is not None and got != expected:
+                    failed = self.repos.device_transfer_repo.update(
+                        session.transfer_id,
+                        status="failed",
+                        error_code="TRANSFER_SOURCE_CHANGED",
+                        failure_direction=side,
+                        expected_statuses=(
+                            "pending_receipt",
+                            "verifying",
+                            "transferring",
+                        ),
+                    )
+                    if failed is not None:
+                        self._schedule_transfer_emit(failed)
+                    return
         updated = self.repos.device_transfer_repo.update(
             session.transfer_id,
             status="completed",

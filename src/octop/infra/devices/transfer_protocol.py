@@ -1,4 +1,4 @@
-"""0044 wire helpers: negotiate / receipt frame shapes (control plane)."""
+"""0044 wire helpers: negotiate / offer / peer / receipt frame shapes (control plane)."""
 
 from __future__ import annotations
 
@@ -29,6 +29,40 @@ def negotiate_frame(
         "path_scope": path_scope,
         "preferred_transport": preferred_transport,
         "listen": {"mode": "lan_tls", "port_hint": None},
+        "schema_version": 1,
+    }
+
+
+def offer_frame(
+    *,
+    transfer_id: str,
+    device_id: str,
+    host: str,
+    port: int,
+) -> dict[str, Any]:
+    """Target → Hub: TLS listen endpoint for LAN-direct (control plane only)."""
+    return {
+        "type": "transfer.offer",
+        "transfer_id": transfer_id,
+        "device_id": device_id,
+        "host": host,
+        "port": int(port),
+        "schema_version": 1,
+    }
+
+
+def peer_frame(
+    *,
+    transfer_id: str,
+    host: str,
+    port: int,
+) -> dict[str, Any]:
+    """Hub → source: peer TLS endpoint relayed from target offer."""
+    return {
+        "type": "transfer.peer",
+        "transfer_id": transfer_id,
+        "host": host,
+        "port": int(port),
         "schema_version": 1,
     }
 
@@ -66,4 +100,33 @@ def validate_receipt_frame(frame: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-__all__ = ["cancel_frame", "negotiate_frame", "validate_receipt_frame"]
+def validate_offer_frame(frame: dict[str, Any]) -> dict[str, Any]:
+    transfer_id = frame.get("transfer_id")
+    device_id = frame.get("device_id")
+    host = frame.get("host")
+    port = frame.get("port")
+    if not isinstance(transfer_id, str) or not transfer_id:
+        raise ValueError("invalid transfer.offer")
+    if not isinstance(device_id, str) or not device_id:
+        raise ValueError("invalid transfer.offer")
+    if not isinstance(host, str) or not host:
+        raise ValueError("invalid transfer.offer")
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise ValueError("invalid transfer.offer")
+    return {
+        "transfer_id": transfer_id,
+        "device_id": device_id,
+        "host": host,
+        "port": port,
+        "schema_version": int(frame.get("schema_version") or 1),
+    }
+
+
+__all__ = [
+    "cancel_frame",
+    "negotiate_frame",
+    "offer_frame",
+    "peer_frame",
+    "validate_offer_frame",
+    "validate_receipt_frame",
+]

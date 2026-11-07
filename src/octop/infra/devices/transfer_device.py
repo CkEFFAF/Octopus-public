@@ -1,18 +1,24 @@
-"""Device-side helpers for 0044 transfer.negotiate / receipt (control plane).
+"""Device-side helpers for 0044 transfer.negotiate / TLS data plane / receipts.
 
-Does not implement the TLS data plane. Validates ticket bindings and builds
-receipt frames. Enrollment tokens must never be used as tickets.
+Validates ticket bindings, runs the peer TLS data plane, and builds receipt /
+offer frames. Enrollment tokens must never be used as tickets.
 """
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
+from octop.infra.devices.transfer_protocol import offer_frame, peer_frame
 from octop.infra.devices.transfer_session import (
+    TicketClaims,
     binding_matches,
     parse_ticket,
     verify_ticket,
 )
+from octop.infra.devices.transfer_tls import PeerTlsListener, send_file_over_tls
 
 
 def handle_negotiate(
@@ -55,8 +61,33 @@ def handle_negotiate(
         "peer_device_id": peer,
         "size": claims.size,
         "sha256": claims.sha256,
+        "ticket": ticket,
+        "claims": claims,
+        "path_scope": {k: str(v) for k, v in (path_scope or {}).items()},
+        "preferred_transport": str(frame.get("preferred_transport") or "auto"),
         "accepted": True,
     }
+
+
+def resolve_root_path(
+    roots: dict[str, dict[str, Any]] | list[dict[str, Any]],
+    root_id: str,
+    rel_path: str,
+) -> Path:
+    """Map ticket path_scope onto a local executor root."""
+    mapping: dict[str, dict[str, Any]]
+    if isinstance(roots, dict):
+        mapping = roots
+    else:
+        mapping = {str(r["id"]): r for r in roots if isinstance(r, dict) and "id" in r}
+    root = mapping.get(root_id)
+    if root is None or not root.get("path"):
+        raise ValueError("TRANSFER_PATH_DENIED")
+    base = Path(str(root["path"])).resolve()
+    target = (base / rel_path).resolve()
+    if base != target and base not in target.parents:
+        raise ValueError("TRANSFER_PATH_DENIED")
+    return target
 
 
 def receipt_frame(
@@ -84,4 +115,112 @@ def receipt_frame(
     return out
 
 
-__all__ = ["handle_negotiate", "receipt_frame"]
+async def run_direct_target(
+    *,
+    ticket: str,
+    claims: TicketClaims,
+    dest_path: Path,
+    device_id: str,
+    send_to_hub: Callable[[dict[str, Any]], Any],
+    overwrite: bool = False,
+    host: str = "127.0.0.1",
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    """Listen on TLS, publish offer to Hub, receive file, emit completed receipt."""
+    listener = PeerTlsListener(
+        ticket=ticket,
+        claims=claims,
+        dest_path=dest_path,
+        overwrite=overwrite,
+        host=host,
+        timeout=timeout,
+    )
+    listen_host, port = await asyncio.to_thread(listener.start)
+    await send_to_hub(
+        offer_frame(
+            transfer_id=claims.transfer_id,
+            device_id=device_id,
+            host=listen_host,
+            port=port,
+        )
+    )
+    try:
+        result = await asyncio.to_thread(listener.wait, timeout + 5)
+    except BaseException:
+        listener.close()
+        await send_to_hub(
+            receipt_frame(
+                transfer_id=claims.transfer_id,
+                device_id=device_id,
+                phase="failed",
+                transport_used="direct",
+            )
+        )
+        raise
+    await send_to_hub(
+        receipt_frame(
+            transfer_id=claims.transfer_id,
+            device_id=device_id,
+            phase="completed",
+            bytes_done=int(result["bytes_done"]),
+            sha256=str(result["sha256"]),
+            transport_used="direct",
+        )
+    )
+    return result
+
+
+async def run_direct_source(
+    *,
+    ticket: str,
+    claims: TicketClaims,
+    source_path: Path,
+    device_id: str,
+    host: str,
+    port: int,
+    send_to_hub: Callable[[dict[str, Any]], Any],
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    """Connect to peer TLS endpoint, stream file, emit completed receipt."""
+    try:
+        result = await asyncio.to_thread(
+            send_file_over_tls,
+            host=host,
+            port=port,
+            ticket=ticket,
+            claims=claims,
+            source_path=source_path,
+            timeout=timeout,
+        )
+    except BaseException:
+        await send_to_hub(
+            receipt_frame(
+                transfer_id=claims.transfer_id,
+                device_id=device_id,
+                phase="failed",
+                transport_used="direct",
+            )
+        )
+        raise
+    await send_to_hub(
+        receipt_frame(
+            transfer_id=claims.transfer_id,
+            device_id=device_id,
+            phase="completed",
+            bytes_done=int(result["bytes_done"]),
+            sha256=str(result["sha256"]),
+            transport_used="direct",
+        )
+    )
+    return result
+
+
+__all__ = [
+    "handle_negotiate",
+    "offer_frame",
+    "peer_frame",
+    "receipt_frame",
+    "resolve_root_path",
+    "run_direct_source",
+    "run_direct_target",
+]
