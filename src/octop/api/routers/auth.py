@@ -110,6 +110,8 @@ def _keys(server: Any) -> AccessKeyService:
 async def key_login(
     body: KeyLoginBody, request: Request, server: Any = Depends(get_server)
 ) -> dict[str, Any]:
+    if body.access_key.startswith("oaa_"):
+        raise OctopError(ErrorCode.AUTH_FAILED, "agent access key cannot use key-login")
     row = _keys(server).authenticate(body.access_key, "browser", _client_ip(request))
     user = server.user_manager.get_by_id(int(row["owner_user_id"]))
     if user is None:

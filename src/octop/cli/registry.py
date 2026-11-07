@@ -33,5 +33,10 @@ COMMANDS: dict[str, tuple[str, str, str]] = {
     "clean": (".commands.clean", "clean", "Remove CLI state or wipe all of ~/.octop."),
     "backup": (".commands.backup", "backup", "Export and restore Octop backups."),
     "acp": (".commands.acp", "acp_cmd", "Run Octop agent as ACP server (stdio)."),
+    "acp-remote": (
+        ".commands.acp_remote",
+        "acp_remote_cmd",
+        "ACP stdio adapter to a remote cloud expert (no local server).",
+    ),
     "plugin": (".commands.plugin", "plugin", "Install and manage plugins."),
 }

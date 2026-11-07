@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from octop.config import OctopConfig
 from octop.infra.db.pool import DatabasePool
 from octop.infra.db.repos.access_keys import AccessKeyRepo
+from octop.infra.db.repos.agent_access_keys import AgentAccessKeyRepo
 from octop.infra.db.repos.agents import AgentRepo
 from octop.infra.db.repos.audit import AuditRepo
 from octop.infra.db.repos.backends import BackendRepo
@@ -74,6 +75,7 @@ class RepoBundle:
     bridge_connection_repo: BridgeConnectionRepo
     device_repo: DeviceRepo
     access_key_repo: AccessKeyRepo
+    agent_access_key_repo: AgentAccessKeyRepo
     browser_session_repo: BrowserSessionRepo
     connector_repo: ConnectorRepo
     skill_package_repo: SkillPackageRepo
@@ -142,6 +144,7 @@ class RepoBundle:
             bridge_connection_repo=BridgeConnectionRepo(db),
             device_repo=DeviceRepo(db),
             access_key_repo=AccessKeyRepo(db),
+            agent_access_key_repo=AgentAccessKeyRepo(db),
             browser_session_repo=BrowserSessionRepo(db),
             connector_repo=ConnectorRepo(db),
             skill_package_repo=SkillPackageRepo(db),

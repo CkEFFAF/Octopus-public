@@ -41,6 +41,7 @@ _JWT_EXEMPT_EXACT = (
     "/api/health",
     "/api/auth/login",
     "/api/auth/key-login",
+    "/api/auth/agent-access-keys/exchange",
     "/api/auth/captcha",
     "/api/auth/oidc/status",
     "/api/auth/oidc/start",
@@ -112,6 +113,19 @@ def _decode(server: OctopServer, token: str) -> dict[str, Any]:
     except InvalidToken as exc:
         raise OctopError(ErrorCode.AUTH_FAILED, "invalid token") from exc
     key_id = payload.get("auth_key_id")
+    actor_kind = payload.get("actor_kind")
+    if actor_kind == "machine":
+        if (
+            not isinstance(key_id, str)
+            or server.app_runtime is None
+            or server.app_runtime.devices is None
+        ):
+            raise OctopError(ErrorCode.AUTH_FAILED, "invalid agent access key session")
+        principal = server.app_runtime.devices.agent_access_keys.validate_credential(
+            key_id, int(payload["sub"])
+        )
+        payload["_machine_principal"] = principal
+        return payload
     if key_id is not None:
         if (
             not isinstance(key_id, str)
@@ -142,14 +156,92 @@ def resolve_user_from_token(server: OctopServer, token: str) -> User:
     return user
 
 
+def _client_ip_from_request(request: Request) -> str:
+    from octop.api.common.client_ip import resolve_client_ip
+
+    return resolve_client_ip(request)
+
+
+def resolve_machine_from_request(request: Request, server: OctopServer, raw: str):
+    """Authenticate Bearer oaa_ or machine JWT; attach principal on request.state."""
+    from octop.infra.auth.agent_access_keys import (
+        AGENT_KEY_PREFIX,
+        BROWSER_KEY_PREFIX,
+        MachinePrincipal,
+    )
+
+    cached = getattr(request.state, "octop_machine", None)
+    if cached is not None:
+        return cast(MachinePrincipal, cached)
+
+    if raw.startswith(BROWSER_KEY_PREFIX):
+        raise OctopError(ErrorCode.AUTH_FAILED, "browser access key cannot act as agent bearer")
+
+    if raw.startswith(AGENT_KEY_PREFIX):
+        if server.app_runtime is None or server.app_runtime.devices is None:
+            raise OctopError(ErrorCode.AUTH_FAILED, "invalid agent access key")
+        principal = server.app_runtime.devices.agent_access_keys.authenticate(
+            raw, _client_ip_from_request(request)
+        )
+        request.state.octop_machine = principal
+        return principal
+
+    # Machine short JWT (optional exchange)
+    payload = _decode(server, raw)
+    principal = payload.get("_machine_principal")
+    if principal is None:
+        return None
+    request.state.octop_machine = principal
+    return cast(MachinePrincipal, principal)
+
+
+def machine_principal_of(request: Request):
+    """Return machine principal if this request was authenticated as machine."""
+    return getattr(request.state, "octop_machine", None)
+
+
+def require_human_session(request: Request) -> None:
+    """Block machine / access-key JWT from minting new agent keys etc."""
+    if machine_principal_of(request) is not None:
+        raise OctopError(ErrorCode.FORBIDDEN, "machine credentials cannot manage agent keys")
+    raw = extract_raw_token(
+        authorization=request.headers.get("authorization"),
+        access_token=request.query_params.get("access_token"),
+    )
+    if raw is None:
+        raise OctopError(ErrorCode.AUTH_FAILED, "missing credentials")
+    from octop.infra.auth.agent_access_keys import AGENT_KEY_PREFIX
+
+    if raw.startswith(AGENT_KEY_PREFIX):
+        raise OctopError(ErrorCode.FORBIDDEN, "machine credentials cannot manage agent keys")
+    server = get_server(request)
+    payload = _decode(server, raw)
+    if payload.get("auth_key_id") is not None or payload.get("actor_kind") == "machine":
+        raise OctopError(ErrorCode.FORBIDDEN, "sign in with password or SSO to create keys")
+
+
+def require_machine_scope(request: Request, scope: str) -> None:
+    principal = machine_principal_of(request)
+    if principal is None:
+        return
+    if not principal.has_scope(scope):
+        raise OctopError(ErrorCode.FORBIDDEN, f"missing scope {scope}")
+
+
 def maybe_sliding_renew_token(server: OctopServer, token: str, user: User) -> str | None:
     """Return a fresh access token when ``token`` is past the sliding renew threshold.
 
     Threshold is one-third of ``access_token_ttl_seconds`` remaining. Active clients
     that pick up ``ACCESS_TOKEN_RESPONSE_HEADER`` stay signed in without re-login.
     """
+    from octop.infra.auth.agent_access_keys import AGENT_KEY_PREFIX
+
+    if token.startswith(AGENT_KEY_PREFIX):
+        return None
     assert server.services is not None
     payload = _decode(server, token)
+    if payload.get("actor_kind") == "machine":
+        return None
     ttl = int(server.services.config.access_token_ttl_seconds)
     remaining = int(payload["exp"]) - int(time.time())
     threshold = max(1, int(ttl * _SLIDING_RENEW_REMAINING_FRACTION))
@@ -177,7 +269,26 @@ def authenticate_request(request: Request, server: OctopServer) -> User:
     )
     if not raw:
         raise OctopError(ErrorCode.AUTH_FAILED, "missing credentials")
-    return resolve_user_from_token(server, raw)
+    from octop.infra.auth.agent_access_keys import AGENT_KEY_PREFIX, BROWSER_KEY_PREFIX
+
+    if raw.startswith(BROWSER_KEY_PREFIX):
+        raise OctopError(ErrorCode.AUTH_FAILED, "browser access key cannot act as agent bearer")
+    if raw.startswith(AGENT_KEY_PREFIX):
+        principal = resolve_machine_from_request(request, server, raw)
+        assert server.user_manager is not None
+        user = server.user_manager.get_by_id(int(principal.owner_user_id))
+        if user is None:
+            raise OctopError(ErrorCode.USER_DISABLED, "user not active")
+        return user
+    # JWT path (browser, oak key-session, or machine exchange)
+    payload = _decode(server, raw)
+    if payload.get("_machine_principal") is not None:
+        request.state.octop_machine = payload["_machine_principal"]
+    assert server.user_manager is not None
+    user = server.user_manager.get_by_id(int(payload["sub"]))
+    if user is None:
+        raise OctopError(ErrorCode.USER_DISABLED, "user not active")
+    return user
 
 
 async def current_user(
@@ -192,7 +303,7 @@ async def current_user(
     raw = extract_raw_token(authorization=authorization, access_token=access_token)
     if not raw:
         raise OctopError(ErrorCode.AUTH_FAILED, "missing credentials")
-    return resolve_user_from_token(server, raw)
+    return authenticate_request(request, server)
 
 
 def require_permission(key: str) -> Callable[..., Awaitable[User]]:

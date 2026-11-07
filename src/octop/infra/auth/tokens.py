@@ -24,6 +24,9 @@ def sign_token(
     auth_key_id: str | None = None,
     sid: str | None = None,
     av: int | None = None,
+    actor_kind: str | None = None,
+    scopes: list[str] | None = None,
+    experts: list[str] | None = None,
 ) -> str:
     now = int(time.time())
     payload: dict[str, Any] = {
@@ -39,6 +42,12 @@ def sign_token(
         payload["sid"] = sid
     if av is not None:
         payload["av"] = int(av)
+    if actor_kind is not None:
+        payload["actor_kind"] = actor_kind
+    if scopes is not None:
+        payload["scopes"] = list(scopes)
+    if experts is not None:
+        payload["experts"] = list(experts)
     return jwt.encode(payload, secret, algorithm="HS256")
 
 

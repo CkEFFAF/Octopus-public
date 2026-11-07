@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from octop.infra.auth.access_keys import AccessKeyService
+from octop.infra.auth.agent_access_keys import AgentAccessKeyService
 from octop.infra.db.repos.devices import DeviceRow, OperationRow
 from octop.infra.db.services import RepoBundle
 from octop.infra.devices.protocol import (
@@ -78,6 +79,7 @@ class DeviceService:
             LocalExecutionBackend(local_state_dir, self) if local_state_dir else None
         )
         self.access_keys = AccessKeyService(repos)
+        self.agent_access_keys = AgentAccessKeyService(repos)
         controller_id = repos.settings_repo.get("execution.controller_id")
         if controller_id is None:
             controller_id = new_ulid()
@@ -122,6 +124,7 @@ class DeviceService:
             raise device_error("restart required to replace active device persistence", status=409)
         self.repos = repos
         self.access_keys = AccessKeyService(repos)
+        self.agent_access_keys = AgentAccessKeyService(repos)
         self._pairings.clear()
         controller_id = repos.settings_repo.get("execution.controller_id")
         if controller_id is None:
