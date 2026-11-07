@@ -240,3 +240,108 @@ async def test_owner_isolation(rig: Any) -> None:
     with pytest.raises(OctopError) as exc:
         rig.service.detail(rig.other, created["task_id"])
     assert exc.value.code == ErrorCode.WORK_ITEM_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_cancel_leaves_pending_while_in_process_job_live(rig: Any) -> None:
+    """DEC-0043-09: do not terminal-cancel while in-process work is still live."""
+    created = await rig.service.create(rig.uid, _create_body(command_id="cmd-cancel-live"))
+    task_id = created["task_id"]
+    for job in list(rig.service._jobs.values()):
+        job.cancel()
+    await asyncio.sleep(0.02)
+    rig.service._jobs.clear()
+
+    class _LiveJob:
+        def done(self) -> bool:
+            return False
+
+        def cancel(self) -> None:
+            self.cancelled = True
+
+    live = _LiveJob()
+    rig.service._jobs[task_id] = live  # type: ignore[assignment]
+    rig.repos.work_item_repo.update(
+        rig.uid, task_id, status="running", worker_thread_id="worker-thread-1"
+    )
+    if rig.repos.thread_repo.get("worker-thread-1") is None:
+        rig.repos.thread_repo.insert(
+            thread_id="worker-thread-1",
+            agent_id="agent-a",
+            user_id=rig.uid,
+            channel_type="dashboard",
+            session_key="worker-key-live",
+        )
+
+    result = await rig.service.cancel(
+        rig.uid,
+        task_id,
+        WorkItemCancel(command_id="cancel-live-1", scope="task", schema_version=1),
+    )
+    assert result["cancel_requested"] is True
+    assert result["terminated"] is False
+    assert result["status"] != "cancelled"
+    detail = rig.service.detail(rig.uid, task_id)
+    assert detail["cancel_requested"] is True
+    assert detail["status"] != "cancelled"
+    assert getattr(live, "cancelled", False) is True
+
+
+@pytest.mark.asyncio
+async def test_recover_reschedules_never_started_queued(rig: Any) -> None:
+    """After restart, queued items with no worker must be re-dispatched."""
+    created = await rig.service.create(rig.uid, _create_body(command_id="cmd-recover-q"))
+    task_id = created["task_id"]
+    for job in list(rig.service._jobs.values()):
+        job.cancel()
+    await asyncio.sleep(0.02)
+    rig.service._jobs.clear()
+    rig.repos.work_item_repo.update(
+        rig.uid, task_id, status="queued", worker_thread_id=None
+    )
+    rig.service.recover()
+    assert task_id in rig.service._jobs
+    assert not rig.service._jobs[task_id].done()
+
+
+@pytest.mark.asyncio
+async def test_add_input_sets_waiting_and_injects_worker(rig: Any) -> None:
+    """POST inputs must update authoritative status and append to worker thread."""
+    created = await rig.service.create(rig.uid, _create_body(command_id="cmd-input-ok"))
+    task_id = created["task_id"]
+    for job in list(rig.service._jobs.values()):
+        job.cancel()
+    await asyncio.sleep(0.02)
+    rig.service._jobs.clear()
+    worker_id = "worker-thread-input"
+    if rig.repos.thread_repo.get(worker_id) is None:
+        rig.repos.thread_repo.insert(
+            thread_id=worker_id,
+            agent_id="agent-a",
+            user_id=rig.uid,
+            channel_type="dashboard",
+            session_key="worker-key-input",
+        )
+    rig.repos.work_item_repo.update(
+        rig.uid,
+        task_id,
+        status="running",
+        worker_thread_id=worker_id,
+        current_run_id="run-input-1",
+        current_attempt_id="attempt-input-1",
+    )
+    saved = await rig.service.add_input(
+        rig.uid,
+        task_id,
+        WorkItemInputCreate(
+            command_id="in-ok-1",
+            text="please revise",
+            schema_version=1,
+        ),
+    )
+    detail = rig.service.detail(rig.uid, task_id)
+    assert detail["status"] == "waiting_input"
+    message_id = f"work:{task_id}:input:{saved['input_id']}"
+    assert rig.repos.thread_message_repo.has_message_id(worker_id, message_id) is True
+    # Never append inputs onto the origin thread.
+    assert rig.repos.thread_message_repo.has_message_id("origin-1", message_id) is False

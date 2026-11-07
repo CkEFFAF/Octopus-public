@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 
 _TERMINAL = frozenset({"completed", "failed", "cancelled"})
 _MAX_BACKGROUND = 4
+_OPEN_JOB_STATUSES = frozenset(
+    {"queued", "running", "pending", "accepted", "working", "started", "waiting"}
+)
 
 
 class WorkItemsService:
@@ -77,7 +80,9 @@ class WorkItemsService:
             if status in _TERMINAL:
                 continue
             if status == "queued" and not row["worker_thread_id"]:
-                # Persisted before dispatch — leave queued; dispatch may restart on demand.
+                # Re-schedule never-started persist-before-dispatch items after restart
+                # (not a side-effect replay).
+                self._schedule_dispatch(int(row["owner_user_id"]), row["task_id"])
                 continue
             # Cannot confirm external Jobs/tools blindly → unknown (DEC-0043-13).
             if (
@@ -107,6 +112,10 @@ class WorkItemsService:
                     ErrorCode.WORK_ITEM_COMMAND_CONFLICT,
                     "work item command_id payload conflict",
                 )
+            if existing["status"] == "queued" and (
+                existing["task_id"] not in self._jobs or self._jobs[existing["task_id"]].done()
+            ):
+                self._schedule_dispatch(owner, existing["task_id"])
             return self._create_response(existing, idempotent_replay=True)
 
         origin = self._repos.thread_repo.get(body.origin_thread_id.strip())
@@ -297,16 +306,25 @@ class WorkItemsService:
             await self._emit_task(row, reason="running")
 
             if row.get("cancel_requested"):
-                await self._confirm_cancel(owner, task_id)
+                if not self._has_open_external_jobs(owner, task_id):
+                    await self._confirm_cancel(owner, task_id)
                 return
 
             output = await self._run_worker_turn(row, session_key=session_key)
             row = self._repo.get(owner, task_id) or row
             if row.get("cancel_requested"):
-                await self._confirm_cancel(owner, task_id)
+                if not self._has_open_external_jobs(owner, task_id):
+                    await self._confirm_cancel(owner, task_id)
                 return
             await self._complete(owner, task_id, output=output or "")
         except asyncio.CancelledError:
+            row = self._repo.get(owner, task_id)
+            if (
+                row is not None
+                and row.get("cancel_requested")
+                and not self._has_open_external_jobs(owner, task_id)
+            ):
+                await self._confirm_cancel(owner, task_id)
             raise
         except Exception:
             logger.exception("work item dispatch failed task=%s", task_id)
@@ -695,6 +713,7 @@ class WorkItemsService:
                     ErrorCode.WORK_ITEM_COMMAND_CONFLICT, "input command_id conflict"
                 ) from exc
             raise
+        row = self._repo.update(owner, task_id, status="waiting_input") or row
         self._record_event(
             owner=owner,
             task=row,
@@ -711,7 +730,8 @@ class WorkItemsService:
             context_id=row.get("context_id"),
         )
         # Inputs bind to the worker — never 0033 steer / origin queue (DEC-0043-05).
-        await self._emit_task(row, reason="waiting", status_override="waiting_input")
+        await self._emit_task(row, reason="waiting")
+        await self._inject_worker_input(row, saved)
         return {
             "input_id": saved["input_id"],
             "task_id": task_id,
@@ -762,13 +782,11 @@ class WorkItemsService:
             await self._emit_task(row, reason="progress", phase="cancel_requested")
 
         terminated = False
-        if row["status"] in {"queued"} or (
-            task_id in self._jobs and not self._jobs[task_id].done()
-        ):
-            job = self._jobs.get(task_id)
-            if job is not None and not job.done():
-                job.cancel()
-            # Cooperative: confirm when no external Jobs left unknown.
+        job = self._jobs.get(task_id)
+        if job is not None and not job.done():
+            job.cancel()
+        row = self._repo.get(owner, task_id) or row
+        if self._should_confirm_cancel_now(row):
             await self._confirm_cancel(owner, task_id)
             row = self._repo.get(owner, task_id) or row
             terminated = row["status"] == "cancelled"
@@ -822,6 +840,72 @@ class WorkItemsService:
         asyncio.create_task(self._emit_task(row, reason="unknown"), name=f"work-unk:{task_id}")
 
     # ── helpers ─────────────────────────────────────────────────────────
+
+    def _has_open_external_jobs(self, owner: int, task_id: str) -> bool:
+        """True when Jobs reconciler still has non-terminal job events for this item."""
+        events = self._repos.run_event_repo.list_for_work_item(
+            owner, task_id, kind="job", limit=200
+        )
+        return any((event.get("status") or "") in _OPEN_JOB_STATUSES for event in events)
+
+    def _should_confirm_cancel_now(self, row: dict[str, Any]) -> bool:
+        """DEC-0043-09: terminal cancel only with no open Jobs and in-process work finished."""
+        owner = int(row["owner_user_id"])
+        task_id = row["task_id"]
+        if self._has_open_external_jobs(owner, task_id):
+            return False
+        if row["status"] == "queued" and not row.get("worker_thread_id"):
+            return True
+        job = self._jobs.get(task_id)
+        return job is None or job.done()
+
+    async def _inject_worker_input(self, row: dict[str, Any], saved: dict[str, Any]) -> None:
+        """Append accepted input onto the worker thread (never origin / 0033 steer)."""
+        worker_id = row.get("worker_thread_id")
+        if not worker_id:
+            return
+        if self._repos.thread_repo.get(worker_id) is None:
+            return
+        message_id = f"work:{row['task_id']}:input:{saved['input_id']}"
+        if self._repos.thread_message_repo.has_message_id(worker_id, message_id) is True:
+            return
+        text = str((saved.get("payload") or {}).get("text") or "")
+        try:
+            harness = None
+            if self._registry is not None:
+                with contextlib.suppress(Exception):
+                    harness = self._registry.get_agent(row["agent_id"])
+            if harness is not None and hasattr(harness, "aappend_messages"):
+                from langchain_core.messages import HumanMessage
+
+                msg = HumanMessage(content=text)
+                msg.id = message_id
+                await harness.aappend_messages(worker_id, [msg])
+            else:
+                import json as _json
+
+                from octop.infra.db.repos.thread_messages import ThreadMessageInput
+
+                self._repos.thread_message_repo.append_legacy_interval(
+                    worker_id,
+                    [
+                        ThreadMessageInput(
+                            message_id=message_id,
+                            role="user",
+                            message_json=_json.dumps(
+                                {"type": "human", "content": text, "id": message_id},
+                                ensure_ascii=False,
+                            ),
+                            created_at=int(time.time()),
+                        )
+                    ],
+                )
+        except Exception:
+            logger.exception(
+                "work item input inject failed task=%s worker=%s",
+                row["task_id"],
+                worker_id,
+            )
 
     def _require(self, owner: int, task_id: str) -> dict[str, Any]:
         row = self._repo.get(owner, task_id)
