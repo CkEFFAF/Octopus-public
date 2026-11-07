@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -225,3 +227,110 @@ async def test_unknown_reason_is_ignored() -> None:
         reason="bogus",  # type: ignore[arg-type]
     )
     assert frames == []
+
+
+def _gateway_for_operation(
+    *,
+    thread_id: str = "thr_op",
+    swallow_cancelled: bool = False,
+) -> Any:
+    """Minimal Gateway shell for iter_dashboard_operation unit tests."""
+    from types import SimpleNamespace
+
+    from octop.infra.gateway.gateway import Gateway
+
+    gw = Gateway.__new__(Gateway)
+    row = SimpleNamespace(user_id=7, agent_id="agent-x")
+
+    class _Mgr:
+        async def run_in_session(self, channel_id: str, key: str, fn: Any) -> None:
+            try:
+                await fn()
+            except asyncio.CancelledError:
+                if swallow_cancelled:
+                    # operation() already emitted cancelled in its finally.
+                    return
+                raise
+
+    emitted: list[dict[str, Any]] = []
+
+    async def capture_emit(**kwargs: Any) -> None:
+        emitted.append(dict(kwargs))
+
+    gw._channel_manager = _Mgr()
+    gw._ws_hub = SimpleNamespace(
+        mark_turn_active=MagicMock(),
+        mark_turn_idle=MagicMock(),
+        push_to_thread=AsyncMock(),
+    )
+    gw._thread_registry = SimpleNamespace(get_thread=MagicMock(return_value=row))
+    gw._dashboard_operations = set()
+    gw._resume_terminal_emitted = set()
+    gw._inputs = SimpleNamespace(observe=MagicMock())
+    gw.emit_thread_changed = capture_emit  # type: ignore[method-assign]
+    gw._emit_resume_thread_event = Gateway._emit_resume_thread_event.__get__(gw, Gateway)
+    return gw, emitted, row
+
+
+@pytest.mark.asyncio
+async def test_operation_cancelled_emits_cancelled() -> None:
+    """CancelledError must map to reason=cancelled, not completed (Medium 1)."""
+    gw, emitted, _row = _gateway_for_operation(swallow_cancelled=True)
+
+    async def source():
+        raise asyncio.CancelledError()
+        yield "unreachable"  # pragma: no cover
+
+    frames = [frame async for frame in gw.iter_dashboard_operation("thr_op", source)]
+    assert frames == []
+
+    reasons = [e["reason"] for e in emitted]
+    assert reasons[0] == "running"
+    assert reasons[-1] == "cancelled"
+    assert "completed" not in reasons
+    gw._ws_hub.mark_turn_idle.assert_called_with("thr_op")
+
+
+@pytest.mark.asyncio
+async def test_operation_skips_terminal_when_resume_already_emitted() -> None:
+    """Resume terminal emit suppresses the operation() finally duplicate (Medium 2)."""
+    gw, emitted, _row = _gateway_for_operation()
+    resume_seen = asyncio.Event()
+
+    async def source():
+        # Simulate HITL resume path emitting a terminal before the stream ends.
+        await gw._emit_resume_thread_event(
+            7,
+            "agent-x",
+            "thr_op",
+            {"type": "run_phase", "phase": "completed", "run_id": "run-1"},
+        )
+        resume_seen.set()
+        yield "frame"
+
+    frames = [frame async for frame in gw.iter_dashboard_operation("thr_op", source)]
+    assert frames == ["frame"]
+    assert resume_seen.is_set()
+
+    reasons = [e["reason"] for e in emitted]
+    # running (op start) + completed (resume) — no second completed from finally
+    assert reasons.count("completed") == 1
+    assert reasons[0] == "running"
+    assert reasons[1] == "completed"
+    assert len(reasons) == 2
+    gw._ws_hub.mark_turn_idle.assert_called()
+    assert "thr_op" not in gw._resume_terminal_emitted
+
+
+@pytest.mark.asyncio
+async def test_operation_emits_terminal_when_resume_did_not() -> None:
+    """Without a resume terminal, finally still emits completed."""
+    gw, emitted, _row = _gateway_for_operation()
+
+    async def source():
+        yield "ok"
+
+    frames = [frame async for frame in gw.iter_dashboard_operation("thr_op", source)]
+    assert frames == ["ok"]
+    reasons = [e["reason"] for e in emitted]
+    assert reasons == ["running", "completed"]

@@ -129,6 +129,10 @@ class Gateway:
         self._history_backfill = HistoryBackfillQueue()
         self._inputs: ChatInputQueue | None = None
         self._dashboard_operations: set[asyncio.Task[None]] = set()
+        # Threads whose resume path already emitted a terminal thread.changed
+        # (completed|failed|cancelled). Cleared at the start of each
+        # iter_dashboard_operation so finally can skip a duplicate emit.
+        self._resume_terminal_emitted: set[str] = set()
 
     def replace_repos(self, repos: RepoBundle) -> None:
         """Point channel/thread persistence at a rebound control-plane pool."""
@@ -190,6 +194,7 @@ class Gateway:
         listening = True
 
         async def operation() -> None:
+            self._resume_terminal_emitted.discard(thread_id)
             self._ws_hub.mark_turn_active(thread_id)
             row = self._thread_registry.get_thread(thread_id)
             if row is not None:
@@ -204,12 +209,17 @@ class Gateway:
                 async for frame in source():
                     if listening:
                         frames.put_nowait(frame)
+            except asyncio.CancelledError:
+                terminal = "cancelled"
+                raise
             except Exception:
                 terminal = "failed"
                 raise
             finally:
                 self._ws_hub.mark_turn_idle(thread_id)
-                if row is not None:
+                skip_terminal = thread_id in self._resume_terminal_emitted
+                self._resume_terminal_emitted.discard(thread_id)
+                if row is not None and not skip_terminal:
                     await self.emit_thread_changed(
                         owner_user_id=row.user_id,
                         agent_id=row.agent_id,
@@ -656,6 +666,7 @@ class Gateway:
                 reason="failed",
                 run_id=run_id_s,
             )
+            self._resume_terminal_emitted.add(thread_id)
             return
         if ctype != "run_phase":
             return
@@ -668,6 +679,7 @@ class Gateway:
                 reason=phase,
                 run_id=run_id_s,
             )
+            self._resume_terminal_emitted.add(thread_id)
         elif phase == "paused":
             await self.emit_thread_changed(
                 owner_user_id=owner,
