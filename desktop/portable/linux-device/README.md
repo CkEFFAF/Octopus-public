@@ -1,5 +1,10 @@
 # Linux 无界面设备客户端
 
+本地编码 Agent 可通过同包的 ./expert.sh 配置专家 token、列出授权专家及提问续聊。
+运行 ./expert.sh --help 查看命令，./expert.sh configure --server https://你的管理端域名
+会隐藏输入专家专用 token。随后使用 ./expert.sh list 和 ./expert.sh ask --expert 专家ID --message "问题"。
+命令输出 JSON，使用包内运行时，详细说明见项目 docs/device-expert.md。
+
 这个包只运行后台设备连接、共享目录与明确授权的命令。它不启动 Web UI、账号数据库或管理服务，不需要桌面、浏览器、X11 或 LLM 配置。任意已分别授权的 Windows 管理端都能操作它；某个管理端关机不会断开其他连接。
 
 ## 构建与平台

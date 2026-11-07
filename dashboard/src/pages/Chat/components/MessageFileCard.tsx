@@ -71,7 +71,7 @@ export function MessageFileCard({
 
   const openPreview = useCallback(() => {
     if (previewable && resolvedPath && filePreview) {
-      filePreview.openFilePreview(resolvedPath, agentId);
+      filePreview.openFilePreview(resolvedPath, agentId, "workspace");
     }
   }, [previewable, resolvedPath, filePreview, agentId]);
 

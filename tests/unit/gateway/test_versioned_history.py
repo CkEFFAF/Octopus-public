@@ -1085,3 +1085,61 @@ async def test_steering_archive_preserves_original_user_partial_and_insert(archi
         ("ai", "updated"),
     ]
     assert messages[1].additional_kwargs["octop_interrupted"] is True
+
+
+@pytest.mark.asyncio
+async def test_model_retry_discards_unexecuted_tool_fragments_from_archive(archive):
+    tracker = RecordingTracker(
+        archive, archive.begin("a", "t"), [HumanMessage(content="q", id="u")]
+    )
+    tracker.observe(
+        {
+            "type": "tool_call_chunk",
+            "message_id": "bad",
+            "id": "pending",
+            "name": "write_file",
+            "index": 0,
+            "args": '{"path":',
+        }
+    )
+    await tracker.flush()
+    tracker.observe({"type": "custom", "data": {"octop_model_retry": {"phase": "retrying"}}})
+    tracker.observe({"type": "token", "message_id": "good", "content": "Recovered"})
+    tracker.observe(
+        {
+            "type": "state_snapshot",
+            "data": {
+                "messages": [
+                    HumanMessage(content="q", id="u"),
+                    AIMessage(content="Recovered", id="good"),
+                ]
+            },
+        }
+    )
+    await tracker.finish(completed=True)
+    page = await archive.page("t", limit=20, cursor=None, legacy_reader=no_anchor)
+    messages = messages_from_dict(page["messages"])
+    assert not any(message.type == "ai" and message.tool_calls for message in messages)
+    assert messages[-1].content == "Recovered"
+    assert archive.store.turn("t")["status"] == "complete"
+
+
+def test_model_retry_does_not_append_failed_partial_text_to_legacy_history():
+    from octop.infra.history.projection import TurnHistoryTracker
+
+    user = HumanMessage(content="q", id="u")
+    prior = AIMessage(content="Committed", id="prior")
+    tracker = TurnHistoryTracker(seed_messages=[user])
+    tracker.observe({"type": "token", "content": "Committed"})
+    tracker.observe({"type": "state_snapshot", "data": {"messages": [user, prior]}})
+    tracker.observe({"type": "token", "content": "Failed partial"})
+    tracker.observe({"type": "custom", "data": {"octop_model_retry": {"phase": "retrying"}}})
+    tracker.observe({"type": "token", "content": "Recovered"})
+    tracker.observe(
+        {
+            "type": "state_snapshot",
+            "data": {"messages": [user, prior, AIMessage(content="Recovered", id="good")]},
+        }
+    )
+    messages = messages_from_dict([json.loads(item.message_json) for item in tracker.inputs])
+    assert [message.content for message in messages] == ["q", "Committed", "Recovered"]

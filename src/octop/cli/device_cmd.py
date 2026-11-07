@@ -9,6 +9,7 @@ from pathlib import Path
 
 import click
 
+from octop.cli.device_expert_cmd import expert
 from octop.infra.devices.client import DeviceClient, account_login
 from octop.infra.devices.executor import DeviceExecutionError, DeviceExecutor
 from octop.infra.devices.network import DeviceNetwork, validate_relocation_url
@@ -17,6 +18,9 @@ from octop.infra.devices.network import DeviceNetwork, validate_relocation_url
 @click.group()
 def device() -> None:
     """Connect this Windows/Linux device to independently trusted management hosts."""
+
+
+device.add_command(expert)
 
 
 @device.command("approvals")

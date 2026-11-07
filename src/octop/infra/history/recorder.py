@@ -149,6 +149,8 @@ class RecordingTracker(TurnHistoryTracker):
             and self._assistant is not None
         ):
             self._assistant["data"]["content"] = ""
+            self._assistant["data"].pop("tool_calls", None)
+            self._assistant["data"].get("additional_kwargs", {}).pop("history_tool_args", None)
             self._assistant["data"].get("additional_kwargs", {}).pop("reasoning_content", None)
             self._mark_changed(self._assistant)
         if kind in ("state_snapshot", "state_update"):

@@ -8,6 +8,94 @@ import {
 } from "./chatStore";
 
 const session = "recovery-thread";
+
+it("discards failed tool arguments while retaining completed work and another speaker", () => {
+  appendUserMessage(session, {
+    id: "question",
+    role: "user",
+    content: "q",
+    timestamp: 1,
+  });
+  ingestHarnessChunk(
+    session,
+    { type: "token", node: "model", content: "Committed progress" },
+    "host",
+  );
+  ingestHarnessChunk(session, {
+    type: "tool_call_chunk",
+    id: "done-tool",
+    index: 0,
+    name: "write_file",
+    args: "{}",
+  });
+  ingestHarnessChunk(session, {
+    type: "tool_result",
+    node: "tools",
+    messages: [
+      { type: "tool", tool_call_id: "done-tool", content: "Already written" },
+    ],
+  });
+  ingestHarnessChunk(session, {
+    type: "token",
+    node: "model",
+    content: "Failed partial",
+  });
+  ingestHarnessChunk(session, {
+    type: "tool_call_chunk",
+    id: "failed-tool",
+    index: 0,
+    name: "write_file",
+    args: '{"path":',
+  });
+  ingestHarnessChunk(session, {
+    type: "token",
+    node: "model",
+    agent_id: "peer",
+    content: "Peer keeps working",
+  });
+  ingestHarnessChunk(session, {
+    type: "custom",
+    data: {
+      octop_model_retry: { phase: "retrying", attempt: 2, max_attempts: 3 },
+    },
+  });
+  const messages = getSnapshot(session).messages;
+  expect(
+    messages.some((message) => message.content.includes("Failed partial")),
+  ).toBe(false);
+  expect(
+    messages.some((message) => message.toolData?.callId === "failed-tool"),
+  ).toBe(false);
+  expect(
+    messages.find((message) => message.toolData?.callId === "done-tool")
+      ?.toolData?.output,
+  ).toBe("Already written");
+  expect(
+    messages.some((message) => message.content.includes("Committed progress")),
+  ).toBe(true);
+  expect(
+    messages.some((message) => message.content === "Peer keeps working"),
+  ).toBe(true);
+  ingestHarnessChunk(session, {
+    type: "tool_call_chunk",
+    id: "new-tool",
+    index: 0,
+    name: "read_file",
+    args: "{}",
+  });
+  ingestHarnessChunk(session, {
+    type: "tool_result",
+    node: "tools",
+    messages: [
+      { type: "tool", tool_call_id: "new-tool", content: "New output" },
+    ],
+  });
+  expect(
+    getSnapshot(session)
+      .messages.filter((message) => message.toolData)
+      .map((message) => message.toolData?.callId),
+  ).toEqual(["done-tool", "new-tool"]);
+});
 vi.mock("../../../api/config", () => ({
   getApiUrl: (path: string) => `/api${path}`,
 }));

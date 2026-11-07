@@ -1,5 +1,8 @@
 # 本地 ACP 客户端连接云端专家
 
+本地 Codex、OpenCode、Claude Code 通过执行端终端命令主动咨询专家的接入方式，
+见 [执行端专家交流](device-expert.md)。本文描述标准 ACP 客户端入口。
+
 `octop acp-remote` 通过标准 ACP stdio 协议连接本地客户端，把任务交给云端 Octop 专家。它不会启动本地 OctopServer，也不会下载服务器数据库。协议依赖锁定为 `agent-client-protocol==0.11.0`、protocol version 1。
 
 ## 凭据和启动

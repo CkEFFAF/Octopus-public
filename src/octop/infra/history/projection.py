@@ -173,6 +173,21 @@ class TurnHistoryTracker:
 
     def observe(self, chunk: dict[str, Any]) -> None:
         kind = chunk.get("type")
+        retry = (
+            (chunk.get("data") or {}).get("octop_model_retry")
+            if kind == "custom" and isinstance(chunk.get("data"), dict)
+            else None
+        )
+        if isinstance(retry, dict) and retry.get("phase") == "retrying":
+            # State snapshots contain only committed model/tool output. Tokens
+            # from the failed model attempt must not become legacy history.
+            self._stream_text = "".join(
+                _wire_text(item)
+                for item in message_inputs(self._state_messages)
+                if item.role in _ASSISTANT_ROLES
+            )
+            self._reasoning_text = ""
+            return
         if kind == "done":
             self._finished = True
             return

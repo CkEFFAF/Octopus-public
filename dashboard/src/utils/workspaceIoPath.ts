@@ -83,5 +83,8 @@ export function toWorkspaceApiPath(resolvedPath: string): string {
 export function toDockWorkspaceApiPath(raw: string): string {
   const normalized = normalizeIoPath(raw);
   if (!normalized) return "";
+  if (normalized.startsWith("/.agent/")) {
+    return toWorkspaceApiPath(normalized.slice("/.agent".length));
+  }
   return toWorkspaceApiPath(normalized);
 }

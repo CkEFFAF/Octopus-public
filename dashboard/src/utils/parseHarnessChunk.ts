@@ -60,16 +60,19 @@ export interface StateUpdateChunk {
   type: "state_update";
   node: string;
   data: unknown;
+  agent_id?: string;
 }
 
 export interface StateSnapshotChunk {
   type: "state_snapshot";
   data: unknown;
+  agent_id?: string;
 }
 
 export interface CustomChunk {
   type: "custom";
   data: unknown;
+  agent_id?: string;
 }
 
 export interface UsageChunk {
@@ -221,7 +224,11 @@ function projectHarnessChunk(
 
   switch (t) {
     case "custom":
-      return { type: "custom", data: obj.data };
+      return {
+        type: "custom",
+        data: obj.data,
+        ...(agentId ? { agent_id: agentId } : {}),
+      };
     case "token":
       return {
         type: "token",
@@ -278,9 +285,14 @@ function projectHarnessChunk(
         type: "state_update",
         node: typeof obj.node === "string" ? obj.node : "",
         data: obj.data,
+        ...(agentId ? { agent_id: agentId } : {}),
       };
     case "state_snapshot":
-      return { type: "state_snapshot", data: obj.data };
+      return {
+        type: "state_snapshot",
+        data: obj.data,
+        ...(agentId ? { agent_id: agentId } : {}),
+      };
     case "done":
       return {
         type: "done",

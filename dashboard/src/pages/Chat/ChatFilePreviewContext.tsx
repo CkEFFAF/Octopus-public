@@ -3,7 +3,11 @@ import type { KnowledgeCitation } from "../../utils/parseKnowledgeCitations";
 
 interface ChatFilePreviewContextValue {
   /** Open the shared file panel on a workspace path (preview / download cards). */
-  openFilePreview: (path: string, agentId?: string | null) => void;
+  openFilePreview: (
+    path: string,
+    agentId?: string | null,
+    source?: "workspace",
+  ) => void;
   /** Open a knowledge citation in the shared chat dock (same shell as file tabs). */
   openKnowledgeCitation: (citation: KnowledgeCitation) => void;
 }
@@ -16,7 +20,7 @@ export function ChatFilePreviewProvider({
   openKnowledgeCitation,
   children,
 }: {
-  openFilePreview: (path: string, agentId?: string | null) => void;
+  openFilePreview: ChatFilePreviewContextValue["openFilePreview"];
   openKnowledgeCitation: (citation: KnowledgeCitation) => void;
   children: ReactNode;
 }) {

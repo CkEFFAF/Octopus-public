@@ -535,6 +535,12 @@ function notify(state: SessionStreamState, batchStreamFrame = false) {
 }
 
 function beginStream(state: SessionStreamState, sessionId: string): void {
+  modelAttemptBaseline(
+    state,
+    sessionHostAgentId(state, sessionId),
+    sessionId,
+    true,
+  );
   clearAllLiveSpeakers(state);
   state.thinkingStartedAt = Date.now();
   state.isStreaming = true;
@@ -1221,6 +1227,50 @@ const resumeEventRanges = new WeakMap<
   Map<string, Array<[number, number]>>
 >();
 const activeRunIds = new WeakMap<SessionStreamState, string>();
+const modelAttemptBaselines = new WeakMap<
+  SessionStreamState,
+  Map<string, Map<string, ChatMessage>>
+>();
+
+function modelAttemptBaseline(
+  state: SessionStreamState,
+  speaker?: string,
+  sessionId?: string,
+  capture = false,
+): Map<string, ChatMessage> {
+  const host = sessionHostAgentId(state, sessionId);
+  const key = speaker || host || "";
+  let actors = modelAttemptBaselines.get(state);
+  if (!actors) {
+    actors = new Map();
+    modelAttemptBaselines.set(state, actors);
+  }
+  let baseline = actors.get(key);
+  if (!baseline || capture) {
+    baseline = new Map(
+      state.messages
+        .filter(
+          (message) =>
+            message.role === "assistant" &&
+            sameStreamingSpeaker(
+              message.speakerAgentId,
+              speaker,
+              host,
+              Boolean(state.isTeamRoom),
+            ),
+        )
+        .map((message) => [
+          message.id,
+          {
+            ...message,
+            toolData: message.toolData ? { ...message.toolData } : undefined,
+          },
+        ]),
+    );
+    actors.set(key, baseline);
+  }
+  return baseline;
+}
 
 function rememberResumeEvent(
   state: SessionStreamState,
@@ -1285,6 +1335,7 @@ function handleHarnessChunkBody(
   sessionId?: string,
 ): void {
   const speaker = chunkSpeakerId(chunk, sessionHostAgentId(state, sessionId));
+  modelAttemptBaseline(state, speaker, sessionId);
   if (sessionId && (state.isStreaming || speaker)) {
     touchStreamActivity(sessionId);
   }
@@ -1500,12 +1551,25 @@ function handleHarnessChunkBody(
             typeof value.max_attempts === "number"
           ) {
             if (value.phase === "retrying") {
-              state.messages = state.messages.filter(
-                (message) =>
-                  message.id !== state.streamId ||
-                  message.toolData ||
-                  message.status !== "streaming",
-              );
+              const baseline = modelAttemptBaseline(state, speaker, sessionId);
+              state.messages = state.messages.flatMap((message) => {
+                if (
+                  message.role !== "assistant" ||
+                  !sameStreamingSpeaker(
+                    message.speakerAgentId,
+                    speaker,
+                    sessionHostAgentId(state, sessionId),
+                    Boolean(state.isTeamRoom),
+                  ) ||
+                  (state.thinkingStartedAt &&
+                    message.timestamp < state.thinkingStartedAt)
+                )
+                  return [message];
+                const committed = baseline.get(message.id);
+                if (committed) return [committed];
+                unregisterToolCallKeys(state, message.id);
+                return [];
+              });
               state.streamId = "";
               state.streamMsg = "";
               state.streamBlockType = "";
@@ -1526,6 +1590,15 @@ function handleHarnessChunkBody(
         }
       }
       break;
+  }
+  if (
+    chunk.type === "state_update" ||
+    chunk.type === "state_snapshot" ||
+    chunk.type === "tool_result" ||
+    chunk.type === "done" ||
+    (chunk.type === "run_phase" && chunk.phase === "preparing")
+  ) {
+    modelAttemptBaseline(state, speaker, sessionId, true);
   }
   notify(
     state,

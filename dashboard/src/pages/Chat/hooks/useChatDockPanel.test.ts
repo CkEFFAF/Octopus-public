@@ -92,6 +92,33 @@ describe("useChatDockPanel tabs", () => {
     expect(executionApi.createContext).not.toHaveBeenCalled();
   });
 
+  it("keeps delivered workspace reports separate from same-name device project files", async () => {
+    const { result } = renderExecutionDock();
+    const path = "outbound/main_en_文件报告.md";
+    act(() => result.current.openFileAt(path, "main", "workspace"));
+    expect(result.current.activeTab).toMatchObject({
+      kind: "file",
+      path,
+      agentId: "main",
+    });
+    expect(executionApi.createContext).not.toHaveBeenCalled();
+
+    await act(async () => result.current.openFileAt(path, "main"));
+    expect(executionApi.createContext).toHaveBeenCalledWith({
+      device_id: "fixture-device",
+      agent_id: "main",
+      thread_id: "thread",
+      working_dir: "/samples",
+      work_mode: "agentic",
+    });
+    expect(result.current.activeTab).toMatchObject({
+      kind: "execution",
+      initialFilePath: path,
+      context,
+    });
+    expect(result.current.openTabs).toHaveLength(2);
+  });
+
   it("openKnowledgeCitation opens a dock tab and dedupes by kb/doc id", () => {
     const { result } = renderHook(() => useChatDockPanel(false));
     const citation = {
