@@ -201,6 +201,39 @@ class RunInspectionService:
             agent = self.repos.agent_repo.get(context.agent_id)
             if agent is None or agent.user_id != context.owner_user_id:
                 return
+        program = None
+        argv = result.get("argv")
+        if isinstance(argv, list) and argv and all(isinstance(value, str) for value in argv):
+            from pathlib import PurePosixPath
+
+            executable = PurePosixPath(argv[0].replace("\\", "/")).name
+            interpreter = executable.lower().removesuffix(".exe")
+            program = (
+                next(
+                    (
+                        PurePosixPath(value.replace("\\", "/")).name
+                        for value in argv[1:]
+                        if value.endswith((".py", ".sh", ".js", ".mjs"))
+                    ),
+                    executable,
+                )
+                if interpreter.startswith(("python", "node"))
+                or interpreter in {"bash", "sh", "zsh"}
+                else executable
+            )[:100]
+        preview = command_preview_from_params(result)
+        previous = self.events.get(context.owner_user_id, f"job:{context.context_id}:{job_id}")
+        labels = {
+            key: value
+            for key, value in (previous or {}).get("payload", {}).items()
+            if key in {"program", "command_preview", "cwd"}
+        }
+        if program:
+            labels["program"] = program
+        if preview:
+            labels["command_preview"] = preview
+        if isinstance(result.get("cwd"), str):
+            labels["cwd"] = result["cwd"][:4096]
         self.events.save(
             event_id=f"job:{context.context_id}:{job_id}",
             owner=context.owner_user_id,
@@ -212,6 +245,7 @@ class RunInspectionService:
             status=status,
             work_item_id=getattr(context, "work_item_id", None),
             payload={
+                **labels,
                 "device_id": context.device_id,
                 "target_kind": context.target_kind,
                 "job_id": job_id,

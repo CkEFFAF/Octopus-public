@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import { Activity, Clock3, ListChecks, MessageSquarePlus } from "lucide-react";
 import { useElapsedSince } from "../../../hooks/useElapsedSeconds";
 import type { SessionSnapshot } from "../hooks/sseHelpers";
+import type { ChatMessage } from "../hooks/sseHelpers";
+import { toolProgress } from "../../../utils/toolProgress";
 import styles from "./ChatWorkStatus.module.less";
 
 export default function ChatWorkStatus({
@@ -11,12 +13,14 @@ export default function ChatWorkStatus({
   phase,
   startedAt,
   retry,
+  currentTool,
 }: {
   onContinueChat: () => void;
   onShowProgress?: () => void;
   phase?: string;
   startedAt?: number | null;
   retry?: SessionSnapshot["modelRetry"];
+  currentTool?: ChatMessage["toolData"];
 }) {
   const { t } = useTranslation();
   const mounted = useRef(Date.now());
@@ -25,23 +29,15 @@ export default function ChatWorkStatus({
     0,
     Math.ceil((retry?.retry_at || 0) - Date.now() / 1000),
   );
-  const known =
-    phase &&
-    [
-      "preparing",
-      "model",
-      "thinking",
-      "tools",
-      "tool_running",
-      "generating",
-      "running",
-      "waiting",
-      "queued",
-      "before_model",
-      "model_streaming",
-      "tool_executing",
-      "after_model",
-    ].includes(phase);
+  const feedback = currentTool
+    ? toolProgress(
+        currentTool.name,
+        currentTool.arguments,
+        currentTool.output,
+        t,
+        currentTool.errorCode ? "error" : undefined,
+      )
+    : null;
   const label = retry
     ? t(
         retry.phase === "waiting_retry"
@@ -54,7 +50,7 @@ export default function ChatWorkStatus({
           max: retry.max_attempts,
         },
       )
-    : t(known ? `chat.steer.phase.${phase}` : "chat.flow.working", {
+    : t(phase ? `chat.steer.phase.${phase}` : "chat.flow.working", {
         defaultValue: t("chat.flow.working"),
       });
   return (
@@ -70,6 +66,11 @@ export default function ChatWorkStatus({
             {label}
           </strong>
           <span>{t("chat.flow.keepTalking")}</span>
+          {feedback && (
+            <span className={styles.currentAction} aria-live="polite">
+              {feedback.action} · {feedback.outcome}
+            </span>
+          )}
         </div>
         <time aria-label={t("chat.flow.elapsed", { seconds: elapsed })}>
           {elapsed}s

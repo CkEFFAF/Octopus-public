@@ -24,6 +24,52 @@ from octop.infra.errors import OctopError
 from octop.infra.utils.paths import PathLayout
 
 
+@pytest.mark.asyncio
+async def test_steering_message_preserves_public_text_and_revalidates_resource(
+    rig: Any, monkeypatch: Any
+) -> None:
+    from octop_gateway.models import FileContent, InboundMessage, TextContent
+
+    from octop.infra.gateway.process.message_keys import INBOUND_ATTACHMENTS_KEY
+    from octop.infra.gateway.process.processor import GlobalProcessor
+
+    resource = await rig.resources.register(rig.owner, "parent", "inbound/paper.txt", thread="root")
+    metadata = [
+        {
+            "filename": "补充.txt",
+            "workspace_path": "inbound/paper.txt",
+            "resource_id": resource["resource_id"],
+            "version": resource["version"],
+            "kind": "file",
+        }
+    ]
+    inbound = InboundMessage(
+        channel_id="dashboard",
+        channel_type="dashboard",
+        content=[
+            TextContent(text="请结合这个补充"),
+            FileContent(
+                local_path="inbound/paper.txt", filename="补充.txt", mime_type="text/plain"
+            ),
+        ],
+        metadata={INBOUND_ATTACHMENTS_KEY: metadata},
+    )
+    processor = object.__new__(GlobalProcessor)
+    processor._agent_manager = rig.manager
+    processor._user_repo = rig.repos.user_repo
+    monkeypatch.setattr(
+        "octop.infra.gateway.process.processor.media_backend_for_agent", lambda *_: None
+    )
+    message = await processor.prepare_steering_message(inbound, "parent", rig.owner, "root")
+    assert message.additional_kwargs["octop_display_text"] == "请结合这个补充"
+    assert message.additional_kwargs[INBOUND_ATTACHMENTS_KEY][0]["version"] == resource["version"]
+    assert resource["resource_id"] in message.content
+    assert resource["resource_id"] + "@" not in message.content
+    rig.workspaces["parent"].files["inbound/paper.txt"] = b"changed after admission"
+    with pytest.raises(OctopError):
+        await processor.prepare_steering_message(inbound, "parent", rig.owner, "root")
+
+
 class Workspace:
     def __init__(self) -> None:
         self.files = {"inbound/paper.txt": b"A paper with source text."}

@@ -9,6 +9,8 @@
  * ``parseHarnessChunk`` also accepts legacy ``data: …`` SSE lines.
  */
 
+import { inboundAttachments } from "./inboundAttachments";
+
 export interface TokenChunk {
   type: "token";
   /** Graph node that produced the chunk (e.g. ``agent``, ``tool``). */
@@ -383,6 +385,14 @@ function projectHarnessChunk(
         type: "user",
         content: typeof obj.content === "string" ? obj.content : "",
         source: typeof obj.source === "string" ? obj.source : undefined,
+        snapshot: {
+          ...(obj.snapshot && typeof obj.snapshot === "object"
+            ? obj.snapshot
+            : {}),
+          ...(Array.isArray(obj.inbound_attachments)
+            ? { attachments: inboundAttachments(obj.inbound_attachments) }
+            : {}),
+        },
         command_id:
           typeof obj.command_id === "string" ? obj.command_id : undefined,
       };

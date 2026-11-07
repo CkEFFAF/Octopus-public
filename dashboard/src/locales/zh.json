@@ -2107,7 +2107,7 @@
         "queued": "排队中",
         "dispatching": "已接收，正在处理",
         "requested": "请求中",
-        "accepted": "等待安全节点",
+        "accepted": "已收到，当前操作结束后处理",
         "interrupting": "正在打断工具并插入",
         "unknown": "结果未确认",
         "failed": "执行失败",
@@ -2123,7 +2123,7 @@
       "toolInterrupted": "工具调用已被用户打断，Agent 将继续处理插入消息。外部或后台任务的停止状态尚未确认，可能仍在运行。",
       "promoteFailed": "暂时无法插入，请查看此消息的最新状态；仍在排队的消息会继续保留。",
       "attachmentsQueue": "直接插入暂不支持附件，请使用排队发送。",
-      "waiting": "插入请求已送达，等待当前安全节点。",
+      "waiting": "已收到补充，当前操作结束后会继续处理。",
       "applied": "消息已插入，Agent 正在按新消息继续。",
       "failed": "插入失败，请重试或排队发送。",
       "unavailable": "当前运行无法接收插入消息，请排队发送。",
@@ -2135,13 +2135,17 @@
       },
       "interrupted": "已按新指令停止生成，以上内容已保留",
       "phase": {
-        "llm_before": "正在准备模型调用",
-        "llm_running": "正在生成；直接插入会停止本次生成",
-        "llm_after": "模型生成结束，正在处理新指令",
-        "tool_before": "正在准备工具调用",
-        "tool_running": "工具执行中；可等完成后插入，或立即打断并插入",
+        "llm_before": "正在准备思考",
+        "llm_running": "正在思考",
+        "llm_after": "正在整理本轮结果",
+        "tool_before": "正在准备执行工具",
+        "tool_running": "正在执行工具",
         "tool_interrupting": "正在打断工具调用，即将处理插入消息",
-        "tool_after": "工具执行完毕，即将处理新指令"
+        "tool_after": "工具已返回，继续处理",
+        "paused": "等待你的确认",
+        "completed": "本轮已完成",
+        "failed": "执行遇到问题",
+        "cancelled": "已停止"
       }
     },
     "agentNoDescription": "暂无描述",
@@ -2655,14 +2659,16 @@
       "sendWhileWorking": "发送方式",
       "supplement": "补充当前回答",
       "queue": "稍后发送",
-      "supplementHint": "在下一步读取补充内容，已运行的工具会继续完成",
+      "supplementHint": "文字、图片和文件都会补充给当前任务；已执行的操作会保留。",
       "queueHint": "当前回答结束后，按顺序处理这条消息",
       "filesQueued": "附带文件的消息会保留在队列，当前回答结束后处理",
       "uploadDoesNotBlock": "上传时可以先发文字；正在上传的文件会保留在输入框中",
       "fileReady": "已就绪",
       "file": "文件",
       "removeFile": "移除 {{name}}",
-      "downloadFile": "下载 {{name}}"
+      "downloadFile": "下载 {{name}}",
+      "imageModelUnsupported": "图片已保留在输入框。当前正在使用的模型不支持识图，请等本轮结束后选择支持图片的模型再发送。",
+      "attachmentChanged": "附件已变化或已不可用，输入内容已保留。请重新上传后发送。"
     },
     "recovery": {
       "title": "这次回答未完成",
@@ -2676,6 +2682,22 @@
       "busy": "当前回答仍在进行，请等待或停止后再尝试。",
       "unavailable": "这条回答暂时无法安全恢复。请刷新查看最新状态；旧记录不会被重复发送。",
       "latestOnly": "只能恢复最新一轮回答。较早的回答可以分支后继续。"
+    },
+    "toolFeedback": {
+      "external": "调用外部工具",
+      "failed": "执行失败",
+      "returned": "已返回结果",
+      "backgroundRunning": "后台继续运行",
+      "exitCode": "退出码 {{code}}",
+      "bytes": "{{count}} 字节",
+      "lines": "{{count}} 行",
+      "resourceReady": "附件可读取",
+      "readAttachment": "读取{{name}}",
+      "attachedFile": "本次附件",
+      "startJob": "启动后台任务",
+      "job_status": "检查后台任务进度",
+      "job_logs": "读取后台任务日志",
+      "job_cancel": "请求停止后台任务"
     }
   },
   "tools": {
@@ -8069,7 +8091,9 @@
     "runningSummary": "{{count}} 个活动会话 · {{jobs}} 个后台执行任务",
     "noBackgroundTasks": "当前没有运行中的会话或后台执行任务。定时任务与提醒在其他标签查看。",
     "observationStale": "状态待确认",
-    "inspectTasks": "查看运行与计划"
+    "inspectTasks": "查看运行与计划",
+    "jobProgram": "运行 {{name}}",
+    "backgroundExplanation": "任务在后台独立执行，可查看实际状态和日志。"
   },
   "conversationMetadata": {
     "settingsTitle": "会话整理",

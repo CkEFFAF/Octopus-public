@@ -10,6 +10,36 @@ from octop.api.routers.chat.serialize import _serialize_history_message
 from octop.api.routers.chat.sse import json_chunk_default
 
 
+def test_steered_media_history_uses_literal_public_text_and_keeps_attachment() -> None:
+    message = HumanMessage(
+        id="steer:media",
+        content=[
+            {"type": "text", "text": "INTERNAL RESOURCE INSTRUCTIONS"},
+            {"type": "image_url", "image_url": {"url": "workspace://inbound/qa.png"}},
+        ],
+        additional_kwargs={
+            "octop_display_text": "看这张图",
+            "octop_inbound_attachments": [
+                {
+                    "filename": "补充.png",
+                    "workspace_path": "inbound/qa.png",
+                    "kind": "image",
+                    "resource_id": "res_qa",
+                    "version": "a" * 64,
+                }
+            ],
+        },
+    )
+    entry = _serialize_history_message(message)
+    assert entry["id"] == "steer:media"
+    assert entry["content"] == [{"type": "text", "text": "看这张图"}]
+    assert entry["inbound_attachments"][0]["resource_id"] == "res_qa"
+    message.additional_kwargs["octop_display_text"] = ""
+    entry = _serialize_history_message(message)
+    assert entry["content"] == []
+    assert entry["inbound_attachments"]
+
+
 def test_json_chunk_default_serializes_langchain_messages() -> None:
     chunk = {
         "type": "state_update",

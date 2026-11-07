@@ -60,7 +60,12 @@ async def queue_input(
     if turn.thread_id != thread_id or not turn_has_content(turn):
         raise HTTPException(422, "queued turn must contain content and target this thread")
     encoded = json.dumps(
-        {"turn": body.turn.model_dump(mode="json"), "snapshot": body.snapshot}, sort_keys=True
+        {
+            "turn": body.turn.model_dump(mode="json"),
+            "snapshot": body.snapshot,
+            **({"run_id": body.run_id} if body.run_id else {}),
+        },
+        sort_keys=True,
     )
     if len(encoded.encode()) > 2 * 1024 * 1024:
         raise HTTPException(413, "queued input metadata exceeds supported size")
@@ -82,6 +87,11 @@ async def queue_input(
             ws_connection_id=f"queue:{body.command_id}",
             user_is_admin=bool(getattr(user, "is_admin", False)),
         )
+        prepared_message = (
+            await service.prepare_steering_input(int(user.id), agent_id, thread_id, inbound)
+            if body.run_id
+            else None
+        )
         receipt = service.enqueue(
             int(user.id),
             agent_id,
@@ -91,6 +101,31 @@ async def queue_input(
             inbound,
             request_key=request_key,
         )
+        if body.run_id:
+            try:
+                receipt = service.promote_to_steer(
+                    int(user.id),
+                    agent_id,
+                    thread_id,
+                    body.command_id,
+                    body.run_id,
+                    message=prepared_message,
+                )
+            except ValueError as exc:
+                if str(exc) not in {
+                    "steering_inactive",
+                    "steering_stale_run",
+                    "steering_busy",
+                    "input_not_queued",
+                }:
+                    raise
+                # A definite admission race keeps the same acknowledged FIFO item.
+                receipt = (
+                    service.existing_queue(
+                        int(user.id), agent_id, thread_id, body.command_id, request_key
+                    )
+                    or receipt
+                )
         await server.app_runtime.gateway.emit_thread_changed(
             owner_user_id=int(user.id),
             agent_id=agent_id,
@@ -159,7 +194,7 @@ async def promote_queued_input(
 ) -> Any:
     assert_agent_access(server, agent_id, user)
     try:
-        return server.app_runtime.gateway.inputs.promote_to_steer(
+        return await server.app_runtime.gateway.inputs.prepare_and_promote(
             int(user.id),
             agent_id,
             thread_id,

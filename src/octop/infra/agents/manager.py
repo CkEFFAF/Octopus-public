@@ -1442,18 +1442,25 @@ class AgentManager:
         *,
         run_id: str,
         cancel_tools: bool = False,
+        message: Any = None,
     ) -> dict[str, str]:
         """Insert only into the identified invocation at a runtime-owned boundary."""
         if self._harness_manager is None:
             return {"status": "inactive", "phase": "idle"}
         try:
+            options: dict[str, Any] = {}
+            if cancel_tools:
+                options["cancel_tools"] = True
+            if message is not None:
+                options["message"] = message
             return self._harness_manager.steer_message(
                 agent_id,
                 thread_id,
                 command_id,
                 text,
                 run_id=run_id,
-                **({"cancel_tools": True} if cancel_tools else {}),
+                **options,
+                queue_if_busy=True,
             )
         except KeyError:
             return {"status": "inactive", "phase": "idle"}
@@ -3677,6 +3684,7 @@ class AgentManager:
         from octop.infra.agents.middleware.workspace_image import (
             WorkspaceImageMaterializeMiddleware,
         )
+        from octop.infra.documents.resources import ResourceService
         from octop.infra.execution.service import ExecutionService
         from octop.infra.execution.work_mode import WorkModeService, build_work_mode_tools
         from octop.infra.knowledge.hint import KnowledgeSearchHintMiddleware
@@ -3714,7 +3722,9 @@ class AgentManager:
                 row.agent_id,
             ),
             BinaryReadGuardMiddleware(),
-            WorkspaceImageMaterializeMiddleware(workspace=ws),
+            WorkspaceImageMaterializeMiddleware(
+                workspace=ws, resource_service=ResourceService(self), agent_id=row.agent_id
+            ),
             ThreadArtifactsMiddleware(
                 thread_repo=self._repos.thread_repo,
                 workspace_dir=harness_workspace,

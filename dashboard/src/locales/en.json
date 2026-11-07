@@ -2107,7 +2107,7 @@
         "queued": "Queued",
         "dispatching": "Received, processing",
         "requested": "Requested",
-        "accepted": "Waiting for a safe point",
+        "accepted": "Received; will use after the current step",
         "interrupting": "Interrupting tools and inserting",
         "unknown": "Outcome unconfirmed",
         "failed": "Failed",
@@ -2135,13 +2135,17 @@
       },
       "interrupted": "Generation interrupted by a new instruction; output retained",
       "phase": {
-        "llm_before": "Preparing model call",
-        "llm_running": "Generating; insert will stop this generation",
-        "llm_after": "Model finished; handling instructions",
-        "tool_before": "Preparing tools",
-        "tool_running": "Tools running; insert after completion or interrupt and insert now",
+        "llm_before": "Preparing the model request",
+        "llm_running": "Waiting for the model response",
+        "llm_after": "Organizing the response",
+        "tool_before": "Preparing a tool",
+        "tool_running": "Running a tool",
         "tool_interrupting": "Interrupting tools; handling inserted message next",
-        "tool_after": "Tools finished; handling instructions"
+        "tool_after": "Tool returned, continuing",
+        "paused": "Waiting for your confirmation",
+        "completed": "Turn completed",
+        "failed": "Execution needs attention",
+        "cancelled": "Stopped"
       }
     },
     "agentNoDescription": "No description",
@@ -2655,14 +2659,16 @@
       "sendWhileWorking": "Send as",
       "supplement": "Add to this answer",
       "queue": "Send later",
-      "supplementHint": "Read at the next step; running tools will finish",
+      "supplementHint": "Text, images and files are added to the current task. Completed operations are preserved.",
       "queueHint": "Process this message after the current answer",
       "filesQueued": "Messages with files are kept in the queue until this answer finishes",
       "uploadDoesNotBlock": "Send text while files upload; pending files stay in the composer",
       "fileReady": "Ready",
       "file": "file",
       "removeFile": "Remove {{name}}",
-      "downloadFile": "Download {{name}}"
+      "downloadFile": "Download {{name}}",
+      "imageModelUnsupported": "The image is still in your draft. The running model does not accept images. After this turn finishes, choose an image-capable model and send it.",
+      "attachmentChanged": "The attachment changed or is unavailable. Your draft is preserved; upload it again before sending."
     },
     "recovery": {
       "title": "This answer did not finish",
@@ -2676,6 +2682,22 @@
       "busy": "This answer is still running. Wait or stop it before trying again.",
       "unavailable": "This answer cannot be safely resumed yet. Refresh for the latest status; old messages will not be resent.",
       "latestOnly": "Only the latest answer can be resumed. Fork an earlier answer to continue it."
+    },
+    "toolFeedback": {
+      "external": "Call an external tool",
+      "failed": "Execution failed",
+      "returned": "Result received",
+      "backgroundRunning": "Still running in the background",
+      "exitCode": "Exit code {{code}}",
+      "bytes": "{{count}} bytes",
+      "lines": "{{count}} lines",
+      "resourceReady": "Attachment ready",
+      "readAttachment": "Read {{name}}",
+      "attachedFile": "the attached file",
+      "startJob": "Start a background task",
+      "job_status": "Check background task progress",
+      "job_logs": "Read background task logs",
+      "job_cancel": "Request background task cancellation"
     }
   },
   "tools": {
@@ -8069,7 +8091,9 @@
     "runningSummary": "{{count}} active conversations · {{jobs}} background jobs",
     "noBackgroundTasks": "No active conversations or background jobs. See the other tabs for schedules and reminders.",
     "observationStale": "Status needs confirmation",
-    "inspectTasks": "Inspect runs and plans"
+    "inspectTasks": "Inspect runs and plans",
+    "jobProgram": "Run {{name}}",
+    "backgroundExplanation": "This task runs independently in the background. Inspect its actual status and logs."
   },
   "conversationMetadata": {
     "settingsTitle": "Conversation organization",

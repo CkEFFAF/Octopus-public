@@ -12,7 +12,16 @@ import {
   saveWithdrawnDraft,
   readWithdrawnDraft,
 } from "../utils/withdrawnDraft";
-const attachmentSpies = vi.hoisted(() => ({ restore: vi.fn() }));
+const attachmentSpies = vi.hoisted(() => ({
+  restore: vi.fn(),
+  consume: vi.fn(),
+  items: [] as Array<{
+    path: string;
+    filename: string;
+    type: "image" | "file";
+    url?: string;
+  }>,
+}));
 
 vi.mock("../../../hooks/useIsMobile", () => ({
   useIsMobile: () => false,
@@ -44,7 +53,7 @@ vi.mock("../../../hooks/viewport", () => ({
 
 vi.mock("../hooks/useChatAttachments", () => ({
   useChatAttachments: () => ({
-    attachments: [],
+    attachments: attachmentSpies.items,
     uploading: false,
     dragOver: false,
     fileInputRef: { current: null },
@@ -52,6 +61,7 @@ vi.mock("../hooks/useChatAttachments", () => ({
     handleFileChange: vi.fn(),
     removeAttachment: vi.fn(),
     clearAttachments: vi.fn(),
+    consumeAttachments: attachmentSpies.consume,
     restoreAttachments: attachmentSpies.restore,
     handlePaste: vi.fn(),
     handleDragEnter: vi.fn(),
@@ -155,9 +165,70 @@ import ChatInput, { type ChatInputHandle } from "./ChatInput";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  attachmentSpies.items = [];
 });
 
 describe("ChatInput prefill clear-on-send", () => {
+  it.each(["steer", "queue"])(
+    "preserves the next draft and consumes only submitted attachments after delayed %s acknowledgement",
+    async (intent) => {
+      const submitted = {
+        path: ".octop/inbound/first.png",
+        filename: "first.png",
+        type: "image" as const,
+      };
+      const next = {
+        path: ".octop/inbound/next.txt",
+        filename: "next.txt",
+        type: "file" as const,
+      };
+      attachmentSpies.items = [submitted];
+      let acknowledge!: (value: "ok" | boolean) => void;
+      const pending = new Promise<"ok" | boolean>((resolve) => {
+        acknowledge = resolve;
+      });
+      const submit = vi.fn((_input: unknown) => pending);
+      const props = {
+        onSend: vi.fn(),
+        onCancel: vi.fn(),
+        onNewChat: vi.fn(),
+        onQueue:
+          intent === "queue"
+            ? async (input: unknown) => {
+                await submit(input);
+                return "ok" as const;
+              }
+            : vi.fn(),
+        onSteerInput: async (input: unknown) => Boolean(await submit(input)),
+        isStreaming: true,
+        agentId: "draft-agent",
+        threadId: "draft-thread",
+        initialText: "first message",
+      };
+      const { rerender } = render(<ChatInput {...props} />);
+      if (intent === "queue")
+        fireEvent.change(
+          screen.getByRole("combobox", { name: "chat.flow.sendWhileWorking" }),
+          { target: { value: "queue" } },
+        );
+      fireEvent.click(screen.getByRole("button", { name: "send" }));
+      expect(submit).toHaveBeenCalledOnce();
+      expect(submit.mock.calls[0][0]).toEqual(
+        expect.objectContaining({ attachments: [submitted] }),
+      );
+      fireEvent.change(screen.getByRole("textbox"), {
+        target: { value: "next message" },
+      });
+      attachmentSpies.items = [submitted, next];
+      rerender(<ChatInput {...props} />);
+      await act(async () => {
+        acknowledge(intent === "queue" ? "ok" : true);
+        await pending;
+      });
+      expect(screen.getByRole("textbox")).toHaveValue("next message");
+      expect(attachmentSpies.consume).toHaveBeenCalledWith([submitted]);
+    },
+  );
   it("opens a separate chat and progress without stopping or inserting into work", () => {
     const cancel = vi.fn();
     const send = vi.fn();
@@ -408,7 +479,9 @@ describe("ChatInput prefill clear-on-send", () => {
         fireEvent.click(screen.getByRole("button", { name: "send" }));
       });
       expect(onSteerInput).toHaveBeenCalledOnce();
-      expect(onSteerInput).toHaveBeenCalledWith({ text: "补充：请保留引用" });
+      expect(onSteerInput).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "补充：请保留引用" }),
+      );
       expect(onQueue).not.toHaveBeenCalled();
       expect(onSend).not.toHaveBeenCalled();
       expect(screen.getByRole("textbox")).toHaveValue(

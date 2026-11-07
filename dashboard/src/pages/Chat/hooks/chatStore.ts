@@ -30,7 +30,10 @@ import {
   type UserChunk,
 } from "../../../utils/parseHarnessChunk";
 import { isChatStreamError } from "../../../utils/chatStreamError";
-import { parseToolExecutionFeedback } from "../../../utils/toolMediaBlocks";
+import {
+  agentAttachmentAccessUrl,
+  parseToolExecutionFeedback,
+} from "../../../utils/toolMediaBlocks";
 import { buildUserMessageContent } from "../utils/chatAttachments";
 import { sealPriorStreamingAssistants as sealPriorStreamingAssistantsMessages } from "./sealPriorStreamingAssistants";
 import {
@@ -1450,8 +1453,18 @@ function handleHarnessChunkBody(
     case "user": {
       const user = chunk as UserChunk;
       if (!user.content.trim() && !user.snapshot?.attachments?.length) break;
-      const id = user.command_id || generateId();
-      if (state.messages.some((item) => item.id === id)) break;
+      const commandId = user.command_id;
+      const id = commandId
+        ? user.source === "dashboard_insert"
+          ? `steer:${commandId}`
+          : commandId
+        : generateId();
+      if (
+        state.messages.some(
+          (item) => item.id === id || (commandId && item.id === commandId),
+        )
+      )
+        break;
       finalizeStreamingMessages(
         state,
         speaker,
@@ -1466,7 +1479,19 @@ function handleHarnessChunkBody(
           id,
           role: "user",
           content: user.content,
-          attachments: user.snapshot?.attachments,
+          attachments: user.snapshot?.attachments?.map((attachment) => {
+            const agentId = sessionHostAgentId(state, sessionId);
+            return !attachment.url && attachment.workspacePath && agentId
+              ? {
+                  ...attachment,
+                  url: agentAttachmentAccessUrl(
+                    agentId,
+                    attachment.workspacePath,
+                    attachment.mediaType,
+                  ),
+                }
+              : attachment;
+          }),
           composerContext: user.snapshot?.composerContext,
           status: "done",
           timestamp: Date.now(),

@@ -71,7 +71,7 @@ describe("actual executors inside explicit plan cards", () => {
       node("worker1", "subagent"),
       node("worker2", "subagent"),
       node("job1", "job"),
-      node("retry-job", "job"),
+      { ...node("retry-job", "job"), details: { program: "train.py" } },
       node("unlinked", "tool"),
     ];
     const snapshot = {
@@ -99,6 +99,9 @@ describe("actual executors inside explicit plan cards", () => {
     fireEvent.click(screen.getByText("worker2"));
     expect(select).toHaveBeenCalledWith("worker2");
     expect(screen.getByText("unlinked")).toBeTruthy();
-    expect(screen.getAllByTitle("retry-job").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByTitle("workspace0034.jobProgram").length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByTitle("retry-job")).toBeNull();
   });
 });

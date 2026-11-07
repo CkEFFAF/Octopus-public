@@ -78,6 +78,90 @@ def enqueue(setup, command="one"):
     )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["file", "image"])
+@pytest.mark.parametrize("text", ["", "请结合补充附件"])
+async def test_media_promotion_uses_verified_inbound_and_one_durable_identity(
+    setup_queue, kind, text
+):
+    from langchain_core.messages import HumanMessage
+    from octop_gateway.models import FileContent, ImageContent
+
+    queue, _, owner, *_ = setup_queue
+    attachment = {
+        "filename": "补充.png" if kind == "image" else "补充.txt",
+        "workspace_path": "inbound/verified",
+        "kind": kind,
+        "resource_id": "res_verified",
+        "version": "a" * 64,
+    }
+    part = (
+        ImageContent(local_path="inbound/verified", mime_type="image/png", filename="补充.png")
+        if kind == "image"
+        else FileContent(local_path="inbound/verified", mime_type="text/plain", filename="补充.txt")
+    )
+    inbound = InboundMessage(
+        channel_id="dashboard",
+        channel_type="dashboard",
+        tenant_id="agent",
+        channel_subject=ChannelSubject(subject_id=str(owner)),
+        content=[TextContent(text=text), part],
+        metadata={"thread_id": "thread", "octop_inbound_attachments": [attachment]},
+    )
+    prepared = HumanMessage(
+        content=[{"type": "text", "text": "verified model input"}],
+        additional_kwargs={"octop_inbound_attachments": [attachment]},
+    )
+    prepare = AsyncMock(return_value=prepared)
+    queue.gateway.processor.prepare_steering_message = prepare
+    queue.agents.get_thread_model = lambda *_: "Provider/vision"
+    queue.agents.providers_for_agent = lambda *_: SimpleNamespace(
+        is_model_ref_multimodal=lambda _: True
+    )
+    queue.enqueue(
+        owner,
+        "agent",
+        "thread",
+        "media",
+        {"text": text, "attachments": [{"filename": "untrusted snapshot"}]},
+        inbound,
+        request_key="media-request",
+    )
+    first = await queue.prepare_and_promote(owner, "agent", "thread", "media", "run-1")
+    again = await queue.prepare_and_promote(owner, "agent", "thread", "media", "run-1")
+    assert first["status"] == again["status"] == "accepted"
+    assert prepare.await_count == 1
+    assert prepare.call_args.args[0].content == inbound.content
+    assert queue.agents.steer_stream.call_count == 1
+    assert queue.agents.steer_stream.call_args.kwargs["message"] == prepared
+    assert (
+        queue.existing_queue(owner, "agent", "thread", "media", "media-request")["status"]
+        == "accepted"
+    )
+    with pytest.raises(ValueError, match="command_conflict"):
+        queue.existing_queue(owner, "agent", "thread", "media", "different-resource-version")
+
+
+@pytest.mark.asyncio
+async def test_known_image_incompatible_model_rejects_before_preparation(setup_queue):
+    queue, _, owner, *_ = setup_queue
+    queue.agents.get_thread_model = lambda *_: "Provider/text-only"
+    queue.agents.providers_for_agent = lambda *_: SimpleNamespace(
+        is_model_ref_multimodal=lambda _: False
+    )
+    queue.gateway.processor.prepare_steering_message = AsyncMock()
+    inbound = InboundMessage(
+        channel_id="dashboard",
+        channel_type="dashboard",
+        content=[TextContent(text="看看图片")],
+        metadata={"octop_inbound_attachments": [{"kind": "image"}]},
+    )
+    with pytest.raises(ValueError, match="steering_image_model_unsupported"):
+        await queue.prepare_steering_input(owner, "agent", "thread", inbound)
+    queue.gateway.processor.prepare_steering_message.assert_not_called()
+    assert queue.list(owner, "agent", "thread")["inputs"] == []
+
+
 def test_input_list_recovers_application_only_from_exact_canonical_message(setup_queue):
     from octop.infra.db.repos.thread_messages import ThreadMessageInput
 

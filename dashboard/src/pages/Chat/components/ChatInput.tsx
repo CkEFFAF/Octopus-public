@@ -21,6 +21,7 @@ import { useSlashCommands } from "../../../hooks/useSlashCommands";
 import SlashCommandMenu from "./SlashCommandMenu";
 import { agentChatApi } from "../../../api/modules/agentChat";
 import type { ChatAttachment } from "../hooks/useChat";
+import type { ChatMessage } from "../hooks/sseHelpers";
 import type { ResolvedModel } from "../../../api/types";
 import type { KnowledgeBase } from "../../../api/modules/knowledgeBases";
 import type { SkillSpec } from "../../Agent/Skills/useSkills";
@@ -109,6 +110,7 @@ interface ChatInputProps {
   onSteerInput?: (input: EnqueueChatItemInput) => Promise<boolean>;
   modelRetry?: import("../hooks/sseHelpers").SessionSnapshot["modelRetry"];
   startedAt?: number | null;
+  currentTool?: ChatMessage["toolData"];
   onShowProgress?: () => void;
   onUserInput?: () => void;
   browserRecording?: boolean;
@@ -187,6 +189,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       onSteerInput,
       modelRetry,
       startedAt,
+      currentTool,
       onShowProgress,
       onUserInput,
       browserRecording,
@@ -698,21 +701,35 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
         if (
           onSteerInput &&
           busyIntent === "supplement" &&
-          wireText.trim() &&
-          !attachments.length &&
+          (wireText.trim() || attachments.length) &&
           !isSlashCommandText(wireText)
         ) {
           if (submissionPending.current) return;
           submissionPending.current = true;
           try {
-            const accepted = await onSteerInput({ text: wireText });
+            const accepted = await onSteerInput({
+              text: wireText,
+              attachments: attachments.length ? attachments : undefined,
+              conversationMode,
+              hitlPolicy,
+              modelRef: resolveTurnModelRef(selectedModel, defaultModel),
+              composerContext: buildComposerContext({
+                skills: selectedSkillSlugs,
+                connectors: selectedConnectors,
+                knowledgeBaseIds: selectedKnowledgeBaseIds,
+                selectedModel,
+                reasoningMode,
+                reasoningEffort,
+              }),
+            });
             if (
               accepted &&
-              latestComposer.current.text === text &&
               latestComposer.current.agentId === agentId &&
               latestComposer.current.threadId === threadId
             ) {
-              resetComposerAfterSubmit(prevHeight, trimmed);
+              if (latestComposer.current.text === text)
+                resetComposerAfterSubmit(prevHeight, trimmed);
+              else consumeAttachments?.(attachments);
             }
           } finally {
             submissionPending.current = false;
@@ -748,11 +765,12 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
         }
         if (result === "empty") return;
         if (
-          latestComposer.current.text === text &&
           latestComposer.current.agentId === agentId &&
           latestComposer.current.threadId === threadId
         ) {
-          resetComposerAfterSubmit(prevHeight, trimmed);
+          if (latestComposer.current.text === text)
+            resetComposerAfterSubmit(prevHeight, trimmed);
+          else consumeAttachments?.(attachments);
         }
         return;
       }
@@ -772,6 +790,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       matchSlashCommand,
       runSlashCommand,
       resetComposerAfterSubmit,
+      consumeAttachments,
       selectedConnectors,
       selectedKnowledgeBaseIds,
       selectedSkillSlugs,
@@ -938,6 +957,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             onShowProgress={onShowProgress}
             phase={runtimePhase}
             startedAt={startedAt}
+            currentTool={currentTool}
             retry={modelRetry}
           />
         ) : null}
@@ -958,9 +978,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             </label>
             <span>
               {t(
-                attachments.length
-                  ? "chat.flow.filesQueued"
-                  : busyIntent === "supplement"
+                busyIntent === "supplement"
                   ? "chat.flow.supplementHint"
                   : "chat.flow.queueHint",
               )}
@@ -1121,7 +1139,6 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             runningSendLabel={
               onSteerInput &&
               busyIntent === "supplement" &&
-              !attachments.length &&
               !isSlashCommandText(text)
                 ? t("chat.flow.supplement")
                 : undefined

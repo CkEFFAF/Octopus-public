@@ -118,7 +118,7 @@ describe("queued message controls", () => {
     expect(onSteer).not.toHaveBeenCalled();
   });
 
-  it("keeps attachments and commands queued and prevents modifying accepted work", () => {
+  it("allows inserting attachments while guarding commands and accepted work", () => {
     render(
       <ChatQueuedMessages
         items={[
@@ -137,9 +137,9 @@ describe("queued message controls", () => {
       />,
     );
     for (const name of ["chat.steer.action", "chat.steer.immediateAction"]) {
-      for (const button of screen.getAllByRole("button", { name })) {
-        expect(button).toBeDisabled();
-      }
+      const buttons = screen.getAllByRole("button", { name });
+      expect(buttons[0]).toBeDisabled();
+      expect(buttons[1]).toBeEnabled();
     }
     expect(
       screen.getAllByRole("button", { name: "chat.queue.withdraw" }),

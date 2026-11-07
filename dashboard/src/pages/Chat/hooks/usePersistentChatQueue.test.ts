@@ -112,6 +112,47 @@ describe("durable chat input acknowledgement", () => {
     renderHook(() =>
       usePersistentChatQueue({ agentId: "agent", threadId: "thread" }),
     );
+  it("sends media to the current run in one durable request and recovers a lost response by reading its receipt", async () => {
+    const { result, unmount } = mount();
+    await waitFor(() => expect(result.current.runtime?.run_id).toBe("run"));
+    const input = {
+      text: "补充",
+      attachments: [
+        {
+          url: "/qa",
+          filename: "补充.png",
+          workspacePath: "inbound/qa.png",
+          kind: "image" as const,
+          resourceId: "res_qa",
+          version: "a".repeat(64),
+        },
+      ],
+    };
+    vi.mocked(chatInputsApi.queue).mockRejectedValueOnce(new Error("offline"));
+    await act(async () => {
+      expect(await result.current.steer(input)).toBe(false);
+    });
+    const call = vi.mocked(chatInputsApi.queue).mock.calls[0];
+    expect(call[5]).toBe("run");
+    expect(call[3].attachments).toEqual(input.attachments);
+    vi.mocked(chatInputsApi.list).mockResolvedValue({
+      ...empty,
+      runtime: { run_id: "later-run", phase: "tool_running" },
+      inputs: [
+        {
+          kind: "chat_steer",
+          status: "accepted",
+          payload: { command_id: call[2] },
+        },
+      ],
+    } as never);
+    await act(async () => {
+      expect(await result.current.steer(input)).toBe(true);
+    });
+    expect(chatInputsApi.queue).toHaveBeenCalledOnce();
+    expect(chatInputsApi.steer).not.toHaveBeenCalled();
+    unmount();
+  });
   it("promotes the existing queue identity without withdrawing or resubmitting its text", async () => {
     const { result, unmount } = mount();
     await waitFor(() => expect(result.current.runtime?.run_id).toBe("run"));

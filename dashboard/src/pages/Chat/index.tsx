@@ -2040,6 +2040,16 @@ function ChatPageInner() {
                 runtimePhase={persistentQueue.runtime?.phase}
                 modelRetry={modelRetry}
                 startedAt={thinkingStartedAt}
+                currentTool={
+                  messages
+                    .slice()
+                    .reverse()
+                    .find(
+                      (item) =>
+                        item.toolData &&
+                        item.timestamp >= (thinkingStartedAt || Date.now()),
+                    )?.toolData
+                }
                 onSteerInput={
                   persistentQueue.enabled ? persistentQueue.steer : undefined
                 }

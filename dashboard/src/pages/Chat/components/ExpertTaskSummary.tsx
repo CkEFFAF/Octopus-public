@@ -15,6 +15,7 @@ import { localizedPreview, previewText } from "../utils/sessionPreview";
 import { useServerTimezone } from "../../../hooks/useServerTimezone";
 import { formatMessageTime } from "../../../utils/formatMessageTime";
 import styles from "./ExpertTaskSummary.module.less";
+import { activityLabel } from "../utils/activityLabel";
 
 export default function ExpertTaskSummary({
   agentId,
@@ -142,6 +143,8 @@ export default function ExpertTaskSummary({
     (node) => recordState === "all" || group(node) === recordState,
   );
   const nodeName = (node: ActivityNode, index: number) => {
+    if (node.type === "job" && node.details?.program)
+      return activityLabel(node, t);
     if (["command.run", "execute"].includes(node.name))
       return t("sessionPreview.toolCommand");
     if (node.name === "schedule_self_check")

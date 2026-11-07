@@ -1,6 +1,10 @@
 # Vendored Harness for Octop fork releases
 
-## Current immediate-insertion artifact
+## Current structured message insertion artifact
+
+The application pins `1.0.2.post4.dev5+media.1`. `media-source-manifest.json` records the wheel, matching source archive and packaged member hashes. Only `agent.py`, `manager.py` and `steering.py` differ from interrupt.2. `media-steering.patch` exposes the runtime, tests and public API documentation changes. The host can insert an immutable verified HumanMessage, while public user events retain display text and attachment metadata. Opted-in buffering accepts up to ten messages in arrival order. Images are rematerialized only for the model call, and completed tool operations are not replayed. This is a local integration candidate, not a deployment claim.
+
+## Previous immediate-insertion artifact
 
 The application now pins `1.0.2.post4.dev4+interrupt.2`. `interrupt-source-manifest.json`
 records the exact wheel/archive hashes and all 371 package members. Only `agent.py`,

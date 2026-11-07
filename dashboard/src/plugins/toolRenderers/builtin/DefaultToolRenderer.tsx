@@ -8,6 +8,7 @@ import {
   parseStructuredToolOutput,
 } from "../../../utils/toolMediaBlocks";
 import { formatToolArguments } from "../../../utils/formatToolArguments";
+import { toolProgress } from "../../../utils/toolProgress";
 import { nativeCapabilityStatus } from "../../../utils/nativeCapabilityReceipt";
 import {
   useToolDisplayNames,
@@ -134,10 +135,13 @@ export function DefaultToolRenderer({
   const capabilityStatus = completed
     ? nativeCapabilityStatus(toolName, output)
     : null;
-  const statusLabel = capabilityStatus
+  const feedback = toolProgress(toolName, args, output, t, status);
+  const statusLabel = feedback.failed
+    ? feedback.outcome
+    : capabilityStatus
     ? t(`chat.${capabilityStatus}`)
     : completed
-    ? t("common.done", "Done")
+    ? feedback.outcome
     : running
     ? t("common.running", "Running")
     : t("common.pending", "Pending");
@@ -161,7 +165,8 @@ export function DefaultToolRenderer({
           <ToolIcon size={14} strokeWidth={2.2} aria-hidden />
         </span>
         <code className={styles.inlineToolName}>
-          {resolveToolLabel(toolName, displayNameProp, displayName)}
+          {feedback.action ||
+            resolveToolLabel(toolName, displayNameProp, displayName)}
         </code>
         {running ? (
           <span className={styles.inlineToolStatusLive} aria-live="polite">
@@ -217,28 +222,36 @@ export function DefaultToolRenderer({
 
       {expanded && (
         <div className={styles.inlineToolDetails}>
-          {toolData.arguments !== undefined && (
-            <div className={styles.inlineToolSection}>
-              <div className={styles.inlineToolSectionLabel}>
-                {t("chatUsage.arguments", "Arguments")}
+          <p className={styles.inlineToolHint} role="status">
+            {feedback.outcome}
+            {feedback.facts.length ? ` · ${feedback.facts.join(" · ")}` : ""}
+          </p>
+          <details>
+            <summary>{t("workspace0034.technical")}</summary>
+            <small>{toolName}</small>
+            {toolData.arguments !== undefined && (
+              <div className={styles.inlineToolSection}>
+                <div className={styles.inlineToolSectionLabel}>
+                  {t("chatUsage.arguments", "Arguments")}
+                </div>
+                <pre className={styles.inlineToolCode}>{formattedArgs}</pre>
               </div>
-              <pre className={styles.inlineToolCode}>{formattedArgs}</pre>
-            </div>
-          )}
-          {(hasResult || (!isStreaming && hasMediaPreview)) && !mediaOnly && (
-            <div className={styles.inlineToolSection}>
-              <div className={styles.inlineToolSectionLabel}>
-                {t("chatUsage.result", "Result")}
+            )}
+            {(hasResult || (!isStreaming && hasMediaPreview)) && !mediaOnly && (
+              <div className={styles.inlineToolSection}>
+                <div className={styles.inlineToolSectionLabel}>
+                  {t("chatUsage.result", "Result")}
+                </div>
+                {formattedOutput ? (
+                  <pre className={styles.inlineToolCode}>{formattedOutput}</pre>
+                ) : (
+                  <pre className={styles.inlineToolCode}>
+                    [{t("chatUsage.mediaOutput", "Media output")}]
+                  </pre>
+                )}
               </div>
-              {formattedOutput ? (
-                <pre className={styles.inlineToolCode}>{formattedOutput}</pre>
-              ) : (
-                <pre className={styles.inlineToolCode}>
-                  [{t("chatUsage.mediaOutput", "Media output")}]
-                </pre>
-              )}
-            </div>
-          )}
+            )}
+          </details>
           {acpPermission && onAcpPermissionSelect && !isStreaming && (
             <div className={styles.inlineToolSection}>
               <div className={styles.inlineToolSectionLabel}>

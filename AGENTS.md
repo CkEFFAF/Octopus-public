@@ -298,6 +298,8 @@ i18n/
 
 **Chat answer recovery:** Use the authenticated `response-recovery` endpoint and stable `command_id` to resume the original model checkpoint. Never implement retry by submitting another `user_turn`. Keep completed tools and attachments, and revalidate the owner and execution context. See `docs/specs/0047-chat-response-recovery.md`.
 
+**Continuous chat input:** Keep the app and pinned Harness media steering API together. Admit canonical versioned attachments before claiming a receipt, recheck image resources at model use, and preserve reference only checkpoints. Use durable command IDs and the opted in FIFO buffer for consecutive supplements. Public tool feedback comes from actual receipts and localized action summaries; job hashes belong in technical details. See `docs/specs/0033-agent-live-message-steering.md`.
+
 **Frontend split**
 
 - **Dashboard chrome** (nav, forms, buttons): `dashboard/src/locales/{en,zh}.json` via i18next.

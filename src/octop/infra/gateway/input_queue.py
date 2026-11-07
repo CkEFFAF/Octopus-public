@@ -7,6 +7,7 @@ import logging
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
+from langchain_core.messages import HumanMessage
 from octop_gateway.models import InboundMessage
 
 from octop.infra.agents.teams import is_team_agent
@@ -74,6 +75,9 @@ class ChatInputQueue:
         self.assert_scope(owner, agent_id, thread_id)
         if not self._supports_persistent_inputs(agent_id):
             raise ValueError("input_queue_unsupported")
+        existing = self.existing_queue(owner, agent_id, thread_id, command_id, request_key)
+        if existing is not None:
+            return existing
         return self.repos.chat_input_repo.create(
             owner,
             agent_id,
@@ -98,7 +102,12 @@ class ChatInputQueue:
         if item is not None and (
             item["agent_id"] != agent_id
             or item["thread_id"] != thread_id
-            or item["kind"] != "chat_input"
+            or (
+                item["kind"] != "chat_input"
+                and not (
+                    item["kind"] == "chat_steer" and item["payload"].get("_promoted_from_queue")
+                )
+            )
             or item["payload"].get("request_key") != request_key
         ):
             raise ValueError("command_conflict")
@@ -160,6 +169,57 @@ class ChatInputQueue:
             raise ValueError("input_not_dismissible")
         return self.repos.chat_input_repo.get(owner, command_id) or item
 
+    async def prepare_steering_input(
+        self, owner: int, agent_id: str, thread_id: str, inbound: InboundMessage
+    ) -> HumanMessage | None:
+        """Validate media before creating or claiming any delivery receipt."""
+        self.assert_scope(owner, agent_id, thread_id)
+        if inbound.text.lstrip().startswith("/"):
+            raise ValueError("steering_requires_plain_text")
+        attachments = (inbound.metadata or {}).get("octop_inbound_attachments")
+        if not attachments:
+            return None
+        if any(isinstance(a, dict) and a.get("kind") == "image" for a in attachments):
+            model = self.agents.get_thread_model(agent_id, thread_id)
+            if model and not self.agents.providers_for_agent(agent_id).is_model_ref_multimodal(
+                model
+            ):
+                raise ValueError("steering_image_model_unsupported")
+        return await self.gateway.processor.prepare_steering_message(
+            inbound, agent_id, owner, thread_id
+        )
+
+    async def prepare_and_promote(
+        self,
+        owner: int,
+        agent_id: str,
+        thread_id: str,
+        command_id: str,
+        run_id: str,
+        *,
+        cancel_tools: bool = False,
+    ) -> dict[str, Any]:
+        """Revalidate canonical attachments before atomically admitting a queued message."""
+        self.assert_scope(owner, agent_id, thread_id)
+        item = self.repos.chat_input_repo.get(owner, command_id)
+        if item is None or item["agent_id"] != agent_id or item["thread_id"] != thread_id:
+            raise OctopError(ErrorCode.NOT_FOUND, "chat input not found")
+        if item["kind"] == "chat_steer":
+            return self.promote_to_steer(
+                owner, agent_id, thread_id, command_id, run_id, cancel_tools=cancel_tools
+            )
+        inbound = InboundMessage.model_validate(item["payload"].get("inbound"))
+        prepared = await self.prepare_steering_input(owner, agent_id, thread_id, inbound)
+        return self.promote_to_steer(
+            owner,
+            agent_id,
+            thread_id,
+            command_id,
+            run_id,
+            cancel_tools=cancel_tools,
+            message=prepared,
+        )
+
     def promote_to_steer(
         self,
         owner: int,
@@ -169,6 +229,7 @@ class ChatInputQueue:
         run_id: str,
         *,
         cancel_tools: bool = False,
+        message: HumanMessage | None = None,
     ) -> dict[str, Any]:
         self.assert_scope(owner, agent_id, thread_id)
         if not self._supports_persistent_inputs(agent_id):
@@ -199,7 +260,16 @@ class ChatInputQueue:
             and all(isinstance(part, dict) and part.get("type") == "text" for part in content)
             and "".join(str(part.get("text") or "") for part in content).strip() == text.strip()
         )
-        if not plain_text:
+        verified_media = (
+            message is not None
+            and isinstance(text, str)
+            and len(text) <= 20_000
+            and not text.lstrip().startswith("/")
+            and bool(message.additional_kwargs.get("octop_inbound_attachments"))
+            and isinstance(inbound, dict)
+            and InboundMessage.model_validate(inbound).text.strip() == text.strip()
+        )
+        if not plain_text and not verified_media:
             raise ValueError("steering_requires_plain_text")
         assert isinstance(text, str)
 
@@ -211,13 +281,18 @@ class ChatInputQueue:
         if not claimed:
             return promoted
         try:
+            options: dict[str, Any] = {}
+            if cancel_tools:
+                options["cancel_tools"] = True
+            if message is not None:
+                options["message"] = message
             outcome = self.agents.steer_stream(
                 agent_id,
                 thread_id,
                 command_id,
                 text.strip(),
                 run_id=run_id,
-                **({"cancel_tools": True} if cancel_tools else {}),
+                **options,
             )
         except Exception:
             logger.exception("Promoted chat input outcome is unknown command=%s", command_id)

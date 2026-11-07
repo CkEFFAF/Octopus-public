@@ -89,6 +89,16 @@ export default function ChatQueuedMessages({
               title={t("chat.queue.reclaim")}
             >
               <span className={styles.queuedMessageText}>{label}</span>
+              {item.attachments?.map((attachment, attachmentIndex) => (
+                <span
+                  className={styles.queuedMessageAttach}
+                  key={`${attachment.filename}-${attachmentIndex}`}
+                >
+                  <Paperclip size={12} aria-hidden />
+                  {attachment.filename ||
+                    t("chat.queue.attachmentsOnly", { count: 1 })}
+                </span>
+              ))}
               {item.status && (
                 <span
                   role="status"
@@ -119,9 +129,7 @@ export default function ChatQueuedMessages({
             {onSteer && modifiable && (
               <Tooltip
                 title={
-                  attachmentCount > 0
-                    ? t("chat.steer.attachmentsQueue")
-                    : item.text.trim().startsWith("/")
+                  item.text.trim().startsWith("/")
                     ? t("chat.steer.commandsQueue")
                     : t("chat.steer.immediateHint")
                 }
@@ -132,8 +140,7 @@ export default function ChatQueuedMessages({
                   disabled={
                     !withdrawable ||
                     !canSteer ||
-                    attachmentCount > 0 ||
-                    !item.text.trim() ||
+                    (!item.text.trim() && attachmentCount === 0) ||
                     item.text.trim().startsWith("/")
                   }
                   onClick={() => void promote(item.id, true)}
@@ -150,9 +157,7 @@ export default function ChatQueuedMessages({
             {onSteer && modifiable && (
               <Tooltip
                 title={
-                  attachmentCount > 0
-                    ? t("chat.steer.attachmentsQueue")
-                    : item.text.trim().startsWith("/")
+                  item.text.trim().startsWith("/")
                     ? t("chat.steer.commandsQueue")
                     : t("chat.steer.action")
                 }
@@ -163,8 +168,7 @@ export default function ChatQueuedMessages({
                   disabled={
                     !withdrawable ||
                     !canSteer ||
-                    attachmentCount > 0 ||
-                    !item.text.trim() ||
+                    (!item.text.trim() && attachmentCount === 0) ||
                     item.text.trim().startsWith("/")
                   }
                   onClick={() => void promote(item.id)}

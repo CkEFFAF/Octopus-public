@@ -10,8 +10,48 @@ from tests.unit.agents.test_collaboration_resources import rig as link_rig
 from octop.infra.agents.teams.collaboration import CollaborationService
 from octop.infra.db.repos.run_events import RunEventRepo
 from octop.infra.execution.activity import ActivityService, WorkPlan
+from octop.infra.execution.events import RunInspectionService
 
 rig = link_rig
+
+
+def test_job_program_is_observed_from_command_and_survives_status_updates(rig: Any) -> None:
+    from types import SimpleNamespace
+
+    context = SimpleNamespace(
+        owner_user_id=rig.owner,
+        agent_id="parent",
+        thread_id="root",
+        context_id="context",
+        run_id="run",
+        target_kind="local",
+        device_id=None,
+    )
+    service = RunInspectionService(rig.repos)
+    service.job_observation(
+        context,
+        {
+            "job_id": "c7ee1e6ff8da4ba7ff9b7e3817d42a8",
+            "status": "running",
+            "argv": ["python", "-u", "/app/训练.py", "--epochs", "30"],
+            "cwd": "/app",
+        },
+    )
+    service.job_observation(
+        context,
+        {"job_id": "c7ee1e6ff8da4ba7ff9b7e3817d42a8", "status": "completed", "returncode": 0},
+    )
+    row = RunEventRepo(rig.repos.db).get(rig.owner, "job:context:c7ee1e6ff8da4ba7ff9b7e3817d42a8")
+    assert row["payload"]["program"] == "训练.py"
+    assert row["payload"]["cwd"] == "/app"
+    assert row["payload"]["command_preview"].startswith("python -u")
+    assert row["status"] == "completed"
+    service.job_observation(
+        context, {"job_id": "other", "status": "running", "argv": ["cp", "input.py", "copy.py"]}
+    )
+    jobs = RunEventRepo(rig.repos.db).sidebar_jobs(rig.owner, "parent")
+    assert jobs[0]["name"] == "cp"
+    assert RunEventRepo(rig.repos.db).sidebar_jobs(rig.outsider, "parent") == []
 
 
 def receipt(
