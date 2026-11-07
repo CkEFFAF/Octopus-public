@@ -54,6 +54,9 @@ class CronDeliveryCommand:
     reason: str = "timer"
     report: ReportOptions | None = None
     report_origin_session: str = ""
+    origin_thread_id: str | None = None
+    delivery_id: str | None = None
+    source_kind: str | None = None
 
 
 class CronDeliveryService:
@@ -98,13 +101,17 @@ class CronDeliveryService:
     async def _deliver(self, command: CronDeliveryCommand) -> str:
 
         output = ""
-        attempt = new_ulid()
-        source = self._repos.session_repo.get(command.session_key)
-        source_thread = (
-            source.thread_id
-            if source and (source.user_id, source.agent_id) == (command.user_id, command.agent_id)
-            else None
-        )
+        attempt = (command.delivery_id or "").strip() or new_ulid()
+        command = replace(command, delivery_id=attempt)
+        source_thread = command.origin_thread_id
+        if source_thread is None:
+            source = self._repos.session_repo.get(command.session_key)
+            source_thread = (
+                source.thread_id
+                if source
+                and (source.user_id, source.agent_id) == (command.user_id, command.agent_id)
+                else None
+            )
         attempts = self._repos.cron_attempt_repo
         attempts.create(
             attempt,
@@ -118,13 +125,33 @@ class CronDeliveryService:
             command,
             task_run_id=(command.task_run_id or new_ulid()) if command.task_type == "agent" else "",
         )
+        stage = "triggered"
 
         async def _locked() -> None:
-            nonlocal output
-            original = self._gateway.require_session(command.agent_id, command.session_key)
-            if (original.user_id, original.agent_id) != (command.user_id, command.agent_id):
-                raise ValueError("cron session does not belong to user or agent (mismatch)")
-            if command.fresh_thread:
+            nonlocal output, stage
+            from octop.infra.cron.origin_target import (
+                OriginThreadError,
+                resolve_delivery_session,
+            )
+
+            try:
+                if command.origin_thread_id:
+                    session = resolve_delivery_session(
+                        command=command,
+                        session_repo=self._repos.session_repo,
+                        thread_repo=self._repos.thread_repo,
+                        gateway=self._gateway,
+                    )
+                    original = session
+                else:
+                    original = self._gateway.require_session(command.agent_id, command.session_key)
+                    if (original.user_id, original.agent_id) != (command.user_id, command.agent_id):
+                        raise ValueError(
+                            "cron session does not belong to user or agent (mismatch)"
+                        )
+            except OriginThreadError:
+                raise
+            if command.fresh_thread and not command.origin_thread_id:
                 reset = True
                 if command.report is not None:
                     thread = await asyncio.to_thread(
@@ -147,13 +174,22 @@ class CronDeliveryService:
                     reset = thread is None or thread.last_active != 0 or already_used
                 if reset:
                     await self._gateway.thread_registry.reset_by_session_key(command.session_key)
-            session = self._gateway.require_session(command.agent_id, command.session_key)
+                session = self._gateway.require_session(command.agent_id, command.session_key)
+            elif not command.origin_thread_id:
+                session = self._gateway.require_session(command.agent_id, command.session_key)
+            else:
+                session = original
             if session.user_id != command.user_id:
                 raise ValueError(
                     f"session {command.session_key!r} does not belong to user {command.user_id!r}"
                 )
             if session.agent_id != command.agent_id:
                 raise ValueError("cron session agent mismatch")
+            if command.origin_thread_id and session.thread_id != command.origin_thread_id:
+                raise OriginThreadError(
+                    "origin_thread_unavailable",
+                    "delivery session thread drifted from origin_thread_id",
+                )
             if command.report is not None and session.thread_id != original.thread_id:
                 await self.inherit_report_target(
                     command.user_id, original.thread_id, session.thread_id
@@ -165,8 +201,9 @@ class CronDeliveryService:
                 thread=session.thread_id,
                 run=command.task_run_id or None,
             )
+            stage = "running"
             if command.task_type == "text":
-                await self._deliver_text(command, session)
+                await self._deliver_text(command, session, attempt=attempt)
                 output = command.prompt
             else:
                 output = await self._deliver_agent(command, session, attempt=attempt)
@@ -180,28 +217,49 @@ class CronDeliveryService:
                         thread=session.thread_id,
                         output=output,
                     )
+            stage = "succeeded"
 
         try:
-            await self._gateway.run_in_session(command.agent_id, command.session_key, _locked)
+            if command.origin_thread_id:
+                # Lock the frozen origin thread (DEC-0042-02); never the rebound live key.
+                from octop.infra.cron.origin_target import resolve_delivery_session
+
+                target = resolve_delivery_session(
+                    command=command,
+                    session_repo=self._repos.session_repo,
+                    thread_repo=self._repos.thread_repo,
+                    gateway=self._gateway,
+                )
+                await self._gateway.run_locked_on_session(target, _locked)
+            else:
+                await self._gateway.run_in_session(command.agent_id, command.session_key, _locked)
         except asyncio.CancelledError:
             attempts.update(
                 command.user_id, attempt, "cancelled", error="Scheduled delivery was cancelled"
             )
             raise
         except Exception as exc:
+            from octop.infra.cron.origin_target import OriginThreadError
+
             # Transport exceptions may contain provider URLs, headers or credentials.
+            # OriginThreadError: persist §4.4 codes (origin_thread_missing|unavailable|…).
+            public = (
+                exc.code
+                if isinstance(exc, OriginThreadError)
+                else f"Scheduled delivery failed ({type(exc).__name__})"
+            )
             attempts.update(
                 command.user_id,
                 attempt,
                 "failed",
-                error=f"Scheduled delivery failed ({type(exc).__name__})",
+                error=public[:500],
             )
             raise
         attempts.update(
             command.user_id,
             attempt,
             "delivered" if command.task_type == "text" else "completed",
-            result=output[:2000],
+            result=(output or stage)[:2000],
         )
         return output
 
@@ -240,11 +298,14 @@ class CronDeliveryService:
         self,
         command: CronDeliveryCommand,
         session: SessionRow,
+        *,
+        attempt: str = "",
     ) -> None:
         projected: list[ThreadMessageInput] = []
         title_source = command.prompt
+        delivery_id = (command.delivery_id or attempt or new_ulid()).strip() or new_ulid()
+        already_persisted = False
         if session.channel_type == ThreadRegistry.CHANNEL_DASHBOARD:
-            delivery_id = new_ulid()
             locale = resolve_user_locale(
                 user_repo=self._repos.user_repo,
                 user_id=session.user_id,
@@ -257,27 +318,65 @@ class CronDeliveryService:
                 name=command.cron_name,
             )
             title_source = human_text
-            canonical = [
-                HumanMessage(
-                    content=human_text,
-                    id=f"cron:{delivery_id}:human",
-                ),
-                AIMessage(
-                    content=command.prompt,
-                    id=f"cron:{delivery_id}:assistant",
-                ),
-            ]
-            harness = self._agent_manager.get_agent(command.agent_id)
-            appended = await harness.aappend_messages(session.thread_id, canonical)
-            projected = message_inputs(appended, dedupe_missing_ids=True)
+            assistant_id = f"cron:{delivery_id}:assistant"
+            if self._repos.thread_message_repo.has_message_id(session.thread_id, assistant_id) is True:
+                already_persisted = True
+            else:
+                canonical = [
+                    HumanMessage(
+                        content=human_text,
+                        id=f"cron:{delivery_id}:human",
+                    ),
+                    AIMessage(
+                        content=command.prompt,
+                        id=assistant_id,
+                    ),
+                ]
+                harness = self._agent_manager.get_agent(command.agent_id)
+                try:
+                    appended = await harness.aappend_messages(session.thread_id, canonical)
+                except Exception:
+                    logger.warning(
+                        "cron text persist_failed thread=%s delivery_id=%s",
+                        session.thread_id,
+                        delivery_id,
+                        exc_info=True,
+                    )
+                    raise
+                projected = message_inputs(appended, dedupe_missing_ids=True)
 
-        self._project_best_effort(session.thread_id, projected)
-        await self._gateway.push_session_text(
+        if not already_persisted:
+            self._project_best_effort(session.thread_id, projected)
+        # DEC-0042-08: persisted ⇒ do not re-append on push failure.
+        push_ok = False
+        try:
+            await self._gateway.push_session_text(
+                session,
+                command.prompt,
+                title_source=title_source,
+            )
+            push_ok = True
+        except Exception:
+            logger.warning(
+                "cron push failed after persist thread=%s delivery_id=%s",
+                session.thread_id,
+                delivery_id,
+                exc_info=True,
+            )
+        await self._notify_best_effort(
             session,
+            command.agent_id,
             command.prompt,
-            title_source=title_source,
+            delivery_id=delivery_id,
+            source_kind=command.source_kind or ("self_reminder" if command.origin_thread_id else "cron"),
+            emit_changed=bool(command.origin_thread_id) or (command.source_kind == "self_reminder"),
         )
-        await self._notify_best_effort(session, command.agent_id, command.prompt)
+        if not push_ok:
+            logger.info(
+                "cron delivery channel_unknown after persist delivery_id=%s thread=%s",
+                delivery_id,
+                session.thread_id,
+            )
 
     async def _deliver_agent(
         self,
@@ -286,6 +385,39 @@ class CronDeliveryService:
         *,
         attempt: str = "",
     ) -> str:
+        delivery_id = (command.delivery_id or attempt or new_ulid()).strip() or new_ulid()
+        # Dashboard self-reminder / origin_thread: stable cron:{delivery_id}:* like text path
+        # (REQ-0042-07). Report and IM/non-origin agent paths keep prior behavior.
+        origin_canonical = (
+            command.report is None
+            and session.channel_type == ThreadRegistry.CHANNEL_DASHBOARD
+            and (
+                bool(command.origin_thread_id) or command.source_kind == "self_reminder"
+            )
+        )
+        assistant_id = f"cron:{delivery_id}:assistant"
+        if origin_canonical and (
+            self._repos.thread_message_repo.has_message_id(session.thread_id, assistant_id)
+            is True
+        ):
+            outbound = (command.prompt or "").strip()
+            await self._gateway.push_session_text(
+                session,
+                outbound,
+                title_source=command.prompt,
+            )
+            await self._notify_best_effort(
+                session,
+                command.agent_id,
+                outbound,
+                delivery_id=delivery_id,
+                source_kind=command.source_kind
+                or ("self_reminder" if command.origin_thread_id else "cron"),
+                emit_changed=bool(command.origin_thread_id)
+                or (command.source_kind == "self_reminder"),
+            )
+            return outbound
+
         request = await self._build_agent_request(command, session)
         execution_thread = ""
         if command.report is not None:
@@ -408,7 +540,8 @@ class CronDeliveryService:
         finally:
             # ``fresh_thread`` already put an empty thread on the session, so a run
             # that raised before this left a conversation with no rows at all.
-            if command.report is None:
+            # Origin/self-reminder dashboard: project stable aappend below, not tracker.
+            if command.report is None and not origin_canonical:
                 self._project_best_effort(session.thread_id, tracker.inputs)
             if dashboard:
                 if run_id and not terminal_seen:
@@ -443,6 +576,29 @@ class CronDeliveryService:
             self._project_best_effort(
                 session.thread_id, message_inputs(appended, dedupe_missing_ids=True)
             )
+        elif origin_canonical:
+            if (
+                self._repos.thread_message_repo.has_message_id(session.thread_id, assistant_id)
+                is not True
+            ):
+                harness = self._agent_manager.get_agent(command.agent_id)
+                canonical = [
+                    HumanMessage(content=command.prompt, id=f"cron:{delivery_id}:human"),
+                    AIMessage(content=outbound, id=assistant_id),
+                ]
+                try:
+                    appended = await harness.aappend_messages(session.thread_id, canonical)
+                except Exception:
+                    logger.warning(
+                        "cron agent persist_failed thread=%s delivery_id=%s",
+                        session.thread_id,
+                        delivery_id,
+                        exc_info=True,
+                    )
+                    raise
+                self._project_best_effort(
+                    session.thread_id, message_inputs(appended, dedupe_missing_ids=True)
+                )
         if usage.usage is not None:
             record_turn_usage(
                 self._repos.usage_repo,
@@ -457,7 +613,16 @@ class CronDeliveryService:
             outbound,
             title_source=command.cron_name if command.report is not None else command.prompt,
         )
-        await self._notify_best_effort(session, command.agent_id, outbound)
+        await self._notify_best_effort(
+            session,
+            command.agent_id,
+            outbound,
+            delivery_id=delivery_id,
+            source_kind=command.source_kind
+            or ("self_reminder" if command.origin_thread_id else "cron"),
+            emit_changed=bool(command.origin_thread_id)
+            or (command.source_kind == "self_reminder"),
+        )
         if command.report is not None and command.report_origin_session:
             original = await asyncio.to_thread(
                 self._repos.session_repo.get, command.report_origin_session
@@ -628,28 +793,61 @@ class CronDeliveryService:
         session: SessionRow,
         agent_id: str,
         text: str,
+        *,
+        delivery_id: str | None = None,
+        source_kind: str | None = None,
+        emit_changed: bool = False,
     ) -> None:
         if session.channel_type != ThreadRegistry.CHANNEL_DASHBOARD:
             return
         try:
-            await self._gateway.notify_dashboard_push(session, agent_id, text)
+            await self._gateway.notify_dashboard_push(
+                session,
+                agent_id,
+                text,
+                delivery_id=delivery_id,
+                source_kind=source_kind,
+                thread_id=session.thread_id,
+            )
         except Exception:
             logger.warning(
                 "failed to send cron dashboard notification for thread=%s",
                 session.thread_id,
                 exc_info=True,
             )
+        if emit_changed:
+            try:
+                await self._gateway.emit_thread_changed(
+                    owner_user_id=session.user_id,
+                    agent_id=agent_id,
+                    thread_id=session.thread_id,
+                    reason="input",
+                )
+            except Exception:
+                logger.warning(
+                    "failed to emit thread.changed for thread=%s",
+                    session.thread_id,
+                    exc_info=True,
+                )
 
 
 def command_from_row(row: Any) -> CronDeliveryCommand:
     """Build a delivery command from a persisted cron row."""
-    from octop.infra.cron.self_reminder import is_self_reminder_row
+    from octop.infra.cron.self_reminder import is_self_reminder_row, origin_thread_id
 
     fresh = bool(row.fresh_thread)
+    meta = getattr(row, "meta", None) or {}
+    origin = origin_thread_id(meta if isinstance(meta, dict) else {})
+    source_kind = None
     if is_self_reminder_row(row):
         # DEC-002: self-reminders always continue the same session thought chain.
         # Gateway run_in_session already serializes behind a running turn (pending queue).
         fresh = False
+        source_kind = "self_reminder"
+    elif report_options(row) is not None:
+        source_kind = "cron"
+    else:
+        source_kind = "cron"
     return CronDeliveryCommand(
         cron_id=str(row.cron_id),
         cron_name=str(row.name),
@@ -665,6 +863,8 @@ def command_from_row(row: Any) -> CronDeliveryCommand:
         report_origin_session=str(
             (getattr(row, "meta", None) or {}).get("previous_session_key") or ""
         ),
+        origin_thread_id=origin,
+        source_kind=source_kind,
     )
 
 

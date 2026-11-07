@@ -18,7 +18,9 @@ class CronAttemptRepo:
         now = time.time()
         with self.db.transaction() as conn:
             conn.execute(
-                "INSERT INTO cron_attempts(attempt_id,owner_user_id,agent_id,cron_id,source_thread_id,reason,status,revision,created_at,updated_at) VALUES (?,?,?,?,?,?,'waiting_session',1,?,?)",
+                "INSERT INTO cron_attempts(attempt_id,owner_user_id,agent_id,cron_id,source_thread_id,reason,status,revision,created_at,updated_at) "
+                "VALUES (?,?,?,?,?,?,'waiting_session',1,?,?) "
+                "ON CONFLICT(attempt_id) DO NOTHING",
                 (attempt, owner, agent, cron, thread, reason, now, now),
             )
 

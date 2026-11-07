@@ -104,16 +104,39 @@ def _make_agent(
     config.default_model = "openai/gpt-4o-mini"
     config.locale = "zh-CN"
     agent.config = config
+    agent.aappend_messages = AsyncMock(
+        side_effect=lambda thread_id, messages: list(messages)
+    )
     return agent
 
 
 def _make_gateway(push_success: bool = True) -> MagicMock:
     """Create a mock Gateway."""
     gateway = MagicMock()
+    session = MagicMock()
+    session.thread_id = "thr_care"
+    session.user_id = 1
+    session.agent_id = "a1"
+    session.session_key = "sk"
+    session.channel_type = "dashboard"
+    gateway.require_session = MagicMock(return_value=session)
+
+    async def _await_op(_session, op):
+        await op()
+
+    gateway.run_locked_on_session = AsyncMock(side_effect=_await_op)
+    gateway.push_session_text = AsyncMock(return_value=None)
+    gateway.notify_dashboard_push = AsyncMock(return_value=None)
+    gateway.emit_thread_changed = AsyncMock(return_value=None)
+    tm = MagicMock()
+    tm.has_message_id = MagicMock(return_value=False)
+    tm.append_if_ready = MagicMock(return_value=1)
+    gateway._repos = MagicMock(thread_message_repo=tm)
     if push_success:
         gateway.push_text_from_session = AsyncMock(return_value=None)
     else:
         gateway.push_text_from_session = AsyncMock(side_effect=RuntimeError("推送失败：网络错误"))
+        gateway.push_session_text = AsyncMock(side_effect=RuntimeError("推送失败：网络错误"))
     return gateway
 
 
@@ -204,7 +227,7 @@ async def test_service_run_llm_failure(agent_id: str, care_push_repo: CarePushRe
 
 @pytest.mark.asyncio
 async def test_service_run_push_failure(agent_id: str, care_push_repo: CarePushRepo):
-    """Should not write dedup records or raise when push fails."""
+    """Push failure after persist still records dedup (DEC-0042-08); must not raise."""
     episodes = [_make_episode("ep1")]
     agent = _make_agent(episodes)
     service = _make_service(agent, care_push_repo, push_success=False)
@@ -212,9 +235,9 @@ async def test_service_run_push_failure(agent_id: str, care_push_repo: CarePushR
     # Should not raise.
     await service.run(agent_id, f"{agent_id}:wxwork:user123:dm")
 
-    # Verify no dedup records were written.
+    # Body persisted ⇒ dedup written; retry must not re-append.
     pushed = care_push_repo.list_pushed_episode_ids(agent_id)
-    assert len(pushed) == 0
+    assert len(pushed) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -229,14 +252,14 @@ async def test_service_run_truncates_long_text(agent_id: str, care_push_repo: Ca
     episodes = [_make_episode("ep1")]
     agent = _make_agent(episodes, llm_response=long_text)
 
-    # Capture the actual pushed text.
+    # Capture the actual pushed text via persist/push path (0042).
     pushed_texts: list[str] = []
 
-    async def _capture_gen(agent_id: str, session_key: str, text: str, **kwargs):
+    async def _capture_push(session, text: str, **kwargs):
         pushed_texts.append(text)
 
-    gateway = MagicMock()
-    gateway.push_text_from_session = _capture_gen
+    gateway = _make_gateway(push_success=True)
+    gateway.push_session_text = AsyncMock(side_effect=_capture_push)
     agent_manager = _make_agent_manager(agent)
     service = ProactiveCareService(
         gateway=gateway,

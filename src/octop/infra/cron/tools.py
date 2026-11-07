@@ -365,6 +365,7 @@ def build_self_reminder_tools(cron_manager: CronManager) -> list[StructuredTool]
                 build_trigger,
                 build_wakeup_prompt,
                 resolve_fire_at,
+                stamp_origin_meta,
             )
 
             agent_id, user_id, session_key = _tool_ctx()
@@ -373,6 +374,18 @@ def build_self_reminder_tools(cron_manager: CronManager) -> list[StructuredTool]
             trigger, meta = build_trigger(
                 fire_at=fire_at, repeat_every_seconds=repeat_every_seconds
             )
+            # Prefer the turn's frozen thread_id; else the live session binding (0042).
+            cfg = get_config().get("configurable") or {}
+            origin = str(cfg.get("thread_id") or "").strip()
+            if not origin:
+                await mgr._ensure_session(
+                    session_key, agent_id=agent_id, user_id=user_id
+                )
+                bound = mgr._gateway.thread_registry.get_bound_thread_id(session_key)
+                origin = str(bound or "").strip()
+            if not origin:
+                raise ValueError("cannot bind self-reminder: no origin_thread_id")
+            meta = stamp_origin_meta(meta, thread_id=origin)
             purpose_clean = (purpose or "").strip()[:200]
             prompt = build_wakeup_prompt(purpose=purpose_clean)
             cron_id = new_cron_id()
@@ -398,6 +411,7 @@ def build_self_reminder_tools(cron_manager: CronManager) -> list[StructuredTool]
                     "fire_at": fire_at.isoformat(),
                     "purpose": purpose_clean,
                     "session_key": session_key,
+                    "origin_thread_id": origin,
                     "trigger": row.trigger,
                 }
             )
