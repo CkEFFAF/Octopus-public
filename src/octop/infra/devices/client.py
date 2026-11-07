@@ -425,7 +425,7 @@ class DeviceClient:
                         "capability_protocol_version": 1,
                         "browser_protocol_version": 1,
                         "desktop_protocol_version": 1,
-                        "transfer_protocol_version": 1,
+                        "transfer_protocol_version": 2,  # 0044: Hub native (v1+) + LAN-direct P2P
                     },
                 }
             )
@@ -773,6 +773,93 @@ class DeviceClient:
                     frame["mode"] = mode
                     if request_id not in confirmations and len(confirmations) < 4:
                         confirmations[request_id] = asyncio.create_task(resolve_confirmation(frame))
+                elif kind == "transfer.negotiate":
+                    from octop.infra.devices.transfer_device import (
+                        handle_negotiate,
+                        resolve_root_path,
+                        run_direct_target,
+                    )
+
+                    async def _hub_send(msg: dict[str, Any]) -> None:
+                        await socket.send(json.dumps(msg, ensure_ascii=False))
+
+                    state = self.load_state()
+                    if state is None or not isinstance(state.get("device_id"), str):
+                        continue
+                    local_id = state["device_id"]
+                    try:
+                        ack = handle_negotiate(frame, local_device_id=local_id)
+                    except (ValueError, KeyError, TypeError):
+                        continue
+                    if ack.get("preferred_transport") == "hub":
+                        continue
+                    role = ack["role"]
+                    claims = ack["claims"]
+                    ticket = ack["ticket"]
+                    scope = ack["path_scope"]
+                    try:
+                        path = resolve_root_path(
+                            executor.local_roots,
+                            str(scope.get("root_id") or ""),
+                            str(scope.get("path") or ""),
+                        )
+                    except ValueError:
+                        continue
+                    if role == "target":
+                        from octop.infra.devices.transfer_device import (
+                            resolve_transfer_endpoints,
+                        )
+
+                        try:
+                            listen_host, advertise_host = resolve_transfer_endpoints()
+                        except ValueError:
+                            # No routable advertise → skip offer; Hub times out → fallback.
+                            continue
+                        asyncio.create_task(
+                            run_direct_target(
+                                ticket=ticket,
+                                claims=claims,
+                                dest_path=path,
+                                device_id=local_id,
+                                send_to_hub=_hub_send,
+                                overwrite=False,
+                                listen_host=listen_host,
+                                advertise_host=advertise_host,
+                            )
+                        )
+                    elif role == "source":
+                        self._pending_direct_source = {
+                            "ticket": ticket,
+                            "claims": claims,
+                            "path": path,
+                            "device_id": local_id,
+                            "transfer_id": claims.transfer_id,
+                        }
+                elif kind == "transfer.peer":
+                    pending_src = getattr(self, "_pending_direct_source", None)
+                    if (
+                        isinstance(pending_src, dict)
+                        and pending_src.get("transfer_id") == frame.get("transfer_id")
+                    ):
+                        from octop.infra.devices.transfer_device import run_direct_source
+
+                        async def _hub_send_src(msg: dict[str, Any]) -> None:
+                            await socket.send(json.dumps(msg, ensure_ascii=False))
+
+                        self._pending_direct_source = None
+                        asyncio.create_task(
+                            run_direct_source(
+                                ticket=str(pending_src["ticket"]),
+                                claims=pending_src["claims"],
+                                source_path=pending_src["path"],
+                                device_id=str(pending_src["device_id"]),
+                                host=str(frame.get("host") or ""),
+                                port=int(frame.get("port") or 0),
+                                send_to_hub=_hub_send_src,
+                            )
+                        )
+                elif kind == "transfer.cancel":
+                    self._pending_direct_source = None
                 elif kind == "cancel":
                     operation_id = str(frame.get("id", ""))
                     pending = tasks.get(operation_id)

@@ -64,6 +64,12 @@ Independent background work items (0043) use `/api/work-items*` and emit
 on the same notifications socket. Progress GETs are read-only and must not steer
 or cancel the worker. HTTP work-item detail/events remain authoritative.
 
+Audited device file transfers (0044) extend `POST /api/devices/transfers` with
+`preferred_transport` / `request_id`, add `GET|POST .../transfers/{id}` (+ cancel),
+and emit `{"type":"transfer.changed","schema_version":1,...}` (opaque ids; no paths
+or tickets). HTTP transfer detail remains authoritative; Hub fallback must never
+be labeled as direct/P2P.
+
 HITL resume still uses `POST /api/agents/{agent_id}/chat/hitl/resume` (SSE).
 """
 

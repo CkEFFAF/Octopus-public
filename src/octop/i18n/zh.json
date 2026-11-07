@@ -521,7 +521,18 @@
     "WORK_ITEM_RUN_CONFLICT": "工作项 run/attempt 已不是当前尝试。",
     "WORK_ITEM_INVALID": "工作项请求无效。",
     "WORK_ITEM_FORBIDDEN": "无权使用该工作项或其执行目标。",
-    "EXECUTION_TARGET_REQUIRED": "请选择已授权的执行设备或本机位置"
+    "EXECUTION_TARGET_REQUIRED": "请选择已授权的执行设备或本机位置",
+    "TRANSFER_UNAUTHORIZED": "源或目标设备未授权此文件传输。",
+    "TRANSFER_PATH_DENIED": "传输路径超出设备已授权根目录。",
+    "TRANSFER_TARGET_EXISTS": "目标文件已存在且未允许覆盖。",
+    "TRANSFER_TICKET_INVALID": "传输票据无效、过期、重放或已撤销。",
+    "TRANSFER_PEER_MISMATCH": "对端设备与票据绑定不一致。",
+    "TRANSFER_SOURCE_CHANGED": "传输过程中源文件大小或校验和已变更。",
+    "TRANSFER_DIRECT_UNAVAILABLE": "要求直连传输，但当前不可用。",
+    "TRANSFER_CAPACITY": "并发文件传输数量已达上限。",
+    "TRANSFER_IO": "因存储容量或 I/O 错误导致传输失败。",
+    "TRANSFER_CANCELLED": "传输已取消。",
+    "TRANSFER_NOT_FOUND": "未找到传输会话。"
   },
   "desktop": {
     "consent": {
