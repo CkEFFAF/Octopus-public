@@ -117,6 +117,7 @@ cli/ ──► launch.py ──► api/ + infra/
 | `infra/history/` | Versioned message archive, trajectory, turn projection (`projection.py`) | `gateway/`, `api/routers/chat`, `cron/`, `agents/teams` |
 | `infra/setup/` | First-run wizard, system service install, TLS / Let's Encrypt | `server.py`, `launch.py`, `api/routers/setup.py`, `api/routers/tls.py` |
 | `infra/skills/` | Skill packages, SkillHub HTTP client (`skillhub_market`, `skillhub_common`) | `api/routers/skills.py`, `agents/experts` |
+| `infra/plugins/` | Shared dashboard plugin catalog, account-owned installations, encrypted quota credentials | `api/routers/plugin_market.py`; see `docs/dashboard-plugin-market.md` |
 | `infra/users/` | Users, roles, password hashing, `UserManager` | `server.py`, `api/routers/auth.py`, `users.py` |
 | `infra/errors.py` | `OctopError`, `ErrorCode` — shared exception types | everywhere in `infra/` and `api/` |
 | `infra/metrics.py` | In-process counters (`METRICS`) | lazy-import inside hot paths |
@@ -440,3 +441,7 @@ hotfix/* ──PR──► main (+ tag) and ──PR──► develop
 - Lead with the conclusion, then details; write complete sentences, not telegraphic fragments.
 - When marking work done, include verification commands and results (or explain why they were not run).
 - Do not pile on unrelated follow-ups; mention out-of-scope issues briefly, do not expand scope unilaterally.
+
+## Context files
+
+- [src/octop/infra/plugins/AGENTS.md](src/octop/infra/plugins/AGENTS.md): Dashboard plugin catalog, private account settings and official quota lookup.

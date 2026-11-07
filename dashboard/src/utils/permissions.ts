@@ -143,11 +143,10 @@ export function pathPermissionKeys(pathname: string): PermissionKeys | null {
   if (pathname.startsWith("/admin/backend")) {
     return PERM.storage;
   }
-  if (
-    pathname.startsWith("/admin/plugins") ||
-    pathname === "/plugins" ||
-    pathname.startsWith("/plugins/")
-  ) {
+  if (pathname === "/plugins" || pathname.startsWith("/plugins/")) {
+    return "authenticated";
+  }
+  if (pathname.startsWith("/admin/plugins")) {
     return PERM.plugins;
   }
   if (

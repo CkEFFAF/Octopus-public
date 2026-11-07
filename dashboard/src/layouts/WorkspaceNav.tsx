@@ -41,6 +41,7 @@ const groups = [
       "connectors",
       "skill-packages",
       "knowledge-bases",
+      "plugin-market",
     ],
   },
   {
@@ -223,7 +224,10 @@ export default function WorkspaceNav({
                 <button
                   key={key}
                   className={
-                    location.pathname.endsWith(`/${key}`) ? "active" : ""
+                    location.pathname.startsWith("/personalization/") &&
+                    location.pathname.endsWith(`/${key}`)
+                      ? "active"
+                      : ""
                   }
                   onClick={() => {
                     navigate(`/personalization/${key}`);

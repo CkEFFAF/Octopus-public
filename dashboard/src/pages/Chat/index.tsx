@@ -103,6 +103,7 @@ import BackgroundWork from "./components/BackgroundWork";
 import { CollaborationProvider } from "./hooks/useCollaboration";
 import TeamChatBadge from "./components/TeamChatBadge";
 import ChatUsageFooter from "./components/ChatUsageFooter";
+import CostMeterDock from "../Plugins/CostMeterDock";
 import ProjectRoomBar from "./components/ProjectRoomBar";
 import DeviceTargetSelect from "./components/DeviceTargetSelect";
 import AskQuestionCard from "./components/AskQuestionCard";
@@ -2018,16 +2019,19 @@ function ChatPageInner() {
                   ) : undefined
                 }
                 footer={
-                  <ChatUsageFooter
-                    key={`${resolvedAgentId}/${activeThreadId}`}
-                    messages={messages}
-                    hasMore={historyHasMore}
-                    loading={historyLoading || historyRefreshing}
-                    unavailable={
-                      Boolean(activeThreadId) &&
-                      (Boolean(historyError) || !historyHydrated)
-                    }
-                  />
+                  <>
+                    <CostMeterDock />
+                    <ChatUsageFooter
+                      key={`${resolvedAgentId}/${activeThreadId}`}
+                      messages={messages}
+                      hasMore={historyHasMore}
+                      loading={historyLoading || historyRefreshing}
+                      unavailable={
+                        Boolean(activeThreadId) &&
+                        (Boolean(historyError) || !historyHydrated)
+                      }
+                    />
+                  </>
                 }
                 onSend={wrappedHandleSend}
                 onQueue={enqueueQueued}
