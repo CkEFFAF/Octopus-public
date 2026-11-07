@@ -490,11 +490,28 @@ def pid_alive(pid):
             kernel.CloseHandle(handle)
     try:
         os.kill(pid, 0)
-    except ProcessLookupError:
+        # The process can disappear between the existence check and the read.
+        # A stopped child can remain a zombie until the platform init reaps it.
+        proc_stat = Path(f"/proc/{pid}/stat")
+        return not (proc_stat.exists() and proc_stat.read_text().split()[2] == "Z")
+    except (FileNotFoundError, ProcessLookupError):
         return False
-    # A stopped child can remain a zombie until the platform init reaps it.
-    proc_stat = Path(f"/proc/{pid}/stat")
-    return not (proc_stat.exists() and proc_stat.read_text().split()[2] == "Z")
+
+
+@pytest.mark.parametrize("error", [FileNotFoundError, ProcessLookupError])
+def test_pid_alive_handles_exit_while_reading_proc(monkeypatch, error):
+    def read_stat():
+        raise error("process exited after the existence check")
+
+    monkeypatch.setattr(
+        sys.modules[__name__], "os", SimpleNamespace(name="posix", kill=lambda *_: None)
+    )
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "Path",
+        lambda _: SimpleNamespace(exists=lambda: True, read_text=read_stat),
+    )
+    assert not pid_alive(12345)
 
 
 @pytest.mark.parametrize("cancel", [False, True])

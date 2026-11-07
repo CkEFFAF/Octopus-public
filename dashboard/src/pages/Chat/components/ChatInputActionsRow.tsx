@@ -170,6 +170,7 @@ export default function ChatInputActionsRow({
   disabled,
   canSend,
   text,
+  uploading,
   polishing,
   recording,
   transcribing,
@@ -1329,7 +1330,7 @@ export default function ChatInputActionsRow({
                 <button
                   className={styles.sendBtn}
                   onClick={onSubmit}
-                  disabled={disabled}
+                  disabled={disabled || uploading}
                   title={
                     isTeam
                       ? t("chat.send")
@@ -1355,8 +1356,9 @@ export default function ChatInputActionsRow({
           <button
             className={styles.sendBtn}
             onClick={onSubmit}
-            disabled={!canSend}
+            disabled={!canSend || uploading}
             title={t("chat.send", "Send")}
+            aria-label={t("chat.send", "Send")}
             type="button"
           >
             <Send size={18} />

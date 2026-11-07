@@ -13,6 +13,7 @@ import {
   readWithdrawnDraft,
 } from "../utils/withdrawnDraft";
 const attachmentSpies = vi.hoisted(() => ({
+  uploading: false,
   restore: vi.fn(),
   consume: vi.fn(),
   items: [] as Array<{
@@ -54,7 +55,7 @@ vi.mock("../../../hooks/viewport", () => ({
 vi.mock("../hooks/useChatAttachments", () => ({
   useChatAttachments: () => ({
     attachments: attachmentSpies.items,
-    uploading: false,
+    uploading: attachmentSpies.uploading,
     dragOver: false,
     fileInputRef: { current: null },
     handleFileSelect: vi.fn(),
@@ -166,9 +167,50 @@ import ChatInput, { type ChatInputHandle } from "./ChatInput";
 beforeEach(() => {
   vi.clearAllMocks();
   attachmentSpies.items = [];
+  attachmentSpies.uploading = false;
 });
 
 describe("ChatInput prefill clear-on-send", () => {
+  it.each([false, true])(
+    "keeps the complete draft until uploads finish (streaming=%s)",
+    async (isStreaming) => {
+      attachmentSpies.uploading = true;
+      const send = vi.fn();
+      const steer = vi.fn().mockResolvedValue(true);
+      const props = {
+        onSend: send,
+        onSteerInput: steer,
+        onCancel: vi.fn(),
+        onNewChat: vi.fn(),
+        isStreaming,
+        agentId: "upload-agent",
+        threadId: "upload-thread",
+        initialText: "include these files",
+      };
+      const view = render(<ChatInput {...props} />);
+      fireEvent.click(screen.getByRole("button", { name: "send" }));
+      expect(send).not.toHaveBeenCalled();
+      expect(steer).not.toHaveBeenCalled();
+      expect(screen.getByRole("textbox")).toHaveValue("include these files");
+      attachmentSpies.uploading = false;
+      attachmentSpies.items = [
+        { path: "inbound/photo.png", filename: "photo.png", type: "image" },
+      ];
+      view.rerender(<ChatInput {...props} />);
+      await act(async () =>
+        fireEvent.click(screen.getByRole("button", { name: "send" })),
+      );
+      if (isStreaming)
+        expect(steer).toHaveBeenCalledWith(
+          expect.objectContaining({ attachments: attachmentSpies.items }),
+        );
+      else
+        expect(send).toHaveBeenCalledWith(
+          "include these files",
+          attachmentSpies.items,
+        );
+    },
+  );
   it.each(["steer", "queue"])(
     "preserves the next draft and consumes only submitted attachments after delayed %s acknowledgement",
     async (intent) => {

@@ -152,6 +152,8 @@ export interface UserChunk {
   type: "user";
   content: string;
   source?: string;
+  /** Raw WebSocket frames carry canonical server attachment metadata. */
+  inbound_attachments?: unknown;
   snapshot?: {
     attachments?: import("../pages/Chat/hooks/sseHelpers").ChatAttachment[];
     composerContext?: import("../pages/Chat/hooks/sseHelpers").UserComposerContext;

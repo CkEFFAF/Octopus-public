@@ -680,6 +680,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       if (
         (!trimmed && attachments.length === 0) ||
         disabled ||
+        uploading ||
         reclaimPending.current
       )
         return;
@@ -785,6 +786,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       onSteerInput,
       busyIntent,
       disabled,
+      uploading,
       isStreaming,
       isTeam,
       matchSlashCommand,
