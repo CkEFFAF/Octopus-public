@@ -7,6 +7,10 @@ offer frames. Enrollment tokens must never be used as tickets.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import ipaddress
+import os
+import socket
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -19,6 +23,68 @@ from octop.infra.devices.transfer_session import (
     verify_ticket,
 )
 from octop.infra.devices.transfer_tls import PeerTlsListener, send_file_over_tls
+
+_LOOPBACK_NAMES = frozenset({"127.0.0.1", "::1", "localhost", "[::1]"})
+
+
+def is_loopback_host(host: str) -> bool:
+    """True when ``host`` is loopback / localhost (not routable across hosts)."""
+    raw = str(host or "").strip().lower()
+    if not raw:
+        return False
+    if raw in _LOOPBACK_NAMES:
+        return True
+    candidate = raw[1:-1] if raw.startswith("[") and raw.endswith("]") else raw
+    with contextlib.suppress(ValueError):
+        return ipaddress.ip_address(candidate).is_loopback
+    return False
+
+
+def _guess_advertise_ipv4() -> str | None:
+    """Best-effort non-loopback IPv4 for LAN advertise (stdlib only)."""
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    except OSError:
+        return None
+    try:
+        # No packets are sent; the kernel picks the outbound interface address.
+        probe.connect(("8.8.8.8", 80))
+        ip = probe.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        with contextlib.suppress(OSError):
+            probe.close()
+    if not ip or is_loopback_host(ip):
+        return None
+    return ip
+
+
+def resolve_transfer_endpoints(
+    *,
+    listen_host: str | None = None,
+    advertise_host: str | None = None,
+    allow_loopback: bool = False,
+) -> tuple[str, str]:
+    """Resolve ``(listen_host, advertise_host)`` for peer TLS.
+
+    - ``OCTOP_TRANSFER_LISTEN_HOST`` / ``OCTOP_TRANSFER_ADVERTISE_HOST`` override.
+    - Default listen is ``0.0.0.0`` (all interfaces).
+    - Default advertise is the first non-loopback IPv4, never ``127.0.0.1`` /
+      ``::1`` unless ``allow_loopback=True`` (same-host dual-executor tests only).
+    """
+    env_listen = (os.environ.get("OCTOP_TRANSFER_LISTEN_HOST") or "").strip() or None
+    env_adv = (os.environ.get("OCTOP_TRANSFER_ADVERTISE_HOST") or "").strip() or None
+    listen = (listen_host or env_listen or "0.0.0.0").strip()
+    advertise = (advertise_host or env_adv or _guess_advertise_ipv4() or "").strip()
+    if not advertise:
+        if allow_loopback:
+            advertise = "127.0.0.1"
+        else:
+            raise ValueError("TRANSFER_DIRECT_UNAVAILABLE")
+    if is_loopback_host(advertise) and not allow_loopback:
+        raise ValueError("TRANSFER_DIRECT_UNAVAILABLE")
+    return listen, advertise
 
 
 def handle_negotiate(
@@ -123,24 +189,42 @@ async def run_direct_target(
     device_id: str,
     send_to_hub: Callable[[dict[str, Any]], Any],
     overwrite: bool = False,
-    host: str = "127.0.0.1",
+    listen_host: str | None = None,
+    advertise_host: str | None = None,
+    allow_loopback: bool = False,
+    host: str | None = None,
     timeout: float = 30.0,
 ) -> dict[str, Any]:
-    """Listen on TLS, publish offer to Hub, receive file, emit completed receipt."""
+    """Listen on TLS, publish offer to Hub, receive file, emit completed receipt.
+
+    ``host`` is a legacy alias for both listen and advertise (same-host tests).
+    Production callers should omit ``host`` so advertise resolves to a routable
+    non-loopback address; loopback is refused unless ``allow_loopback=True``.
+    """
+    if host is not None and listen_host is None and advertise_host is None:
+        listen_host = host
+        advertise_host = host
+        allow_loopback = allow_loopback or is_loopback_host(host)
+    listen, advertise = resolve_transfer_endpoints(
+        listen_host=listen_host,
+        advertise_host=advertise_host,
+        allow_loopback=allow_loopback,
+    )
     listener = PeerTlsListener(
         ticket=ticket,
         claims=claims,
         dest_path=dest_path,
         overwrite=overwrite,
-        host=host,
+        host=listen,
+        advertise_host=advertise,
         timeout=timeout,
     )
-    listen_host, port = await asyncio.to_thread(listener.start)
+    offered_host, port = await asyncio.to_thread(listener.start)
     await send_to_hub(
         offer_frame(
             transfer_id=claims.transfer_id,
             device_id=device_id,
-            host=listen_host,
+            host=offered_host,
             port=port,
         )
     )
@@ -217,10 +301,12 @@ async def run_direct_source(
 
 __all__ = [
     "handle_negotiate",
+    "is_loopback_host",
     "offer_frame",
     "peer_frame",
     "receipt_frame",
     "resolve_root_path",
+    "resolve_transfer_endpoints",
     "run_direct_source",
     "run_direct_target",
 ]

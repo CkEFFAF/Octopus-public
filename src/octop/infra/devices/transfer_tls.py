@@ -72,18 +72,20 @@ def _ssl_context(*, server: bool) -> ssl.SSLContext:
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    cert_file = tempfile.NamedTemporaryFile(delete=False)
-    key_file = tempfile.NamedTemporaryFile(delete=False)
+    cert_path = key_path = None
     try:
-        cert_file.write(cert_pem)
-        key_file.write(key_pem)
-        cert_file.close()
-        key_file.close()
-        ctx.load_cert_chain(cert_file.name, key_file.name)
+        with tempfile.NamedTemporaryFile(delete=False) as cert_file:
+            cert_file.write(cert_pem)
+            cert_path = cert_file.name
+        with tempfile.NamedTemporaryFile(delete=False) as key_file:
+            key_file.write(key_pem)
+            key_path = key_file.name
+        ctx.load_cert_chain(cert_path, key_path)
     finally:
-        for path in (cert_file.name, key_file.name):
-            with contextlib.suppress(OSError):
-                os.unlink(path)
+        for path in (cert_path, key_path):
+            if path is not None:
+                with contextlib.suppress(OSError):
+                    os.unlink(path)
     return ctx
 
 
@@ -190,7 +192,8 @@ class PeerTlsListener:
         claims: TicketClaims,
         dest_path: Path,
         overwrite: bool = False,
-        host: str = "127.0.0.1",
+        host: str = "0.0.0.0",
+        advertise_host: str | None = None,
         timeout: float = _DEFAULT_TIMEOUT,
     ) -> None:
         self.ticket = ticket
@@ -198,6 +201,8 @@ class PeerTlsListener:
         self.dest_path = dest_path
         self.overwrite = overwrite
         self.host = host
+        # Offer must carry a connectable host; never fall back to bind wildcard.
+        self.advertise_host = advertise_host if advertise_host is not None else host
         self.timeout = timeout
         self.port: int | None = None
         self._sock: socket.socket | None = None
@@ -216,7 +221,10 @@ class PeerTlsListener:
         self._sock = raw
         self._thread = threading.Thread(target=self._run, args=(ctx,), daemon=True)
         self._thread.start()
-        return self.host, self.port
+        offered = str(self.advertise_host or "").strip()
+        if not offered or offered in {"0.0.0.0", "::", "[::]"}:
+            raise ValueError("TRANSFER_DIRECT_UNAVAILABLE")
+        return offered, self.port
 
     def _run(self, ctx: ssl.SSLContext) -> None:
         assert self._sock is not None

@@ -806,6 +806,15 @@ class DeviceClient:
                     except ValueError:
                         continue
                     if role == "target":
+                        from octop.infra.devices.transfer_device import (
+                            resolve_transfer_endpoints,
+                        )
+
+                        try:
+                            listen_host, advertise_host = resolve_transfer_endpoints()
+                        except ValueError:
+                            # No routable advertise → skip offer; Hub times out → fallback.
+                            continue
                         asyncio.create_task(
                             run_direct_target(
                                 ticket=ticket,
@@ -814,6 +823,8 @@ class DeviceClient:
                                 device_id=local_id,
                                 send_to_hub=_hub_send,
                                 overwrite=False,
+                                listen_host=listen_host,
+                                advertise_host=advertise_host,
                             )
                         )
                     elif role == "source":

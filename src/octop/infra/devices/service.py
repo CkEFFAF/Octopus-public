@@ -2351,7 +2351,10 @@ class DeviceService:
         if expected:
             for side in ("source", "target"):
                 got = self._receipt_sha256(receipts.get(side))
-                if got is not None and got != expected:
+                # Missing sha256 must not promote to completed (stay pending_receipt).
+                if got is None:
+                    return
+                if got != expected:
                     failed = self.repos.device_transfer_repo.update(
                         session.transfer_id,
                         status="failed",

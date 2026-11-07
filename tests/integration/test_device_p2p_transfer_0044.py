@@ -105,6 +105,7 @@ async def connected(
                 str(scope.get("path") or ""),
             )
             if ack["role"] == "target":
+                # Same-host dual-executor harness: intentional loopback advertise.
                 asyncio.create_task(
                     run_direct_target(
                         ticket=ack["ticket"],
@@ -112,6 +113,9 @@ async def connected(
                         dest_path=path,
                         device_id=device_id,
                         send_to_hub=send_to_hub,
+                        listen_host="127.0.0.1",
+                        advertise_host="127.0.0.1",
+                        allow_loopback=True,
                     )
                 )
             else:
