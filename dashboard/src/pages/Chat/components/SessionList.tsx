@@ -343,7 +343,8 @@ function ActiveAgentCard({
           iconUrl={agent.icon_url}
           iconName={agent.icon_name}
           color={agent.color}
-          size={44}
+          size={52}
+          interactive
           phase={phase}
         />
         <div className={styles.agentCardInfo}>
@@ -503,7 +504,8 @@ function InactiveAgentRow({
           iconUrl={agent.icon_url}
           iconName={agent.icon_name}
           color={agent.color}
-          size={44}
+          size={52}
+          interactive
           phase={phase}
         />
         <div className={styles.agentRowInfo}>

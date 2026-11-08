@@ -697,6 +697,9 @@
   justify-content: center;
   line-height: 0;
   overflow: hidden;
+  &:has([data-expert-interactive]) {
+    overflow: visible;
+  }
 }
 
 .connectorPickerItem {

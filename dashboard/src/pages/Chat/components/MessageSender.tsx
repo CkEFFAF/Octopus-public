@@ -7,7 +7,7 @@ import styles from "../index.module.less";
 import type { ExpertPhase } from "../../../components/AnimatedExpertAvatar/model";
 
 /** Shared message-row avatar size. */
-export const MESSAGE_AVATAR_SIZE = 36;
+export const MESSAGE_AVATAR_SIZE = 44;
 
 interface MessageSenderProps {
   name: string;
@@ -61,6 +61,7 @@ export function ExpertMessageAvatar({
       size={MESSAGE_AVATAR_SIZE}
       phase={phase}
       animated={animated}
+      interactive
     />
   );
 
