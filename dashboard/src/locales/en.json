@@ -2819,6 +2819,8 @@
       "turnDiff": "Turn changes",
       "recordedDiff": "Recorded session changes",
       "fullContent": "Current full content",
+      "showSource": "View source",
+      "showRendered": "Rendered preview",
       "liveHint": "The current file may include later turns or external changes.",
       "readFailed": "Current content is unavailable. Recorded changes are still shown.",
       "tooLarge": "This file exceeds the inline preview limit. Open the full file in the workspace.",
