@@ -69,6 +69,7 @@ export const SIDEBAR_NAV_KEYS = [
   "conversation-metadata",
   "admin-storage",
   "admin-plugins",
+  "plugin-market",
   "admin-security",
   "admin-advanced",
 ] as const;
@@ -126,6 +127,7 @@ export const SIDEBAR_GROUPED_NAV_KEYS = [
   "conversation-metadata",
   "admin-storage",
   "admin-plugins",
+  "plugin-market",
   "admin-security",
   "admin-advanced",
   "agent-config",
@@ -173,6 +175,12 @@ export function buildNavSections(
   ];
 
   const settingsItems: NavItem[] = [
+    {
+      key: "plugin-market",
+      path: "/plugins",
+      icon: <Puzzle size={iconSize} strokeWidth={iconStroke} />,
+      labelKey: "nav.pluginMarket",
+    },
     {
       key: "personalization",
       path: "/personalization/skills",

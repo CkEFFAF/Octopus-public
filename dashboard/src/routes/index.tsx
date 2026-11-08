@@ -34,6 +34,7 @@ const AdvancedSettingsPage = lazy(
 );
 const AdminStoragePage = lazy(() => import("../pages/Admin/Storage"));
 const AdminPluginsPage = lazy(() => import("../pages/Admin/Plugins"));
+const PluginsPage = lazy(() => import("../pages/Plugins"));
 const AgentConfigPage = lazy(() => import("../pages/Agent/Config"));
 
 const ThreadSharesPage = lazy(() => import("../pages/ThreadShares"));
@@ -102,6 +103,7 @@ export const pathToKey: Record<string, string> = {
   "/admin/users": "admin-users",
   "/admin/backend": "admin-storage",
   "/admin/plugins": "admin-plugins",
+  "/plugins": "plugin-market",
   "/admin/advanced": "admin-advanced",
   "/admin/security": "admin-security",
   "/settings/thread-shares": "thread-shares",
@@ -299,7 +301,7 @@ export const routeConfigs: RouteConfig[] = [
   },
   {
     path: "/plugins",
-    element: <Navigate to="/admin/plugins" replace />,
+    element: <PluginsPage />,
   },
   { path: "/sessions", element: <Navigate to="/chat" replace /> },
   { path: "/cron-jobs", element: <Navigate to="/tasks" replace /> },

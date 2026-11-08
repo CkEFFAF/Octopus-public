@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from scalar_fastapi import get_scalar_api_reference
@@ -81,6 +83,20 @@ def _mount_routers(app: FastAPI, mounts: Sequence[_RouterMount]) -> None:
 
 
 def _install_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(RequestValidationError)
+    async def _validation(request: Request, exc: RequestValidationError) -> JSONResponse:
+        if request.url.path != "/api/plugins/cost-meter/config":
+            return await request_validation_exception_handler(request, exc)
+        # FastAPI's default detail.input echoes even SecretStr inputs. Keep
+        # only safe field metadata, including errors raised before the route.
+        errors = [
+            {key: error[key] for key in ("loc", "type", "msg") if key in error}
+            for error in exc.errors()
+        ]
+        return JSONResponse(
+            status_code=422, content={"detail": errors}, headers={"Cache-Control": "no-store"}
+        )
+
     @app.exception_handler(OctopError)
     async def _octop(request: Request, exc: OctopError) -> JSONResponse:
         # Client responses are locale-localized; log the original English message
@@ -95,6 +111,8 @@ def _install_exception_handlers(app: FastAPI) -> None:
             )
         locale = resolve_request_locale(request)
         response = JSONResponse(status_code=exc.status, content=exc.to_envelope(locale=locale))
+        if request.url.path.startswith("/api/plugins/cost-meter/"):
+            response.headers["Cache-Control"] = "no-store"
         if request.url.path.startswith("/api/public/thread-shares/"):
             from octop.api.routers.chat.shares import SHARE_HEADERS
 
@@ -202,6 +220,7 @@ def build_app(server: OctopServer) -> FastAPI:
         mobile,
         ollama_models,
         onnx_models,
+        plugin_market,
         plugins,
         preferences,
         proactive_care,
@@ -307,6 +326,7 @@ def build_app(server: OctopServer) -> FastAPI:
             _RouterMount(desktop.router, "/api", ["desktop"]),
             _RouterMount(ollama_models.router, "/api", ["ollama"]),
             _RouterMount(onnx_models.router, "/api", ["onnx"]),
+            _RouterMount(plugin_market.router, "/api", ["plugins"]),
             _RouterMount(plugins.router, "/api", ["plugins"]),
         ],
     )

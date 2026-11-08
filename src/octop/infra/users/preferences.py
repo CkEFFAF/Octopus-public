@@ -41,6 +41,7 @@ SIDEBAR_NAV_KEYS = frozenset(
         "conversation-metadata",
         "admin-storage",
         "admin-plugins",
+        "plugin-market",
         "admin-security",
         "admin-advanced",
     }
