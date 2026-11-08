@@ -96,9 +96,10 @@ it("fetches image metadata and verified bytes rather than the producer's workspa
   );
   vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:verified");
   const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  const open = vi.fn();
   const { unmount } = render(
     <CollaborationProvider agentId="parent" threadId="root">
-      <ChatDeliverables agentId="parent" threadId="root" onOpen={vi.fn()} />
+      <ChatDeliverables agentId="parent" threadId="root" onOpen={open} />
     </CollaborationProvider>,
   );
   expect(await screen.findByRole("img")).toHaveAttribute(
@@ -110,6 +111,10 @@ it("fetches image metadata and verified bytes rather than the producer's workspa
     "root",
     picture,
   );
+  fireEvent.click(screen.getByText("common.preview"));
+  const dialog = await screen.findByRole("dialog");
+  expect(dialog.querySelector("img")).toHaveAttribute("src", "blob:verified");
+  expect(open).not.toHaveBeenCalled();
   unmount();
   expect(revoke).toHaveBeenCalledWith("blob:verified");
 });

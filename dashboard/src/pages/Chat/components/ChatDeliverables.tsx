@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button } from "antd";
+import { Button, Image } from "antd";
 import { Download, Eye, Paperclip, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -28,16 +28,19 @@ function ResourceCard({
   const [image, setImage] = useState("");
   const [error, setError] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const {
     resource_id: resourceId,
     version,
     size,
     media_type: mediaType,
   } = resource;
+  const isImage = mediaType.startsWith("image/");
   useEffect(() => {
     let active = true;
     let url = "";
     setImage("");
+    setPreviewOpen(false);
     // Avoid eagerly loading a large image just to render a thumbnail.
     if (
       /^image\/(png|jpeg|gif|webp|avif)$/.test(mediaType) &&
@@ -76,45 +79,59 @@ function ResourceCard({
       setDownloading(false);
     }
   }
+  function preview() {
+    if (image) setPreviewOpen(true);
+    else onOpen(resource);
+  }
   return (
-    <article className={`${styles.card} ${image ? styles.imageCard : ""}`}>
-      <button
-        className={styles.preview}
-        onClick={() => onOpen(resource)}
-        aria-label={t("chat.deliverables.open", { name: resource.name })}
-      >
-        {image ? (
-          <img src={image} alt={resource.name} />
-        ) : (
-          fileTreeIcon(resource.name, 24)
-        )}
-      </button>
-      <div className={styles.meta}>
-        <strong title={resource.name}>{resource.name}</strong>
-        <span>{formatBytes(resource.size)}</span>
-        {error && <span role="alert">{t("collaboration.resourceError")}</span>}
-      </div>
-      <div className={styles.actions}>
-        <Button
-          size="small"
-          type="text"
-          icon={<Eye size={14} />}
-          onClick={() => onOpen(resource)}
+    <>
+      <article className={`${styles.card} ${isImage ? styles.imageCard : ""}`}>
+        <button
+          className={styles.preview}
+          onClick={preview}
           aria-label={t("chat.deliverables.open", { name: resource.name })}
         >
-          {t("common.preview")}
-        </Button>
-        <Button
-          size="small"
-          loading={downloading}
-          icon={<Download size={14} />}
-          onClick={() => void download()}
-          aria-label={t("chat.flow.downloadFile", { name: resource.name })}
-        >
-          {t("common.download")}
-        </Button>
-      </div>
-    </article>
+          {image ? (
+            <img src={image} alt={resource.name} />
+          ) : (
+            fileTreeIcon(resource.name, 24)
+          )}
+        </button>
+        <div className={styles.meta}>
+          <strong title={resource.name}>{resource.name}</strong>
+          <span>{formatBytes(resource.size)}</span>
+          {error && (
+            <span role="alert">{t("collaboration.resourceError")}</span>
+          )}
+        </div>
+        <div className={styles.actions}>
+          <Button
+            size="small"
+            type="text"
+            icon={<Eye size={14} />}
+            onClick={preview}
+            aria-label={t("chat.deliverables.open", { name: resource.name })}
+          >
+            {t("common.preview")}
+          </Button>
+          <Button
+            size="small"
+            loading={downloading}
+            icon={<Download size={14} />}
+            onClick={() => void download()}
+            aria-label={t("chat.flow.downloadFile", { name: resource.name })}
+          >
+            {t("common.download")}
+          </Button>
+        </div>
+      </article>
+      {image && (
+        <Image.PreviewGroup
+          items={[image]}
+          preview={{ visible: previewOpen, onVisibleChange: setPreviewOpen }}
+        />
+      )}
+    </>
   );
 }
 
@@ -135,6 +152,12 @@ export default function ChatDeliverables({
       resource.source_kind !== "upload" &&
       resource.publication_state === "published",
   );
+  const pictures = resources.filter((resource) =>
+    resource.media_type.startsWith("image/"),
+  );
+  const files = resources.filter(
+    (resource) => !resource.media_type.startsWith("image/"),
+  );
   if (!resources.length && !error) return null;
   return (
     <section
@@ -152,22 +175,37 @@ export default function ChatDeliverables({
           type="text"
           icon={<RefreshCw size={14} />}
           onClick={() => void refresh()}
-        >
-          {t("common.refresh")}
-        </Button>
+          aria-label={t("common.refresh")}
+          title={t("common.refresh")}
+        />
       </div>
       {error && <p role="status">{t("chat.deliverables.refreshFailed")}</p>}
-      <div>
-        {resources.map((resource) => (
-          <ResourceCard
-            key={resource.resource_id + resource.version}
-            agentId={agentId}
-            threadId={threadId}
-            resource={resource}
-            onOpen={onOpen}
-          />
-        ))}
-      </div>
+      {pictures.length > 0 && (
+        <div className={styles.gallery}>
+          {pictures.map((resource) => (
+            <ResourceCard
+              key={resource.resource_id + resource.version}
+              agentId={agentId}
+              threadId={threadId}
+              resource={resource}
+              onOpen={onOpen}
+            />
+          ))}
+        </div>
+      )}
+      {files.length > 0 && (
+        <div className={styles.files}>
+          {files.map((resource) => (
+            <ResourceCard
+              key={resource.resource_id + resource.version}
+              agentId={agentId}
+              threadId={threadId}
+              resource={resource}
+              onOpen={onOpen}
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
