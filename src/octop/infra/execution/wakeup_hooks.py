@@ -62,6 +62,7 @@ class WakeupHookService:
         job_event_id: str | None = None,
         include_token: bool = True,
         delivery_mode: str = "wake",
+        resume_mode: str = "observe",
     ) -> dict[str, Any]:
         context = self.execution.get(owner, context_id) if context_id else None
         if context and (context.agent_id, context.thread_id) != (agent, thread_id):
@@ -71,6 +72,10 @@ class WakeupHookService:
         self._scope({"owner_user_id": owner, "agent_id": agent, "thread_id": thread_id})
         if delivery_mode not in {"wake", "progress"}:
             raise ValueError("delivery_mode must be wake or progress")
+        if resume_mode not in {"observe", "continue"}:
+            raise ValueError("resume_mode must be observe or continue")
+        if resume_mode == "continue" and (context is None or delivery_mode != "wake"):
+            raise ValueError("continuation requires a bound execution source and wake delivery")
         for value, maximum in (
             (title, 120),
             (event_type, 100),
@@ -96,6 +101,8 @@ class WakeupHookService:
             "purpose": purpose.strip(),
             "job_event_id": job_event_id,
             "delivery_mode": delivery_mode,
+            "resume_mode": resume_mode,
+            "origin_work_mode": context.work_mode if context else None,
         }
         fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
         row = self.events.wakeup_hook(identity)
@@ -146,6 +153,8 @@ class WakeupHookService:
                     "received_at",
                     "cron_id",
                     "delivery_mode",
+                    "resume_mode",
+                    "origin_work_mode",
                     "progress",
                 )
             },
@@ -473,6 +482,12 @@ class WakeupHookService:
                 "execution.wakeupPrompt",
                 locale,
                 purpose=row["payload"]["purpose"],
+                mode=tr(
+                    "execution.wakeupContinue"
+                    if row["payload"].get("resume_mode") == "continue"
+                    else "execution.wakeupObserve",
+                    locale,
+                ),
                 data=json.dumps(facts, ensure_ascii=False),
             )
             await cron.create(

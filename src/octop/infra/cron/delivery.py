@@ -755,10 +755,19 @@ class CronDeliveryService:
         else:
             servers = [name.strip() for name in command.mcp_servers if name.strip()]
             extra_defaults = self._agent_manager.default_mcp_servers(command.agent_id)
-            pack = self._agent_manager.device_mcp_pack_for_turn(
-                session.user_id,
-                agent_id=command.agent_id,
-            )
+            pack_scope = {"agent_id": command.agent_id}
+            if command.wakeup_hook_id and command.wakeup_context_id:
+                from octop.infra.db.repos.execution import ExecutionContextRepo
+
+                origin = ExecutionContextRepo(self._repos.db).get(
+                    session.user_id, command.wakeup_context_id
+                )
+                if origin is None:
+                    raise ValueError("wakeup execution source unavailable")
+                pack_scope.update(
+                    thread_id=session.thread_id, resolved_device_id=origin.device_id or ""
+                )
+            pack = self._agent_manager.device_mcp_pack_for_turn(session.user_id, **pack_scope)
             device_defaults: list[str] = []
             deny_mcp: list[str] = []
             if isinstance(pack, tuple) and len(pack) >= 2:
@@ -833,6 +842,10 @@ class CronDeliveryService:
             cfg["work_mode"] = "ask"
             if command.wakeup_context_id:
                 cfg["octop_execution_context"] = {"context_id": command.wakeup_context_id}
+                if hook and hook["payload"].get("resume_mode") == "continue":
+                    mode = str(hook["payload"]["origin_work_mode"])
+                    cfg["work_mode"] = mode
+                    request["conversation_mode"] = mode if mode in {"ask", "plan"} else "craft"
             else:
                 cfg["octop_wakeup_event_only"] = True
         self._attach_turn_knowledge_config(request, command, session)

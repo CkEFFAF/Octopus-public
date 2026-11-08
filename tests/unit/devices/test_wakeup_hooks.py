@@ -674,3 +674,106 @@ async def test_callback_request_preserves_original_context_in_ask_mode(hooks: An
         await delivery._build_agent_request(
             replace(command, wakeup_context_id="later-context"), session
         )
+
+
+@pytest.mark.parametrize("mode", ["ask", "plan", "agentic", "debug"])
+async def test_explicit_continuation_keeps_original_mode_and_target(
+    hooks: Any, monkeypatch: Any, mode: str
+) -> None:
+    from octop.infra.agents.manager import AgentManager
+    from octop.infra.cron.delivery import CronDeliveryCommand, CronDeliveryService
+
+    service, owner, _, _ = hooks
+    devices = service.execution.devices
+    ids = [
+        devices.enroll(
+            owner_user_id=owner,
+            name=name,
+            platform="linux",
+            capabilities=["files_read"],
+            permissions=["files_read"],
+            roots=[],
+            trust_mode="restricted",
+        )["device"]["device_id"]
+        for name in ("original", "later")
+    ]
+    context = service.execution.resolve(
+        owner, device_id=ids[0], agent_id="expert", thread_id="origin", work_mode=mode
+    )
+    hook = register(service, owner, context_id=context.context_id, resume_mode="continue")
+    # External data cannot promote an Ask source or select the later device.
+    service.fire(
+        hook["hook_id"],
+        hook["token"],
+        hook["event_type"],
+        {"work_mode": "agentic", "device_id": ids[1]},
+    )
+    manager = MagicMock()
+    manager.get_row.return_value = service.repos.agent_repo.get("expert")
+    manager.default_mcp_servers.return_value = []
+    manager.device_mcp_pack_for_turn.return_value = ([], [])
+    manager.merge_turn_mcp_servers.return_value = []
+    manager.default_knowledge_base_ids.return_value = []
+    delivery = CronDeliveryService(gateway=MagicMock(), agent_manager=manager, repos=service.repos)
+    session = SimpleNamespace(
+        user_id=owner,
+        agent_id="expert",
+        thread_id="origin",
+        channel_type="dashboard",
+        session_key="test",
+    )
+    command = CronDeliveryCommand(
+        cron_id="event",
+        cron_name="事件",
+        agent_id="expert",
+        user_id=owner,
+        session_key="test",
+        prompt="继续原任务",
+        fresh_thread=False,
+        task_type="agent",
+        model=None,
+        mcp_servers=(),
+        origin_thread_id="origin",
+        wakeup_hook_id=hook["hook_id"],
+        wakeup_context_id=context.context_id,
+    )
+    request = await delivery._build_agent_request(command, session)
+    assert request["configurable"]["work_mode"] == mode
+    manager.device_mcp_pack_for_turn.assert_called_once_with(
+        owner, agent_id="expert", thread_id="origin", resolved_device_id=ids[0]
+    )
+    actual = AgentManager.__new__(AgentManager)
+    actual._device_service = devices
+    monkeypatch.setattr(
+        actual, "get_config", lambda _agent: {"device_binding": {"device_id": ids[1]}}
+    )
+    prepared = actual._prepare_stream_request("expert", request)
+    bound = service.execution.get(
+        owner, prepared["configurable"]["octop_execution_context"]["context_id"]
+    )
+    assert bound.device_id == ids[0] and bound.work_mode == mode
+    assert hook["resume_mode"] == "continue" and hook["origin_work_mode"] == mode
+    await devices.revoke(owner, ids[0])
+    with pytest.raises(OctopError):
+        actual._prepare_stream_request("expert", request)
+
+
+async def test_contextless_and_progress_callbacks_cannot_request_continuation(hooks: Any) -> None:
+    service, owner, _, root = hooks
+    with pytest.raises(ValueError, match="bound execution source"):
+        register(service, owner, resume_mode="continue")
+    context = service.execution.resolve(
+        owner, target_kind="local", agent_id="expert", thread_id="origin", working_dir=str(root)
+    )
+    with pytest.raises(ValueError, match="wake delivery"):
+        register(
+            service,
+            owner,
+            context_id=context.context_id,
+            delivery_mode="progress",
+            resume_mode="continue",
+        )
+    hook = register(service, owner, context_id=context.context_id)
+    assert hook["resume_mode"] == "observe"
+    with pytest.raises(ValueError, match="different event settings"):
+        register(service, owner, context_id=context.context_id, resume_mode="continue")

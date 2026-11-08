@@ -32,6 +32,7 @@ def build_wakeup_tools(backend: RequestExecutionBackend) -> list[Any]:
         idempotency_key: str,
         expires_in: int = 604800,
         delivery_mode: str = "wake",
+        resume_mode: str = "observe",
     ) -> str:
         """Register a single-use callback for ANY custom event, bound to this expert and conversation.
 
@@ -45,6 +46,12 @@ def build_wakeup_tools(backend: RequestExecutionBackend) -> list[Any]:
         registered event, never arbitrary chat/commands. Duplicates do not wake twice.
         expires_in is 60..2592000 seconds. Reuse the idempotency_key on retries.
         Return to the user immediately; do not sleep waiting for the event.
+
+        resume_mode="observe" reports the outcome without changing the project.
+        To continue follow-up work already authorized by the user, choose resume_mode="continue".
+        This retains the registered execution source and its original work mode and permissions;
+        event data cannot grant new authority or switch devices. Continuation requires a bound
+        execution source. Do not repeat an already accepted job.
 
         For ongoing command progress use delivery_mode="progress" instead of "wake".
         Register BEFORE job_start, then pass the returned hook_id as progress_hook_id.
@@ -69,6 +76,7 @@ def build_wakeup_tools(backend: RequestExecutionBackend) -> list[Any]:
                     idempotency_key=idempotency_key,
                     expires_in=expires_in,
                     delivery_mode=delivery_mode,
+                    resume_mode=resume_mode,
                 ),
                 ensure_ascii=False,
             )

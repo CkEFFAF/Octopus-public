@@ -15,7 +15,7 @@
 2. 同步 execute 和 device_run(command.run) 在派发前拒绝超过 60 秒的超时或明确超过 10 秒的 shell sleep / PowerShell Start-Sleep。错误明确指导具名 job_start 或一次 schedule_self_check。短命令照常执行，不自动后台化、不重放、不取消已存在任务。
 3. job_start 默认要求完成反馈，可显式关闭。notify_on_exit 与名称保存在同一个原 Job 回执内；协调器只处理 completed、failed、cancelled 的真实回执，unknown、离线和接受状态均不是完成。
 4. 待反馈查询来自 run_events 的持久元数据。终态与通知调度之间的重启仍可恢复。每个 owner、origin context、job 只有一个确定性 cron ID；重复协调和创建后未确认的重试不重复调度。
-5. 唤醒沿用 self_reminder 的 origin_thread_id、原会话锁和持久投递。提示仅含有界任务名、原 Job ID、终态、返回码和来源，不搬运完整日志。反馈请求使用原执行 context 的 for_run 验证及 ask 模式，不跟随后来选择的设备，不自动重启实验。已撤销、跨账号或已删除的来源不能唤醒其他会话。
+5. 唤醒沿用 self_reminder 的 origin_thread_id、原会话锁和持久投递。提示仅含有界任务名、原 Job ID、终态、返回码和来源，不搬运完整日志。反馈请求使用原执行 context 的 for_run 验证，默认采用 ask 模式，不跟随后来选择的设备，不自动重启实验。已撤销、跨账号或已删除的来源不能唤醒其他会话。
 6. 列表、图谱、详情和会话悬浮摘要优先显示明确任务名。旧 shell 包装任务可从已保存命令中提取脚本或日志名作保守回退，不编造实验目的。Job ID、原命令与真实状态仍在详情保留。
 7. 通用 Hook 不限定实验等业务字段。Agent 自定 event_type，回调 data 接受任意 JSON 值，编码后最多 8192 字节。注册、查看、取消绑定当前账号、专家和原会话；执行 context 可为空，空来源的唤醒仅处理事件数据，不开放工具。
 8. 注册参数包含业务标题、事件名、唤醒目的、幂等键、有效期（默认七日，最多三十日）。回调凭据是现有服务端密钥对 owner 与 hook ID 的独立 HMAC，不能用于账号或其他 Hook。只有精确 POST /api/wakeup-hooks/wh_<32hex>/fire 使用该凭据，其余接口仍走原 JWT。凭据验证在读取回调正文之前，正文最多 12288 字节。重复信号不会再次唤醒；待处理状态保存在 run_events，沿已有协调器和原会话 self_reminder 恢复。
@@ -23,6 +23,8 @@
 9. 命令进度使用 delivery_mode=progress 的独立持续上报通道。Agent 先注册、把回调地址与凭据配置给脚本，再用 progress_hook_id 关联 job_start。百分比仅取脚本 data.percent 的真实数值，范围 0 至 100；没有百分比时仅显示阶段和说明。data.phase 最多 100 字，message 最多 300 字，sequence 为可选递增整数，旧序号和重复上报不覆盖新进度。data.done 关闭进度通道，不代表进程已退出或任务成功。
 10. 进度保存在 Hook 元数据，任务状态仍来自独立的真实进程回执；两个来源不会互相覆盖。进度不触发模型与 Cron。任务浮层、列表、详情和执行工作区读取持久进度，刷新或重启后仍能恢复。完成、异常或另行注册的关键事件才唤醒专家。缺少回调、权限撤销或离线不伪造百分比，旧命令无需设备升级。
 11. 唤醒在真正派发模型之前，以状态比较原子领取为 running。此后取消会如实返回 running，不声称中断已经开始的分析。进程在分析中重启时记为 unknown，沿现有投递尝试显示结果未确认，不自动重放模型。尚未派发的持久事件继续恢复，已记录的确定性回答不会重复写入。
+
+12. 通用唤醒支持 resume_mode=observe（默认仅反馈）与 continue（继续用户已授权的后续任务）。continue 仅对具有执行来源的 wake Hook 可用，工作模式取注册时原 context.work_mode 并持久化，派发保留原目标和当前有效权限。回调数据不能改变此设置；无来源与纯进度通道不能用 continue。后台 Job 的默认完成反馈仍为 observe。
 
 ## Validation
 
