@@ -17,6 +17,9 @@ import {
   type DockPathTreeNode,
 } from "../utils/dockFilePath";
 import styles from "../index.module.less";
+import { useChatFileChanges } from "../ChatFilePreviewContext";
+import { mergeChangedFiles } from "../utils/changedFiles";
+import FileChangesReview from "./FileChangesReview";
 
 interface ChatDockFileListProps {
   agentId: string;
@@ -203,6 +206,7 @@ export default function ChatDockFileList({
   agentNameById,
 }: ChatDockFileListProps) {
   const { t } = useTranslation();
+  const review = useChatFileChanges();
   const refs = useMemo(
     () => listDockFilePathsForTree(filePaths, agentId),
     [filePaths, agentId],
@@ -299,6 +303,16 @@ export default function ChatDockFileList({
       </p>
     </div>
   );
+
+  if (review)
+    return (
+      <FileChangesReview
+        files={mergeChangedFiles(refs, review.history, review.current, agentId)}
+        current={review.current}
+        threadId={review.threadId}
+        onOpenFile={onOpenFile}
+      />
+    );
 
   if (refs.length === 0) {
     return (

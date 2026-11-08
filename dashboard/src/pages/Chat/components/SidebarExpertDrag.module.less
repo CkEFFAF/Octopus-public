@@ -1,0 +1,56 @@
+.scope {
+  display: contents;
+}
+.handle {
+  touch-action: none;
+  border: 0;
+  background: transparent;
+  color: var(--fn-text-tertiary, #9aa3b1);
+  cursor: grab;
+  padding: 3px 0;
+  flex-shrink: 0;
+  opacity: 0.65;
+}
+.handle:hover,
+.handle:focus-visible {
+  opacity: 1;
+  color: var(--fn-color-brand, #ee5775);
+}
+.scope [data-sidebar-zone="pinned"] [data-sidebar-expert] > .handle {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  z-index: 1;
+}
+.scope [data-sidebar-expert] {
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.scope[data-dragging="true"] [data-sidebar-expert] {
+  cursor: grabbing;
+  touch-action: none;
+}
+.scope [data-drag-over="true"] {
+  outline: 2px solid var(--fn-color-brand, #ee5775);
+  outline-offset: -2px;
+  border-radius: 8px;
+  background: var(--fn-bg-secondary);
+}
+.status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.dropHint {
+  grid-column: 1 / -1;
+  padding: 12px;
+  border: 1px dashed var(--fn-border-color, #dfe3ea);
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--fn-text-secondary);
+}

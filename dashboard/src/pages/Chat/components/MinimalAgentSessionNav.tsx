@@ -32,6 +32,8 @@ import {
   sidebarExpertPhase,
 } from "./SidebarExpert";
 import { usePinnedExperts } from "../hooks/usePinnedExperts";
+import { useExpertOrder } from "../hooks/useExpertOrder";
+import SidebarExpertDrag, { SidebarDragHandle } from "./SidebarExpertDrag";
 import { octopThreadsApi } from "../../../api/modules/octopThreads";
 import { showConfirmModal } from "../../../utils/confirmModal";
 import { isAgentChatReady } from "../../../utils/agentError";
@@ -319,6 +321,7 @@ function MinimalAgentSessionNavContent({
   const [revealAgent, setRevealAgent] = useState<string | null>(null);
   const navigate = useNavigate();
   const { pinnedIds, togglePin } = usePinnedExperts();
+  const { order } = useExpertOrder();
   const [byAgent, setByAgent] = useState<Record<string, Session[]>>({});
   const [loading, setLoading] = useState(false);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() =>
@@ -334,8 +337,8 @@ function MinimalAgentSessionNavContent({
   );
 
   const sortedAgents = useMemo(
-    () => [...agents].sort((a, b) => b.id - a.id),
-    [agents],
+    () => order([...agents].sort((a, b) => b.id - a.id)),
+    [agents, order],
   );
 
   // Ensure the active expert folder stays open.
@@ -551,156 +554,171 @@ function MinimalAgentSessionNavContent({
   }
 
   return (
-    <div className={`${styles.sessionList} ${styles.minimalAgentNav}`}>
-      <PinnedExperts
-        agents={pinnedIds.flatMap((id) =>
-          agents.filter((agent) => agent.agent_id === id),
-        )}
-        activeAgentId={activeAgentId}
-        activePhase={activePhase}
-        onSelect={openFolderAndSelect}
-        onTogglePin={togglePin}
-      />
-      {sortedAgents.map((agent) => {
-        const list = withWorkingSessions(
-          byAgent[agent.agent_id] ?? [],
-          sidebarActivity[agent.agent_id],
-        );
-        const ready = isAgentChatReady(agent.state);
-        const expanded = !collapsedFolders.has(agent.agent_id);
-        const phase = sidebarExpertPhase(
-          agent,
-          agent.agent_id === activeAgentId ? activePhase : undefined,
-        );
+    <SidebarExpertDrag ids={sortedAgents.map((agent) => agent.agent_id)}>
+      <div
+        className={`${styles.sessionList} ${styles.minimalAgentNav}`}
+        data-sidebar-zone="main"
+        data-sidebar-scroll
+      >
+        <PinnedExperts
+          agents={pinnedIds.flatMap((id) =>
+            agents.filter((agent) => agent.agent_id === id),
+          )}
+          activeAgentId={activeAgentId}
+          activePhase={activePhase}
+          onSelect={openFolderAndSelect}
+          onTogglePin={togglePin}
+        />
+        {sortedAgents.map((agent) => {
+          const list = withWorkingSessions(
+            byAgent[agent.agent_id] ?? [],
+            sidebarActivity[agent.agent_id],
+          );
+          const ready = isAgentChatReady(agent.state);
+          const expanded = !collapsedFolders.has(agent.agent_id);
+          const phase = sidebarExpertPhase(
+            agent,
+            agent.agent_id === activeAgentId ? activePhase : undefined,
+          );
 
-        return (
-          <section
-            key={agent.agent_id}
-            ref={(element) => {
-              if (element) sectionRefs.current.set(agent.agent_id, element);
-              else sectionRefs.current.delete(agent.agent_id);
-            }}
-            className={styles.minimalAgentSection}
-          >
-            <div className={styles.minimalAgentHeader}>
-              <span className={styles.minimalAgentIconSlot}>
-                <ExpertAgentAvatar
-                  className={styles.minimalAgentAvatar}
-                  phase={phase}
-                  iconUrl={agent.icon_url}
-                  iconName={agent.icon_name}
-                  color={agent.color}
-                  size={44}
-                />
-                <span className={styles.minimalAgentUnread}>
-                  <AgentUnreadBadge count={agent.unread_count ?? 0} />
+          return (
+            <section
+              key={agent.agent_id}
+              ref={(element) => {
+                if (element) sectionRefs.current.set(agent.agent_id, element);
+                else sectionRefs.current.delete(agent.agent_id);
+              }}
+              className={styles.minimalAgentSection}
+            >
+              <div
+                className={styles.minimalAgentHeader}
+                data-sidebar-expert={agent.agent_id}
+              >
+                <SidebarDragHandle />
+                <span className={styles.minimalAgentIconSlot}>
+                  <ExpertAgentAvatar
+                    className={styles.minimalAgentAvatar}
+                    phase={phase}
+                    iconUrl={agent.icon_url}
+                    iconName={agent.icon_name}
+                    color={agent.color}
+                    size={44}
+                  />
+                  <span className={styles.minimalAgentUnread}>
+                    <AgentUnreadBadge count={agent.unread_count ?? 0} />
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.minimalAgentChevronBtn}
+                    aria-expanded={expanded}
+                    aria-label={
+                      expanded
+                        ? t("nav.collapseSidebar")
+                        : t("nav.expandSidebar")
+                    }
+                    onClick={() => toggleFolder(agent.agent_id)}
+                  >
+                    <ChevronRight
+                      size={14}
+                      strokeWidth={2}
+                      className={`${styles.minimalAgentChevron} ${
+                        expanded ? styles.minimalAgentChevronOpen : ""
+                      }`}
+                      aria-hidden
+                    />
+                  </button>
                 </span>
                 <button
                   type="button"
-                  className={styles.minimalAgentChevronBtn}
-                  aria-expanded={expanded}
-                  aria-label={
-                    expanded ? t("nav.collapseSidebar") : t("nav.expandSidebar")
-                  }
-                  onClick={() => toggleFolder(agent.agent_id)}
+                  className={styles.minimalAgentFolderBtn}
+                  data-sidebar-select
+                  onClick={() => openFolderAndSelect(agent.agent_id)}
                 >
-                  <ChevronRight
-                    size={14}
-                    strokeWidth={2}
-                    className={`${styles.minimalAgentChevron} ${
-                      expanded ? styles.minimalAgentChevronOpen : ""
-                    }`}
-                    aria-hidden
-                  />
-                </button>
-              </span>
-              <button
-                type="button"
-                className={styles.minimalAgentFolderBtn}
-                onClick={() => openFolderAndSelect(agent.agent_id)}
-              >
-                <span className={styles.minimalAgentInfo}>
-                  <span className={styles.agentNameCluster}>
-                    <span className={styles.minimalAgentName}>
-                      {agent.name}
+                  <span className={styles.minimalAgentInfo}>
+                    <span className={styles.agentNameCluster}>
+                      <span className={styles.minimalAgentName}>
+                        {agent.name}
+                      </span>
+                      <TeamChatBadge agent={agent} />
+                      <SharedExpertHint agent={agent} />
+                      <RemoteExpertHint agent={agent} />
                     </span>
-                    <TeamChatBadge agent={agent} />
-                    <SharedExpertHint agent={agent} />
-                    <RemoteExpertHint agent={agent} />
+                    <ExpertStatusLabel phase={phase} />
                   </span>
-                  <ExpertStatusLabel phase={phase} />
-                </span>
-              </button>
-              <ExpertPinButton
-                pinned={pinnedIds.includes(agent.agent_id)}
-                onClick={() => togglePin(agent.agent_id)}
-              />
-              <ExpertScheduleBadge
-                agentId={agent.agent_id}
-                owned={agent.is_owner === true}
-              />
-              <button
-                type="button"
-                className={styles.minimalAgentNewChatBtn}
-                aria-label={t("chatWelcome.newChat")}
-                title={t("chatWelcome.newChat")}
-                onClick={() => onNewChat(agent.agent_id)}
-              >
-                <MessageSquarePlus size={14} strokeWidth={1.75} aria-hidden />
-              </button>
-            </div>
-
-            {expanded ? (
-              <div className={styles.minimalAgentSessions}>
-                {!ready ? (
-                  <div className={styles.minimalAgentEmpty}>
-                    {t("chat.agentNotRunningHint")}
-                  </div>
-                ) : loading && list.length === 0 ? (
-                  <div className={styles.minimalAgentEmpty}>
-                    {t("common.loading")}
-                  </div>
-                ) : list.length === 0 ? (
-                  <div className={styles.minimalAgentEmpty}>
-                    {t("chat.noSessionsYet", "直接发消息即可开始对话")}
-                  </div>
-                ) : (
-                  list.map((session) => (
-                    <PreviewSessionRow
-                      key={session.id}
-                      session={session}
-                      isActive={session.id === activeId}
-                      onSelect={(id) => onSelect(id, agent.agent_id)}
-                      onDelete={(id) => void handleDelete(agent.agent_id, id)}
-                      onRename={(id, name) =>
-                        handleRename(agent.agent_id, id, name)
-                      }
-                      onPin={(id, pinned) =>
-                        handlePin(agent.agent_id, id, pinned)
-                      }
-                      onFork={(id) => onFork(id, agent.agent_id)}
-                      onShare={
-                        onShare
-                          ? (id) => onShare(id, agent.agent_id)
-                          : undefined
-                      }
-                      forkDisabled={
-                        session.id === activeId ? activeForkDisabled : undefined
-                      }
-                      forkDisabledHint={
-                        session.id === activeId
-                          ? activeForkDisabledHint
-                          : undefined
-                      }
-                    />
-                  ))
-                )}
+                </button>
+                <ExpertPinButton
+                  pinned={pinnedIds.includes(agent.agent_id)}
+                  onClick={() => togglePin(agent.agent_id)}
+                />
+                <ExpertScheduleBadge
+                  agentId={agent.agent_id}
+                  owned={agent.is_owner === true}
+                />
+                <button
+                  type="button"
+                  className={styles.minimalAgentNewChatBtn}
+                  aria-label={t("chatWelcome.newChat")}
+                  title={t("chatWelcome.newChat")}
+                  onClick={() => onNewChat(agent.agent_id)}
+                >
+                  <MessageSquarePlus size={14} strokeWidth={1.75} aria-hidden />
+                </button>
               </div>
-            ) : null}
-          </section>
-        );
-      })}
-    </div>
+
+              {expanded ? (
+                <div className={styles.minimalAgentSessions}>
+                  {!ready ? (
+                    <div className={styles.minimalAgentEmpty}>
+                      {t("chat.agentNotRunningHint")}
+                    </div>
+                  ) : loading && list.length === 0 ? (
+                    <div className={styles.minimalAgentEmpty}>
+                      {t("common.loading")}
+                    </div>
+                  ) : list.length === 0 ? (
+                    <div className={styles.minimalAgentEmpty}>
+                      {t("chat.noSessionsYet", "直接发消息即可开始对话")}
+                    </div>
+                  ) : (
+                    list.map((session) => (
+                      <PreviewSessionRow
+                        key={session.id}
+                        session={session}
+                        isActive={session.id === activeId}
+                        onSelect={(id) => onSelect(id, agent.agent_id)}
+                        onDelete={(id) => void handleDelete(agent.agent_id, id)}
+                        onRename={(id, name) =>
+                          handleRename(agent.agent_id, id, name)
+                        }
+                        onPin={(id, pinned) =>
+                          handlePin(agent.agent_id, id, pinned)
+                        }
+                        onFork={(id) => onFork(id, agent.agent_id)}
+                        onShare={
+                          onShare
+                            ? (id) => onShare(id, agent.agent_id)
+                            : undefined
+                        }
+                        forkDisabled={
+                          session.id === activeId
+                            ? activeForkDisabled
+                            : undefined
+                        }
+                        forkDisabledHint={
+                          session.id === activeId
+                            ? activeForkDisabledHint
+                            : undefined
+                        }
+                      />
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </section>
+          );
+        })}
+      </div>
+    </SidebarExpertDrag>
   );
 }
 

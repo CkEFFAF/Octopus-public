@@ -145,6 +145,7 @@ it("requires a completed device receipt and keeps identical paths on different d
         output: JSON.stringify({
           operation_id: id,
           device_id,
+          context: { context_id: `context-${device_id}` },
           action: "fs.edit",
           params: {
             path: "/project/a.py",
@@ -165,6 +166,7 @@ it("requires a completed device receipt and keeps identical paths on different d
   expect(result).toHaveLength(2);
   expect(result[0]).toMatchObject({
     deviceId: "one",
+    contextId: "context-one",
     confirmed: true,
     edits: [{ before: "old", after: "new" }],
   });

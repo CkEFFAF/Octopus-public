@@ -2812,6 +2812,23 @@
       "job_cancel": "请求停止后台任务",
       "runCommand": "执行终端命令",
       "runProgram": "运行 {{program}} 命令"
+    },
+    "fileReview": {
+      "scope": "全部 {{count}} 个文件，所选轮次 {{current}} 个。差异取自工具记录，完整内容按文件来源实时读取。",
+      "currentTurn": "本轮修改",
+      "turnDiff": "本轮差异",
+      "recordedDiff": "会话记录差异",
+      "fullContent": "当前完整内容",
+      "liveHint": "文件的当前版本，可能包含后续轮次或外部改动。",
+      "readFailed": "暂时无法读取当前内容。历史差异仍可查看。",
+      "tooLarge": "文件超过当前预览范围，请在工作区打开完整文件。",
+      "configureExpert": "配置专家：{{name}}",
+      "missingContext": "该设备文件是相对路径，历史记录缺少原始执行目录，无法准确读取。请从对应工作区打开。"
+    },
+    "sidebarDrag": {
+      "pinHint": "长按专家拖到这里置顶",
+      "moving": "正在移动专家，拖入顶部区域可置顶，按 Escape 取消。",
+      "handle": "拖动排序，也可用 Alt 加方向键调整，Alt 加 P 切换置顶。"
     }
   },
   "tools": {
@@ -7803,7 +7820,12 @@
       "redpanda": "小熊猫",
       "penguin": "企鹅",
       "corgi": "柯基",
-      "raccoon": "浣熊"
+      "raccoon": "浣熊",
+      "panda": "熊猫",
+      "koala": "考拉",
+      "otter": "水獭",
+      "dragon": "小龙",
+      "bunny": "粉腮白兔"
     },
     "phases": {
       "idle": "待机",

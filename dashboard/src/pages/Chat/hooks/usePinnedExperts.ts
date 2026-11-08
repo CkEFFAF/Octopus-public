@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useCurrentUser } from "../../../hooks/useCurrentUser";
+import { moveExpertBefore } from "./useExpertOrder";
 
 const EVENT = "octop:pinned-experts-changed";
 const memory = new Map<string, string>();
@@ -62,5 +63,22 @@ export function usePinnedExperts() {
     },
     [key],
   );
-  return { pinnedIds, togglePin };
+  const movePin = useCallback(
+    (agentId: string, pinned: boolean, before?: string) => {
+      const ids = parse(read(key));
+      const next = pinned
+        ? moveExpertBefore(ids, agentId, before)
+        : ids.filter((id) => id !== agentId);
+      const value = JSON.stringify(next);
+      try {
+        localStorage.setItem(key, value);
+        memory.delete(key);
+      } catch {
+        memory.set(key, value);
+      }
+      window.dispatchEvent(new Event(EVENT));
+    },
+    [key],
+  );
+  return { pinnedIds, togglePin, movePin };
 }

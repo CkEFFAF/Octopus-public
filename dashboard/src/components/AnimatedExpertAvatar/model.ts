@@ -9,6 +9,11 @@ export const EXPERT_CHARACTERS = [
   "penguin",
   "corgi",
   "raccoon",
+  "panda",
+  "koala",
+  "otter",
+  "dragon",
+  "bunny",
 ] as const;
 export type ExpertCharacter = (typeof EXPERT_CHARACTERS)[number];
 export const EXPERT_PHASES = [
@@ -42,58 +47,60 @@ export const EXPERT_PHASES = [
   "resting",
 ] as const;
 export type ExpertPhase = (typeof EXPERT_PHASES)[number];
-export interface AnimationClip {
-  frames: number[];
-  holds: number[];
-  loop: boolean;
-}
-const clips: Record<string, AnimationClip> = {
-  idle: { frames: [0, 1, 0], holds: [3700, 420, 800], loop: true },
-  welcome: { frames: [2, 3, 2], holds: [650, 650, 900], loop: true },
-  listening: { frames: [4, 5], holds: [1800, 1800], loop: true },
-  speaking: { frames: [6, 7], holds: [750, 800], loop: true },
-  thinking: { frames: [8, 9, 8], holds: [2200, 450, 900], loop: true },
-  reading: { frames: [10, 11], holds: [2100, 1200], loop: true },
-  writing: { frames: [12, 13], holds: [850, 850], loop: true },
-  coding: { frames: [14, 15], holds: [750, 750], loop: true },
-  searching: { frames: [16], holds: [2800], loop: true },
-  analyzing: { frames: [17], holds: [2600], loop: true },
-  planning: { frames: [18], holds: [2600], loop: true },
-  running: { frames: [19], holds: [2400], loop: true },
-  waiting_permission: { frames: [20], holds: [5000], loop: false },
-  handoff: { frames: [21], holds: [2200], loop: true },
-  success: { frames: [22], holds: [1700], loop: false },
-  error: { frames: [23], holds: [2200], loop: false },
-};
-const aliases: Partial<Record<ExpertPhase, string>> = {
-  drawing: "writing",
-  verifying: "planning",
-  collaborating: "speaking",
+export const GIF_CLIPS = [
+  "idle",
+  "thinking",
+  "working",
+  "reading",
+  "handoff",
+  "waiting",
+  "success",
+  "error",
+] as const;
+export type GifClip = (typeof GIF_CLIPS)[number];
+const phaseClips: Record<ExpertPhase, GifClip> = {
+  idle: "idle",
+  welcome: "success",
+  listening: "idle",
+  speaking: "handoff",
+  thinking: "thinking",
+  planning: "thinking",
+  searching: "reading",
+  reading: "reading",
+  writing: "working",
+  coding: "working",
+  drawing: "working",
+  analyzing: "thinking",
+  running: "working",
+  verifying: "reading",
+  collaborating: "handoff",
+  handoff: "handoff",
   uploading: "handoff",
   downloading: "handoff",
-  waiting_user: "listening",
-  recovering: "running",
+  waiting_user: "waiting",
+  waiting_permission: "waiting",
+  paused: "idle",
+  recovering: "working",
+  success: "success",
+  error: "error",
   warning: "error",
-  reminder: "welcome",
+  reminder: "waiting",
   offline: "error",
+  resting: "idle",
 };
-export function animationClip(
-  phase: ExpertPhase,
-  species: ExpertCharacter,
-): AnimationClip {
-  if (phase === "resting") return { frames: [1], holds: [5000], loop: false };
-  if (phase === "paused") return { frames: [0], holds: [5000], loop: false };
-  const key = aliases[phase] ?? phase;
-  const clip = clips[key] ?? clips.idle;
-  if (species === "rabbit" && (key === "handoff" || key === "success"))
-    return {
-      ...clip,
-      frames: clip.frames.map((f) => (f === 21 ? 22 : f === 22 ? 21 : f)),
-    };
-  if (species === "redpanda" && key === "coding")
-    return { frames: [14], holds: [850], loop: true };
-  return clip;
+export function gifClip(phase: ExpertPhase): GifClip {
+  return phaseClips[phase];
 }
+export function animationUrl(
+  species: ExpertCharacter,
+  phase: ExpertPhase,
+  moving = true,
+): string {
+  return `/expert-animations/v2/${species}/${gifClip(phase)}.${
+    moving ? "gif" : "png"
+  }`;
+}
+/** Stable stored identity, also supported by native management tools. */
 export function characterUrl(species: ExpertCharacter): string {
   return `/expert-animations/${species}.webp`;
 }
@@ -138,6 +145,12 @@ export function resolveCharacter(
   iconUrl?: string | null,
 ): ExpertCharacter | null {
   const url = iconUrl?.trim() ?? "";
+  const gifSelected =
+    /^\/expert-animations\/v2\/([a-z]+)\/[a-z]+\.(?:gif|png)(?:\?.*)?$/.exec(
+      url,
+    )?.[1];
+  if (gifSelected && EXPERT_CHARACTERS.includes(gifSelected as ExpertCharacter))
+    return gifSelected as ExpertCharacter;
   const selected = /^\/expert-animations\/([a-z]+)\.webp(?:\?.*)?$/.exec(
     url,
   )?.[1];
