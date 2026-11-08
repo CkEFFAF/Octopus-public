@@ -34,6 +34,13 @@ variables `OCTOP_PUBLISH_PYPI`, `OCTOP_PUBLISH_DOCKER`, `OCTOP_PUBLISH_FNOS` or
 and branches. `OCTOP_RELEASE_PLATFORMS` can override the fork's default
 `windows-amd64,linux-amd64` portable matrix.
 
+To include both macOS execution clients, set `OCTOP_RELEASE_PLATFORMS` to
+`windows-amd64,linux-amd64,darwin-arm64,darwin-amd64`. The release download table
+includes the selected macOS portable packages and DMGs. The portable packages
+include `open-device.sh` and `expert.sh`; run `bash ./open-device.sh` from the
+unpacked directory to enroll the execution client. Apple Silicon builds use
+the supported `macos-15` runner; Intel builds use `macos-15-intel`.
+
 Fork builds keep CI validation independent of Actions artifact storage quotas.
 Each native package runner builds the dashboard from the same checkout. PRs
 build and smoke-test packages without uploading temporary binaries. On a merged
