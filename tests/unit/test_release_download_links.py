@@ -51,6 +51,7 @@ def test_render_download_section_matches_github_asset_names(monkeypatch) -> None
 
 def test_private_fork_downloads_use_own_repository_and_available_packages(monkeypatch) -> None:
     monkeypatch.setenv("GITHUB_REPOSITORY", "CkEFFAF/Octopus")
+    monkeypatch.delenv("OCTOP_RELEASE_PLATFORMS", raising=False)
     body = _load().render_download_section("1.0.2b7")
     base = "https://github.com/CkEFFAF/Octopus/releases/download/v1.0.2b7"
     assert f"{base}/Octop-portable-windows-amd64-1.0.2b7.zip" in body
@@ -58,3 +59,23 @@ def test_private_fork_downloads_use_own_repository_and_available_packages(monkey
     assert f"{base}/Octop-device-linux-amd64-1.0.2b7.tar.gz" in body
     assert "TencentCloud/Octop" not in body
     assert "darwin" not in body
+
+
+def test_fork_downloads_include_configured_macos_architectures(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", "CkEFFAF/Octopus-public")
+    monkeypatch.setenv("OCTOP_RELEASE_PLATFORMS", "windows-amd64, darwin-arm64, darwin-amd64")
+    body = _load().render_download_section("1.0.2b22")
+    base = "https://github.com/CkEFFAF/Octopus-public/releases/download/v1.0.2b22"
+    for arch in ("arm64", "amd64"):
+        assert f"{base}/Octop-portable-darwin-{arch}-1.0.2b22.zip" in body
+        assert f"{base}/Octop-desktop-darwin-{arch}-1.0.2b22.dmg" in body
+    assert "Portable / device client" in body
+    assert "TencentCloud/Octop" not in body
+
+
+def test_fork_downloads_omit_unselected_macos_architecture(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", "CkEFFAF/Octopus-public")
+    monkeypatch.setenv("OCTOP_RELEASE_PLATFORMS", "darwin-arm64")
+    body = _load().render_download_section("1.0.2b22")
+    assert "Octop-portable-darwin-arm64-1.0.2b22.zip" in body
+    assert "darwin-amd64" not in body

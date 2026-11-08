@@ -45,6 +45,16 @@ def portable_name(os_name: str, arch: str, version: str) -> str:
 def render_download_section(raw_version: str) -> str:
     tag, version = split_tag(raw_version)
     if GITHUB_REPO != "TencentCloud/Octop":
+        selected = os.environ.get("OCTOP_RELEASE_PLATFORMS", "").lower().replace(" ", "")
+        platforms = set(selected.split(","))
+        mac_rows = []
+        for arch, label in (("arm64", "Apple Silicon"), ("amd64", "Intel")):
+            if "all" in platforms or f"darwin-{arch}" in platforms:
+                portable = md_link(
+                    "Portable / device client", tag, portable_name("darwin", arch, version)
+                )
+                installer = md_link("DMG", tag, desktop_name("darwin", arch, version, "dmg"))
+                mac_rows.append(f"| macOS {label} | {portable} / {installer} |")
         return "\n".join(
             [
                 "",
@@ -55,6 +65,7 @@ def render_download_section(raw_version: str) -> str:
                 f"| Windows x64 | {md_link('Portable', tag, portable_name('windows', 'amd64', version))} |",
                 f"| Linux x64 management UI | {md_link('Portable', tag, portable_name('linux', 'amd64', version))} |",
                 f"| Linux x64 headless client | {md_link('Device client', tag, f'Octop-device-linux-amd64-{version}.tar.gz')} |",
+                *mac_rows,
                 "",
             ]
         )
