@@ -118,3 +118,145 @@ it("fetches image metadata and verified bytes rather than the producer's workspa
   unmount();
   expect(revoke).toHaveBeenCalledWith("blob:verified");
 });
+
+it("bounds a large collection and supports type, filename and more-file controls", async () => {
+  const artifacts = Array.from({ length: 12 }, (_, index) => ({
+    ...resource,
+    resource_id: `file-${index}`,
+    name:
+      index < 4
+        ? `bundle-${index}.zip`
+        : index < 8
+        ? `data-${index - 4}.csv`
+        : `report-${index - 8}.pdf`,
+    media_type:
+      index < 4
+        ? "application/zip"
+        : index < 8
+        ? "text/csv"
+        : "application/pdf",
+    created_at: index,
+  }));
+  vi.mocked(collaborationApi.list).mockResolvedValue({
+    invocations: [],
+    events: [],
+    artifacts,
+    next_cursor: 1,
+    has_more: false,
+  });
+  render(
+    <CollaborationProvider agentId="parent" threadId="root">
+      <ChatDeliverables agentId="parent" threadId="root" onOpen={vi.fn()} />
+    </CollaborationProvider>,
+  );
+  await waitFor(() => expect(screen.getAllByRole("article")).toHaveLength(6));
+  fireEvent.click(
+    screen.getByRole("button", { name: /chat.deliverables.types.data/ }),
+  );
+  expect(screen.getAllByRole("article")).toHaveLength(4);
+  const search = screen.getByRole("textbox", {
+    name: "chat.deliverables.search",
+  });
+  fireEvent.change(search, { target: { value: "data-1" } });
+  expect(screen.getAllByRole("article")).toHaveLength(1);
+  expect(screen.getByText("data-1.csv")).toBeInTheDocument();
+  fireEvent.change(search, { target: { value: "not-here" } });
+  expect(screen.getByText("chat.deliverables.noMatch")).toBeInTheDocument();
+  fireEvent.change(search, { target: { value: "" } });
+  fireEvent.click(
+    screen.getByRole("button", { name: /chat.deliverables.types.all/ }),
+  );
+  fireEvent.click(screen.getByText("chat.deliverables.more"));
+  expect(screen.getAllByRole("article")).toHaveLength(12);
+  fireEvent.click(screen.getByText("chat.deliverables.collapse"));
+  expect(screen.getAllByRole("article")).toHaveLength(6);
+});
+
+it("does not fetch image bytes for cards beyond the visible page", async () => {
+  const artifacts = Array.from({ length: 20 }, (_, index) => ({
+    ...resource,
+    resource_id: `image-${index}`,
+    name: `image-${index}.png`,
+    media_type: "image/png",
+    created_at: index,
+  }));
+  vi.mocked(collaborationApi.list).mockResolvedValue({
+    invocations: [],
+    events: [],
+    artifacts,
+    next_cursor: 1,
+    has_more: false,
+  });
+  vi.mocked(collaborationApi.resource)
+    .mockClear()
+    .mockImplementation(
+      async (_agent, _thread, id) =>
+        artifacts.find((item) => item.resource_id === id)!,
+    );
+  vi.mocked(verifiedResourceContent).mockResolvedValue(
+    new Blob(["PNG"], { type: "image/png" }),
+  );
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:visible-image");
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  render(
+    <CollaborationProvider agentId="parent" threadId="root">
+      <ChatDeliverables agentId="parent" threadId="root" onOpen={vi.fn()} />
+    </CollaborationProvider>,
+  );
+  await waitFor(() =>
+    expect(collaborationApi.resource).toHaveBeenCalledTimes(6),
+  );
+  fireEvent.click(screen.getByText("chat.deliverables.more"));
+  await waitFor(() =>
+    expect(collaborationApi.resource).toHaveBeenCalledTimes(12),
+  );
+});
+
+it("keeps active filters clearable after published files are withdrawn", async () => {
+  const artifacts = Array.from({ length: 8 }, (_, index) => ({
+    ...resource,
+    resource_id: `file-${index}`,
+    name: index === 0 ? "metrics.csv" : `bundle-${index}.zip`,
+    media_type: index === 0 ? "text/csv" : "application/zip",
+  }));
+  vi.mocked(collaborationApi.list)
+    .mockResolvedValueOnce({
+      invocations: [],
+      events: [],
+      artifacts,
+      next_cursor: 1,
+      has_more: false,
+    })
+    .mockResolvedValue({
+      invocations: [],
+      events: [],
+      artifacts: artifacts.map((item, index) => ({
+        ...item,
+        publication_state: index < 3 ? "unavailable" : "published",
+      })),
+      next_cursor: 2,
+      has_more: false,
+    });
+  render(
+    <CollaborationProvider agentId="parent" threadId="root">
+      <ChatDeliverables agentId="parent" threadId="root" onOpen={vi.fn()} />
+    </CollaborationProvider>,
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: /chat.deliverables.types.data/ }),
+  );
+  const search = screen.getByRole("textbox", {
+    name: "chat.deliverables.search",
+  });
+  fireEvent.change(search, { target: { value: "metrics" } });
+  fireEvent.click(screen.getByRole("button", { name: "common.refresh" }));
+  await screen.findByText("chat.deliverables.noMatch");
+  expect(
+    screen.getByRole("button", { name: /chat.deliverables.types.data/ }),
+  ).toHaveAttribute("aria-pressed", "true");
+  fireEvent.change(search, { target: { value: "" } });
+  fireEvent.click(
+    screen.getByRole("button", { name: /chat.deliverables.types.all/ }),
+  );
+  expect(screen.getAllByRole("article")).toHaveLength(5);
+});

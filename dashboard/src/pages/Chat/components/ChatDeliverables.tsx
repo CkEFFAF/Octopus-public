@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Button, Image } from "antd";
-import { Download, Eye, Paperclip, RefreshCw } from "lucide-react";
+import { Button, Image, Input } from "antd";
+import { Download, Eye, Paperclip, RefreshCw, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   collaborationApi,
@@ -11,6 +11,12 @@ import {
 import { fileTreeIcon } from "../../../utils/fileTreeIcon";
 import { formatBytes } from "../../../utils/embeddingDownload";
 import { useCollaboration } from "../hooks/useCollaboration";
+import {
+  DELIVERABLE_KINDS,
+  DELIVERY_PAGE_SIZE,
+  deliverableKind,
+  type DeliverableKind,
+} from "../utils/deliverableFiles";
 import styles from "./ChatDeliverables.module.less";
 
 function ResourceCard({
@@ -35,7 +41,7 @@ function ResourceCard({
     size,
     media_type: mediaType,
   } = resource;
-  const isImage = mediaType.startsWith("image/");
+  const isImage = deliverableKind(resource) === "image";
   useEffect(() => {
     let active = true;
     let url = "";
@@ -147,18 +153,42 @@ export default function ChatDeliverables({
 }) {
   const { t } = useTranslation();
   const { page, error, refresh } = useCollaboration(agentId, threadId);
-  const resources = page.artifacts.filter(
+  const [kind, setKind] = useState<DeliverableKind | "all">("all");
+  const [query, setQuery] = useState("");
+  const [limit, setLimit] = useState(DELIVERY_PAGE_SIZE);
+  useEffect(() => {
+    setKind("all");
+    setQuery("");
+    setLimit(DELIVERY_PAGE_SIZE);
+  }, [agentId, threadId]);
+  const resources = page.artifacts
+    .filter(
+      (resource) =>
+        resource.source_kind !== "upload" &&
+        resource.publication_state === "published",
+    )
+    .sort((a, b) => b.created_at - a.created_at);
+  const counts = Object.fromEntries(
+    DELIVERABLE_KINDS.map((type) => [
+      type,
+      resources.filter((resource) => deliverableKind(resource) === type).length,
+    ]),
+  );
+  const filtered = resources.filter(
     (resource) =>
-      resource.source_kind !== "upload" &&
-      resource.publication_state === "published",
+      (kind === "all" || deliverableKind(resource) === kind) &&
+      resource.name.toLowerCase().includes(query.trim().toLowerCase()),
   );
-  const pictures = resources.filter((resource) =>
-    resource.media_type.startsWith("image/"),
+  const visible = filtered.slice(0, limit);
+  const pictures = visible.filter(
+    (resource) => deliverableKind(resource) === "image",
   );
-  const files = resources.filter(
-    (resource) => !resource.media_type.startsWith("image/"),
+  const files = visible.filter(
+    (resource) => deliverableKind(resource) !== "image",
   );
-  if (!resources.length && !error) return null;
+  const many = resources.length > DELIVERY_PAGE_SIZE;
+  const filtering = kind !== "all" || query.length > 0;
+  if (!resources.length && !error && !filtering) return null;
   return (
     <section
       className={styles.deliverables}
@@ -179,7 +209,53 @@ export default function ChatDeliverables({
           title={t("common.refresh")}
         />
       </div>
+      {(many || filtering) && (
+        <div className={styles.filters}>
+          <div
+            className={styles.types}
+            role="group"
+            aria-label={t("chat.deliverables.fileType")}
+          >
+            {(["all", ...DELIVERABLE_KINDS] as const)
+              .filter(
+                (type) => type === "all" || counts[type] > 0 || type === kind,
+              )
+              .map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  aria-pressed={kind === type}
+                  onClick={() => {
+                    setKind(type);
+                    setLimit(DELIVERY_PAGE_SIZE);
+                  }}
+                >
+                  {t(`chat.deliverables.types.${type}`)}{" "}
+                  <span>
+                    {type === "all" ? resources.length : counts[type]}
+                  </span>
+                </button>
+              ))}
+          </div>
+          <Input
+            className={styles.search}
+            size="small"
+            allowClear
+            prefix={<Search size={13} />}
+            value={query}
+            aria-label={t("chat.deliverables.search")}
+            placeholder={t("chat.deliverables.search")}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setLimit(DELIVERY_PAGE_SIZE);
+            }}
+          />
+        </div>
+      )}
       {error && <p role="status">{t("chat.deliverables.refreshFailed")}</p>}
+      {filtered.length === 0 && (
+        <p role="status">{t("chat.deliverables.noMatch")}</p>
+      )}
       {pictures.length > 0 && (
         <div className={styles.gallery}>
           {pictures.map((resource) => (
@@ -204,6 +280,39 @@ export default function ChatDeliverables({
               onOpen={onOpen}
             />
           ))}
+        </div>
+      )}
+      {many && (
+        <div className={styles.pagination}>
+          <span>
+            {t("chat.deliverables.shown", {
+              count: visible.length,
+              total: filtered.length,
+            })}
+          </span>
+          {visible.length < filtered.length && (
+            <Button
+              size="small"
+              type="text"
+              onClick={() => setLimit((value) => value + DELIVERY_PAGE_SIZE)}
+            >
+              {t("chat.deliverables.more", {
+                count: Math.min(
+                  DELIVERY_PAGE_SIZE,
+                  filtered.length - visible.length,
+                ),
+              })}
+            </Button>
+          )}
+          {limit > DELIVERY_PAGE_SIZE && (
+            <Button
+              size="small"
+              type="text"
+              onClick={() => setLimit(DELIVERY_PAGE_SIZE)}
+            >
+              {t("chat.deliverables.collapse")}
+            </Button>
+          )}
         </div>
       )}
     </section>

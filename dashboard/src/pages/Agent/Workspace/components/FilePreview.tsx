@@ -1,6 +1,7 @@
 import type { RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "../../../../components/Markdown/LazyMarkdown";
+import { isMarkdownFile } from "../../../../utils/textFile";
 import styles from "../index.module.less";
 
 /**
@@ -12,7 +13,7 @@ export type PreviewKind = "markdown" | "html";
 
 export function getPreviewKind(path: string): PreviewKind | null {
   const ext = path.split(".").pop()?.toLowerCase();
-  if (ext === "md" || ext === "markdown") return "markdown";
+  if (isMarkdownFile(path)) return "markdown";
   if (ext === "html" || ext === "htm") return "html";
   return null;
 }

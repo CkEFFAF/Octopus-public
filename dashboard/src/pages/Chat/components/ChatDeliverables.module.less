@@ -28,6 +28,57 @@
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
+.filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid var(--fn-border-primary);
+    border-radius: 6px;
+    padding: 4px 8px;
+    background: var(--fn-bg-primary);
+    color: var(--fn-text-secondary);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    &[aria-pressed="true"] {
+      border-color: var(--fn-color-brand);
+      color: var(--fn-text-brand);
+      background: var(--fn-bg-selected);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--fn-color-brand);
+      outline-offset: 2px;
+    }
+    span {
+      font-size: 11px;
+      opacity: 0.7;
+    }
+  }
+}
+.search {
+  width: 200px;
+  max-width: 100%;
+}
+.pagination {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--fn-text-secondary);
+}
 .gallery,
 .files {
   display: grid;

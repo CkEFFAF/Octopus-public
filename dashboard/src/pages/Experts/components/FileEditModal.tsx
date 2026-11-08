@@ -6,6 +6,8 @@ import { message } from "@/utils/antdMessage";
 
 import { request } from "../../../api/request";
 import { withFromWorkspace } from "../../../utils/fromWorkspace";
+import { isMarkdownFile } from "../../../utils/textFile";
+import Markdown from "../../../components/Markdown/LazyMarkdown";
 
 const MonacoEditor = lazy(() => import("@monaco-editor/react"));
 
@@ -39,9 +41,12 @@ export default function FileEditModal({
   const [value, setValue] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [preview, setPreview] = useState(true);
+  const markdown = isMarkdownFile(filePath ?? "");
 
   useEffect(() => {
     if (!open || !filePath) return;
+    setPreview(true);
     if (onLocalSave) {
       setValue(localValue ?? "");
       setLoading(false);
@@ -117,6 +122,16 @@ export default function FileEditModal({
       title={title}
       width={fileEditDrawerWidth()}
       onClose={onClose}
+      extra={
+        markdown && (
+          <Button
+            disabled={loading}
+            onClick={() => setPreview((value) => !value)}
+          >
+            {t(preview ? "workspace0034.source" : "common.preview")}
+          </Button>
+        )
+      }
       destroyOnHidden
       styles={{
         body: {
@@ -159,6 +174,17 @@ export default function FileEditModal({
           }}
         >
           <Spin />
+        </div>
+      ) : markdown && preview ? (
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflow: "auto",
+            padding: "24px 28px",
+          }}
+        >
+          <Markdown content={value} />
         </div>
       ) : (
         <Suspense

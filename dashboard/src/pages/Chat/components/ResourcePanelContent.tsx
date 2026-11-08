@@ -23,7 +23,11 @@ import {
   type CollaborationResource,
 } from "../../../api/modules/collaboration";
 import DocumentPreviewCore from "../../../components/DocumentPreviewCore";
-import { isTextFile, decodeUtf8Text } from "../../../utils/textFile";
+import {
+  isTextFile,
+  isMarkdownFile,
+  decodeUtf8Text,
+} from "../../../utils/textFile";
 import { getDocKind } from "../../../utils/docKind";
 import { fileTreeIcon } from "../../../utils/fileTreeIcon";
 import styles from "./CollaborationPanel.module.less";
@@ -363,7 +367,8 @@ export default function ResourcePanelContent({
               onClick={() => setRevision((v) => v + 1)}
             />
             {textAvailable &&
-              /\.(md|markdown)$/i.test(resource?.name ?? "") && (
+              resource &&
+              isMarkdownFile(resource.name, resource.media_type) && (
                 <Button
                   size="small"
                   type="text"
@@ -625,7 +630,8 @@ export default function ResourcePanelContent({
                   onError={() => setError(true)}
                 />
               ) : textAvailable ? (
-                /\.(md|markdown)$/i.test(resource.name) && !sourceMode ? (
+                isMarkdownFile(resource.name, resource.media_type) &&
+                !sourceMode ? (
                   <Markdown content={text} />
                 ) : (
                   <CodeEditor

@@ -1,16 +1,16 @@
 # Review, feature/model-cache-routing, 2026-11-08
 
 **Reviewed by**: GPT-6 (author model unspecified)
-**Scope**: dashboard routing, composer, delivery and session heat changes, uncommitted
+**Scope**: delivery filtering and Markdown viewing changes, uncommitted
 **Verdict**: Approve
 
 ## Summary
-The reviewed changes preserve active and pending sessions during periodic refresh, retain delivered attachments across approval boundaries, and localize image previews. No remaining actionable frontend defects were identified in the reviewed scope.
+Active delivery filters remain accessible when resources disappear. Markdown previews now cover workspace, published resources, expert files, subagent documents and device files, while preserving the existing editing and saving paths. No actionable defects were identified in the reviewed scope.
 
 ## Strengths
-- Periodic and visibility refreshes preserve an older active conversation and a pending creation.
-- Failed tool output and published resource receipts do not create guessed workspace previews; published resources retain authenticated, version-verified loading.
-- Assistant attachments survive approval boundaries and appear after the answer.
+- Device Markdown preview uses the already verified file contents and keeps the editable draft in state when toggling source.
+- Subagent form fields remain mounted during preview, preserving validation and draft values.
+- Delivery image previews retain authenticated, version-checked content loading.
 
 ## Test coverage
-Targeted tests cover session refresh, approval-boundary delivery, failed and published tool output, and direct image preview localization. The author reports targeted tests and TypeScript checks passing, with narrow-screen browser verification.
+Targeted regression tests cover filter threshold changes, preview/source toggling, Markdown file classification and verified resource previews. The author reports targeted frontend, TypeScript and localization checks passing.

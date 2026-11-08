@@ -47,6 +47,56 @@ const device = {
   grant_version: 1,
 } as ExecutionTarget;
 describe("native directory request states", () => {
+  it("renders verified Markdown first and keeps drafts when toggling the source", async () => {
+    const text = "# 设备报告\n\n- 已核对";
+    const bytes = new TextEncoder().encode(text);
+    const hash = await sha256(bytes);
+    vi.mocked(executionApi.call).mockImplementation(async (_ctx, action) => {
+      if (action === "fs.list")
+        return {
+          path: "D:/samples",
+          entries: [
+            { name: "report.md", path: "D:/samples/report.md", is_dir: false },
+          ],
+          next_offset: null,
+        };
+      if (action === "fs.stat") return { sha256: hash, size: bytes.length };
+      if (action === "fs.read")
+        return {
+          path: "D:/samples/report.md",
+          data_b64: btoa(String.fromCharCode(...bytes)),
+          size: bytes.length,
+          eof: true,
+        };
+      throw new Error(`Unexpected ${action}`);
+    });
+    render(
+      <NativeDeviceFiles
+        device={device}
+        executionContext={context}
+        onError={vi.fn()}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /^report\.md/ }));
+    expect(
+      await screen.findByRole("heading", { name: "设备报告" }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "workspace0034.source" }),
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "Test code" }), {
+      target: { value: "# 修改中的草稿" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "common.preview" }));
+    expect(
+      await screen.findByRole("heading", { name: "修改中的草稿" }),
+    ).toBeInTheDocument();
+    expect(executionApi.call).not.toHaveBeenCalledWith(
+      "ctx",
+      "fs.write",
+      expect.anything(),
+    );
+  });
   it("returns to the same file paths after entering a child directory", async () => {
     vi.mocked(executionApi.call).mockImplementation(
       async (_ctx, action, params) => {

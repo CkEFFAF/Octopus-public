@@ -1,8 +1,16 @@
 /** Text classification is platform independent; content must still be valid UTF-8. */
+export function isMarkdownFile(name: string, mediaType = "") {
+  return (
+    /\.(md|markdown)$/i.test(name) ||
+    /^(text|application)\/(x-)?markdown$/i.test(mediaType.split(";")[0].trim())
+  );
+}
+
 export function isTextFile(name: string, mediaType = "") {
   const base = name.split(/[\\/]/).pop()?.toLowerCase() ?? "";
   return (
     mediaType.startsWith("text/") ||
+    isMarkdownFile(name, mediaType) ||
     /^(dockerfile|makefile|\.env(?:\..*)?|\.gitignore|\.editorconfig|\.npmrc)$/.test(
       base,
     ) ||

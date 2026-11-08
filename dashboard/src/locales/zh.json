@@ -2723,6 +2723,22 @@
     "deliverables": {
       "title": "交付文件",
       "open": "预览 {{name}}",
+      "fileType": "文件类型",
+      "search": "搜索文件名",
+      "noMatch": "没有匹配的文件",
+      "shown": "已显示 {{count}} / {{total}}",
+      "more": "再显示 {{count}} 个",
+      "collapse": "收起",
+      "types": {
+        "all": "全部",
+        "image": "图片",
+        "document": "文档",
+        "data": "表格与数据",
+        "code": "代码",
+        "archive": "压缩包",
+        "media": "音视频",
+        "other": "其他"
+      },
       "refreshFailed": "交付文件刷新失败，请重试。"
     },
     "flow": {

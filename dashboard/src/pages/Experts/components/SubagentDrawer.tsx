@@ -7,6 +7,7 @@ import ExpertColorPicker from "../../../components/ExpertColorPicker";
 import EmojiPicker from "../../../components/EmojiPicker";
 import { expertPaletteColor } from "../../../utils/expertColor";
 import { splitMarkdownFrontmatter } from "../../../utils/markdown";
+import Markdown from "../../../components/Markdown/LazyMarkdown";
 import {
   DEFAULT_PALETTE,
   isCuratedPalette,
@@ -136,6 +137,9 @@ export function SubagentDrawer({
   const { t } = useTranslation();
   const isCreate = !editing;
   const [editorTab, setEditorTab] = useState<EditorTab>("form");
+  const [preview, setPreview] = useState(false);
+  const bodyValue = Form.useWatch("body", form) ?? "";
+  const sourceValue = Form.useWatch("content", form) ?? "";
 
   useEffect(() => {
     if (!open) {
@@ -143,6 +147,7 @@ export function SubagentDrawer({
       return;
     }
     setEditorTab("form");
+    setPreview(Boolean(editing));
     if (editing) {
       form.setFieldsValue(parseSubagentForm(editing.content, editing.slug));
       return;
@@ -213,6 +218,11 @@ export function SubagentDrawer({
       width="min(860px, 92vw)"
       placement="right"
       title={drawerTitle}
+      extra={
+        <Button onClick={() => setPreview((value) => !value)}>
+          {t(preview ? "workspace0034.source" : "common.preview")}
+        </Button>
+      }
       open={open}
       onClose={onClose}
       destroyOnHidden
@@ -329,6 +339,7 @@ export function SubagentDrawer({
                     </div>
                     <Form.Item
                       name="body"
+                      hidden={preview}
                       noStyle
                       rules={[
                         {
@@ -342,6 +353,7 @@ export function SubagentDrawer({
                         placeholder={t("subagents.bodyPlaceholder")}
                       />
                     </Form.Item>
+                    {preview && <Markdown content={bodyValue} />}
                   </div>
                 </>
               ) : (
@@ -352,6 +364,7 @@ export function SubagentDrawer({
                   </div>
                   <Form.Item
                     name="content"
+                    hidden={preview}
                     noStyle
                     rules={[
                       {
@@ -366,6 +379,11 @@ export function SubagentDrawer({
                       spellCheck={false}
                     />
                   </Form.Item>
+                  {preview && (
+                    <Markdown
+                      content={splitMarkdownFrontmatter(sourceValue).body}
+                    />
+                  )}
                 </div>
               )}
             </div>
