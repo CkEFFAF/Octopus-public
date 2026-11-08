@@ -602,7 +602,8 @@ function MinimalAgentSessionNavContent({
                     iconUrl={agent.icon_url}
                     iconName={agent.icon_name}
                     color={agent.color}
-                    size={44}
+                    size={52}
+                    interactive
                   />
                   <span className={styles.minimalAgentUnread}>
                     <AgentUnreadBadge count={agent.unread_count ?? 0} />

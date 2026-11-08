@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { animationUrl, type ExpertCharacter, type ExpertPhase } from "./model";
 import styles from "./index.module.less";
+import { observeProximity } from "./proximity";
 
 export default function AnimatedExpertAvatar({
   species = "swallow",
@@ -10,6 +11,7 @@ export default function AnimatedExpertAvatar({
   animated = true,
   className,
   portrait = false,
+  interactive = false,
 }: {
   species?: ExpertCharacter;
   phase?: ExpertPhase;
@@ -17,6 +19,7 @@ export default function AnimatedExpertAvatar({
   animated?: boolean;
   className?: string;
   portrait?: boolean;
+  interactive?: boolean;
 }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLSpanElement>(null);
@@ -27,15 +30,31 @@ export default function AnimatedExpertAvatar({
       window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false,
   );
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const [near, setNear] = useState(false);
+  const reacting =
+    interactive && near && visible && foreground && !reduced && !portrait;
+  const displayedPhase = reacting && phase === "idle" ? "welcome" : phase;
   const moving =
-    animated &&
+    (animated || reacting) &&
     visible &&
     foreground &&
     !reduced &&
     !portrait &&
     !["offline", "paused", "resting"].includes(phase);
-  const url = animationUrl(species, phase, moving);
+  const url = animationUrl(species, displayedPhase, moving);
   const still = animationUrl(species, phase, false);
+  useEffect(() => {
+    if (
+      !interactive ||
+      !visible ||
+      !foreground ||
+      reduced ||
+      portrait ||
+      !ref.current
+    )
+      return;
+    return observeProximity(ref.current, setNear);
+  }, [interactive, visible, foreground, reduced, portrait]);
   useEffect(() => {
     const onVisibility = () => setForeground(!document.hidden);
     const query = window.matchMedia?.("(prefers-reduced-motion: reduce)");
@@ -68,6 +87,8 @@ export default function AnimatedExpertAvatar({
       data-species={species}
       data-phase={phase}
       data-animated={moving}
+      data-expert-interactive={interactive || undefined}
+      data-near={reacting || undefined}
     >
       {failedUrl === still ? (
         <span className={styles.fallback} role="img" aria-label={label}>

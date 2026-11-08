@@ -37,14 +37,16 @@ export default function ExpertActivity({
         <AnimatedExpertAvatar
           species={species ?? "swallow"}
           phase={phase}
-          size={28}
+          size={40}
+          interactive
         />
       ) : (
         <ExpertAgentAvatar
           iconUrl={iconUrl}
           iconName={iconName}
           color={color}
-          size={28}
+          size={40}
+          interactive
         />
       )}
       <span className={styles.copy}>

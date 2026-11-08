@@ -37,6 +37,7 @@ interface ExpertAgentAvatarProps {
   muted?: boolean;
   phase?: ExpertPhase;
   animated?: boolean;
+  interactive?: boolean;
 }
 
 export default function ExpertAgentAvatar({
@@ -49,6 +50,7 @@ export default function ExpertAgentAvatar({
   muted = false,
   phase = "idle",
   animated = true,
+  interactive = false,
 }: ExpertAgentAvatarProps) {
   const accent = muted ? "#94a3b8" : color || "#6366f1";
   const character = resolveCharacter(iconUrl);
@@ -95,6 +97,7 @@ export default function ExpertAgentAvatar({
           species={character ?? "swallow"}
           phase={phase}
           animated={animated && !muted}
+          interactive={interactive && !muted}
           size={size}
         />
       ) : (

@@ -40,20 +40,27 @@ export default function SidebarExpertDrag({
     y: number;
     pointer: number;
     active: boolean;
+    row: HTMLElement;
     timer: ReturnType<typeof setTimeout>;
   } | null>(null);
   const suppressClick = useRef(false);
   const [dragging, setDragging] = useState(false);
   const [over, setOver] = useState<HTMLElement | null>(null);
   const clear = () => {
-    if (gesture.current) clearTimeout(gesture.current.timer);
+    if (gesture.current) {
+      clearTimeout(gesture.current.timer);
+      delete gesture.current.row.dataset.dragSource;
+    }
     gesture.current = null;
     setDragging(false);
     setOver(null);
   };
   useEffect(
     () => () => {
-      if (gesture.current) clearTimeout(gesture.current.timer);
+      if (gesture.current) {
+        clearTimeout(gesture.current.timer);
+        delete gesture.current.row.dataset.dragSource;
+      }
     },
     [],
   );
@@ -124,6 +131,7 @@ export default function SidebarExpertDrag({
         const timer = setTimeout(() => {
           if (!gesture.current) return;
           gesture.current.active = true;
+          gesture.current.row.dataset.dragSource = "true";
           suppressClick.current = true;
           root.current?.setPointerCapture?.(pointer);
           setDragging(true);
@@ -134,6 +142,7 @@ export default function SidebarExpertDrag({
           y: event.clientY,
           pointer,
           active: false,
+          row,
           timer,
         };
       }}

@@ -123,7 +123,8 @@ export function PinnedExperts({
                   iconUrl={agent.icon_url}
                   iconName={agent.icon_name}
                   color={agent.color}
-                  size={64}
+                  size={72}
+                  interactive
                   phase={phase}
                 />
                 <span className={styles.pinnedExpertName}>{agent.name}</span>
