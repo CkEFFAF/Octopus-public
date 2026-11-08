@@ -142,6 +142,8 @@ jobs:
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Extract release notes
+        env:
+          OCTOP_RELEASE_PLATFORMS: ${{ vars.OCTOP_RELEASE_PLATFORMS }}
         run: |
           version=${{ steps.version.outputs.version }}
           if [ -f CHANGELOG.md ]; then
