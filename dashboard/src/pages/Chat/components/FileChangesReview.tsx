@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Empty, Spin } from "antd";
 import { FilePen, RefreshCw, Download, ExternalLink } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import Markdown from "../../../components/Markdown/LazyMarkdown";
+import { isMarkdownFile } from "../../../utils/textFile";
 import { request, requestBlob } from "../../../api/request";
 import { message } from "@/utils/antdMessage";
 import { executionApi } from "../../../api/modules/execution";
@@ -32,6 +34,7 @@ export default function FileChangesReview({
   const turnAnchor = current[0]?.edits[0]?.id;
   const [selected, setSelected] = useState(first);
   const [refresh, setRefresh] = useState(0);
+  const [sourceFile, setSourceFile] = useState<string | null>(null);
   const [live, setLive] = useState<{
     key: string;
     content?: string;
@@ -281,14 +284,32 @@ export default function FileChangesReview({
               >
                 <div className={styles.paneTitle}>
                   {t("chat.fileReview.fullContent")}
-                  <button
-                    type="button"
-                    onClick={() => setRefresh((n) => n + 1)}
-                    aria-label={t("common.refresh")}
-                    title={t("common.refresh")}
-                  >
-                    <RefreshCw size={14} />
-                  </button>
+                  <div className={styles.paneActions}>
+                    {isMarkdownFile(file.path) && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSourceFile(
+                            sourceFile === file.key ? null : file.key,
+                          )
+                        }
+                      >
+                        {t(
+                          sourceFile === file.key
+                            ? "chat.fileReview.showRendered"
+                            : "chat.fileReview.showSource",
+                        )}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setRefresh((n) => n + 1)}
+                      aria-label={t("common.refresh")}
+                      title={t("common.refresh")}
+                    >
+                      <RefreshCw size={14} />
+                    </button>
+                  </div>
                 </div>
                 <p className={styles.liveHint}>
                   {t("chat.fileReview.liveHint")}
@@ -309,6 +330,11 @@ export default function FileChangesReview({
                       </button>
                     )}
                   </div>
+                ) : isMarkdownFile(file.path) && sourceFile !== file.key ? (
+                  <Markdown
+                    content={live.content ?? ""}
+                    className={styles.markdownContent}
+                  />
                 ) : (
                   <pre className={styles.fullContent}>{live.content}</pre>
                 )}
