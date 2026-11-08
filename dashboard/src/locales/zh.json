@@ -2724,7 +2724,6 @@
       "title": "交付文件",
       "open": "预览 {{name}}",
       "fileType": "文件类型",
-      "search": "搜索文件名",
       "noMatch": "没有匹配的文件",
       "shown": "已显示 {{count}} / {{total}}",
       "more": "再显示 {{count}} 个",

@@ -2724,7 +2724,6 @@
       "title": "Delivered files",
       "open": "Preview {{name}}",
       "fileType": "File type",
-      "search": "Search file names",
       "noMatch": "No matching files",
       "shown": "Showing {{count}} / {{total}}",
       "more": "Show {{count}} more",

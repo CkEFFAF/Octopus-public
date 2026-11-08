@@ -111,7 +111,9 @@ it("fetches image metadata and verified bytes rather than the producer's workspa
     "root",
     picture,
   );
-  fireEvent.click(screen.getByText("common.preview"));
+  fireEvent.click(
+    screen.getAllByRole("button", { name: "chat.deliverables.open" })[0],
+  );
   const dialog = await screen.findByRole("dialog");
   expect(dialog.querySelector("img")).toHaveAttribute("src", "blob:verified");
   expect(open).not.toHaveBeenCalled();
@@ -119,7 +121,7 @@ it("fetches image metadata and verified bytes rather than the producer's workspa
   expect(revoke).toHaveBeenCalledWith("blob:verified");
 });
 
-it("bounds a large collection and supports type, filename and more-file controls", async () => {
+it("bounds a large collection with type and more-file controls, without search", async () => {
   const artifacts = Array.from({ length: 12 }, (_, index) => ({
     ...resource,
     resource_id: `file-${index}`,
@@ -154,15 +156,7 @@ it("bounds a large collection and supports type, filename and more-file controls
     screen.getByRole("button", { name: /chat.deliverables.types.data/ }),
   );
   expect(screen.getAllByRole("article")).toHaveLength(4);
-  const search = screen.getByRole("textbox", {
-    name: "chat.deliverables.search",
-  });
-  fireEvent.change(search, { target: { value: "data-1" } });
-  expect(screen.getAllByRole("article")).toHaveLength(1);
-  expect(screen.getByText("data-1.csv")).toBeInTheDocument();
-  fireEvent.change(search, { target: { value: "not-here" } });
-  expect(screen.getByText("chat.deliverables.noMatch")).toBeInTheDocument();
-  fireEvent.change(search, { target: { value: "" } });
+  expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   fireEvent.click(
     screen.getByRole("button", { name: /chat.deliverables.types.all/ }),
   );
@@ -245,16 +239,11 @@ it("keeps active filters clearable after published files are withdrawn", async (
   fireEvent.click(
     await screen.findByRole("button", { name: /chat.deliverables.types.data/ }),
   );
-  const search = screen.getByRole("textbox", {
-    name: "chat.deliverables.search",
-  });
-  fireEvent.change(search, { target: { value: "metrics" } });
   fireEvent.click(screen.getByRole("button", { name: "common.refresh" }));
   await screen.findByText("chat.deliverables.noMatch");
   expect(
     screen.getByRole("button", { name: /chat.deliverables.types.data/ }),
   ).toHaveAttribute("aria-pressed", "true");
-  fireEvent.change(search, { target: { value: "" } });
   fireEvent.click(
     screen.getByRole("button", { name: /chat.deliverables.types.all/ }),
   );

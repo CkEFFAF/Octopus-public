@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Button, Image, Input } from "antd";
-import { Download, Eye, Paperclip, RefreshCw, Search } from "lucide-react";
+import { Button, Image } from "antd";
+import { Download, Eye, Paperclip, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   collaborationApi,
@@ -117,17 +117,20 @@ function ResourceCard({
             icon={<Eye size={14} />}
             onClick={preview}
             aria-label={t("chat.deliverables.open", { name: resource.name })}
+            title={t("common.preview")}
           >
-            {t("common.preview")}
+            {!isImage && t("common.preview")}
           </Button>
           <Button
             size="small"
+            type={isImage ? "text" : "default"}
             loading={downloading}
             icon={<Download size={14} />}
             onClick={() => void download()}
             aria-label={t("chat.flow.downloadFile", { name: resource.name })}
+            title={t("common.download")}
           >
-            {t("common.download")}
+            {!isImage && t("common.download")}
           </Button>
         </div>
       </article>
@@ -154,11 +157,9 @@ export default function ChatDeliverables({
   const { t } = useTranslation();
   const { page, error, refresh } = useCollaboration(agentId, threadId);
   const [kind, setKind] = useState<DeliverableKind | "all">("all");
-  const [query, setQuery] = useState("");
   const [limit, setLimit] = useState(DELIVERY_PAGE_SIZE);
   useEffect(() => {
     setKind("all");
-    setQuery("");
     setLimit(DELIVERY_PAGE_SIZE);
   }, [agentId, threadId]);
   const resources = page.artifacts
@@ -175,9 +176,7 @@ export default function ChatDeliverables({
     ]),
   );
   const filtered = resources.filter(
-    (resource) =>
-      (kind === "all" || deliverableKind(resource) === kind) &&
-      resource.name.toLowerCase().includes(query.trim().toLowerCase()),
+    (resource) => kind === "all" || deliverableKind(resource) === kind,
   );
   const visible = filtered.slice(0, limit);
   const pictures = visible.filter(
@@ -187,7 +186,7 @@ export default function ChatDeliverables({
     (resource) => deliverableKind(resource) !== "image",
   );
   const many = resources.length > DELIVERY_PAGE_SIZE;
-  const filtering = kind !== "all" || query.length > 0;
+  const filtering = kind !== "all";
   if (!resources.length && !error && !filtering) return null;
   return (
     <section
@@ -237,19 +236,6 @@ export default function ChatDeliverables({
                 </button>
               ))}
           </div>
-          <Input
-            className={styles.search}
-            size="small"
-            allowClear
-            prefix={<Search size={13} />}
-            value={query}
-            aria-label={t("chat.deliverables.search")}
-            placeholder={t("chat.deliverables.search")}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setLimit(DELIVERY_PAGE_SIZE);
-            }}
-          />
         </div>
       )}
       {error && <p role="status">{t("chat.deliverables.refreshFailed")}</p>}
