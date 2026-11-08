@@ -526,7 +526,7 @@ class OctopServer:
         execution = ExecutionService(devices)
         from octop.infra.execution.reconciliation import ExecutionReconciler
 
-        execution_reconciler = ExecutionReconciler(devices)
+        execution_reconciler = ExecutionReconciler(devices, cron_manager=cron_mgr)
         registry.set_device_service(devices)
         task_board.set_device_service(devices)
         task_board.set_peer_service(gateway.processor.teams)

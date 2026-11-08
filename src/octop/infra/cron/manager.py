@@ -85,6 +85,7 @@ class CronManager:
 
     async def boot(self) -> None:
         self._repos.cron_attempt_repo.recover()
+        self._repos.run_event_repo.recover_wakeup_deliveries()
         self._scheduler.start()
         self.schedule_system_job(
             "cron-report-checkpoint-cleanup",

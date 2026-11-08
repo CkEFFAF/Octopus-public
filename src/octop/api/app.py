@@ -241,6 +241,7 @@ def build_app(server: OctopServer) -> FastAPI:
         user_roles,
         users,
         voice,
+        wakeup_hooks,
         work_items,
         workspace,
     )
@@ -277,6 +278,7 @@ def build_app(server: OctopServer) -> FastAPI:
             _RouterMount(connectors.router, "/api", ["connectors"]),
             _RouterMount(bridge.router, "/api", ["bridge"]),
             _RouterMount(devices.router, "/api", ["devices"]),
+            _RouterMount(wakeup_hooks.router, "/api", ["devices"]),
             _RouterMount(device_update.router, "/api", ["device-update"]),
             _RouterMount(knowledge_bases.router, "/api", ["knowledge"]),
             _RouterMount(internal_mcp.router, "/api", ["internal-mcp"]),

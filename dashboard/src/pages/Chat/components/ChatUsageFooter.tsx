@@ -1,7 +1,12 @@
 import { useTranslation } from "react-i18next";
 import { Popover } from "antd";
 import type { ChatMessage } from "../hooks/useChat";
-import { formatTokenUsage, sumVisibleTurnUsage } from "../utils/chatUsage";
+import {
+  formatTokenUsage,
+  reportedCacheRead,
+  sumVisibleTurnUsage,
+} from "../utils/chatUsage";
+import { useRecentRequestUsage } from "../hooks/useRecentRequestUsage";
 import styles from "./ChatUsageFooter.module.less";
 
 export default function ChatUsageFooter({
@@ -9,14 +14,22 @@ export default function ChatUsageFooter({
   hasMore,
   loading,
   unavailable = false,
+  agentId,
+  threadId,
+  isStreaming = false,
 }: {
   messages: ChatMessage[];
   hasMore: boolean;
   loading: boolean;
   unavailable?: boolean;
+  agentId?: string;
+  threadId?: string;
+  isStreaming?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const usage = sumVisibleTurnUsage(messages);
+  const recent = useRecentRequestUsage(agentId, threadId, isStreaming);
+  const scoped = Boolean(agentId && threadId);
   if (loading)
     return (
       <span data-testid="chat-usage-summary">{t("chatUsage.loading")}</span>
@@ -25,14 +38,25 @@ export default function ChatUsageFooter({
     return (
       <span data-testid="chat-usage-summary">{t("chatUsage.unavailable")}</span>
     );
-  if (!usage)
+  if (!usage && !recent.entry?.actual_usage)
     return (
-      <span data-testid="chat-usage-summary">{t("chatUsage.noUsage")}</span>
+      <span data-testid="chat-usage-summary">
+        {t(
+          scoped && (recent.loading || (!recent.failed && isStreaming))
+            ? "chatUsage.cachePending"
+            : "chatUsage.noUsage",
+        )}
+      </span>
     );
   const scope = t(
-    hasMore ? "chatUsage.loadedMessages" : "chatUsage.sessionTotal",
+    !usage
+      ? "chatUsage.recentRequest"
+      : hasMore
+      ? "chatUsage.loadedMessages"
+      : "chatUsage.sessionTotal",
   );
-  const details = formatTokenUsage(usage, {
+  const displayUsage = usage ?? recent.entry?.actual_usage;
+  const details = formatTokenUsage(displayUsage ?? undefined, {
     input: t("chatUsage.input"),
     output: t("chatUsage.output"),
     total: t("chatUsage.total"),
@@ -41,10 +65,12 @@ export default function ChatUsageFooter({
   const total = new Intl.NumberFormat(i18n.language, {
     notation: "compact",
     maximumFractionDigits: 1,
-  }).format(usage.total_tokens ?? 0);
+  }).format(displayUsage?.total_tokens ?? 0);
+  const cacheUsage = scoped ? recent.entry?.actual_usage : usage;
+  const cacheRead = reportedCacheRead(cacheUsage);
   const cache =
-    usage.input_tokens && typeof usage.cache_read_tokens === "number"
-      ? (usage.cache_read_tokens / usage.input_tokens) * 100
+    cacheUsage?.input_tokens && cacheRead !== undefined
+      ? (cacheRead / cacheUsage.input_tokens) * 100
       : null;
   return (
     <Popover
@@ -56,6 +82,14 @@ export default function ChatUsageFooter({
             <span key={part}>{part}</span>
           ))}
           {cache === null && <span>{t("chatUsage.cacheUnavailable")}</span>}
+          {scoped && cache !== null && (
+            <span>
+              {t("chatUsage.recentCacheDetail", {
+                input: cacheUsage?.input_tokens,
+                cached: cacheRead,
+              })}
+            </span>
+          )}
         </div>
       }
     >
@@ -68,8 +102,17 @@ export default function ChatUsageFooter({
         {scope} {total}
         {cache !== null && (
           <span>
-            {t("chatUsage.cacheHit")}{" "}
+            {t(scoped ? "chatUsage.recentCacheHit" : "chatUsage.cacheHit")}{" "}
             {Number(cache.toFixed(cache > 0 && cache < 1 ? 2 : 1))}%
+          </span>
+        )}
+        {scoped && cache === null && (
+          <span>
+            {t(
+              recent.loading || (!recent.failed && isStreaming && !recent.entry)
+                ? "chatUsage.cachePending"
+                : "chatUsage.cacheUnavailable",
+            )}
           </span>
         )}
       </button>

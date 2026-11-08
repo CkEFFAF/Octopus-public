@@ -43,6 +43,12 @@ import {
   type ScheduleMessageAnchor,
 } from "../utils/scheduleMessage";
 import { alignElementToScrollerTop } from "../utils/turnTimeline";
+import { useCollaboration } from "../hooks/useCollaboration";
+import { turnDeliverables } from "../utils/turnDeliverables";
+import type { CollaborationResource } from "../../../api/modules/collaboration";
+import ChatDeliverables from "./ChatDeliverables";
+
+type DeliveryScope = { agentId: string; threadId: string };
 
 /** Virtualize long threads; short chats keep the simpler DOM path. */
 const VIRTUALIZE_THRESHOLD = 30;
@@ -89,7 +95,7 @@ const virtuosoComponents: Components<MessageGroup, VirtuosoListContext> = {
 };
 
 interface MessageListProps {
-  deliverables?: ReactNode;
+  deliveryScope?: DeliveryScope;
   messageAnchor?: ScheduleMessageAnchor;
   messageAnchorKey?: string;
   messages: ChatMessage[];
@@ -115,7 +121,7 @@ interface MessageListProps {
   onAcpPermissionSelect?: (message: string) => void;
   onHitlDecision?: HitlDecisionHandler;
   onOpenBrowser?: () => void;
-  onEditFile?: () => void;
+  showFileChanges?: boolean;
   onRunShellCommand?: (code: string) => void;
   shellCommandDisabled?: boolean;
   shellCommandDisabledTitle?: string;
@@ -125,6 +131,8 @@ interface MessageListProps {
 }
 
 interface GroupRenderContext {
+  deliveryScope?: DeliveryScope;
+  deliveries: Map<string, CollaborationResource[]>;
   agentId?: string | null;
   composerLookups?: ComposerTagLookups;
   isStreaming?: boolean;
@@ -140,7 +148,7 @@ interface GroupRenderContext {
   onAcpPermissionSelect?: (message: string) => void;
   onHitlDecision?: HitlDecisionHandler;
   onOpenBrowser?: () => void;
-  onEditFile?: () => void;
+  showFileChanges?: boolean;
   onRunShellCommand?: (code: string) => void;
   shellCommandDisabled?: boolean;
   shellCommandDisabledTitle?: string;
@@ -167,6 +175,15 @@ function renderMessageGroup(
   // fresh speaker array to history also made old replies appear live.
   const liveSpeakers =
     groupIndex > ctx.lastUserGroupIndex ? ctx.liveSpeakers : undefined;
+  const files = ctx.deliveries.get(group.messages[0]?.id);
+  const deliveries =
+    files?.length && ctx.deliveryScope ? (
+      <ChatDeliverables
+        agentId={ctx.deliveryScope.agentId}
+        threadId={ctx.deliveryScope.threadId}
+        items={files}
+      />
+    ) : undefined;
 
   if (!group.isGroup || group.messages.length === 1) {
     const msg = group.messages[0];
@@ -181,6 +198,7 @@ function renderMessageGroup(
         >
           <AssistantTurnView
             messages={group.messages}
+            deliverables={deliveries}
             agentId={ctx.agentId}
             isTurnInProgress={isTurnInProgress}
             liveSpeakers={liveSpeakers}
@@ -192,7 +210,7 @@ function renderMessageGroup(
             onAcpPermissionSelect={ctx.onAcpPermissionSelect}
             onHitlDecision={ctx.onHitlDecision}
             onOpenBrowser={openBrowserHandler}
-            onEditFile={ctx.onEditFile}
+            showFileChanges={ctx.showFileChanges}
             onRunShellCommand={ctx.onRunShellCommand}
             shellCommandDisabled={ctx.shellCommandDisabled}
             shellCommandDisabledTitle={ctx.shellCommandDisabledTitle}
@@ -234,6 +252,7 @@ function renderMessageGroup(
     >
       <AssistantTurnView
         messages={group.messages}
+        deliverables={deliveries}
         agentId={ctx.agentId}
         isTurnInProgress={isTurnInProgress}
         liveSpeakers={liveSpeakers}
@@ -245,7 +264,7 @@ function renderMessageGroup(
         onAcpPermissionSelect={ctx.onAcpPermissionSelect}
         onHitlDecision={ctx.onHitlDecision}
         onOpenBrowser={openBrowserHandler}
-        onEditFile={ctx.onEditFile}
+        showFileChanges={ctx.showFileChanges}
         onRunShellCommand={ctx.onRunShellCommand}
         shellCommandDisabled={ctx.shellCommandDisabled}
         shellCommandDisabledTitle={ctx.shellCommandDisabledTitle}
@@ -257,7 +276,7 @@ function renderMessageGroup(
 
 export default function MessageList(props: MessageListProps) {
   const {
-    deliverables,
+    deliveryScope,
     messages,
     agentId,
     composerLookups,
@@ -279,7 +298,7 @@ export default function MessageList(props: MessageListProps) {
     onAcpPermissionSelect,
     onHitlDecision,
     onOpenBrowser,
-    onEditFile,
+    showFileChanges,
     onRunShellCommand,
     shellCommandDisabled,
     shellCommandDisabledTitle,
@@ -318,6 +337,24 @@ export default function MessageList(props: MessageListProps) {
     previousGroupsRef.current = groups;
     return groups;
   }, [messages, agentId]);
+  const deliveryAgentId = deliveryScope?.agentId ?? "";
+  const deliveryThreadId = deliveryScope?.threadId ?? "";
+  const { page: collaboration } = useCollaboration(
+    deliveryAgentId,
+    deliveryThreadId,
+  );
+  const deliveries = useMemo(
+    () =>
+      deliveryAgentId && deliveryThreadId
+        ? turnDeliverables(
+            messageGroups,
+            collaboration,
+            deliveryAgentId,
+            deliveryThreadId,
+          )
+        : new Map<string, CollaborationResource[]>(),
+    [messageGroups, collaboration, deliveryAgentId, deliveryThreadId],
+  );
 
   const useVirtual =
     useVirtualLocked || messageGroups.length >= VIRTUALIZE_THRESHOLD;
@@ -794,6 +831,8 @@ export default function MessageList(props: MessageListProps) {
 
   const groupContext = useMemo<GroupRenderContext>(
     () => ({
+      deliveryScope,
+      deliveries,
       agentId,
       composerLookups,
       isStreaming,
@@ -809,7 +848,7 @@ export default function MessageList(props: MessageListProps) {
       onAcpPermissionSelect,
       onHitlDecision,
       onOpenBrowser,
-      onEditFile,
+      showFileChanges,
       onRunShellCommand,
       shellCommandDisabled,
       shellCommandDisabledTitle,
@@ -817,6 +856,8 @@ export default function MessageList(props: MessageListProps) {
       registerBubbleRef,
     }),
     [
+      deliveryScope,
+      deliveries,
       agentId,
       composerLookups,
       isStreaming,
@@ -832,7 +873,7 @@ export default function MessageList(props: MessageListProps) {
       onAcpPermissionSelect,
       onHitlDecision,
       onOpenBrowser,
-      onEditFile,
+      showFileChanges,
       onRunShellCommand,
       shellCommandDisabled,
       shellCommandDisabledTitle,
@@ -844,7 +885,6 @@ export default function MessageList(props: MessageListProps) {
   const footer = useMemo(
     () => (
       <>
-        {deliverables}
         {showGenerating && (
           <div className={styles.generatingSlot}>
             <GeneratingIndicator
@@ -865,12 +905,10 @@ export default function MessageList(props: MessageListProps) {
       generatingMembersOnly,
       liveSpeakerNames,
       refreshFooter,
-      deliverables,
     ],
   );
 
-  const hasFooter =
-    showGenerating || Boolean(refreshFooter) || Boolean(deliverables);
+  const hasFooter = showGenerating || Boolean(refreshFooter);
 
   const virtuosoContext = useMemo<VirtuosoListContext>(
     () => ({

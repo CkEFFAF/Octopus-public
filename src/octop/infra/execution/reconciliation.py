@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from octop.infra.db.repos.run_events import RunEventRepo
 from octop.infra.devices.service import DeviceService
 from octop.infra.errors import OctopError
 from octop.infra.execution.service import ExecutionService
 
+if TYPE_CHECKING:
+    from octop.infra.cron.manager import CronManager
+
 
 class ExecutionReconciler:
-    def __init__(self, devices: DeviceService) -> None:
+    def __init__(self, devices: DeviceService, cron_manager: CronManager | None = None) -> None:
         self.devices = devices
+        self.cron_manager = cron_manager
         self._running = False
 
     async def tick(self) -> None:
@@ -37,6 +41,10 @@ class ExecutionReconciler:
                     await self._observe(events, row)
 
             await asyncio.gather(*(observe(row) for row in due))
+            if self.cron_manager is not None:
+                from octop.infra.execution.wakeup_hooks import WakeupHookService
+
+                await WakeupHookService(ExecutionService(self.devices)).tick(self.cron_manager)
         finally:
             self._running = False
 

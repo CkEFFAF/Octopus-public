@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { lazy, memo, Suspense, useMemo, useState, type ReactNode } from "react";
 import { ChevronRight, FilePen, Globe } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { HitlDecisionHandler } from "../../../api/types/hitl";
@@ -7,10 +7,8 @@ import {
   splitAssistantTurn,
   toAnswerOnlyMessage,
   turnUsedBrowserTool,
-  turnUsedFileTool,
 } from "../utils/messageContent";
-import { isWriteToolName } from "../constants";
-import { collectChatFilePaths } from "../hooks/useChatFileDetection";
+import { collectTurnFileChanges } from "../utils/turnFileChanges";
 import { layoutAssistantTurnHitl } from "../utils/layoutAssistantTurnHitl";
 import { useAgent } from "../../../context/AgentContext";
 import { TodoProgressPanel } from "../../../components/TodoProgressPanel";
@@ -30,8 +28,10 @@ import { collectTurnKnowledgeCitations } from "../../../utils/collectTurnKnowled
 import { KnowledgeCitationsStrip } from "./KnowledgeCitationsStrip";
 import { messageSpeakerId } from "../utils/messageGrouping";
 import styles from "../index.module.less";
+const TurnFileChangesModal = lazy(() => import("./TurnFileChangesModal"));
 
 interface AssistantTurnViewProps {
+  deliverables?: ReactNode;
   messages: ChatMessage[];
   agentId?: string | null;
   isStreaming?: boolean;
@@ -50,7 +50,7 @@ interface AssistantTurnViewProps {
   onAcpPermissionSelect?: (message: string) => void;
   onHitlDecision?: HitlDecisionHandler;
   onOpenBrowser?: () => void;
-  onEditFile?: () => void;
+  showFileChanges?: boolean;
   onRunShellCommand?: (code: string) => void;
   shellCommandDisabled?: boolean;
   shellCommandDisabledTitle?: string;
@@ -77,6 +77,7 @@ function turnHasLiveSpeaker(
 }
 
 function AssistantTurnView({
+  deliverables,
   messages,
   agentId: agentIdProp,
   isTurnInProgress = false,
@@ -89,13 +90,14 @@ function AssistantTurnView({
   onAcpPermissionSelect,
   onHitlDecision,
   onOpenBrowser,
-  onEditFile,
+  showFileChanges = true,
   onRunShellCommand,
   shellCommandDisabled,
   shellCommandDisabledTitle,
   compactProcess = false,
 }: AssistantTurnViewProps) {
   const { t } = useTranslation();
+  const [changesOpen, setChangesOpen] = useState(false);
   const { activeAgentId } = useAgent();
   const agentId = agentIdProp ?? activeAgentId;
   const speakerAgentId =
@@ -154,15 +156,15 @@ function AssistantTurnView({
 
   const usedBrowser = turnUsedBrowserTool(fullSplit);
   const showOpenBrowser = usedBrowser && !!onOpenBrowser;
-  const usedFileTool = turnUsedFileTool(fullSplit);
-  const showEditFile = usedFileTool && !!onEditFile;
-  const turnFileCount = useMemo(() => {
-    const fromPaths = collectChatFilePaths(messages, agentId).length;
-    if (fromPaths > 0) return fromPaths;
-    return (fullSplit.tools ?? []).filter((msg) =>
-      isWriteToolName(msg.toolData?.name),
-    ).length;
-  }, [messages, agentId, fullSplit.tools]);
+  const turnFiles = useMemo(
+    () => collectTurnFileChanges(messages, agentId),
+    [messages, agentId],
+  );
+  const showEditFile = showFileChanges && turnFiles.length > 0;
+  const turnFileCount = turnFiles.length;
+  const editCardKey = turnFiles.every((file) => file.confirmed)
+    ? "chat.editFileCard"
+    : "chat.turnChanges.records";
   const hasToolMedia =
     toolMedia.images.length > 0 ||
     toolMedia.videos.length > 0 ||
@@ -296,6 +298,7 @@ function AssistantTurnView({
           <KnowledgeCitationsStrip citations={knowledgeCitations} />
         </div>
       ) : null}
+      {deliverables && <div className={styles.turnInset}>{deliverables}</div>}
       {showOpenBrowser && (
         <div className={styles.turnInset}>
           <button
@@ -328,10 +331,9 @@ function AssistantTurnView({
             className={`${styles.openBrowserPrompt} ${
               turnStreaming ? styles.openBrowserPromptActive : ""
             }`}
-            onClick={onEditFile}
-            aria-label={t("chat.editFileCard", {
+            onClick={() => setChangesOpen(true)}
+            aria-label={t(editCardKey, {
               count: Math.max(turnFileCount, 1),
-              defaultValue: "编辑了{{count}}个文件",
             })}
           >
             <FilePen
@@ -341,9 +343,8 @@ function AssistantTurnView({
               aria-hidden="true"
             />
             <span>
-              {t("chat.editFileCard", {
+              {t(editCardKey, {
                 count: Math.max(turnFileCount, 1),
-                defaultValue: "编辑了{{count}}个文件",
               })}
             </span>
             <ChevronRight
@@ -353,6 +354,14 @@ function AssistantTurnView({
             />
           </button>
         </div>
+      )}
+      {changesOpen && showEditFile && (
+        <Suspense fallback={null}>
+          <TurnFileChangesModal
+            files={turnFiles}
+            onClose={() => setChangesOpen(false)}
+          />
+        </Suspense>
       )}
     </div>
   );

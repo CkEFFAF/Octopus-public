@@ -272,3 +272,39 @@ it("keeps active filters clearable after published files are withdrawn", async (
   );
   expect(screen.getAllByRole("article")).toHaveLength(5);
 });
+it("shows a failed thumbnail and retries it on refresh, including image MIME parameters", async () => {
+  const picture = {
+    ...resource,
+    resource_id: "retry-picture",
+    name: "figure.PNG",
+    media_type: "IMAGE/PNG; charset=binary",
+  };
+  vi.mocked(collaborationApi.list).mockResolvedValue({
+    artifacts: [picture],
+    invocations: [],
+    events: [],
+    next_cursor: 1,
+    has_more: false,
+  });
+  vi.mocked(collaborationApi.resource)
+    .mockRejectedValueOnce(new Error("temporary network failure"))
+    .mockResolvedValue(picture);
+  vi.mocked(verifiedResourceContent).mockResolvedValue(
+    new Blob(["png"], { type: "image/png" }),
+  );
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:retried");
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  render(
+    <CollaborationProvider agentId="parent" threadId="root">
+      <ChatDeliverables agentId="parent" threadId="root" />
+    </CollaborationProvider>,
+  );
+  expect(
+    await screen.findByText("chat.deliverables.imageFailed"),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "common.refresh" }));
+  expect(await screen.findByRole("img")).toHaveAttribute("src", "blob:retried");
+  expect(
+    screen.queryByText("chat.deliverables.imageFailed"),
+  ).not.toBeInTheDocument();
+});

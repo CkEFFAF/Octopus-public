@@ -16,6 +16,7 @@ import { useServerTimezone } from "../../../hooks/useServerTimezone";
 import { formatMessageTime } from "../../../utils/formatMessageTime";
 import styles from "./ExpertTaskSummary.module.less";
 import { activityLabel } from "../utils/activityLabel";
+import JobProgress from "./JobProgress";
 
 export default function ExpertTaskSummary({
   agentId,
@@ -127,6 +128,28 @@ export default function ExpertTaskSummary({
       b.updated_at - a.updated_at,
   );
   const chosen = nodes.find((node) => node.id === selected);
+  const detailThread = detail?.thread;
+  useEffect(() => {
+    if (!detailThread) return;
+    let alive = true;
+    let inFlight = false;
+    const timer = window.setInterval(async () => {
+      if (document.hidden || inFlight) return;
+      inFlight = true;
+      try {
+        const value = await activityApi.snapshot(agentId, detailThread);
+        if (alive) setDetail({ thread: detailThread, value });
+      } catch {
+        // Keep the last observed progress; explicit opening reports errors.
+      } finally {
+        inFlight = false;
+      }
+    }, 5000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [agentId, detailThread]);
   const group = (node: ActivityNode) =>
     node.observed_status === "stale"
       ? "inactive"
@@ -143,7 +166,10 @@ export default function ExpertTaskSummary({
     (node) => recordState === "all" || group(node) === recordState,
   );
   const nodeName = (node: ActivityNode, index: number) => {
-    if (node.type === "job" && node.details?.program)
+    if (
+      node.type === "job" &&
+      (node.details?.program || node.details?.title || node.details?.job_kind)
+    )
       return activityLabel(node, t);
     if (["command.run", "execute"].includes(node.name))
       return t("sessionPreview.toolCommand");
@@ -232,6 +258,26 @@ export default function ExpertTaskSummary({
               )}
             </div>
             {progress && <p className={styles.progress}>{progress}</p>}
+            {related.slice(0, 4).map((job) => (
+              <div key={job.id} className={styles.jobSummary}>
+                <span>
+                  {activityLabel(
+                    {
+                      type: "job",
+                      name: job.name ?? "",
+                      details: {
+                        title: "lifecycle" in job ? job.job_title : job.title,
+                        program: job.name,
+                        job_kind: job.job_kind,
+                        subject: job.subject,
+                      },
+                    },
+                    t,
+                  )}
+                </span>
+                <JobProgress value={job.progress} />
+              </div>
+            ))}
             {related.some((job) => "stale" in job && job.stale) && (
               <p className={styles.muted}>
                 {t("workspace0034.observationStale")}
@@ -351,7 +397,10 @@ export default function ExpertTaskSummary({
                       className={styles.record}
                       onClick={() => setSelected(node.id)}
                     >
-                      <strong>{nodeName(node, index)}</strong>
+                      <div>
+                        <strong>{nodeName(node, index)}</strong>
+                        <JobProgress value={node.details?.progress} />
+                      </div>
                       <ActivityStatus node={node} />
                       <time>
                         {formatMessageTime(node.updated_at * 1000, timezone)}

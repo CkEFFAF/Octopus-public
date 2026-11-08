@@ -19,6 +19,7 @@ from octop.infra.agents.middleware.request_context import (
     replay_context,
 )
 from octop.infra.errors import OctopError
+from octop.infra.execution.foreground_policy import foreground_wait_error
 from octop.infra.execution.work_mode import WorkModeService
 
 
@@ -49,11 +50,18 @@ class WorkModeMiddleware(AgentMiddleware[Any, Any]):
         return await asyncio.to_thread(self.before_model, state, runtime)
 
     def _prepare(self, request: ModelRequest[Any]) -> ModelRequest[Any]:
+        cfg = get_config().get("configurable") or {}
+        if cfg.get("octop_wakeup_event_only"):
+            request = request.override(tools=[])
         hint = (
             "\n\n[Work mode runtime]\nRuntime snapshots accompany individual user messages. "
             "They describe persisted state when that message arrived. "
             "Use work_step to inspect receipt IDs and advance stages with a bounded report. "
             "Only final real receipts are evidence. Accepted jobs/dispatches are not completed work. "
+            "Foreground execute is for work up to 60 seconds. Never sleep or poll to hold the conversation. "
+            "For a future check, schedule one self-check and finish your answer. "
+            "For long work, use job_start with a short task title in the user's language, then report acceptance and finish your answer. "
+            "Job completion feedback wakes this original thread once; do not repeatedly poll or create duplicate reminders. "
             "If capability or evidence is missing, record blocked or needs_input; do not claim completion. "
             "Debug: record reproduction and diagnosis before explicit project edits, then verify after the fix. "
             "Research: collect actual retrieved source URLs, compare at least two, distinguish facts/inference in the report. "
@@ -80,6 +88,21 @@ class WorkModeMiddleware(AgentMiddleware[Any, Any]):
         return await handler(self._prepare(request))
 
     def _guard(self, request: ToolCallRequest) -> str | None:
+        try:
+            cfg = get_config().get("configurable") or {}
+        except RuntimeError:
+            cfg = {}
+        if cfg.get("octop_wakeup_event_only"):
+            from octop.i18n import tr
+
+            return tr("execution.eventOnlyToolsDisabled", str(cfg.get("language") or "en"))
+        error = foreground_wait_error(
+            request.tool_call["name"],
+            request.tool_call.get("args") or {},
+            str(cfg.get("language") or "en"),
+        )
+        if error:
+            return error
         state = self._state()
         if not state or state["payload"]["mode"] != "debug":
             return None

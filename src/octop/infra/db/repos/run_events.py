@@ -160,21 +160,27 @@ class RunEventRepo:
                 "AND status IN ('running','started','accepted','waiting') ORDER BY updated_at DESC LIMIT 200",
                 (owner, agent),
             ).fetchall()
-        return [
-            {
-                "id": r["event_id"],
-                "thread_id": r["thread_id"],
-                "status": r["status"],
-                "updated_at": r["updated_at"],
-                "stale": time.time() - r["updated_at"] > 45,
-                "name": str(
-                    json.loads(r["payload_json"]).get("program")
-                    or json.loads(r["payload_json"]).get("job_id")
-                    or r["event_id"]
-                )[:100],
-            }
-            for r in rows
-        ]
+        progress = self.job_progress(owner, [r["event_id"] for r in rows])
+        result = []
+        for r in rows:
+            payload = json.loads(r["payload_json"])
+            result.append(
+                {
+                    "id": r["event_id"],
+                    "thread_id": r["thread_id"],
+                    "status": r["status"],
+                    "updated_at": r["updated_at"],
+                    "stale": time.time() - r["updated_at"] > 45,
+                    "name": str(payload.get("program") or payload.get("job_id") or r["event_id"])[
+                        :100
+                    ],
+                    "title": payload.get("title"),
+                    "job_kind": payload.get("job_kind"),
+                    "subject": payload.get("subject"),
+                    "progress": progress.get(r["event_id"]),
+                }
+            )
+        return result
 
     def background_page(
         self,
@@ -188,7 +194,7 @@ class RunEventRepo:
     ) -> dict[str, Any]:
         cutoff = time.time() - 45
         sql = (
-            "SELECT r.event_id AS id,r.thread_id,t.title,r.status,r.updated_at,"
+            "SELECT r.event_id AS id,r.thread_id,t.title,r.status,r.updated_at,r.payload_json,"
             "CASE WHEN r.status IN ('running','started','accepted','waiting') "
             "THEN CASE WHEN r.updated_at>=? THEN 'active' ELSE 'inactive' END "
             "WHEN r.status='completed' THEN 'completed' WHEN r.status='failed' THEN 'failed' "
@@ -216,8 +222,23 @@ class RunEventRepo:
             rows = conn.execute(
                 selected + " ORDER BY updated_at DESC,id LIMIT ? OFFSET ?", [*values, limit, offset]
             ).fetchall()
+        progress = self.job_progress(owner, [r["id"] for r in rows])
+        items = []
+        for row in rows:
+            item = dict(row)
+            payload = json.loads(item.pop("payload_json"))
+            items.append(
+                {
+                    **item,
+                    "job_title": payload.get("title"),
+                    "name": payload.get("program"),
+                    "job_kind": payload.get("job_kind"),
+                    "subject": payload.get("subject"),
+                    "progress": progress.get(row["id"]),
+                }
+            )
         return {
-            "items": [dict(r) for r in rows],
+            "items": items,
             "counts": counts,
             "total": total,
             "offset": offset,
@@ -235,6 +256,86 @@ class RunEventRepo:
             ).fetchall()
         return [{**self._public(row), "owner_user_id": row["owner_user_id"]} for row in rows]
 
+    def wakeup_hook(self, event_id: str) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM run_events WHERE event_id=? AND kind='hook'", (event_id,)
+            ).fetchone()
+        return {**self._public(row), "owner_user_id": row["owner_user_id"]} if row else None
+
+    def recover_wakeup_deliveries(self) -> None:
+        """An interrupted model call has an uncertain outcome, never silently replay it."""
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE run_events SET status='unknown',updated_at=? WHERE kind='hook' AND status='running'",
+                (time.time(),),
+            )
+
+    def pending_wakeup_hooks(self, limit: int = 128) -> list[dict[str, Any]]:
+        if self.db.dialect == "postgresql":
+            job = "h.payload_json::jsonb->>'job_event_id'"
+            expiry = "(h.payload_json::jsonb->>'expires_at')::double precision"
+        else:
+            job = "json_extract(h.payload_json,'$.job_event_id')"
+            expiry = "json_extract(h.payload_json,'$.expires_at')"
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                f"SELECT h.* FROM run_events h WHERE h.kind='hook' AND (h.status='queued' OR (h.status='waiting' AND ({expiry}<=? OR EXISTS(SELECT 1 FROM run_events j WHERE j.owner_user_id=h.owner_user_id AND j.event_id=({job}) AND j.kind='job' AND j.status IN ('completed','failed','cancelled'))))) ORDER BY CASE WHEN h.status='queued' THEN 0 ELSE 1 END,h.updated_at,h.id LIMIT ?",
+                (time.time(), limit),
+            ).fetchall()
+        return [{**self._public(row), "owner_user_id": row["owner_user_id"]} for row in rows]
+
+    def jobs_without_completion_hook(self, limit: int = 64) -> list[dict[str, Any]]:
+        if self.db.dialect == "postgresql":
+            opted = "j.payload_json::jsonb->>'notify_on_exit'='true'"
+            reference = "h.payload_json::jsonb->>'job_event_id'"
+            mode = "h.payload_json::jsonb->>'delivery_mode'"
+        else:
+            opted = "json_extract(j.payload_json,'$.notify_on_exit')=1"
+            reference = "json_extract(h.payload_json,'$.job_event_id')"
+            mode = "json_extract(h.payload_json,'$.delivery_mode')"
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                f"SELECT j.* FROM run_events j WHERE j.kind='job' AND j.agent_id IS NOT NULL AND j.thread_id IS NOT NULL AND j.context_id IS NOT NULL AND {opted} AND NOT EXISTS(SELECT 1 FROM run_events h WHERE h.kind='hook' AND h.owner_user_id=j.owner_user_id AND ({reference})=j.event_id AND COALESCE({mode},'wake')='wake') ORDER BY j.id LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [{**self._public(row), "owner_user_id": row["owner_user_id"]} for row in rows]
+
+    def jobs_without_progress_binding(self, limit: int = 64) -> list[dict[str, Any]]:
+        if self.db.dialect == "postgresql":
+            hook = "j.payload_json::jsonb->>'progress_hook_id'"
+            reference = "h.payload_json::jsonb->>'job_event_id'"
+        else:
+            hook = "json_extract(j.payload_json,'$.progress_hook_id')"
+            reference = "json_extract(h.payload_json,'$.job_event_id')"
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                f"SELECT j.* FROM run_events j JOIN run_events h ON h.event_id=({hook}) AND h.owner_user_id=j.owner_user_id AND h.agent_id=j.agent_id AND h.thread_id=j.thread_id WHERE j.kind='job' AND h.kind='hook' AND h.status IN ('waiting','completed') AND ({reference}) IS NULL ORDER BY j.id LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [{**self._public(row), "owner_user_id": row["owner_user_id"]} for row in rows]
+
+    def job_progress(self, owner: int, event_ids: list[str]) -> dict[str, dict[str, Any]]:
+        if not event_ids:
+            return {}
+        if self.db.dialect == "postgresql":
+            reference = "h.payload_json::jsonb->>'job_event_id'"
+        else:
+            reference = "json_extract(h.payload_json,'$.job_event_id')"
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                f"SELECT j.event_id,h.payload_json FROM run_events h JOIN run_events j ON j.event_id=({reference}) AND j.owner_user_id=h.owner_user_id AND j.agent_id=h.agent_id AND j.thread_id=h.thread_id WHERE h.owner_user_id=? AND h.kind='hook' AND j.kind='job' AND j.event_id IN ({','.join('?' for _ in event_ids)})",
+                [owner, *event_ids],
+            ).fetchall()
+        result = {}
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            if payload.get("delivery_mode") == "progress" and isinstance(
+                payload.get("progress"), dict
+            ):
+                result[row["event_id"]] = payload["progress"]
+        return result
+
     def compare_payload(
         self,
         owner: int,
@@ -242,6 +343,8 @@ class RunEventRepo:
         previous: dict[str, Any],
         payload: dict[str, Any],
         status: str,
+        *,
+        expected_status: str | None = None,
     ) -> bool:
         """Atomically advance a workflow, including across control-center workers."""
         with self.db.transaction() as conn:
@@ -251,15 +354,17 @@ class RunEventRepo:
             ).fetchone()
             result = conn.execute(
                 "UPDATE run_events SET payload_json = ?, status = ?, updated_at = ? "
-                "WHERE owner_user_id = ? AND event_id = ? AND payload_json = ?",
-                (
+                "WHERE owner_user_id = ? AND event_id = ? AND payload_json = ?"
+                + (" AND status = ?" if expected_status is not None else ""),
+                [
                     json.dumps(payload, ensure_ascii=False),
                     status,
                     time.time(),
                     owner,
                     event_id,
                     json.dumps(previous, ensure_ascii=False),
-                ),
+                    *([expected_status] if expected_status is not None else []),
+                ],
             )
             if result.rowcount and original:
                 self._metadata_event(

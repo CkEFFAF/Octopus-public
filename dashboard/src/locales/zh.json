@@ -2464,6 +2464,25 @@
     "openPhone": "打开远程手机",
     "openWorkspace": "工作区",
     "editFileCard": "编辑了{{count}}个文件",
+    "turnChanges": {
+      "currentExpert": "当前专家",
+      "deviceSource": "{{expert}} · 设备 {{device}}",
+      "expertSource": "专家 {{expert}}",
+      "replaceAllUnknown": "全部替换（未记录命中次数）",
+      "records": "本轮文件记录 {{count}}",
+      "unverified": "该历史条目只保留了路径，无法确认当时是修改、交付还是失败操作，也没有可还原的差异。",
+      "title": "本轮修改 · {{count}} 个文件",
+      "scope": "仅展示这轮回答的文件记录。替换内容来自当时的工具记录，保留每次操作，不混入其他轮次或当前磁盘内容。",
+      "files": "本轮文件",
+      "diff": "本轮修改差异",
+      "unavailable": "该历史记录只保留了文件路径，未记录修改前后的内容，无法还原当时的差异。",
+      "operation": "修改 {{number}}",
+      "replaceAll": "全部替换（记录命中次数：{{count}}）",
+      "before": "修改前 · 被替换的文本",
+      "after": "修改后 · 替换为",
+      "written": "本轮写入的内容",
+      "emptyText": "（空文本）"
+    },
     "fileWorkspace": "工作区文件",
     "fileWorkspaceHint": "专家已生成或编辑文件",
     "fileSwitch": "切换文件",
@@ -2721,6 +2740,8 @@
       "progress": "查看进度"
     },
     "deliverables": {
+      "imageLoading": "图片加载中…",
+      "imageFailed": "图片未加载，点刷新重试",
       "title": "交付文件",
       "open": "预览 {{name}}",
       "fileType": "文件类型",
@@ -2794,6 +2815,9 @@
     }
   },
   "tools": {
+    "register_wakeup_hook": "注册事件唤醒",
+    "wakeup_hook_status": "查看事件回调",
+    "cancel_wakeup_hook": "取消事件回调",
     "get_conversation_brief": "读取会话概览",
     "list_conversation_events": "读取会话事件",
     "read_conversation_source": "读取会话来源",
@@ -2953,6 +2977,10 @@
     "generate_video": "生成视频"
   },
   "chatUsage": {
+    "recentRequest": "最近请求用量",
+    "recentCacheHit": "最近缓存命中",
+    "recentCacheDetail": "最近一次完成的模型请求：输入 {{input}}，缓存读取 {{cached}}",
+    "cachePending": "缓存统计中",
     "loading": "用量加载中…",
     "unavailable": "历史未完整加载，用量暂不可用",
     "loadedMessages": "已加载消息用量",
@@ -2977,7 +3005,7 @@
       "cancelled": "已取消"
     },
     "details": "查看完整用量",
-    "cacheUnavailable": "提供商未返回完整缓存数据"
+    "cacheUnavailable": "暂无完整缓存数据"
   },
   "workspace": {
     "refreshHint": "只刷新根目录；子目录在展开时按需加载",
@@ -8144,7 +8172,8 @@
       "delegation": "专家协作",
       "job": "后台任务",
       "tool": "工具调用",
-      "device": "设备操作"
+      "device": "设备操作",
+      "hook": "事件回调"
     },
     "chooseTarget": "选择执行位置",
     "chooseTargetDetail": "工作区需要明确的设备或本机执行位置。请在下方选择已有授权目标，再打开工作区。",
@@ -8188,6 +8217,12 @@
     "observationStale": "状态待确认",
     "inspectTasks": "查看运行与计划",
     "jobProgram": "运行 {{name}}",
+    "jobLabels": {
+      "log": "查看 {{name}} 日志",
+      "log_gpu": "监测 {{name}} 与 GPU 状态",
+      "gpu": "检查 GPU 状态"
+    },
+    "reportedProgress": "脚本上报进度",
     "backgroundExplanation": "任务在后台独立执行，可查看实际状态和日志。"
   },
   "conversationMetadata": {

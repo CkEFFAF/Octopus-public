@@ -62,6 +62,8 @@ class CronDeliveryCommand:
     origin_thread_id: str | None = None
     delivery_id: str | None = None
     source_kind: str | None = None
+    wakeup_hook_id: str = ""
+    wakeup_context_id: str = ""
     allow_interaction: bool = False
     on_chunk: Callable[[dict[str, Any]], None] | None = None
 
@@ -89,6 +91,10 @@ class CronDeliveryService:
 
     async def deliver(self, command: CronDeliveryCommand) -> str:
         """Run one delivery under the target channel session lock."""
+        if command.wakeup_hook_id:
+            hook = self._repos.run_event_repo.wakeup_hook(command.wakeup_hook_id)
+            if hook and hook["status"] == "completed":
+                return ""
         if command.report is None:
             return await self._deliver(command)
         key = (command.user_id, command.agent_id, command.cron_id)
@@ -223,6 +229,17 @@ class CronDeliveryService:
                         output=output,
                     )
             stage = "succeeded"
+            if command.wakeup_hook_id:
+                hook = self._repos.run_event_repo.wakeup_hook(command.wakeup_hook_id)
+                if hook and hook["status"] == "running":
+                    self._repos.run_event_repo.compare_payload(
+                        command.user_id,
+                        command.wakeup_hook_id,
+                        hook["payload"],
+                        hook["payload"],
+                        "completed",
+                        expected_status=hook["status"],
+                    )
 
         try:
             if command.origin_thread_id:
@@ -242,11 +259,13 @@ class CronDeliveryService:
             attempts.update(command.user_id, attempt, "paused")
             raise
         except asyncio.CancelledError:
+            self._finish_wakeup(command, "unknown")
             attempts.update(
                 command.user_id, attempt, "cancelled", error="Scheduled delivery was cancelled"
             )
             raise
         except Exception as exc:
+            self._finish_wakeup(command, "failed")
             from octop.infra.cron.origin_target import OriginThreadError
 
             # Transport exceptions may contain provider URLs, headers or credentials.
@@ -409,6 +428,8 @@ class CronDeliveryService:
         if origin_canonical and (
             self._repos.thread_message_repo.has_message_id(session.thread_id, assistant_id) is True
         ):
+            if command.wakeup_hook_id:
+                return ""
             outbound = (command.prompt or "").strip()
             await self._gateway.push_session_text(
                 session,
@@ -483,6 +504,24 @@ class CronDeliveryService:
             from octop.infra.connectors.gateway.adapters.agently_cli import write_scope
 
             with write_scope(allowed=False):
+                if command.wakeup_hook_id:
+                    hook = self._repos.run_event_repo.wakeup_hook(command.wakeup_hook_id)
+                    if (
+                        not hook
+                        or (hook["owner_user_id"], hook["agent_id"], hook["thread_id"])
+                        != (session.user_id, command.agent_id, session.thread_id)
+                        or str(hook.get("context_id") or "") != command.wakeup_context_id
+                        or hook["status"] not in {"queued", "scheduled"}
+                        or not self._repos.run_event_repo.compare_payload(
+                            command.user_id,
+                            command.wakeup_hook_id,
+                            hook["payload"],
+                            hook["payload"],
+                            "running",
+                            expected_status=hook["status"],
+                        )
+                    ):
+                        raise ValueError("wakeup hook cancelled or already dispatched")
                 async for chunk in self._agent_manager.stream(command.agent_id, request):
                     if command.on_chunk is not None:
                         command.on_chunk(chunk)
@@ -696,15 +735,39 @@ class CronDeliveryService:
     ) -> dict[str, Any]:
         from octop.infra.agents.teams import is_team_agent
 
-        if is_team_agent(self._agent_manager.get_row(command.agent_id)):
+        if command.wakeup_hook_id:
+            hook = self._repos.run_event_repo.wakeup_hook(command.wakeup_hook_id)
+            if (
+                not hook
+                or (hook["owner_user_id"], hook["agent_id"], hook["thread_id"])
+                != (session.user_id, command.agent_id, session.thread_id)
+                or str(hook.get("context_id") or "") != command.wakeup_context_id
+                or hook["status"] not in {"queued", "scheduled"}
+            ):
+                raise ValueError(
+                    "wakeup hook is cancelled or its original conversation is unavailable"
+                )
+
+        if (command.wakeup_hook_id and not command.wakeup_context_id) or is_team_agent(
+            self._agent_manager.get_row(command.agent_id)
+        ):
             servers: list[str] = []
         else:
             servers = [name.strip() for name in command.mcp_servers if name.strip()]
             extra_defaults = self._agent_manager.default_mcp_servers(command.agent_id)
-            pack = self._agent_manager.device_mcp_pack_for_turn(
-                session.user_id,
-                agent_id=command.agent_id,
-            )
+            pack_scope = {"agent_id": command.agent_id}
+            if command.wakeup_hook_id and command.wakeup_context_id:
+                from octop.infra.db.repos.execution import ExecutionContextRepo
+
+                origin = ExecutionContextRepo(self._repos.db).get(
+                    session.user_id, command.wakeup_context_id
+                )
+                if origin is None:
+                    raise ValueError("wakeup execution source unavailable")
+                pack_scope.update(
+                    thread_id=session.thread_id, resolved_device_id=origin.device_id or ""
+                )
+            pack = self._agent_manager.device_mcp_pack_for_turn(session.user_id, **pack_scope)
             device_defaults: list[str] = []
             deny_mcp: list[str] = []
             if isinstance(pack, tuple) and len(pack) >= 2:
@@ -773,8 +836,38 @@ class CronDeliveryService:
             }
         if command.task_run_id:
             request.setdefault("configurable", {})["octop_task_run_id"] = command.task_run_id
+        if command.wakeup_hook_id:
+            request["conversation_mode"] = "ask"
+            cfg = request.setdefault("configurable", {})
+            cfg["work_mode"] = "ask"
+            if command.wakeup_context_id:
+                cfg["octop_execution_context"] = {"context_id": command.wakeup_context_id}
+                if hook and hook["payload"].get("resume_mode") == "continue":
+                    mode = str(hook["payload"]["origin_work_mode"])
+                    cfg["work_mode"] = mode
+                    request["conversation_mode"] = mode if mode in {"ask", "plan"} else "craft"
+            else:
+                cfg["octop_wakeup_event_only"] = True
         self._attach_turn_knowledge_config(request, command, session)
         return request
+
+    def _finish_wakeup(self, command: CronDeliveryCommand, status: str) -> None:
+        if not command.wakeup_hook_id:
+            return
+        hook = self._repos.run_event_repo.wakeup_hook(command.wakeup_hook_id)
+        if (
+            hook
+            and hook["owner_user_id"] == command.user_id
+            and hook["status"] in {"queued", "scheduled", "running"}
+        ):
+            self._repos.run_event_repo.compare_payload(
+                command.user_id,
+                command.wakeup_hook_id,
+                hook["payload"],
+                hook["payload"],
+                status,
+                expected_status=hook["status"],
+            )
 
     def _attach_turn_knowledge_config(
         self,
@@ -868,6 +961,7 @@ def command_from_row(row: Any) -> CronDeliveryCommand:
 
     fresh = bool(row.fresh_thread)
     meta = getattr(row, "meta", None) or {}
+    meta = meta if isinstance(meta, dict) else {}
     origin = origin_thread_id(meta if isinstance(meta, dict) else {})
     source_kind = None
     if is_self_reminder_row(row):
@@ -896,6 +990,9 @@ def command_from_row(row: Any) -> CronDeliveryCommand:
         ),
         origin_thread_id=origin,
         source_kind=source_kind,
+        wakeup_hook_id=str(meta.get("wakeup_hook_id") or ""),
+        wakeup_context_id=str(meta.get("wakeup_context_id") or ""),
+        delivery_id=f"wakeup-{meta['wakeup_hook_id']}" if meta.get("wakeup_hook_id") else None,
     )
 
 

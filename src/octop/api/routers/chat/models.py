@@ -43,6 +43,10 @@ class SidebarBackgroundJob(BaseModel):
     status: str
     updated_at: float
     stale: bool
+    title: str | None = None
+    job_kind: str | None = None
+    subject: str | None = None
+    progress: dict[str, Any] | None = None
 
 
 class SidebarStatus(BaseModel):

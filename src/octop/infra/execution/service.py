@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 from typing import Any
 
+from octop.i18n import tr
 from octop.infra.db.repos.execution import ExecutionContext, ExecutionContextRepo
 from octop.infra.devices.protocol import JOB_READ_ACTIONS, result_status
 from octop.infra.devices.service import DeviceService
@@ -14,7 +16,10 @@ from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.execution.events import STREAM_ACTIONS, RunInspectionService
 from octop.infra.execution.targets import LocalExecutionBackend
 from octop.infra.users.preferences import parse_preferences_json
+from octop.infra.utils.locale import resolve_user_locale
 from octop.infra.utils.ulid import new_ulid
+
+logger = logging.getLogger(__name__)
 
 WORK_MODES = frozenset(
     {
@@ -502,6 +507,27 @@ class ExecutionService:
             ).hexdigest()
         if context.working_dir:
             prepared.setdefault("cwd", context.working_dir)
+        if action == "jobs.start" and prepared.get("progress_hook_id") is not None:
+            from octop.infra.execution.wakeup_hooks import WakeupHookService
+
+            hook_id = prepared["progress_hook_id"]
+            if not isinstance(hook_id, str):
+                raise ValueError("progress_hook_id must be text")
+            submission = hashlib.sha256(
+                json.dumps(
+                    [
+                        owner,
+                        context.agent_id,
+                        context.thread_id,
+                        context.target_kind,
+                        context.device_id,
+                        prepared.get("idempotency_key"),
+                    ]
+                ).encode()
+            ).hexdigest()
+            WakeupHookService(self).reserve_progress(
+                owner, context.agent_id, context.thread_id, hook_id, submission
+            )
         return context, prepared
 
     def submit(
@@ -586,7 +612,78 @@ class ExecutionService:
                 context, operation_id, action, result_status(action, result), prepared, result
             )
         if action in {"jobs.status", "jobs.start", "jobs.cancel"}:
+            if action == "jobs.start":
+                origin = self.get(owner, str(result.get("context_id") or context.context_id))
+                if (origin.agent_id, origin.thread_id, origin.target_kind, origin.device_id) != (
+                    context.agent_id,
+                    context.thread_id,
+                    context.target_kind,
+                    context.device_id,
+                ):
+                    raise OctopError(
+                        ErrorCode.FORBIDDEN, "job receipt belongs to another execution origin"
+                    )
+            if action == "jobs.start" and isinstance(prepared.get("notify_on_exit"), bool):
+                result = {**result, "notify_on_exit": prepared["notify_on_exit"]}
+            if action == "jobs.start" and isinstance(prepared.get("title"), str):
+                result = {**result, "title": prepared["title"].strip()[:120]}
+            if action == "jobs.start" and isinstance(prepared.get("progress_hook_id"), str):
+                result = {**result, "progress_hook_id": prepared["progress_hook_id"]}
+            if action == "jobs.start":
+                previous = self.devices.repos.run_event_repo.get(
+                    owner, f"job:{origin.context_id}:{result.get('job_id')}"
+                )
+                if previous:
+                    for key in ("title", "notify_on_exit", "progress_hook_id"):
+                        if key in previous["payload"]:
+                            result[key] = previous["payload"][key]
             inspect.job_observation(context, result)
+            if (
+                action == "jobs.start"
+                and result.get("notify_on_exit") is True
+                and context.agent_id
+                and context.thread_id
+            ):
+                from octop.infra.execution.wakeup_hooks import WakeupHookService
+
+                locale = resolve_user_locale(user_repo=self.devices.repos.user_repo, user_id=owner)
+                job_event = f"job:{origin.context_id}:{result['job_id']}"
+                try:
+                    result["completion_hook"] = WakeupHookService(self).register(
+                        owner,
+                        origin.agent_id or context.agent_id,
+                        origin.thread_id or context.thread_id,
+                        origin.context_id,
+                        title=str(result.get("title") or tr("execution.backgroundTask", locale)),
+                        event_type="job.terminated",
+                        purpose=tr("execution.jobCompletionPurpose", locale),
+                        idempotency_key=job_event,
+                        job_event_id=job_event,
+                        include_token=False,
+                    )
+                except Exception:
+                    # The Job is already accepted. Its durable notification intent
+                    # lets the reconciler retry without resubmitting the command.
+                    logger.warning(
+                        "Deferred completion hook registration for %s", job_event, exc_info=True
+                    )
+                    result["completion_hook_status"] = "pending"
+            if action == "jobs.start" and result.get("progress_hook_id"):
+                from octop.infra.execution.wakeup_hooks import WakeupHookService
+
+                job_event = (
+                    f"job:{result.get('context_id') or context.context_id}:{result.get('job_id')}"
+                )
+                job = self.devices.repos.run_event_repo.get(owner, job_event)
+                if job:
+                    try:
+                        WakeupHookService(self).bind_progress(
+                            owner, job, result["progress_hook_id"]
+                        )
+                    except Exception:
+                        logger.warning("Deferred progress binding for %s", job_event, exc_info=True)
+                        result["progress_binding_status"] = "pending"
+            result = self._job_metadata(owner, context, result)
         elif action in {"desktop.capture", "desktop.input", "browser.capture"} or (
             action == "browser.action" and prepared.get("command") != "reset_input"
         ):
@@ -598,9 +695,29 @@ class ExecutionService:
         elif action == "jobs.list":
             for job in result.get("jobs", []):
                 inspect.job_observation(context, job)
+                job.update(self._job_metadata(owner, context, job))
         return {
             "context": context.public(),
             "result": result,
             "operation_id": operation_id,
             "status": result_status(action, result),
+        }
+
+    def _job_metadata(
+        self, owner: int, context: ExecutionContext, result: dict[str, Any]
+    ) -> dict[str, Any]:
+        identity = f"job:{result.get('context_id') or context.context_id}:{result.get('job_id')}"
+        events = self.devices.repos.run_event_repo
+        job = events.get(owner, identity)
+        if not job:
+            return result
+        progress = events.job_progress(owner, [identity]).get(identity)
+        return {
+            **result,
+            **{
+                key: job["payload"][key]
+                for key in ("title", "program", "job_kind", "subject")
+                if key in job["payload"]
+            },
+            **({"progress": progress} if progress else {}),
         }
