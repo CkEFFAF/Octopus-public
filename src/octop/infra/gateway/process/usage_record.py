@@ -7,6 +7,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from octop_harness.usage import normalize_usage_metadata
+
 _USER_ROLES = frozenset({"human", "user"})
 _AI_ROLES = frozenset({"ai", "assistant"})
 _USAGE_FIELDS = (
@@ -31,52 +33,10 @@ def _token_int(value: Any) -> int:
     return count if count > 0 else 0
 
 
-def _detail_count(details: Any, *names: str) -> int:
-    if not isinstance(details, dict):
-        return 0
-    direct = sum(_token_int(details.get(name)) for name in names)
-    prefixed = sum(
-        _token_int(value)
-        for key, value in details.items()
-        if isinstance(key, str) and any(key.endswith(f"_{name}") for name in names)
-    )
-    return direct + prefixed
-
-
 def normalize_usage(usage: dict[str, Any]) -> dict[str, Any]:
     """Normalize provider usage into disjoint cache-aware input buckets."""
-    input_details = usage.get("input_token_details") or usage.get("prompt_tokens_details")
-    output_details = usage.get("output_token_details") or usage.get("completion_tokens_details")
-    cache_read = _token_int(usage.get("cache_read_tokens")) or _detail_count(
-        input_details, "cache_read", "cached_tokens"
-    )
-    cache_read = cache_read or _token_int(usage.get("prompt_cache_hit_tokens"))
-    cache_write = _token_int(usage.get("cache_write_tokens")) or _detail_count(
-        input_details, "cache_creation", "cache_write"
-    )
-    input_tokens = _token_int(usage.get("input_tokens")) or _token_int(usage.get("prompt_tokens"))
-    uncached_raw = usage.get("uncached_input_tokens")
-    uncached = (
-        _token_int(uncached_raw)
-        if uncached_raw is not None
-        else max(0, input_tokens - cache_read - cache_write)
-    )
-    if input_tokens == 0:
-        input_tokens = uncached + cache_read + cache_write
-    output_tokens = _token_int(usage.get("output_tokens")) or _token_int(
-        usage.get("completion_tokens")
-    )
-    reasoning = _token_int(usage.get("reasoning_tokens")) or _detail_count(
-        output_details, "reasoning", "reasoning_tokens"
-    )
     return {
-        "input_tokens": input_tokens,
-        "uncached_input_tokens": uncached,
-        "cache_read_tokens": cache_read,
-        "cache_write_tokens": cache_write,
-        "output_tokens": output_tokens,
-        "reasoning_tokens": reasoning,
-        "total_tokens": input_tokens + output_tokens,
+        **normalize_usage_metadata(usage),
         "model": str(usage.get("model") or ""),
     }
 
@@ -174,6 +134,9 @@ def _aggregate_samples(
     last = samples[resolved_last_key]
     return {
         **totals,
+        "cache_metrics_reported": all(
+            sample.get("cache_metrics_reported") is True for sample in samples.values()
+        ),
         "model": str(last.get("model") or ""),
         "model_calls": len(samples),
         "last_input_tokens": _token_int(last.get("input_tokens")),
@@ -268,6 +231,7 @@ def record_turn_usage(
             input_tokens=normalized["input_tokens"],
             uncached_input_tokens=normalized["uncached_input_tokens"],
             cache_read_tokens=normalized["cache_read_tokens"],
+            cache_metrics_reported=bool(normalized.get("cache_metrics_reported")),
             cache_write_tokens=normalized["cache_write_tokens"],
             output_tokens=normalized["output_tokens"],
             reasoning_tokens=normalized["reasoning_tokens"],

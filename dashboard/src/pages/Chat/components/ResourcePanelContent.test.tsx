@@ -1,4 +1,5 @@
 import { Blob as NativeBlob } from "node:buffer";
+import { createHash } from "node:crypto";
 import {
   cleanup,
   fireEvent,
@@ -123,6 +124,54 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
+
+it.each([
+  ["report.MD", "application/octet-stream"],
+  ["report", "application/markdown"],
+])(
+  "renders Markdown %s by default and can switch to source",
+  async (name, media_type) => {
+    const markdown =
+      "# 评估结论\n\n- 指标已核对\n\n| 模型 | 分数 |\n| --- | --- |\n| A | 95 |\n\n```python\nprint('ok')\n```";
+    const bytes = new TextEncoder().encode(markdown);
+    vi.mocked(request).mockResolvedValue({
+      ...resource,
+      name,
+      media_type,
+      size: bytes.length,
+      version: createHash("sha256").update(bytes).digest("hex"),
+    });
+    vi.mocked(requestBlob).mockResolvedValue(
+      new NativeBlob([bytes]) as unknown as Blob,
+    );
+    render(
+      <ResourcePanelContent agentId="a" threadId="t" resourceId="markdown" />,
+    );
+    expect(
+      await screen.findByRole("heading", { name: "评估结论", level: 1 }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("table")).toHaveTextContent("模型");
+    expect(screen.getByRole("listitem")).toHaveTextContent("指标已核对");
+    fireEvent.click(
+      screen.getByRole("button", { name: "workspace0034.source" }),
+    );
+    expect(
+      screen.queryByRole("heading", { name: "评估结论" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        (_, element) =>
+          element?.tagName === "PRE" && element.textContent === markdown,
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "workspace0034.rendered" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "评估结论" }),
+    ).toBeInTheDocument();
+  },
+);
 
 it("previews and downloads verified bytes through authenticated scoped routes, releases preview URLs", async () => {
   vi.mocked(request).mockResolvedValue(resource);

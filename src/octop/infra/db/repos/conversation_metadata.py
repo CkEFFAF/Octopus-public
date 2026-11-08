@@ -56,7 +56,8 @@ def mark_metadata_dirty(
         "ON CONFLICT(dedup_key) DO UPDATE SET "
         "status=CASE WHEN thread_metadata_jobs.status='running' THEN 'running' ELSE 'queued' END,"
         "attempts=CASE WHEN thread_metadata_jobs.status='running' THEN thread_metadata_jobs.attempts ELSE 0 END,"
-        "not_before=excluded.not_before,updated_at=excluded.updated_at,error_code=''",
+        "not_before=CASE WHEN thread_metadata_jobs.status IN ('queued','retry') AND thread_metadata_jobs.not_before>excluded.not_before "
+        "THEN thread_metadata_jobs.not_before ELSE excluded.not_before END,updated_at=excluded.updated_at,error_code=''",
         (f"auto:{thread}", f"auto:{thread}", now + 5, now, now, thread),
     )
 
@@ -504,6 +505,23 @@ class ConversationMetadataRepo:
                 "UPDATE thread_metadata_jobs SET status='queued',attempts=0,lease_until=0,lease_token='',not_before=? WHERE job_id=? AND lease_token=? AND status='running' AND lease_until>?",
                 (time.time() + delay, job["job_id"], job["lease_token"], time.time()),
             )
+
+    def defer_auto(self, job: dict[str, Any], not_before: float, reason: str) -> bool:
+        with self.db.transaction() as conn:
+            changed = conn.execute(
+                "UPDATE thread_metadata_jobs SET status='queued',attempts=?,lease_until=0,lease_token='',not_before=?,"
+                "result_json=?,updated_at=? WHERE job_id=? AND lease_token=? AND status='running' AND kind='auto' AND lease_until>?",
+                (
+                    max(0, int(job.get("attempts") or 1) - 1),
+                    not_before,
+                    encoded({"deferred_reason": reason}),
+                    time.time(),
+                    job["job_id"],
+                    job["lease_token"],
+                    time.time(),
+                ),
+            ).rowcount
+        return bool(changed)
 
     def checkpoint(self, job: dict[str, Any], request: dict[str, Any]) -> bool:
         with self.db.transaction() as conn:

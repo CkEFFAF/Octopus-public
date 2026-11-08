@@ -419,6 +419,7 @@
     "PROVIDER_NOT_VISIBLE": "Provider is not visible.",
     "PROVIDER_REFERENCED": "Provider is in use and cannot be removed.",
     "PROVIDER_LOCAL_PROTECTED": "Local runtime providers cannot be deleted.",
+    "MODEL_ROUTING_INVALID_MODEL": "The task model is unavailable or lacks the required capability. Select an enabled model from your account.",
     "CODEX_OAUTH_START_FAILED": "Could not start ChatGPT sign-in. Check the server connection to auth.openai.com and try again.",
     "STORAGE_BACKEND_NAME_TAKEN": "Storage backend name is already in use.",
     "STORAGE_BACKEND_REFERENCED": "Storage backend is in use and cannot be removed.",

@@ -1,5 +1,14 @@
 import { useRef, useState } from "react";
-import { Alert, Button, Drawer, Input, Segmented, Skeleton, Tag } from "antd";
+import {
+  Alert,
+  Button,
+  Drawer,
+  Input,
+  Segmented,
+  Skeleton,
+  Tag,
+  Tooltip,
+} from "antd";
 import { Layers, Plus, RefreshCw, ArrowUpRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -132,50 +141,28 @@ export default function BackgroundWork({
   }
   return (
     <div className={styles.backgroundWork}>
-      <div className={styles.toolbar}>
-        <Button
-          type="text"
-          size="small"
-          icon={<Layers size={15} />}
+      <Tooltip
+        title={error ? t("chat.workItems.stale") : t("chat.workItems.title")}
+      >
+        <button
+          type="button"
+          className={styles.trigger}
+          aria-label={`${t("chat.workItems.title")}${
+            active.length ? ` (${active.length})` : ""
+          }`}
+          data-active={active.length > 0}
           onClick={() => {
             setOpen(true);
             setCreating(false);
           }}
         >
-          {t("chat.workItems.title")}
-          {active.length ? ` (${active.length})` : ""}
-        </Button>
-        <Button
-          type="text"
-          size="small"
-          icon={<Plus size={14} />}
-          onClick={() => {
-            setOpen(true);
-            setCreating(true);
-            setActionError("");
-          }}
-        >
-          {t("chat.workItems.new")}
-        </Button>
-      </div>
-      {active.slice(0, 3).map((item) => (
-        <button
-          type="button"
-          className={styles.summary}
-          key={item.task_id}
-          onClick={() => choose(item.task_id)}
-        >
-          <span>{item.title}</span>
-          <Tag color={item.status === "running" ? "processing" : "default"}>
-            {status(item)}
-          </Tag>
+          <Layers size={16} aria-hidden />
+          {active.length > 0 && (
+            <span className={styles.count}>{active.length}</span>
+          )}
+          {error && <span className={styles.staleDot} aria-hidden />}
         </button>
-      ))}
-      {error && !open && (
-        <span role="status" className={styles.stale}>
-          {t("chat.workItems.stale")}
-        </span>
-      )}
+      </Tooltip>
       <Drawer
         title={t("chat.workItems.title")}
         open={open}

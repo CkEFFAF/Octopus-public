@@ -10,6 +10,14 @@
  */
 
 import { inboundAttachments } from "./inboundAttachments";
+import {
+  MODEL_TASKS,
+  type ModelRouteDecision,
+} from "../api/modules/modelRouting";
+
+export interface ModelRouteChunk extends ModelRouteDecision {
+  type: "model_route";
+}
 
 export interface TokenChunk {
   type: "token";
@@ -179,6 +187,7 @@ export type HarnessChunk = (
   | SteeringAppliedChunk
   | UserChunk
   | RunPhaseChunk
+  | ModelRouteChunk
 ) & { event_id?: string };
 
 /**
@@ -359,6 +368,24 @@ function projectHarnessChunk(
         kind: typeof obj.kind === "string" ? obj.kind : undefined,
         filename: typeof obj.filename === "string" ? obj.filename : undefined,
         agent_id: agentId,
+      };
+    case "model_route":
+      if (
+        !MODEL_TASKS.some((task) => task === obj.task) ||
+        typeof obj.model !== "string"
+      )
+        return null;
+      return {
+        type: "model_route",
+        task: obj.task as ModelRouteDecision["task"],
+        model: obj.model,
+        source: ["manual", "task", "automatic", "default"].includes(
+          String(obj.source),
+        )
+          ? (obj.source as ModelRouteDecision["source"])
+          : "default",
+        reason: typeof obj.reason === "string" ? obj.reason : "account_default",
+        available: obj.available === true,
       };
     case "run_phase":
       return {

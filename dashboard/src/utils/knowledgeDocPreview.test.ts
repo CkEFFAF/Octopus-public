@@ -5,9 +5,21 @@ import {
   canPreviewKnowledgeDocument,
   canRichPreviewKnowledgeDocument,
   isRichPreviewFilename,
+  isKnowledgeMarkdownDocument,
+  isEditableKnowledgeDocument,
 } from "./knowledgeDocPreview";
 
 describe("canPreviewKnowledgeDocument", () => {
+  it.each([
+    { filename: "report.MARKDOWN" },
+    { filename: "report", content_type: "application/markdown" },
+    { filename: "report", content_type: "text/markdown; charset=utf-8" },
+  ])("uses rendered Markdown for %j", (doc) => {
+    expect(isKnowledgeMarkdownDocument(doc)).toBe(true);
+    expect(isEditableKnowledgeDocument(doc)).toBe(true);
+    expect(canPreviewKnowledgeDocument(doc)).toBe(true);
+    expect(isKnowledgeMarkdownDocument({ ...doc, is_dir: true })).toBe(false);
+  });
   it("allows rich and text preview types", () => {
     expect(canPreviewKnowledgeDocument({ filename: "a.pdf" })).toBe(true);
     expect(canPreviewKnowledgeDocument({ filename: "a.docx" })).toBe(true);

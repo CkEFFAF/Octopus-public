@@ -29,6 +29,7 @@ from octop.infra.db.repos.knowledge import KnowledgeRepo
 from octop.infra.db.repos.proactive_care_config import ProactiveCareConfigRepo
 from octop.infra.db.repos.providers import ProviderRepo
 from octop.infra.db.repos.published_experts import PublishedExpertRepo
+from octop.infra.db.repos.request_snapshots import RequestSnapshotRepo
 from octop.infra.db.repos.run_events import RunEventRepo
 from octop.infra.db.repos.secrets import SecretRepo
 from octop.infra.db.repos.sessions import SessionRepo
@@ -36,6 +37,7 @@ from octop.infra.db.repos.settings import SettingsRepo
 from octop.infra.db.repos.skill_packages import SkillPackageRepo
 from octop.infra.db.repos.sso import SsoRepo
 from octop.infra.db.repos.task_boards import TaskBoardRepo
+from octop.infra.db.repos.thread_activity import ThreadActivityRepo
 from octop.infra.db.repos.thread_messages import ThreadMessageRepo
 from octop.infra.db.repos.thread_shares import ThreadShareRepo
 from octop.infra.db.repos.threads import ThreadRepo
@@ -97,6 +99,14 @@ class RepoBundle:
     @property
     def run_event_repo(self) -> RunEventRepo:
         return RunEventRepo(self.db)
+
+    @property
+    def request_snapshot_repo(self) -> RequestSnapshotRepo:
+        return RequestSnapshotRepo(self.db)
+
+    @property
+    def thread_activity_repo(self) -> ThreadActivityRepo:
+        return ThreadActivityRepo(self.db)
 
     @property
     def cron_attempt_repo(self) -> CronAttemptRepo:

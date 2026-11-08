@@ -29,7 +29,7 @@ import {
   AtSign,
   ListPlus,
 } from "lucide-react";
-import { Tooltip, Popover } from "antd";
+import { Tooltip, Popover, Dropdown } from "antd";
 import { message } from "@/utils/antdMessage";
 import type { ResolvedModel } from "../../../api/types";
 import type { KnowledgeBase } from "../../../api/modules/knowledgeBases";
@@ -95,6 +95,9 @@ function resolveModelLogo(model: {
 const _sttAvailable = isSttAvailable();
 
 interface ChatInputActionsRowProps {
+  backgroundWork?: React.ReactNode;
+  busyIntent?: "supplement" | "queue";
+  onBusyIntentChange?: (intent: "supplement" | "queue") => void;
   runningSendLabel?: string;
   isMobile: boolean;
   isStreaming: boolean;
@@ -163,6 +166,9 @@ interface ChatInputActionsRowProps {
 }
 
 export default function ChatInputActionsRow({
+  backgroundWork,
+  busyIntent = "supplement",
+  onBusyIntentChange,
   runningSendLabel,
   isMobile,
   isStreaming,
@@ -1140,6 +1146,7 @@ export default function ChatInputActionsRow({
     <div
       ref={actionsRowRef}
       className={styles.actionsRow}
+      data-composer-fixed
       data-layout={useCompactControls ? "compact" : "expanded"}
     >
       {showModelPicker && (
@@ -1179,6 +1186,7 @@ export default function ChatInputActionsRow({
       )}
       <div className={styles.secondaryActions}>{renderSecondaryActions()}</div>
       <div className={styles.inputActions}>
+        {backgroundWork}
         <ContextWindowRing
           selectedModel={effectiveModelRef}
           selectedCapacityTokens={
@@ -1307,63 +1315,96 @@ export default function ChatInputActionsRow({
             </button>
           </Tooltip>
         )}
-        {isStreaming ? (
-          <>
-            <Tooltip title={isTeam ? t("chat.stopTeamHint") : t("chat.stop")}>
-              <button
-                className={`${styles.sendBtn} ${styles.cancelBtn}`}
-                onClick={onCancel}
-                type="button"
-                aria-label={t("chat.stop", "Stop")}
-              >
-                <Square size={18} aria-hidden />
-              </button>
-            </Tooltip>
-            {canSend && (
-              <Tooltip
-                title={
-                  isTeam
-                    ? t("chat.send")
-                    : runningSendLabel || t("chat.queue.action")
-                }
-              >
+        <div className={styles.sendControls}>
+          {isStreaming ? (
+            <>
+              {!isTeam && onBusyIntentChange && (
+                <Dropdown
+                  trigger={["click"]}
+                  placement="topRight"
+                  menu={{
+                    selectable: true,
+                    selectedKeys: [busyIntent],
+                    onClick: ({ key }) =>
+                      onBusyIntentChange(key as "supplement" | "queue"),
+                    items: (["supplement", "queue"] as const).map((intent) => ({
+                      key: intent,
+                      label: (
+                        <div className={styles.sendIntentOption}>
+                          <strong>{t(`chat.flow.${intent}`)}</strong>
+                          <span>{t(`chat.flow.${intent}Hint`)}</span>
+                        </div>
+                      ),
+                    })),
+                  }}
+                >
+                  <button
+                    type="button"
+                    className={styles.sendIntentTrigger}
+                    aria-label={t("chat.flow.sendWhileWorking")}
+                    disabled={disabled || uploading}
+                  >
+                    <span>{t(`chat.flow.${busyIntent}Short`)}</span>
+                    <ChevronDown size={12} aria-hidden />
+                  </button>
+                </Dropdown>
+              )}
+              <Tooltip title={isTeam ? t("chat.stopTeamHint") : t("chat.stop")}>
                 <button
-                  className={styles.sendBtn}
-                  onClick={onSubmit}
-                  disabled={disabled || uploading}
+                  className={`${styles.sendBtn} ${styles.cancelBtn}`}
+                  onClick={onCancel}
+                  type="button"
+                  aria-label={t("chat.stop", "Stop")}
+                >
+                  <Square size={18} aria-hidden />
+                </button>
+              </Tooltip>
+              {canSend && (
+                <Tooltip
                   title={
                     isTeam
                       ? t("chat.send")
                       : runningSendLabel || t("chat.queue.action")
                   }
-                  type="button"
-                  aria-label={
-                    isTeam
-                      ? t("chat.send")
-                      : runningSendLabel || t("chat.queue.action")
-                  }
                 >
-                  {isTeam || runningSendLabel ? (
-                    <Send size={18} />
-                  ) : (
-                    <ListPlus size={18} />
-                  )}
-                </button>
-              </Tooltip>
-            )}
-          </>
-        ) : (
-          <button
-            className={styles.sendBtn}
-            onClick={onSubmit}
-            disabled={!canSend || uploading}
-            title={t("chat.send", "Send")}
-            aria-label={t("chat.send", "Send")}
-            type="button"
-          >
-            <Send size={18} />
-          </button>
-        )}
+                  <button
+                    className={styles.sendBtn}
+                    onClick={onSubmit}
+                    disabled={disabled || uploading}
+                    title={
+                      isTeam
+                        ? t("chat.send")
+                        : runningSendLabel || t("chat.queue.action")
+                    }
+                    type="button"
+                    aria-label={
+                      isTeam
+                        ? t("chat.send")
+                        : runningSendLabel || t("chat.queue.action")
+                    }
+                  >
+                    {isTeam || runningSendLabel ? (
+                      <Send size={18} />
+                    ) : (
+                      <ListPlus size={18} />
+                    )}
+                  </button>
+                </Tooltip>
+              )}
+            </>
+          ) : (
+            <button
+              className={styles.sendBtn}
+              onClick={onSubmit}
+              disabled={!canSend || uploading}
+              title={t("chat.send", "Send")}
+              aria-label={t("chat.send", "Send")}
+              type="button"
+            >
+              <Send size={18} />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

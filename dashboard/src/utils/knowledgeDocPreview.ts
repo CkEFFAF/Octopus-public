@@ -2,6 +2,7 @@
  * Pure helpers for knowledge-document preview / download affordances.
  * Shared by Knowledge Bases and Chat citation preview (no page imports).
  */
+import { isMarkdownFile } from "./textFile";
 
 export function isEditableKnowledgeDocument(doc: {
   is_dir?: boolean;
@@ -10,7 +11,11 @@ export function isEditableKnowledgeDocument(doc: {
 }): boolean {
   if (doc.is_dir) return false;
   const ct = (doc.content_type || "").toLowerCase();
-  if (ct === "text/plain" || ct === "text/markdown") return true;
+  if (
+    ct.split(";")[0].trim() === "text/plain" ||
+    isMarkdownFile(doc.filename ?? "", ct)
+  )
+    return true;
   const name = (doc.filename || "").toLowerCase();
   return name.endsWith(".md") || name.endsWith(".txt");
 }
@@ -37,10 +42,7 @@ export function isKnowledgeMarkdownDocument(doc: {
   filename?: string;
 }): boolean {
   if (doc.is_dir) return false;
-  const ct = (doc.content_type || "").toLowerCase();
-  if (ct === "text/markdown") return true;
-  const name = (doc.filename || "").toLowerCase();
-  return name.endsWith(".md") || name.endsWith(".markdown");
+  return isMarkdownFile(doc.filename ?? "", doc.content_type);
 }
 
 function knowledgeDocumentExt(filename: string | undefined): string {

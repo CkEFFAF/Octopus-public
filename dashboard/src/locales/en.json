@@ -1,4 +1,55 @@
 {
+  "modelRouting": {
+    "title": "Task model routing",
+    "enable": "Enable task model routing",
+    "description": "Choose a model for each task or match automatically. Manual chat choices take priority, and a run keeps the same model.",
+    "auto": "Choose automatically",
+    "saved": "Task rules saved. Chat changes apply to the next run.",
+    "effective": "Current rule selects: {{model}}",
+    "noModel": "No available model",
+    "unavailableSelection": "{{model}} (unavailable)",
+    "dedicatedOverride": "Dedicated task setting takes priority",
+    "auxiliaryNote": "Dedicated title and summary choices take priority. A summary set to “same as title” follows the title model. Expert memory choices also take priority; memory routing applies when the expert is next reloaded.",
+    "auxiliaryLink": "Title and summary settings",
+    "refresh": "Refresh available models",
+    "previewTitle": "Preview routing",
+    "previewDescription": "Preview the saved rules. This only selects a model; it does not call a model or submit a task.",
+    "previewInput": "Enter a sample task, such as: fix a Python error",
+    "previewTask": "Preview task category",
+    "detectTask": "Detect task automatically",
+    "hasImages": "Includes images",
+    "contextTokens": "Existing context tokens",
+    "saveFirst": "Save rules first",
+    "preview": "Preview selection",
+    "decision": "{{task}} → {{model}}",
+    "currentModel": "Actual model for this run: {{model}}",
+    "tasks": {
+      "chat": "General chat",
+      "coding": "Coding and debugging",
+      "reasoning": "Complex reasoning",
+      "research": "Research",
+      "vision": "Image understanding",
+      "long_context": "Long context",
+      "title": "Conversation title",
+      "summary": "Conversation summary",
+      "memory": "Memory extraction"
+    },
+    "reasons": {
+      "manual": "Using the manually selected model",
+      "routing_disabled": "Routing is disabled; keeping the existing default",
+      "task_model": "Using the configured task model",
+      "image_capability": "Matched image input capability",
+      "no_compatible_model": "No available model supports the required capability",
+      "reasoning_capability": "Matched reasoning capability",
+      "coding_model": "Matched a coding model label",
+      "context_capacity": "Matched the required context capacity",
+      "unavailable_task_model": "Task model is unavailable; using an available default",
+      "account_default": "Keeping a compatible default model",
+      "same_as_title": "Summary setting follows the title model",
+      "dedicated_setting": "Using the dedicated title or summary choice"
+    },
+    "routeDetails": "Model choice for this run"
+  },
   "taskFilters": {
     "label": "Task status",
     "recordLabel": "Observation status",
@@ -55,6 +106,27 @@
     "appliedFilters": "Selection:",
     "filteredScope": "Conversations matching these filters",
     "filteredHint": "Organize only conversations matching the time and status filters below. Manual titles and corrections are preserved. Model usage applies."
+  },
+  "sessionHeat": {
+    "score": "Conversation activity {{score}} / 100",
+    "inputs": "User inputs in 24 hours: {{count}}",
+    "weeklyInputs": "User inputs in 7 days: {{count}}",
+    "tasks": "Tasks in 7 days: {{count}}",
+    "background": "Active background tasks: {{count}}",
+    "nextOverview": "Overview scheduled quietly for {{time}}",
+    "level": {
+      "running": "Working",
+      "attention": "Needs you",
+      "hot": "Frequent",
+      "warm": "Active"
+    },
+    "reason": {
+      "recent_conversation": "Recent conversation",
+      "answer_running": "Waiting for this answer to finish",
+      "heat_interval": "Combining recent changes",
+      "quiet_window": "A less active time window",
+      "idle": "Refresh while idle"
+    }
   },
   "sessionPreview": {
     "progress": "Latest progress",
@@ -640,6 +712,7 @@
     "PROVIDER_NOT_VISIBLE": "Provider is not visible.",
     "PROVIDER_REFERENCED": "Provider is in use and cannot be removed.",
     "PROVIDER_LOCAL_PROTECTED": "Local runtime providers cannot be deleted.",
+    "MODEL_ROUTING_INVALID_MODEL": "The task model is unavailable or lacks the required capability. Select an enabled model from your account.",
     "CODEX_OAUTH_START_FAILED": "Could not start ChatGPT sign-in. Check the server connection to auth.openai.com and try again.",
     "STORAGE_BACKEND_NAME_TAKEN": "Storage backend name is already in use.",
     "STORAGE_BACKEND_REFERENCED": "Storage backend is in use and cannot be removed.",
@@ -2650,6 +2723,21 @@
     "deliverables": {
       "title": "Delivered files",
       "open": "Preview {{name}}",
+      "fileType": "File type",
+      "noMatch": "No matching files",
+      "shown": "Showing {{count}} / {{total}}",
+      "more": "Show {{count}} more",
+      "collapse": "Show fewer",
+      "types": {
+        "all": "All",
+        "image": "Images",
+        "document": "Documents",
+        "data": "Tables and data",
+        "code": "Code",
+        "archive": "Archives",
+        "media": "Audio and video",
+        "other": "Other"
+      },
       "refreshFailed": "Could not refresh delivered files. Try again."
     },
     "flow": {
@@ -2669,7 +2757,9 @@
       "removeFile": "Remove {{name}}",
       "downloadFile": "Download {{name}}",
       "imageModelUnsupported": "The image is still in your draft. The running model does not accept images. After this turn finishes, choose an image-capable model and send it.",
-      "attachmentChanged": "The attachment changed or is unavailable. Your draft is preserved; upload it again before sending."
+      "attachmentChanged": "The attachment changed or is unavailable. Your draft is preserved; upload it again before sending.",
+      "supplementShort": "Add",
+      "queueShort": "Queue"
     },
     "recovery": {
       "title": "This answer did not finish",
@@ -2698,7 +2788,9 @@
       "startJob": "Start a background task",
       "job_status": "Check background task progress",
       "job_logs": "Read background task logs",
-      "job_cancel": "Request background task cancellation"
+      "job_cancel": "Request background task cancellation",
+      "runCommand": "Run a terminal command",
+      "runProgram": "Run {{program}}"
     }
   },
   "tools": {
@@ -2883,7 +2975,9 @@
       "in_progress": "In progress",
       "completed": "Completed",
       "cancelled": "Cancelled"
-    }
+    },
+    "details": "View full usage",
+    "cacheUnavailable": "Complete cache metrics were not reported"
   },
   "workspace": {
     "refreshHint": "Refreshes root only; subfolders load on expand",

@@ -177,6 +177,9 @@ because each request is a one-shot continuation.
 | `PATCH`  | `/agents/{id}/chat/sessions/{thread_id}` | owner | body `{title?, pinned?}` → updated row |
 | `DELETE` | `/agents/{id}/chat/sessions/{thread_id}` | owner | `204` (archives the active row) |
 | `GET`    | `/agents/{id}/chat/sessions/{thread_id}/history` | owner | paginated message history; `turn_active` tells a reconnecting client whether to re-`subscribe` over the chat WebSocket |
+| `GET`    | `/agents/{id}/threads` | owner | pinned first, then heat score, then recency; ranking precedes `limit`. Each row includes owner-scoped `heat` with score, level, 24-hour and seven-day inputs, seven-day work count, active background count and next automatic overview time/reason. This read never invokes a model. |
+
+Automatic overviews wait at least five minutes after actual user input and use five, fifteen or thirty minute intervals as heat increases. With sufficient history, they prefer a less active hour with a bounded extra delay. Manual refresh bypasses this policy. The activity ledger stores identifiers and timestamps, not message or attachment content.
 
 **Tool result blocks.** `tool_result` blocks in history (and `tool_result`
 frames on the chat WebSocket) carry the tool's return value in `output`. When a
@@ -219,6 +222,9 @@ plugin returns a large `octop_ui` payload, the backend offloads the envelope's
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
 | `GET`    | `/settings/timezone` | user | process-level `{timezone}` from `default_timezone` |
+| `GET`    | `/settings/model-routing` | user | account task rules, available chat models, resolved choices and auxiliary overrides |
+| `PUT`    | `/settings/model-routing` | user | save `{enabled, tasks}`; tasks map the nine supported purposes to a model reference or automatic selection; enabled defaults to false |
+| `POST`   | `/settings/model-routing/preview` | user | preview `{task?, text?, has_images?, work_mode?, context_tokens?, model?}` without calling a model or creating a run; returns actual model and reason |
 | `GET`    | `/settings/upload` | user | `{max_upload_mb, max_upload_bytes}` from `max_upload_mb` |
 | `GET`    | `/settings/hitl` | user | `{enabled, tool_guard_require_approval, show_approval_ui}` — `show_approval_ui` is true when tool HITL is on or command guard is `require_approval` |
 | `GET`    | `/settings/captcha` | `captcha` | `{active, available, providers, source, v3_min_score}`; secrets omitted |

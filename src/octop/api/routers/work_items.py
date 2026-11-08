@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -14,6 +15,7 @@ from octop.api.deps import (
     machine_principal_of,
     require_machine_scope,
 )
+from octop.infra.conversations.activity import record_task_activity
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.work_items.models import (
     WORK_ITEM_SCHEMA_VERSION,
@@ -102,6 +104,14 @@ async def create_work_item(
     assert_agent_access(server, body.agent_id.strip(), user)
     created = await service.create(
         int(user.id), body, credential_id=principal.credential_id if principal else None
+    )
+    await asyncio.to_thread(
+        record_task_activity,
+        getattr(server.services, "repos", None),
+        int(user.id),
+        created["task_id"],
+        body.command_id,
+        "create",
     )
     if principal is not None:
         server.app_runtime.devices.agent_access_keys.grant_object(
@@ -231,7 +241,15 @@ async def post_work_item_input(
         principal, "work_item", task_id
     ):
         raise OctopError(ErrorCode.FORBIDDEN, "work item not granted to this credential")
-    return await service.add_input(int(user.id), task_id, body)
+    result = await service.add_input(int(user.id), task_id, body)
+    await asyncio.to_thread(
+        record_task_activity,
+        getattr(server.services, "repos", None),
+        int(user.id),
+        task_id,
+        body.command_id,
+    )
+    return result
 
 
 @router.post("/work-items/{task_id}/cancel", summary="Request cancellation of a work item")

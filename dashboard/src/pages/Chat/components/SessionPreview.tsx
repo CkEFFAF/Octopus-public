@@ -95,6 +95,22 @@ export default function SessionPreview({
               </div>
             )}
           </dl>
+          {session.heat &&
+            session.heat.next_overview_at > Date.now() / 1000 && (
+              <p>
+                {t("sessionHeat.nextOverview", {
+                  time: formatMessageTime(
+                    session.heat.next_overview_at * 1000,
+                    timezone,
+                  ),
+                })}
+                {session.heat.overview_reason
+                  ? ` · ${t(
+                      `sessionHeat.reason.${session.heat.overview_reason}`,
+                    )}`
+                  : ""}
+              </p>
+            )}
           <footer>
             {mismatch ? (
               t("sessionPreview.languageHint")

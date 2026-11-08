@@ -1,6 +1,9 @@
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Activity, Clock3, ListChecks, MessageSquarePlus } from "lucide-react";
+import { Tooltip } from "antd";
+import type { ModelRouteDecision } from "../../../api/modules/modelRouting";
+import ModelRouteNotice from "./ModelRouteNotice";
 import { useElapsedSince } from "../../../hooks/useElapsedSeconds";
 import type { SessionSnapshot } from "../hooks/sseHelpers";
 import type { ChatMessage } from "../hooks/sseHelpers";
@@ -14,6 +17,7 @@ export default function ChatWorkStatus({
   startedAt,
   retry,
   currentTool,
+  modelRoute,
 }: {
   onContinueChat: () => void;
   onShowProgress?: () => void;
@@ -21,6 +25,7 @@ export default function ChatWorkStatus({
   startedAt?: number | null;
   retry?: SessionSnapshot["modelRetry"];
   currentTool?: ChatMessage["toolData"];
+  modelRoute?: ModelRouteDecision;
 }) {
   const { t } = useTranslation();
   const mounted = useRef(Date.now());
@@ -61,13 +66,10 @@ export default function ChatWorkStatus({
         ) : (
           <Activity size={17} aria-hidden />
         )}
-        <div>
-          <strong role="status" aria-live="polite">
-            {label}
-          </strong>
-          <span>{t("chat.flow.keepTalking")}</span>
+        <div className={styles.activity} role="status" aria-live="polite">
+          <strong>{label}</strong>
           {feedback && (
-            <span className={styles.currentAction} aria-live="polite">
+            <span className={styles.currentAction}>
               {feedback.action} · {feedback.outcome}
             </span>
           )}
@@ -77,16 +79,22 @@ export default function ChatWorkStatus({
         </time>
       </div>
       <div className={styles.actions}>
+        {modelRoute && <ModelRouteNotice route={modelRoute} />}
         {onShowProgress && (
           <button type="button" onClick={onShowProgress}>
             <ListChecks size={14} aria-hidden />
             {t("chat.backgroundUi.progress")}
           </button>
         )}
-        <button type="button" onClick={onContinueChat}>
-          <MessageSquarePlus size={14} aria-hidden />
-          {t("chat.flow.anotherChat")}
-        </button>
+        <Tooltip title={t("chat.flow.anotherChat")}>
+          <button
+            type="button"
+            onClick={onContinueChat}
+            aria-label={t("chat.flow.anotherChat")}
+          >
+            <MessageSquarePlus size={15} aria-hidden />
+          </button>
+        </Tooltip>
       </div>
     </div>
   );

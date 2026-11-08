@@ -47,6 +47,7 @@ import { VoiceSettingsPanel } from "../Voice";
 import { SearchSettingsPanel } from "../SearchConfig";
 import FreeModelChannels from "./components/FreeModelChannels";
 import CatalogStatus from "./components/CatalogStatus";
+import ModelRoutingPanel from "./ModelRoutingPanel";
 
 type ModelCategory = "chat" | "generation" | "voice" | "search";
 
@@ -262,6 +263,7 @@ export default function ModelsPage() {
         <>
           <CatalogStatus onRefresh={fetchAll} />
           <FreeModelChannels providers={providers} onSaved={fetchAll} />
+          <ModelRoutingPanel />
         </>
       )}
       <Tabs

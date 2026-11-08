@@ -32,7 +32,8 @@ from octop.infra.agents.teams.team_manager import (
 from octop.infra.agents.teams.team_manager import (
     stamp_team_host_chunk as _maybe_stamp_team_host,
 )
-from octop.infra.errors import OctopError
+from octop.infra.conversations.activity import record_user_request
+from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.cli.events import message_event_to_cli_chunks
 from octop.infra.gateway.hitl.coordinator import (
     HitlAnswerOutcome,
@@ -121,7 +122,9 @@ def _overwrite_last_user_text(request: dict[str, Any], text: str) -> None:
         return
     extra = getattr(last, "additional_kwargs", None)
     kwargs = dict(extra) if isinstance(extra, dict) else {}
-    messages[-1] = HumanMessage(content=text, additional_kwargs=kwargs)
+    messages[-1] = HumanMessage(
+        content=text, additional_kwargs=kwargs, id=getattr(last, "id", None)
+    )
 
 
 class _MessageEventSink(SlashSink):
@@ -525,6 +528,8 @@ class GlobalProcessor:
         *,
         needs_multimodal: bool,
         user_id: int = 0,
+        text: str = "",
+        routing_info: dict[str, Any] | None = None,
     ) -> str | None:
         """Per-turn ``model`` for harness requests.
 
@@ -544,6 +549,7 @@ class GlobalProcessor:
         )
         if model_ref and not providers.is_model_ref_usable(model_ref):
             model_ref = None
+        explicit_model = model_ref
         if not model_ref:
             row = self._agent_repo.get(agent_id)
             if row is not None:
@@ -563,6 +569,37 @@ class GlobalProcessor:
         if not model_ref:
             fallback = self._agent_manager.resolve_fallback_model_ref(providers.user_id)
             model_ref = fallback.strip() if isinstance(fallback, str) and fallback.strip() else None
+        repos = getattr(self._agent_manager, "_repos", None)
+        if repos is not None and isinstance(providers.user_id, int):
+            from octop.infra.agents.providers.routing import ModelRoutingService
+
+            router = ModelRoutingService(repos, providers.user_id)
+            if router.config().enabled:
+                work_mode = (meta or {}).get("work_mode") or (
+                    (meta or {}).get("octop_execution_context") or {}
+                ).get("work_mode")
+                devices = getattr(self._agent_manager, "_device_service", None)
+                if not work_mode and devices is not None and thread_row is not None:
+                    from octop.infra.execution.service import ExecutionService
+
+                    work_mode = (
+                        ExecutionService(devices).selection(user_id, thread_id).get("work_mode")
+                    )
+                if not work_mode and thread_row is not None:
+                    work_mode = thread_row.conversation_mode
+                decision = router.resolve(
+                    explicit_model=explicit_model,
+                    default_model=model_ref,
+                    text=text,
+                    has_images=needs_multimodal,
+                    work_mode=work_mode,
+                    context_tokens=router.context_budget(agent_id, thread_id, text),
+                )
+                if not decision.available:
+                    raise OctopError.localized(ErrorCode.MODEL_ROUTING_INVALID_MODEL)
+                if routing_info is not None:
+                    routing_info.update(decision.model_dump())
+                return decision.model
         if not model_ref:
             return None
         return providers.resolve_model_for_multimodal_turn(
@@ -769,12 +806,15 @@ class GlobalProcessor:
             media_backend=media_backend,
             locale=locale,
         )
+        routing_info: dict[str, Any] = {}
         model_ref = self._resolve_harness_model(
             agent_id,
             thread_id,
             None,
             user_id=user_id,
             needs_multimodal=content_blocks_need_vision(content),
+            text=msg.text,
+            routing_info=routing_info,
         )
         mcp_servers = await self._resolve_turn_mcp_servers(
             agent_id=agent_id,
@@ -817,6 +857,17 @@ class GlobalProcessor:
             model=model_ref,
             message_kwargs=message_kwargs or None,
         )
+        await asyncio.to_thread(
+            record_user_request,
+            getattr(self._agent_manager, "_repos", None),
+            user_id,
+            agent_id,
+            thread_id,
+            request,
+            str((msg.metadata or {}).get("ws_connection_id") or ""),
+        )
+        if routing_info:
+            request.setdefault("configurable", {})["octop_model_route"] = routing_info
         self.teams.stamp_host_runtime(request, agent_id)
         self._attach_turn_knowledge_config(
             request,
@@ -1339,12 +1390,15 @@ class GlobalProcessor:
             media_backend=media_backend,
             locale=locale,
         )
+        routing_info: dict[str, Any] = {}
         model_ref = self._resolve_harness_model(
             agent_id,
             thread_id,
             meta,
             user_id=user_id,
             needs_multimodal=content_blocks_need_vision(content),
+            text=msg.text,
+            routing_info=routing_info,
         )
         reasoning_overrides = self._resolve_reasoning_overrides(
             user_id=user_id,
@@ -1413,6 +1467,17 @@ class GlobalProcessor:
             message_kwargs=message_kwargs or None,
             reasoning_overrides=reasoning_overrides,
         )
+        await asyncio.to_thread(
+            record_user_request,
+            getattr(self._agent_manager, "_repos", None),
+            user_id,
+            agent_id,
+            thread_id,
+            request,
+            str((msg.metadata or {}).get("ws_connection_id") or ""),
+        )
+        if routing_info:
+            request.setdefault("configurable", {})["octop_model_route"] = routing_info
         if isinstance(meta.get("octop_device_target"), dict):
             request.setdefault("configurable", {})["octop_device_target"] = meta[
                 "octop_device_target"

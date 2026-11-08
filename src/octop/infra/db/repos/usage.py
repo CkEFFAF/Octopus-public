@@ -36,6 +36,7 @@ class UsageRow:
     input_tokens: int
     uncached_input_tokens: int
     cache_read_tokens: int
+    cache_metrics_reported: bool
     cache_write_tokens: int
     output_tokens: int
     reasoning_tokens: int
@@ -55,6 +56,7 @@ class UsageRow:
             input_tokens=r["input_tokens"],
             uncached_input_tokens=r["uncached_input_tokens"],
             cache_read_tokens=r["cache_read_tokens"],
+            cache_metrics_reported=bool(r["cache_metrics_reported"]),
             cache_write_tokens=r["cache_write_tokens"],
             output_tokens=r["output_tokens"],
             reasoning_tokens=r["reasoning_tokens"],
@@ -152,6 +154,7 @@ class UsageRepo:
         output_tokens: int,
         uncached_input_tokens: int | None = None,
         cache_read_tokens: int = 0,
+        cache_metrics_reported: bool = False,
         cache_write_tokens: int = 0,
         reasoning_tokens: int = 0,
         model_calls: int = 1,
@@ -168,9 +171,9 @@ class UsageRepo:
                 INSERT INTO usage_log (
                     ts, agent_id, user_id, thread_id, model,
                     input_tokens, uncached_input_tokens,
-                    cache_read_tokens, cache_write_tokens,
+                    cache_metrics_reported, cache_read_tokens, cache_write_tokens,
                     output_tokens, reasoning_tokens, total_tokens, model_calls, source
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ts or now_ts(),
@@ -182,6 +185,7 @@ class UsageRepo:
                     int(input_tokens)
                     if uncached_input_tokens is None
                     else int(uncached_input_tokens),
+                    int(cache_metrics_reported),
                     int(cache_read_tokens),
                     int(cache_write_tokens),
                     int(output_tokens),
@@ -243,6 +247,7 @@ class UsageRepo:
                     COALESCE(SUM(uncached_input_tokens), 0) AS uncached_input_tokens,
                     COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
                     COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+                    COALESCE(MIN(cache_metrics_reported), 0) AS cache_metrics_reported,
                     COALESCE(SUM(output_tokens), 0) AS output_tokens,
                     COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens,
                     COALESCE(SUM(total_tokens), 0)  AS total_tokens,
@@ -257,6 +262,7 @@ class UsageRepo:
                 "uncached_input_tokens": int(row["uncached_input_tokens"]),
                 "cache_read_tokens": int(row["cache_read_tokens"]),
                 "cache_write_tokens": int(row["cache_write_tokens"]),
+                "cache_metrics_reported": bool(row["cache_metrics_reported"]),
                 "output_tokens": int(row["output_tokens"]),
                 "reasoning_tokens": int(row["reasoning_tokens"]),
                 "total_tokens": int(row["total_tokens"]),
@@ -275,6 +281,7 @@ class UsageRepo:
                         SUM(uncached_input_tokens) AS uncached_input_tokens,
                         SUM(cache_read_tokens) AS cache_read_tokens,
                         SUM(cache_write_tokens) AS cache_write_tokens,
+                        MIN(cache_metrics_reported) AS cache_metrics_reported,
                         SUM(output_tokens) AS output_tokens,
                         SUM(reasoning_tokens) AS reasoning_tokens,
                         SUM(total_tokens)  AS total_tokens,
@@ -295,6 +302,7 @@ class UsageRepo:
                         "uncached_input_tokens": int(r["uncached_input_tokens"] or 0),
                         "cache_read_tokens": int(r["cache_read_tokens"] or 0),
                         "cache_write_tokens": int(r["cache_write_tokens"] or 0),
+                        "cache_metrics_reported": bool(r["cache_metrics_reported"]),
                         "output_tokens": int(r["output_tokens"] or 0),
                         "reasoning_tokens": int(r["reasoning_tokens"] or 0),
                         "total_tokens": int(r["total_tokens"] or 0),
@@ -312,6 +320,7 @@ class UsageRepo:
                         SUM(uncached_input_tokens) AS uncached_input_tokens,
                         SUM(cache_read_tokens) AS cache_read_tokens,
                         SUM(cache_write_tokens) AS cache_write_tokens,
+                        MIN(cache_metrics_reported) AS cache_metrics_reported,
                         SUM(output_tokens) AS output_tokens,
                         SUM(reasoning_tokens) AS reasoning_tokens,
                         SUM(total_tokens)  AS total_tokens,
@@ -332,6 +341,7 @@ class UsageRepo:
                         "uncached_input_tokens": int(r["uncached_input_tokens"] or 0),
                         "cache_read_tokens": int(r["cache_read_tokens"] or 0),
                         "cache_write_tokens": int(r["cache_write_tokens"] or 0),
+                        "cache_metrics_reported": bool(r["cache_metrics_reported"]),
                         "output_tokens": int(r["output_tokens"] or 0),
                         "reasoning_tokens": int(r["reasoning_tokens"] or 0),
                         "total_tokens": int(r["total_tokens"] or 0),
@@ -349,6 +359,7 @@ class UsageRepo:
                         SUM(uncached_input_tokens) AS uncached_input_tokens,
                         SUM(cache_read_tokens) AS cache_read_tokens,
                         SUM(cache_write_tokens) AS cache_write_tokens,
+                        MIN(cache_metrics_reported) AS cache_metrics_reported,
                         SUM(output_tokens) AS output_tokens,
                         SUM(reasoning_tokens) AS reasoning_tokens,
                         SUM(total_tokens)  AS total_tokens,
@@ -369,6 +380,7 @@ class UsageRepo:
                         "uncached_input_tokens": int(r["uncached_input_tokens"] or 0),
                         "cache_read_tokens": int(r["cache_read_tokens"] or 0),
                         "cache_write_tokens": int(r["cache_write_tokens"] or 0),
+                        "cache_metrics_reported": bool(r["cache_metrics_reported"]),
                         "output_tokens": int(r["output_tokens"] or 0),
                         "reasoning_tokens": int(r["reasoning_tokens"] or 0),
                         "total_tokens": int(r["total_tokens"] or 0),
@@ -381,10 +393,12 @@ class UsageRepo:
 
         avg = totals["total_tokens"] // totals["turns"] if totals["turns"] else 0
         cache_hit_percent = (
-            round(totals["cache_read_tokens"] / totals["input_tokens"] * 100)
+            round(totals["cache_read_tokens"] / totals["input_tokens"] * 100, 2)
             if totals["input_tokens"]
             else 0
         )
+        # Keep the numeric field for older clients. New clients must gate display
+        # on cache_metrics_reported, since legacy rows lack cache provenance.
         return {
             "window": window,
             "granularity": granularity,
@@ -423,14 +437,14 @@ class UsageRepo:
                 SELECT
                     id, ts, agent_id, user_id, thread_id, model,
                     input_tokens, uncached_input_tokens,
-                    cache_read_tokens, cache_write_tokens,
+                    cache_metrics_reported, cache_read_tokens, cache_write_tokens,
                     output_tokens, reasoning_tokens, total_tokens,
                     model_calls, source
                 FROM (
                     SELECT
                         id, ts, agent_id, user_id, thread_id, model,
                         input_tokens, uncached_input_tokens,
-                        cache_read_tokens, cache_write_tokens,
+                        cache_metrics_reported, cache_read_tokens, cache_write_tokens,
                         output_tokens, reasoning_tokens, total_tokens,
                         model_calls, source
                     FROM usage_log
@@ -454,6 +468,7 @@ class UsageRepo:
                     COALESCE(SUM(uncached_input_tokens), 0) AS uncached_input_tokens,
                     COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
                     COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+                    COALESCE(MIN(cache_metrics_reported), 0) AS cache_metrics_reported,
                     COALESCE(SUM(output_tokens), 0) AS output_tokens,
                     COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens,
                     COALESCE(SUM(total_tokens), 0)  AS total_tokens,
@@ -469,6 +484,7 @@ class UsageRepo:
             "uncached_input_tokens": int(row["uncached_input_tokens"]),
             "cache_read_tokens": int(row["cache_read_tokens"]),
             "cache_write_tokens": int(row["cache_write_tokens"]),
+            "cache_metrics_reported": bool(row["cache_metrics_reported"]),
             "output_tokens": int(row["output_tokens"]),
             "reasoning_tokens": int(row["reasoning_tokens"]),
             "total_tokens": int(row["total_tokens"]),

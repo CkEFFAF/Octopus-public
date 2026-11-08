@@ -87,13 +87,31 @@ vi.mock("./ChatInputActionsRow", () => ({
   default: ({
     onSubmit,
     canSend,
+    busyIntent,
+    onBusyIntentChange,
   }: {
     onSubmit: () => void;
     canSend: boolean;
+    busyIntent?: "supplement" | "queue";
+    onBusyIntentChange?: (intent: "supplement" | "queue") => void;
   }) => (
-    <button type="button" disabled={!canSend} onClick={onSubmit}>
-      send
-    </button>
+    <>
+      {onBusyIntentChange && (
+        <select
+          aria-label="chat.flow.sendWhileWorking"
+          value={busyIntent}
+          onChange={(event) =>
+            onBusyIntentChange(event.target.value as "supplement" | "queue")
+          }
+        >
+          <option value="supplement">Add</option>
+          <option value="queue">Queue</option>
+        </select>
+      )}
+      <button type="button" disabled={!canSend} onClick={onSubmit}>
+        send
+      </button>
+    </>
   ),
 }));
 
@@ -295,7 +313,9 @@ describe("ChatInput prefill clear-on-send", () => {
     );
     fireEvent.click(screen.getByText("chat.backgroundUi.progress"));
     expect(progress).toHaveBeenCalledOnce();
-    fireEvent.click(screen.getByText("chat.flow.anotherChat"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "chat.flow.anotherChat" }),
+    );
     expect(continueChat).toHaveBeenCalledOnce();
     expect(cancel).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();

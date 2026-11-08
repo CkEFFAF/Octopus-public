@@ -714,6 +714,74 @@ async def test_stream_applies_bootstrap_refresh_after_turn(manager: AgentManager
 
 
 @pytest.mark.asyncio
+async def test_closing_at_route_notice_cleans_running_model(manager: AgentManager) -> None:
+    manager._harness_manager = MagicMock()
+    routed = {
+        "thread_id": "route-thread",
+        "model": "Owned/coder",
+        "configurable": {"octop_model_route": {"model": "Owned/coder"}},
+    }
+    manager._prepare_stream_request = lambda aid, request: routed
+    manager._route_stream_request = lambda aid, request: request
+    iterator = manager.stream("expert", routed)
+    assert (await anext(iterator))["type"] == "model_route"
+    assert manager._active_model_refs[("expert", "route-thread")] == "Owned/coder"
+    await iterator.aclose()
+    assert ("expert", "route-thread") not in manager._active_model_refs
+
+
+@pytest.mark.asyncio
+async def test_managed_acp_registers_owned_thread_before_execution_and_routes(
+    manager: AgentManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from octop.infra.agents.acp import ManagedACPStream
+    from octop.infra.agents.providers.routing import ModelRoutingConfig, ModelRoutingService
+    from octop.infra.agents.response_recovery import ResponseRecovery
+    from octop.infra.devices.service import DeviceService
+    from octop.infra.execution.work_mode import WorkModeService
+
+    _seed_test_provider(manager)
+    manager._repos.agent_repo.create(agent_id="acp-expert", user_id=1, name="ACP expert")
+    manager._device_service = DeviceService(manager._repos)
+    ModelRoutingService(manager._repos, 1).save(
+        ModelRoutingConfig(enabled=True, tasks={"coding": "test-openai/gpt-4o-mini"})
+    )
+    seen = []
+
+    async def stream(aid, request):
+        seen.append(request)
+        cfg = {**request["configurable"], "thread_id": request["thread_id"]}
+        assert WorkModeService(manager._repos).begin(1, aid, cfg)["payload"]["mode"] == "agentic"
+        yield {"type": "token", "content": "done"}
+
+    harness = MagicMock()
+    harness.stream = stream
+    manager._harness_manager = harness
+    monkeypatch.setattr(ResponseRecovery, "record", AsyncMock(return_value=None))
+    request = {
+        "thread_id": "new-acp-session",
+        "source": "acp",
+        "messages": [{"role": "user", "content": "Python 报错"}],
+    }
+    adapter = ManagedACPStream(manager, "acp-expert")
+    chunks = [chunk async for chunk in adapter.stream(request)]
+    assert chunks[0]["task"] == "coding"
+    assert seen[0]["model"] == "test-openai/gpt-4o-mini"
+    assert manager._repos.thread_repo.get("new-acp-session").user_id == 1
+    manager._repos.agent_repo.create(agent_id="other-expert", user_id=1, name="Other expert")
+    manager._repos.thread_repo.insert(
+        thread_id="collision",
+        agent_id="other-expert",
+        user_id=1,
+        channel_type="ui",
+        session_key="other",
+    )
+    with pytest.raises(OctopError, match="ACP session unavailable"):
+        await anext(adapter.stream({**request, "thread_id": "collision"}))
+    assert len(seen) == 1
+
+
+@pytest.mark.asyncio
 async def test_history_backfill_refuses_while_agent_stream_is_active(
     manager: AgentManager,
 ) -> None:

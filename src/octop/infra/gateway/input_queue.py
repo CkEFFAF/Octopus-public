@@ -77,8 +77,15 @@ class ChatInputQueue:
             raise ValueError("input_queue_unsupported")
         existing = self.existing_queue(owner, agent_id, thread_id, command_id, request_key)
         if existing is not None:
+            self.repos.thread_activity_repo.record(
+                owner,
+                agent_id,
+                thread_id,
+                f"human:steer:{command_id}",
+                float(existing["created_at"]),
+            )
             return existing
-        return self.repos.chat_input_repo.create(
+        receipt = self.repos.chat_input_repo.create(
             owner,
             agent_id,
             thread_id,
@@ -93,6 +100,10 @@ class ChatInputQueue:
                 "inbound": inbound.model_dump(mode="json"),
             },
         )
+        self.repos.thread_activity_repo.record(
+            owner, agent_id, thread_id, f"human:steer:{command_id}", float(receipt["created_at"])
+        )
+        return receipt
 
     def existing_queue(
         self, owner: int, agent_id: str, thread_id: str, command_id: str, request_key: str
@@ -180,7 +191,8 @@ class ChatInputQueue:
         if not attachments:
             return None
         if any(isinstance(a, dict) and a.get("kind") == "image" for a in attachments):
-            model = self.agents.get_thread_model(agent_id, thread_id)
+            runtime = self.agents.steering_status(agent_id, thread_id) or {}
+            model = runtime.get("model") or self.agents.get_thread_model(agent_id, thread_id)
             if model and not self.agents.providers_for_agent(agent_id).is_model_ref_multimodal(
                 model
             ):

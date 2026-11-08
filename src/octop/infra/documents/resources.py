@@ -412,7 +412,9 @@ class ResourceService:
         return dict(resource)
 
     async def assert_content_authority(self, owner: int, resource: dict[str, Any]) -> None:
-        if resource.get("source_kind") == "execution":
+        if resource.get("source_kind") in {"execution", "device", "local"} and resource.get(
+            "source_context_id"
+        ):
             from octop.infra.execution.service import ExecutionService
 
             execution = ExecutionService(self.manager._device_service)
@@ -424,7 +426,7 @@ class ResourceService:
                 raise denied()
             # Rechecks current policy, grant and read capability, even for cached snapshots.
             await execution.call(
-                owner, context.context_id, "fs.stat", {"path": resource["source_path"]}
+                owner, resource["source_context_id"], "fs.stat", {"path": resource["source_path"]}
             )
         # Existing upload aliases are mutable; a changed source revokes that version.
         if resource.get("legacy_path"):

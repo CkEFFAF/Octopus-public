@@ -261,6 +261,8 @@ export function guessImageMime(
   if (ext === "webp") return "image/webp";
   if (ext === "svg") return "image/svg+xml";
   if (ext === "bmp") return "image/bmp";
+  if (ext === "avif") return "image/avif";
+  if (ext === "ico") return "image/x-icon";
   return fallback;
 }
 
@@ -611,7 +613,9 @@ export function parseStructuredToolOutput(
         continue;
       }
 
-      if (type === "image") {
+      const fileImage =
+        type === "file" && isImageMedia(filename || workspacePath, mimeType);
+      if (type === "image" || fileImage) {
         if (source?.type === "base64" && source.data) {
           images.push({
             url: `data:${mimeType || "image/png"};base64,${source.data}`,
@@ -621,7 +625,10 @@ export function parseStructuredToolOutput(
           });
           continue;
         }
-        const raw = source?.type === "url" && source.url ? source.url : "";
+        const raw =
+          source?.type === "url" && source.url
+            ? source.url
+            : workspacePath || "";
         const resolved = resolveToolMediaUrl(agentId, raw, {
           previewUrl,
           mimeType,
@@ -687,8 +694,14 @@ export function parseStructuredToolOutput(
   }
 }
 
-const IMAGE_EXT = "(?:png|jpe?g|gif|webp|bmp|svg)";
+const IMAGE_EXT = "(?:png|jpe?g|gif|webp|bmp|svg|avif|ico)";
 const IMAGE_EXT_RE = new RegExp(`\\.${IMAGE_EXT}`, "i");
+function isImageMedia(filename?: string, mimeType?: string): boolean {
+  return (
+    (mimeType || "").trim().toLowerCase().startsWith("image/") ||
+    new RegExp(`\\.${IMAGE_EXT}$`, "i").test(filename || "")
+  );
+}
 
 /** Pull a filesystem image path from plain tool output (browser screenshot, send_file). */
 export function extractImagePathFromText(text: string): string | null {
@@ -841,6 +854,20 @@ export function collectToolMediaFromToolData(
   if (/(^|[._])publish_artifact$/.test(toolData?.name ?? "")) {
     return { images: [], videos: [], files: [] };
   }
+  if (toolData?.output) {
+    try {
+      const result = JSON.parse(toolData.output);
+      if (
+        result?.status === "published" &&
+        result.resource_id &&
+        result.version
+      ) {
+        return { images: [], videos: [], files: [] };
+      }
+    } catch {
+      // Plain legacy tool output is handled below.
+    }
+  }
   const fromOutput = collectToolMediaFromOutput(toolData?.output, agentId);
   const images = [...fromOutput.images];
   const videos = [...fromOutput.videos];
@@ -868,7 +895,7 @@ export function collectToolMediaFromToolData(
 
   for (const att of attachments || []) {
     if (!att.url) continue;
-    if (att.kind === "image") {
+    if (att.kind === "image" || isImageMedia(att.filename, att.mediaType)) {
       images.push({
         url: agentId ? normalizeStoredMediaUrl(agentId, att.url) : att.url,
         filename: att.filename,

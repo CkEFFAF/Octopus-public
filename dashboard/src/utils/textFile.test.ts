@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { decodeUtf8Text, isTextFile } from "./textFile";
+import { decodeUtf8Text, isTextFile, isMarkdownFile } from "./textFile";
 describe("portable text previews", () => {
+  it.each([
+    ["report.MD", "application/octet-stream"],
+    ["report.markdown", "text/plain"],
+    ["report", "text/markdown; charset=utf-8"],
+    ["report", "application/markdown"],
+  ])("recognizes rendered Markdown %s (%s)", (name, mime) => {
+    expect(isMarkdownFile(name, mime)).toBe(true);
+    expect(isTextFile(name, mime)).toBe(true);
+  });
   it.each([
     "script.js",
     "script.sh",

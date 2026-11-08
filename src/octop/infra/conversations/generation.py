@@ -9,7 +9,11 @@ from math import ceil
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from octop_harness.context_usage import estimate_json_tokens, estimate_tokens
+from octop_harness.context_usage import (
+    estimate_json_tokens,
+    estimate_tokens,
+    extract_usage_from_message,
+)
 from octop_harness.llm.factory import ChatModelFactory
 from octop_harness.llm.invoke_helpers import bind_call_options
 
@@ -118,7 +122,7 @@ async def generate_json(
             ),
             timeout=30,
         )
-        usage = getattr(result, "usage_metadata", None) or {}
+        usage = extract_usage_from_message(result) or {}
         manager._repos.usage_repo.record(
             agent_id=job["agent_id"],
             user_id=owner,
@@ -127,6 +131,11 @@ async def generate_json(
             source=purpose,
             input_tokens=int(usage.get("input_tokens") or 0),
             output_tokens=int(usage.get("output_tokens") or 0),
+            uncached_input_tokens=int(usage.get("uncached_input_tokens") or 0),
+            cache_read_tokens=int(usage.get("cache_read_tokens") or 0),
+            cache_metrics_reported=bool(usage.get("cache_metrics_reported")),
+            cache_write_tokens=int(usage.get("cache_write_tokens") or 0),
+            reasoning_tokens=int(usage.get("reasoning_tokens") or 0),
             model_calls=1,
         )
         if (getattr(result, "response_metadata", None) or {}).get("finish_reason") in {

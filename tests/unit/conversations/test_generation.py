@@ -40,7 +40,12 @@ async def test_auxiliary_call_is_tool_free_account_scoped_and_records_usage(
             assert "never a snake_case identifier" in messages[0].content
             return AIMessage(
                 content='{"one_liner":"summary","objective":"goal"}',
-                usage_metadata={"input_tokens": 120, "output_tokens": 20, "total_tokens": 140},
+                usage_metadata={
+                    "input_tokens": 120,
+                    "output_tokens": 20,
+                    "total_tokens": 140,
+                    "input_token_details": {"cache_read": 80, "cache_creation": 10},
+                },
             )
 
     class Factory:
@@ -95,6 +100,9 @@ async def test_auxiliary_call_is_tool_free_account_scoped_and_records_usage(
     assert recorded[0]["source"] == "thread_brief"
     assert recorded[0]["user_id"] == 7
     assert recorded[0]["input_tokens"] == 120
+    assert recorded[0]["uncached_input_tokens"] == 30
+    assert recorded[0]["cache_read_tokens"] == 80
+    assert recorded[0]["cache_write_tokens"] == 10
     assert len(calls) == len(closed) == 1
 
 

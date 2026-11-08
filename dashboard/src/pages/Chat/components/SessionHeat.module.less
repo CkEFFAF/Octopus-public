@@ -1,0 +1,48 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  line-height: 18px;
+  padding: 0 5px;
+  border-radius: 5px;
+  font-weight: 500;
+  white-space: nowrap;
+  &:focus-visible {
+    outline: 2px solid var(--fn-color-brand);
+    outline-offset: 2px;
+  }
+}
+.running {
+  color: var(--fn-text-secondary);
+  background: color-mix(
+    in srgb,
+    var(--fn-color-info, #2570c7) 10%,
+    transparent
+  );
+  svg {
+    color: var(--fn-color-info, #2570c7);
+  }
+}
+.attention {
+  color: var(--fn-text-secondary);
+  background: color-mix(
+    in srgb,
+    var(--fn-color-warning, #a56c08) 12%,
+    transparent
+  );
+  svg {
+    color: var(--fn-color-warning, #a56c08);
+  }
+}
+.hot {
+  color: var(--fn-text-secondary);
+  background: var(--fn-color-brand-bg);
+  svg {
+    color: var(--fn-color-brand);
+  }
+}
+.warm {
+  color: var(--fn-text-secondary);
+  background: var(--fn-bg-secondary);
+}

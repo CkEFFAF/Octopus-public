@@ -345,3 +345,19 @@
     margin-top: 3px;
   }
 }
+.sessionRow:has(.sessionRowCopy[data-heat="hot"]):not(.sessionRowActive) {
+  background: color-mix(in srgb, var(--fn-color-brand) 5%, transparent);
+  box-shadow: inset 2px 0 var(--fn-color-brand);
+}
+.sessionRow:has(.sessionRowCopy[data-heat="running"]):not(.sessionRowActive) {
+  background: color-mix(in srgb, var(--fn-color-info, #2570c7) 5%, transparent);
+  box-shadow: inset 2px 0 var(--fn-color-info, #2570c7);
+}
+.sessionRow:has(.sessionRowCopy[data-heat="attention"]):not(.sessionRowActive) {
+  background: color-mix(
+    in srgb,
+    var(--fn-color-warning, #a56c08) 6%,
+    transparent
+  );
+  box-shadow: inset 2px 0 var(--fn-color-warning, #a56c08);
+}

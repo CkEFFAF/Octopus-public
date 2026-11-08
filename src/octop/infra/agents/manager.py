@@ -79,6 +79,7 @@ from octop.infra.connectors.builder import (
 )
 from octop.infra.connectors.service import ConnectorService
 from octop.infra.db.repos.audit import ACTOR_SYSTEM
+from octop.infra.db.services import RepoBundle
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.skills.presentation import apply_skill_presentation, localize_skill_summary
 from octop.infra.skills.skill_package_store import SkillPackageStore
@@ -95,7 +96,6 @@ if TYPE_CHECKING:
     from octop.infra.agents.plugins.manager import PluginManager
     from octop.infra.cron.manager import CronManager
     from octop.infra.db.repos.agents import AgentRow
-    from octop.infra.db.services import RepoBundle
     from octop.infra.proactive.scheduler import ProactiveCareScheduler
     from octop.infra.utils.paths import PathLayout
 
@@ -405,6 +405,7 @@ class AgentManager:
         # one thread interleave LangGraph checkpoint writes.
         self._thread_execution_locks: dict[tuple[str, str], asyncio.Lock] = {}
         self._active_invocations: dict[str, int] = {}
+        self._active_model_refs: dict[tuple[str, str], str] = {}
         self._invocation_waiters: dict[str, int] = {}
         self._history_backfills: dict[str, asyncio.Event] = {}
         self._reload_dirty: set[str] = set()
@@ -1367,11 +1368,18 @@ class AgentManager:
                 if (request.get("configurable") or {}).get("octop_shared_text_scope") is not None
                 else self._prepare_stream_request(agent_id, request)
             )
+            req = await asyncio.to_thread(self._route_stream_request, agent_id, req)
             with hitl_thread_scope(thread_id_from_request(req)):
                 from octop.infra.agents.response_recovery import ResponseRecovery
 
                 recovery = ResponseRecovery(self)
+                model_ref = req.get("model")
+                if isinstance(model_ref, str) and model_ref:
+                    self._active_model_refs[(agent_id, thread_id)] = model_ref
+                route = (req.get("configurable") or {}).get("octop_model_route")
                 try:
+                    if isinstance(route, dict):
+                        yield {**route, "type": "model_route"}
                     async for chunk in self._harness_manager.stream(agent_id, cast(Any, req)):
                         yield chunk
                 except Exception as exc:
@@ -1387,6 +1395,8 @@ class AgentManager:
                         await recovery.record(agent_id, req)
                     except Exception:
                         logger.exception("Could not retain response recovery thread=%s", thread_id)
+                finally:
+                    self._active_model_refs.pop((agent_id, thread_id), None)
             self._apply_pending_bootstrap_graph_refresh(agent_id)
 
     async def call(self, agent_id: str, request: dict[str, Any]) -> dict[str, Any]:
@@ -1400,6 +1410,7 @@ class AgentManager:
                 if (request.get("configurable") or {}).get("octop_shared_text_scope") is not None
                 else self._prepare_stream_request(agent_id, request)
             )
+            req = await asyncio.to_thread(self._route_stream_request, agent_id, req)
             with hitl_thread_scope(thread_id_from_request(req)):
                 result = await self._harness_manager.call(agent_id, cast(Any, req))
             self._apply_pending_bootstrap_graph_refresh(agent_id)
@@ -1453,7 +1464,7 @@ class AgentManager:
                 options["cancel_tools"] = True
             if message is not None:
                 options["message"] = message
-            return self._harness_manager.steer_message(
+            result = self._harness_manager.steer_message(
                 agent_id,
                 thread_id,
                 command_id,
@@ -1462,6 +1473,22 @@ class AgentManager:
                 **options,
                 queue_if_busy=True,
             )
+            repos = getattr(self, "_repos", None)
+            if isinstance(repos, RepoBundle) and result.get("status") in {"accepted", "applied"}:
+                row = repos.thread_repo.get(thread_id)
+                if row is not None and row.agent_id == agent_id:
+                    receipt = repos.chat_input_repo.get(row.user_id, command_id)
+                    received_at = (
+                        float(receipt["created_at"])
+                        if receipt
+                        and receipt["agent_id"] == agent_id
+                        and receipt["thread_id"] == thread_id
+                        else None
+                    )
+                    repos.thread_activity_repo.record(
+                        row.user_id, agent_id, thread_id, f"human:steer:{command_id}", received_at
+                    )
+            return result
         except KeyError:
             return {"status": "inactive", "phase": "idle"}
 
@@ -1469,7 +1496,9 @@ class AgentManager:
         if self._harness_manager is None:
             return None
         try:
-            return self._harness_manager.steering_status(agent_id, thread_id)
+            status = self._harness_manager.steering_status(agent_id, thread_id)
+            model = self._active_model_refs.get((agent_id, thread_id))
+            return {**status, "model": model} if status and model else status
         except KeyError:
             return None
 
@@ -3348,6 +3377,50 @@ class AgentManager:
             return connector_user_id
         return row.user_id
 
+    def _route_stream_request(self, agent_id: str, request: dict[str, Any]) -> dict[str, Any]:
+        """Admit direct tasks through the same owner policy as gateway turns."""
+        from octop.infra.agents.providers.routing import ModelRoutingService, routing_input
+
+        configurable = dict(request.get("configurable") or {})
+        if configurable.get("octop_shared_text_scope") is not None:
+            return request
+        providers = self.providers_for_agent(agent_id)
+        if not isinstance(providers.user_id, int):
+            return request
+        router = ModelRoutingService(self._repos, providers.user_id)
+        if not router.config().enabled:
+            return request
+        frozen = configurable.get("octop_model_route")
+        if isinstance(frozen, dict) and frozen.get("model") == request.get("model"):
+            return request
+        thread_id = str(request.get("thread_id") or "")
+        explicit = request.get("model") or self.get_thread_model(agent_id, thread_id)
+        if not explicit and thread_id:
+            thread = self._repos.thread_repo.get(thread_id)
+            if thread is not None and thread.agent_id == agent_id:
+                explicit = thread.model_ref
+        if not isinstance(explicit, str) or not providers.is_model_ref_usable(explicit):
+            explicit = None
+        row = self.get_row(agent_id)
+        default = (
+            providers.resolve_explicit_default_model(row, self.get_config(agent_id))
+            if row
+            else None
+        )
+        text, has_images = routing_input(request.get("messages"))
+        decision = router.resolve(
+            explicit_model=explicit,
+            default_model=default,
+            text=text,
+            has_images=has_images,
+            work_mode=configurable.get("work_mode"),
+            context_tokens=router.context_budget(agent_id, thread_id, text),
+        )
+        if not decision.available:
+            raise OctopError.localized(ErrorCode.MODEL_ROUTING_INVALID_MODEL)
+        configurable["octop_model_route"] = decision.model_dump()
+        return {**request, "model": decision.model, "configurable": configurable}
+
     def _prepare_stream_request(self, agent_id: str, request: dict[str, Any]) -> dict[str, Any]:
         from octop_harness.plugins import collect_plugin_tool_configs  # noqa: PLC0415
 
@@ -3388,6 +3461,7 @@ class AgentManager:
                 "octop_explicit_working_dir",
                 "octop_target_policy",
                 "plugin_tool_configs",
+                "octop_model_route",
             ):
                 request_cfg.pop(key, None)
             request_cfg["conversation_mode"] = "ask"
@@ -3674,6 +3748,7 @@ class AgentManager:
         from octop.infra.agents.middleware.binary_read_guard import BinaryReadGuardMiddleware
         from octop.infra.agents.middleware.browser_profile import BrowserProfileMiddleware
         from octop.infra.agents.middleware.device_target import DeviceTargetMiddleware
+        from octop.infra.agents.middleware.file_delivery import FileDeliveryMiddleware
         from octop.infra.agents.middleware.live_configuration import LiveConfigurationMiddleware
         from octop.infra.agents.middleware.octop_ui_offload import OctopUiOffloadMiddleware
         from octop.infra.agents.middleware.reasoning import ReasoningRequestMiddleware
@@ -3725,6 +3800,7 @@ class AgentManager:
             WorkspaceImageMaterializeMiddleware(
                 workspace=ws, resource_service=ResourceService(self), agent_id=row.agent_id
             ),
+            FileDeliveryMiddleware(ResourceService(self), row.agent_id),
             ThreadArtifactsMiddleware(
                 thread_repo=self._repos.thread_repo,
                 workspace_dir=harness_workspace,
@@ -3893,6 +3969,21 @@ class AgentManager:
                 )
             )
 
+        routed_memory_model = None
+        if row.user_id is not None:
+            from octop.infra.agents.providers.routing import ModelRoutingService
+
+            router = ModelRoutingService(self._repos, row.user_id)
+            if router.config().enabled:
+                routed_memory_model = router.resolve(task="memory").model
+        memory_settings = _memory_extract_settings(
+            cfg, is_ref_usable=self.providers_for_user(row.user_id).is_model_ref_usable
+        )
+        if routed_memory_model and "memory_aux_light_model" not in memory_settings:
+            memory_settings.update(
+                memory_aux_light_model=routed_memory_model,
+                memory_aux_heavy_model=routed_memory_model,
+            )
         harness_cfg = HarnessAgentConfig(
             providers=self.providers_for_user(row.user_id).build_harness_configs(),
             name=_memory_namespace(row.agent_id),
@@ -3921,9 +4012,7 @@ class AgentManager:
             default_timezone=self._config.default_timezone,
             log_dir=str(self.paths.logs_dir),
             media_generation=self._media_generation.harness_config(),
-            **_memory_extract_settings(
-                cfg, is_ref_usable=self.providers_for_user(row.user_id).is_model_ref_usable
-            ),
+            **memory_settings,
             **_resolve_memory_backend_kwargs(cfg, workspace_dir=workspace_dir, config=self._config),
         )
         if "tools_disabled" in _HARNESS_AGENT_CONFIG_FIELDS:

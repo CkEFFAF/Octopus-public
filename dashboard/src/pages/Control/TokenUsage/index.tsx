@@ -81,6 +81,7 @@ interface UsageSummary {
   total_tokens: number;
   model_calls: number;
   cache_hit_percent: number;
+  cache_metrics_reported?: boolean;
   turns: number;
   avg_per_turn: number;
   buckets: UsageBucket[];
@@ -265,7 +266,15 @@ function usageStatItems(
     {
       key: "cacheHit",
       label: t("tokenUsage.cacheHit"),
-      value: `${totals.cache_hit_percent.toFixed(1)}%`,
+      value:
+        totals.cache_metrics_reported === false ||
+        totals.cache_hit_percent == null
+          ? "—"
+          : `${totals.cache_hit_percent.toFixed(
+              totals.cache_hit_percent > 0 && totals.cache_hit_percent < 1
+                ? 2
+                : 1,
+            )}%`,
     },
     { key: "turns", label: t("tokenUsage.turns"), value: totals.turns },
     {

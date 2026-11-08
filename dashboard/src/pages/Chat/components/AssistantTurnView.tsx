@@ -133,6 +133,15 @@ function AssistantTurnView({
     () => splitAssistantTurn(messages, splitOpts),
     [messages, splitOpts],
   );
+  const answerMessage = useMemo(() => {
+    const attachments = fullSplit.answerMessage?.attachments;
+    if (trailingSplit.answerMessage) {
+      return { ...trailingSplit.answerMessage, attachments };
+    }
+    return attachments?.length && fullSplit.answerMessage
+      ? { ...fullSplit.answerMessage, content: "", contentBlocks: undefined }
+      : null;
+  }, [fullSplit.answerMessage, trailingSplit.answerMessage]);
 
   const toolMedia = useMemo(
     () => collectTurnToolMedia(fullSplit, speakerAgentId),
@@ -245,17 +254,7 @@ function AssistantTurnView({
           ) : null}
         </>
       ) : null}
-      {hasToolMedia && (
-        <div className={styles.turnInset}>
-          <ToolMediaStrip
-            images={toolMedia.images}
-            videos={toolMedia.videos}
-            files={toolMedia.files}
-            agentId={speakerAgentId}
-          />
-        </div>
-      )}
-      {trailingSplit.answerMessage ? (
+      {answerMessage ? (
         <div
           className={`${styles.assistantTurnAnswer}${
             isWrapupTurn ? ` ${styles.teamWrapupTurn}` : ""
@@ -267,7 +266,7 @@ function AssistantTurnView({
             </span>
           ) : null}
           <MessageBubble
-            message={toAnswerOnlyMessage(trailingSplit.answerMessage)}
+            message={toAnswerOnlyMessage(answerMessage)}
             agentId={agentId}
             showAvatar={firstSummaryIdx < 0 && !trailingHasSummary}
             onRegenerate={onRegenerate}
@@ -282,6 +281,16 @@ function AssistantTurnView({
           />
         </div>
       ) : null}
+      {hasToolMedia && (
+        <div className={styles.turnInset}>
+          <ToolMediaStrip
+            images={toolMedia.images}
+            videos={toolMedia.videos}
+            files={toolMedia.files}
+            agentId={speakerAgentId}
+          />
+        </div>
+      )}
       {knowledgeCitations.length > 0 ? (
         <div className={styles.turnInset}>
           <KnowledgeCitationsStrip citations={knowledgeCitations} />

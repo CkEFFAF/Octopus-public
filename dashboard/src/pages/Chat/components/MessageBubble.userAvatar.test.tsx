@@ -59,6 +59,23 @@ function userMessage(extra: Partial<ChatMessage> = {}): ChatMessage {
 }
 
 describe("MessageBubble user avatar", () => {
+  it("localizes the preview mask for direct image attachments", () => {
+    render(
+      <MessageBubble
+        message={userMessage({
+          attachments: [
+            {
+              kind: "image",
+              url: "https://example.test/chart.png",
+              filename: "chart.png",
+            },
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByText("common.preview")).toBeInTheDocument();
+    expect(screen.queryByText("Preview")).not.toBeInTheDocument();
+  });
   it("renders historical model failures as a recovery card without internal instructions", () => {
     const retry = vi.fn();
     render(

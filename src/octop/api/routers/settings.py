@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends
@@ -9,11 +10,62 @@ from pydantic import BaseModel, Field
 
 from octop.api.deps import current_user, get_server, require_permission
 from octop.config import OctopConfig
+from octop.infra.agents.providers.routing import (
+    ModelRouteDecision,
+    ModelRoutePreview,
+    ModelRoutingConfig,
+    ModelRoutingService,
+    ModelRoutingView,
+)
 from octop.infra.agents.security import tool_execution_may_pause
 from octop.infra.auth.captcha import current_env, load_view, save_settings
 from octop.infra.users.identity import User
 
 router = APIRouter()
+
+
+@router.get(
+    "/settings/model-routing",
+    response_model=ModelRoutingView,
+    summary="Read account task model routing",
+)
+async def get_model_routing(
+    user: Any = Depends(current_user), server: Any = Depends(get_server)
+) -> ModelRoutingView:
+    return await asyncio.to_thread(ModelRoutingService(server.services.repos, int(user.id)).view)
+
+
+@router.put(
+    "/settings/model-routing",
+    response_model=ModelRoutingView,
+    summary="Save account task model routing",
+)
+async def put_model_routing(
+    body: ModelRoutingConfig, user: Any = Depends(current_user), server: Any = Depends(get_server)
+) -> ModelRoutingView:
+    return await asyncio.to_thread(
+        ModelRoutingService(server.services.repos, int(user.id)).save, body
+    )
+
+
+@router.post(
+    "/settings/model-routing/preview",
+    response_model=ModelRouteDecision,
+    summary="Preview task routing without calling a model",
+)
+async def preview_model_routing(
+    body: ModelRoutePreview, user: Any = Depends(current_user), server: Any = Depends(get_server)
+) -> ModelRouteDecision:
+    return await asyncio.to_thread(
+        ModelRoutingService(server.services.repos, int(user.id)).resolve,
+        task=body.task,
+        text=body.text,
+        has_images=body.has_images,
+        work_mode=body.work_mode,
+        context_tokens=body.context_tokens,
+        explicit_model=body.model,
+        honor_auxiliary_settings=True,
+    )
 
 
 class TimezoneSettingsResponse(BaseModel):

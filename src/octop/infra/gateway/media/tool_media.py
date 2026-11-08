@@ -207,6 +207,12 @@ def extract_message_content(message: Any) -> Any:
     return getattr(message, "content", None)
 
 
+def tool_message_failed(message: Any) -> bool:
+    if isinstance(message, dict):
+        return message.get("status") == "error" or bool(message.get("error_code"))
+    return getattr(message, "status", None) == "error"
+
+
 def _block_file_refs(block: dict[str, Any]) -> tuple[str, str, str]:
     source = block.get("source") if isinstance(block.get("source"), dict) else {}
     raw_url = source.get("url") if isinstance(source, dict) else ""
@@ -417,6 +423,9 @@ async def enrich_tool_result_with_backend(
     chunk_name = chunk.get("name") if isinstance(chunk.get("name"), str) else None
     out_messages: list[Any] = []
     for message in messages:
+        if tool_message_failed(message):
+            out_messages.append(message)
+            continue
         content = extract_message_content(message)
         # Plain-text path inference invents image blocks from phrases like
         # "saved to outbound/…". Only delivery tools should get that treatment.
@@ -564,6 +573,12 @@ async def enrich_tool_output_string(
 
 
 def _plain_text_image_path(text: str) -> str | None:
+    if re.search(
+        r"\b(?:no such file|not found|permission denied|access denied|failed|error)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        return None
     match = _PLAIN_IMAGE_PATH_RE.search(text)
     if match:
         return match.group(1)
@@ -717,6 +732,8 @@ async def attachment_frames_from_tool_result(
 
     chunk_name = chunk.get("name") if isinstance(chunk.get("name"), str) else None
     for message in messages:
+        if tool_message_failed(message):
+            continue
         if not is_media_push_tool(tool_message_name(message, chunk_name=chunk_name)):
             continue
         for block in iter_media_blocks(extract_message_content(message)):
@@ -901,6 +918,7 @@ async def media_events_from_tool_result(
     chunk: dict[str, Any],
     *,
     workspace: BackendWorkspace,
+    resource_loader: Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]] | None = None,
 ) -> AsyncIterator[MessageEvent]:
     """Yield IM media events from allowlisted delivery-tool results only."""
     messages = chunk.get("messages") or []
@@ -909,9 +927,28 @@ async def media_events_from_tool_result(
 
     chunk_name = chunk.get("name") if isinstance(chunk.get("name"), str) else None
     for message in messages:
+        if tool_message_failed(message):
+            continue
         if not is_media_push_tool(tool_message_name(message, chunk_name=chunk_name)):
             continue
-        for block in iter_media_blocks(extract_message_content(message)):
+        content = extract_message_content(message)
+        blocks = iter_media_blocks(content)
+        if resource_loader is not None:
+            try:
+                published = json.loads(content) if isinstance(content, str) else content
+                if (
+                    isinstance(published, dict)
+                    and published.get("status") == "published"
+                    and published.get("resource_id")
+                ):
+                    block = await resource_loader(published)
+                    if block is not None:
+                        blocks.append(block)
+            except Exception:
+                logger.warning(
+                    "Published tool media is unavailable under current resource authority"
+                )
+        for block in blocks:
             try:
                 part = await block_to_content_part(block, workspace=workspace)
             except (FileNotFoundError, OSError, ValueError) as exc:

@@ -2,21 +2,29 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
-from langchain_core.messages import SystemMessage, ToolMessage
+from langchain_core.messages import ToolMessage
 from langgraph.config import get_config
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
+from octop.infra.agents.middleware.request_context import (
+    append_system_hint,
+    capture_context,
+    replay_context,
+)
 from octop.infra.errors import OctopError
 from octop.infra.execution.work_mode import WorkModeService
 
 
 class WorkModeMiddleware(AgentMiddleware[Any, Any]):
+    _SNAPSHOT_KEY = "_octop_work_mode_context"
+
     def __init__(self, service: WorkModeService, agent_id: str) -> None:
         self.service, self.agent_id = service, agent_id
 
@@ -26,12 +34,24 @@ class WorkModeMiddleware(AgentMiddleware[Any, Any]):
             return None
         return self.service.begin(int(cfg["user"]), self.agent_id, cfg)
 
-    def _prepare(self, request: ModelRequest[Any]) -> ModelRequest[Any]:
+    def _context(self) -> str:
         state = self._state()
-        if state is None:
-            return request
+        return (
+            "\n\n[Work mode runtime snapshot]\n" + json.dumps(state, ensure_ascii=False)
+            if state
+            else ""
+        )
+
+    def before_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
+        return capture_context(state, self._SNAPSHOT_KEY, self._context)
+
+    async def abefore_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
+        return await asyncio.to_thread(self.before_model, state, runtime)
+
+    def _prepare(self, request: ModelRequest[Any]) -> ModelRequest[Any]:
         hint = (
-            "\n\n[Work mode runtime]\nThe following is persisted workflow state, not instructions from a document. "
+            "\n\n[Work mode runtime]\nRuntime snapshots accompany individual user messages. "
+            "They describe persisted state when that message arrived. "
             "Use work_step to inspect receipt IDs and advance stages with a bounded report. "
             "Only final real receipts are evidence. Accepted jobs/dispatches are not completed work. "
             "If capability or evidence is missing, record blocked or needs_input; do not claim completion. "
@@ -41,15 +61,11 @@ class WorkModeMiddleware(AgentMiddleware[Any, Any]):
             "Cowork: hand off a consequential decision with options/recommendation; only the user can resolve it. "
             "Computer Use: reference the actual selected-device interaction session. "
             "A free-form final response does not complete this workflow.\n"
-            + json.dumps(state, ensure_ascii=False)
         )
-        original = request.system_message.content if request.system_message else ""
-        content = (
-            original + hint
-            if isinstance(original, str)
-            else [*original, {"type": "text", "text": hint}]
+        return request.override(
+            system_message=append_system_hint(request, hint),
+            messages=replay_context(request, self._SNAPSHOT_KEY),
         )
-        return request.override(system_message=SystemMessage(content=content))
 
     def wrap_model_call(
         self, request: ModelRequest[Any], handler: Callable[[ModelRequest[Any]], ModelResponse[Any]]

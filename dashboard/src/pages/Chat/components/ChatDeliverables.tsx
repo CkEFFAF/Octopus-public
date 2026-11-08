@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { Button } from "antd";
-import { Download, Eye, Paperclip, RefreshCw } from "lucide-react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { Button, Image, Modal } from "antd";
+import { Download, Paperclip, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   collaborationApi,
@@ -11,33 +11,47 @@ import {
 import { fileTreeIcon } from "../../../utils/fileTreeIcon";
 import { formatBytes } from "../../../utils/embeddingDownload";
 import { useCollaboration } from "../hooks/useCollaboration";
+import {
+  DELIVERABLE_KINDS,
+  DELIVERY_PAGE_SIZE,
+  deliverableKind,
+  type DeliverableKind,
+} from "../utils/deliverableFiles";
 import styles from "./ChatDeliverables.module.less";
+const ResourcePanelContent = lazy(() => import("./ResourcePanelContent"));
 
 function ResourceCard({
   agentId,
   threadId,
   resource,
   onOpen,
+  overview = false,
 }: {
   agentId: string;
   threadId: string;
   resource: CollaborationResource;
   onOpen: (resource: CollaborationResource) => void;
+  overview?: boolean;
 }) {
   const { t } = useTranslation();
   const [image, setImage] = useState("");
   const [error, setError] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const {
     resource_id: resourceId,
     version,
     size,
     media_type: mediaType,
   } = resource;
+  const dot = resource.name.lastIndexOf(".");
+  const stem = dot > 0 ? resource.name.slice(0, dot) : resource.name;
+  const extension = dot > 0 ? resource.name.slice(dot) : "";
   useEffect(() => {
     let active = true;
     let url = "";
     setImage("");
+    setPreviewOpen(false);
     // Avoid eagerly loading a large image just to render a thumbnail.
     if (
       /^image\/(png|jpeg|gif|webp|avif)$/.test(mediaType) &&
@@ -56,7 +70,7 @@ function ResourceCard({
           setImage(url);
         })
         .catch(() => {
-          /* The preview button can retry through the resource panel. */
+          /* Clicking the icon can retry through the resource panel. */
         });
     }
     return () => {
@@ -76,45 +90,55 @@ function ResourceCard({
       setDownloading(false);
     }
   }
+  function preview() {
+    if (image) setPreviewOpen(true);
+    else onOpen(resource);
+  }
   return (
-    <article className={styles.card}>
-      <button
-        className={styles.preview}
-        onClick={() => onOpen(resource)}
-        aria-label={t("chat.deliverables.open", { name: resource.name })}
+    <>
+      <article
+        className={`${styles.card} ${overview ? styles.imageOverviewCard : ""}`}
       >
-        {image ? (
-          <img src={image} alt={resource.name} />
-        ) : (
-          fileTreeIcon(resource.name, 24)
-        )}
-      </button>
-      <div className={styles.meta}>
-        <strong title={resource.name}>{resource.name}</strong>
-        <span>{formatBytes(resource.size)}</span>
-        {error && <span role="alert">{t("collaboration.resourceError")}</span>}
-      </div>
-      <div className={styles.actions}>
+        <button
+          className={styles.preview}
+          onClick={preview}
+          aria-label={t("chat.deliverables.open", { name: resource.name })}
+          title={t("chat.deliverables.open", { name: resource.name })}
+        >
+          {image ? (
+            <img src={image} alt={resource.name} />
+          ) : (
+            fileTreeIcon(resource.name, 24)
+          )}
+        </button>
+        <div className={styles.meta}>
+          <strong title={resource.name}>
+            <span className={styles.filenameStem}>{stem}</span>
+            <span className={styles.filenameExt}>{extension}</span>
+          </strong>
+          <span>{formatBytes(resource.size)}</span>
+          {error && (
+            <span role="alert">{t("collaboration.resourceError")}</span>
+          )}
+        </div>
         <Button
+          className={styles.download}
           size="small"
           type="text"
-          icon={<Eye size={14} />}
-          onClick={() => onOpen(resource)}
-          aria-label={t("chat.deliverables.open", { name: resource.name })}
-        >
-          {t("common.preview")}
-        </Button>
-        <Button
-          size="small"
           loading={downloading}
-          icon={<Download size={14} />}
+          icon={<Download size={15} />}
           onClick={() => void download()}
           aria-label={t("chat.flow.downloadFile", { name: resource.name })}
-        >
-          {t("common.download")}
-        </Button>
-      </div>
-    </article>
+          title={t("common.download")}
+        />
+      </article>
+      {image && (
+        <Image.PreviewGroup
+          items={[image]}
+          preview={{ visible: previewOpen, onVisibleChange: setPreviewOpen }}
+        />
+      )}
+    </>
   );
 }
 
@@ -122,20 +146,44 @@ function ResourceCard({
 export default function ChatDeliverables({
   agentId,
   threadId,
-  onOpen,
 }: {
   agentId: string;
   threadId: string;
-  onOpen: (resource: CollaborationResource) => void;
 }) {
   const { t } = useTranslation();
   const { page, error, refresh } = useCollaboration(agentId, threadId);
-  const resources = page.artifacts.filter(
-    (resource) =>
-      resource.source_kind !== "upload" &&
-      resource.publication_state === "published",
+  const [kind, setKind] = useState<DeliverableKind | "all">("all");
+  const [limit, setLimit] = useState(DELIVERY_PAGE_SIZE);
+  const [previewResource, setPreviewResource] =
+    useState<CollaborationResource | null>(null);
+  useEffect(() => {
+    setKind("all");
+    setLimit(DELIVERY_PAGE_SIZE);
+    setPreviewResource(null);
+  }, [agentId, threadId]);
+  const resources = page.artifacts
+    .filter(
+      (resource) =>
+        resource.source_kind !== "upload" &&
+        resource.publication_state === "published",
+    )
+    .sort((a, b) => b.created_at - a.created_at);
+  const counts = Object.fromEntries(
+    DELIVERABLE_KINDS.map((type) => [
+      type,
+      resources.filter((resource) => deliverableKind(resource) === type).length,
+    ]),
   );
-  if (!resources.length && !error) return null;
+  const filtered = resources.filter(
+    (resource) => kind === "all" || deliverableKind(resource) === kind,
+  );
+  const visible = filtered.slice(0, limit);
+  const many = resources.length > DELIVERY_PAGE_SIZE;
+  const imageOverview =
+    resources.length <= 4 &&
+    resources.every((resource) => deliverableKind(resource) === "image");
+  const filtering = kind !== "all";
+  if (!resources.length && !error && !filtering) return null;
   return (
     <section
       className={styles.deliverables}
@@ -152,22 +200,118 @@ export default function ChatDeliverables({
           type="text"
           icon={<RefreshCw size={14} />}
           onClick={() => void refresh()}
-        >
-          {t("common.refresh")}
-        </Button>
+          aria-label={t("common.refresh")}
+          title={t("common.refresh")}
+        />
       </div>
+      {(many || filtering) && (
+        <div className={styles.filters}>
+          <div
+            className={styles.types}
+            role="group"
+            aria-label={t("chat.deliverables.fileType")}
+          >
+            {(["all", ...DELIVERABLE_KINDS] as const)
+              .filter(
+                (type) => type === "all" || counts[type] > 0 || type === kind,
+              )
+              .map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  aria-pressed={kind === type}
+                  onClick={() => {
+                    setKind(type);
+                    setLimit(DELIVERY_PAGE_SIZE);
+                  }}
+                >
+                  {t(`chat.deliverables.types.${type}`)}{" "}
+                  <span>
+                    {type === "all" ? resources.length : counts[type]}
+                  </span>
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
       {error && <p role="status">{t("chat.deliverables.refreshFailed")}</p>}
-      <div>
-        {resources.map((resource) => (
-          <ResourceCard
-            key={resource.resource_id + resource.version}
-            agentId={agentId}
-            threadId={threadId}
-            resource={resource}
-            onOpen={onOpen}
-          />
-        ))}
-      </div>
+      {filtered.length === 0 && (
+        <p role="status">{t("chat.deliverables.noMatch")}</p>
+      )}
+      {visible.length > 0 && (
+        <div
+          className={`${styles.files} ${
+            imageOverview ? styles.imageOverviewGrid : ""
+          }`}
+        >
+          {visible.map((resource) => (
+            <ResourceCard
+              key={resource.resource_id + resource.version}
+              agentId={agentId}
+              threadId={threadId}
+              resource={resource}
+              onOpen={setPreviewResource}
+              overview={imageOverview}
+            />
+          ))}
+        </div>
+      )}
+      {many && (
+        <div className={styles.pagination}>
+          <span>
+            {t("chat.deliverables.shown", {
+              count: visible.length,
+              total: filtered.length,
+            })}
+          </span>
+          {visible.length < filtered.length && (
+            <Button
+              size="small"
+              type="text"
+              onClick={() => setLimit((value) => value + DELIVERY_PAGE_SIZE)}
+            >
+              {t("chat.deliverables.more", {
+                count: Math.min(
+                  DELIVERY_PAGE_SIZE,
+                  filtered.length - visible.length,
+                ),
+              })}
+            </Button>
+          )}
+          {limit > DELIVERY_PAGE_SIZE && (
+            <Button
+              size="small"
+              type="text"
+              onClick={() => setLimit(DELIVERY_PAGE_SIZE)}
+            >
+              {t("chat.deliverables.collapse")}
+            </Button>
+          )}
+        </div>
+      )}
+      <Modal
+        centered
+        open={previewResource !== null}
+        title={previewResource?.name}
+        onCancel={() => setPreviewResource(null)}
+        footer={null}
+        width="min(920px, calc(100vw - 24px))"
+        classNames={{ body: styles.previewBody }}
+        destroyOnHidden
+      >
+        {previewResource && (
+          <Suspense
+            fallback={<p role="status">{t("collaboration.loading")}</p>}
+          >
+            <ResourcePanelContent
+              key={previewResource.resource_id}
+              agentId={agentId}
+              threadId={threadId}
+              resourceId={previewResource.resource_id}
+            />
+          </Suspense>
+        )}
+      </Modal>
     </section>
   );
 }

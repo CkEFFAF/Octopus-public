@@ -15,6 +15,7 @@ import type { TokenUsage } from "../../../api/types";
 import { buildDashboardChatWsUrl } from "../../../api/modules/wsChat";
 import { rewritePeerSpeakerId } from "../../../utils/remoteExpert";
 import { generateId } from "../../../utils/messageParser";
+import { reportedCacheRead } from "../utils/chatUsage";
 import { inboundAttachments } from "../../../utils/inboundAttachments";
 import type {
   ChatAttachment,
@@ -396,6 +397,7 @@ export function emitSessionEvent(event: SessionEvent) {
 
 function buildSnapshot(state: SessionStreamState): SessionSnapshot {
   return {
+    ...(state.modelRoute ? { modelRoute: state.modelRoute } : {}),
     ...(state.modelRetry ? { modelRetry: state.modelRetry } : {}),
     messages: state.messages,
     isStreaming: state.isStreaming,
@@ -539,6 +541,7 @@ function notify(state: SessionStreamState, batchStreamFrame = false) {
 }
 
 function beginStream(state: SessionStreamState, sessionId: string): void {
+  delete state.modelRoute;
   modelAttemptBaseline(
     state,
     sessionHostAgentId(state, sessionId),
@@ -1101,7 +1104,7 @@ function applyUsageChunk(state: SessionStreamState, chunk: UsageChunk): void {
             usageCount(usage.uncached_input_tokens),
           cache_read_tokens:
             usageCount(total.cache_read_tokens) +
-            usageCount(usage.cache_read_tokens),
+            usageCount(reportedCacheRead(usage)),
           cache_write_tokens:
             usageCount(total.cache_write_tokens) +
             usageCount(usage.cache_write_tokens),
@@ -1118,6 +1121,12 @@ function applyUsageChunk(state: SessionStreamState, chunk: UsageChunk): void {
       },
       {},
     );
+    if (
+      Array.from(samples.values()).some(
+        (usage) => reportedCacheRead(usage) === undefined,
+      )
+    )
+      delete state.runUsage.cache_read_tokens;
     state.contextUsage = { input_tokens: latestInput };
     return;
   }
@@ -1126,6 +1135,7 @@ function applyUsageChunk(state: SessionStreamState, chunk: UsageChunk): void {
   const input = usageCount(usage.input_tokens);
   const output = usageCount(usage.output_tokens);
   const previous = state.runUsage ?? {};
+  const hadUsage = state.runUsage !== null;
   state.runUsage = {
     input_tokens: usageCount(previous.input_tokens) + input,
     uncached_input_tokens:
@@ -1133,7 +1143,7 @@ function applyUsageChunk(state: SessionStreamState, chunk: UsageChunk): void {
       usageCount(usage.uncached_input_tokens),
     cache_read_tokens:
       usageCount(previous.cache_read_tokens) +
-      usageCount(usage.cache_read_tokens),
+      usageCount(reportedCacheRead(usage)),
     cache_write_tokens:
       usageCount(previous.cache_write_tokens) +
       usageCount(usage.cache_write_tokens),
@@ -1147,6 +1157,11 @@ function applyUsageChunk(state: SessionStreamState, chunk: UsageChunk): void {
     model_calls: usageCount(previous.model_calls) + 1,
     last_input_tokens: input,
   };
+  if (
+    reportedCacheRead(usage) === undefined ||
+    (hadUsage && reportedCacheRead(previous) === undefined)
+  )
+    delete state.runUsage.cache_read_tokens;
   state.contextUsage = { input_tokens: input };
 }
 
@@ -1344,6 +1359,25 @@ function handleHarnessChunkBody(
     touchStreamActivity(sessionId);
   }
   switch (chunk.type) {
+    case "model_route":
+      if (
+        speaker &&
+        sessionHostAgentId(state, sessionId) &&
+        speaker !== sessionHostAgentId(state, sessionId)
+      )
+        break;
+      if (sessionId && !state.isStreaming) {
+        beginStream(state, sessionId);
+        emitStreamEvent({ kind: "streamStart", sessionId });
+      }
+      state.modelRoute = {
+        task: chunk.task,
+        model: chunk.model,
+        source: chunk.source,
+        reason: chunk.reason,
+        available: chunk.available,
+      };
+      break;
     case "token": {
       const snapshot = Boolean(chunk.team_snapshot);
       // Snapshots are complete wall copies — never leave the speaker "live".

@@ -1,7 +1,7 @@
 # Octopus fork releases
 
 Production tags belong to a merged `main` commit. The Octopus fork uses
-hotfix PRs into `main`; it currently has no `develop` branch. Complete Linux and
+release and hotfix PRs into `main`; keep `develop` synchronized after release. Complete Linux and
 Windows CI before merging, then let `auto-tag-on-release.yml` read the version
 from the merged tree and dispatch release builds.
 

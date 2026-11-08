@@ -40,6 +40,7 @@ function RefreshableImage({
       src={src}
       alt={filename || `image-${idx}`}
       className={styles.toolMediaImage}
+      preview={{ mask: t("common.preview") }}
     />
   );
 }

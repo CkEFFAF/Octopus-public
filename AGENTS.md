@@ -300,6 +300,16 @@ i18n/
 **Chat answer recovery:** Use the authenticated `response-recovery` endpoint and stable `command_id` to resume the original model checkpoint. Never implement retry by submitting another `user_turn`. Keep completed tools and attachments, and revalidate the owner and execution context. See `docs/specs/0047-chat-response-recovery.md`.
 
 **Continuous chat input:** Keep the app and pinned Harness media steering API together. Admit canonical versioned attachments before claiming a receipt, recheck image resources at model use, and preserve reference only checkpoints. Use durable command IDs and the opted in FIFO buffer for consecutive supplements. Public tool feedback comes from actual receipts and localized action summaries; job hashes belong in technical details. See `docs/specs/0033-agent-live-message-steering.md`.
+
+**Prompt cache context (0048):** Keep dynamic brief and work-mode state in fingerprinted per-message snapshots, replayed only on model request copies. The pinned Harness counts and attributes these host contexts with memory recall. Never put changing provenance into the system prefix, expose private snapshots in user history, or use snapshots as permission checks.
+
+**Task model routing (0048):** Account policy is opt in and uses the expert owner's enabled chat models. Gateway and direct managed execution share routing; embedded ACP uses `ManagedACPStream` to register an owned thread before execution. Explicit and frozen models win, live supplements keep the running model, and memory model changes apply on the next expert reload.
+
+**Cache usage (0048):** `cache_metrics_reported` distinguishes explicit zero reads from missing counters in Harness events, request snapshots, trajectory and usage rows. Aggregate availability requires every input sample; legacy rows remain unknown. Preserve the numeric ledger ratio for older clients and gate its display on availability.
+
+**Session heat (0049):** Record actual user admission time with canonical message or command IDs, never tool activity. Queue admission, steering and history seeding share the same identity. Auto overview deferrals preserve leases and prior failure attempts; manual jobs bypass quiet scheduling. Rank owner-scoped heat before pagination and retain the open and pending threads during sidebar refresh.
+
+**Execution file delivery:** `FileDeliveryMiddleware` publishes project files from the current authenticated execution context through `ResourceService`; explicit `/.agent/` files keep the expert store backend. Failed tool results must never create or push inferred media. Display published files through their immutable resource version, never by guessing a current device or rewriting its path into expert storage.
 **Live attachment projection:** Chat WebSocket frames reach the store without the SSE parser. Cover raw WebSocket and parsed SSE events when changing attachment projection, and keep submission blocked until selected uploads are ready.
 
 **Frontend split**

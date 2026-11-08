@@ -1,4 +1,55 @@
 {
+  "modelRouting": {
+    "title": "任务模型路由",
+    "enable": "启用任务模型路由",
+    "description": "按任务设置模型，也可自动匹配。聊天中手动选择的模型优先，同一轮执行保持模型稳定。",
+    "auto": "自动选择",
+    "saved": "任务模型规则已保存，聊天从下一轮执行生效。",
+    "effective": "当前规则选用：{{model}}",
+    "noModel": "暂无可用模型",
+    "unavailableSelection": "{{model}}（当前不可用）",
+    "dedicatedOverride": "任务单独设置优先",
+    "auxiliaryNote": "标题和摘要的单独设置优先；摘要选择“与标题相同”时沿用标题。专家的记忆专用模型也优先，记忆路由在专家下次重载后生效。",
+    "auxiliaryLink": "查看标题与摘要设置",
+    "refresh": "刷新可用模型",
+    "previewTitle": "试算路由",
+    "previewDescription": "使用已保存的规则预览，只计算模型选择，不调用模型，不发送任务。",
+    "previewInput": "输入一个任务样例，例如：修复 Python 报错",
+    "previewTask": "预览任务类别",
+    "detectTask": "自动识别任务",
+    "hasImages": "包含图片",
+    "contextTokens": "已有上下文 token 数",
+    "saveFirst": "请先保存规则",
+    "preview": "预览选择",
+    "decision": "{{task}} → {{model}}",
+    "currentModel": "本轮实际模型：{{model}}",
+    "tasks": {
+      "chat": "日常对话",
+      "coding": "编程与调试",
+      "reasoning": "复杂推理",
+      "research": "资料研究",
+      "vision": "图片理解",
+      "long_context": "长上下文",
+      "title": "会话标题",
+      "summary": "会话摘要",
+      "memory": "记忆整理"
+    },
+    "reasons": {
+      "manual": "使用手动指定的模型",
+      "routing_disabled": "任务路由未启用，沿用原有默认",
+      "task_model": "使用该任务配置的模型",
+      "image_capability": "匹配图片理解能力",
+      "no_compatible_model": "没有可用且支持所需能力的模型",
+      "reasoning_capability": "匹配推理能力",
+      "coding_model": "匹配编程专用型号",
+      "context_capacity": "匹配所需上下文容量",
+      "unavailable_task_model": "任务模型已不可用，沿用可用默认",
+      "account_default": "沿用兼容的默认模型",
+      "same_as_title": "按摘要设置，使用与标题相同的模型",
+      "dedicated_setting": "使用标题或摘要的单独模型设置"
+    },
+    "routeDetails": "本次模型选择"
+  },
   "taskFilters": {
     "label": "任务状态",
     "recordLabel": "运行记录状态",
@@ -55,6 +106,27 @@
     "appliedFilters": "本次筛选：",
     "filteredScope": "符合当前筛选的会话",
     "filteredHint": "仅整理符合下列时间与状态条件的会话，保留人工命名与修正。会产生模型用量。"
+  },
+  "sessionHeat": {
+    "score": "会话热度 {{score}} / 100",
+    "inputs": "近 24 小时用户交互：{{count}} 次",
+    "weeklyInputs": "近 7 天用户交互：{{count}} 次",
+    "tasks": "近 7 天任务：{{count}} 个",
+    "background": "正在进行的后台任务：{{count}} 个",
+    "nextOverview": "预计 {{time}} 静默更新概览",
+    "level": {
+      "running": "任务中",
+      "attention": "待处理",
+      "hot": "常用",
+      "warm": "活跃"
+    },
+    "reason": {
+      "recent_conversation": "近期正在交流",
+      "answer_running": "等待本轮回答完成",
+      "heat_interval": "合并近期变化",
+      "quiet_window": "优先选择较少活动的时段",
+      "idle": "空闲时更新"
+    }
   },
   "sessionPreview": {
     "progress": "最新进展",
@@ -640,6 +712,7 @@
     "PROVIDER_NOT_VISIBLE": "提供商不可见。",
     "PROVIDER_REFERENCED": "提供商正在使用中，无法删除。",
     "PROVIDER_LOCAL_PROTECTED": "本地提供商无法删除。",
+    "MODEL_ROUTING_INVALID_MODEL": "任务模型不可用或不支持所需能力，请从当前账号已启用的模型中选择。",
     "CODEX_OAUTH_START_FAILED": "无法启动 ChatGPT 登录。请检查服务器到 auth.openai.com 的连接后重试。",
     "STORAGE_BACKEND_NAME_TAKEN": "存储后端名称已被占用。",
     "STORAGE_BACKEND_REFERENCED": "存储后端正在使用中，无法删除。",
@@ -2650,6 +2723,21 @@
     "deliverables": {
       "title": "交付文件",
       "open": "预览 {{name}}",
+      "fileType": "文件类型",
+      "noMatch": "没有匹配的文件",
+      "shown": "已显示 {{count}} / {{total}}",
+      "more": "再显示 {{count}} 个",
+      "collapse": "收起",
+      "types": {
+        "all": "全部",
+        "image": "图片",
+        "document": "文档",
+        "data": "表格与数据",
+        "code": "代码",
+        "archive": "压缩包",
+        "media": "音视频",
+        "other": "其他"
+      },
       "refreshFailed": "交付文件刷新失败，请重试。"
     },
     "flow": {
@@ -2669,7 +2757,9 @@
       "removeFile": "移除 {{name}}",
       "downloadFile": "下载 {{name}}",
       "imageModelUnsupported": "图片已保留在输入框。当前正在使用的模型不支持识图，请等本轮结束后选择支持图片的模型再发送。",
-      "attachmentChanged": "附件已变化或已不可用，输入内容已保留。请重新上传后发送。"
+      "attachmentChanged": "附件已变化或已不可用，输入内容已保留。请重新上传后发送。",
+      "supplementShort": "补充",
+      "queueShort": "排队"
     },
     "recovery": {
       "title": "这次回答未完成",
@@ -2698,7 +2788,9 @@
       "startJob": "启动后台任务",
       "job_status": "检查后台任务进度",
       "job_logs": "读取后台任务日志",
-      "job_cancel": "请求停止后台任务"
+      "job_cancel": "请求停止后台任务",
+      "runCommand": "执行终端命令",
+      "runProgram": "运行 {{program}} 命令"
     }
   },
   "tools": {
@@ -2883,7 +2975,9 @@
       "in_progress": "进行中",
       "completed": "已完成",
       "cancelled": "已取消"
-    }
+    },
+    "details": "查看完整用量",
+    "cacheUnavailable": "提供商未返回完整缓存数据"
   },
   "workspace": {
     "refreshHint": "只刷新根目录；子目录在展开时按需加载",

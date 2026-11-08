@@ -38,9 +38,7 @@ it("shows the actual cloud fallback and keeps unconfirmed receipts below complet
     fallback_reason: "TRANSFER_DIRECT_UNREACHABLE",
   });
   expect(screen.getByText("devices.p2p.hub")).toBeInTheDocument();
-  expect(
-    screen.getByText("devices.p2p.status.pending_receipt"),
-  ).toBeInTheDocument();
+  expect(screen.getByText("pending_receipt")).toBeInTheDocument();
   expect(screen.getByRole("progressbar")).toHaveAttribute(
     "aria-valuenow",
     "99",
@@ -55,9 +53,7 @@ it("requires both receipts before displaying completion", () => {
     bytes_done: 100,
     receipts: { source: true, target: false },
   });
-  expect(
-    screen.getByText("devices.p2p.status.pending_receipt"),
-  ).toBeInTheDocument();
+  expect(screen.getByText("pending_receipt")).toBeInTheDocument();
   expect(
     screen.queryByText("devices.p2p.status.completed"),
   ).not.toBeInTheDocument();

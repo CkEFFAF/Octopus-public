@@ -210,6 +210,7 @@ function RefreshableImage({
       src={src}
       alt={filename || `image-${idx}`}
       className={styles.messageImage}
+      preview={{ mask: t("common.preview") }}
       width="auto"
       style={{
         maxWidth: 300,
@@ -879,6 +880,15 @@ function MessageBubble({
               </ChatResponseNotice>
             ) : (
               <div className={`${styles.assistantText} ${groupCls}`}>
+                {textContent && (
+                  <Markdown
+                    content={textContent}
+                    isStreaming={isStreaming}
+                    onRunShellCommand={onRunShellCommand}
+                    shellCommandDisabled={shellCommandDisabled}
+                    shellCommandDisabledTitle={shellCommandDisabledTitle}
+                  />
+                )}
                 {imageAttachments.length > 0 && (
                   <ImageGallery images={imageAttachments} agentId={agentId} />
                 )}
@@ -916,15 +926,6 @@ function MessageBubble({
                   <FileAttachmentList
                     files={fileAttachments}
                     agentId={agentId}
-                  />
-                )}
-                {textContent && (
-                  <Markdown
-                    content={textContent}
-                    isStreaming={isStreaming}
-                    onRunShellCommand={onRunShellCommand}
-                    shellCommandDisabled={shellCommandDisabled}
-                    shellCommandDisabledTitle={shellCommandDisabledTitle}
                   />
                 )}
               </div>

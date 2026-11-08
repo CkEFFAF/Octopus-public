@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Download, Eye, Paperclip } from "lucide-react";
+import { Download, Eye } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { downloadAuthFile } from "../../../components/AuthFileDownloadLink";
 import {
@@ -11,7 +11,8 @@ import { getDocKind } from "../../Agent/Workspace/utils/docKind";
 import { getMediaKind } from "../../Agent/Workspace/utils/mediaKind";
 import { isProbablyText } from "../../Agent/Workspace/utils/fileKind";
 import { useChatFilePreview } from "../ChatFilePreviewContext";
-import styles from "../index.module.less";
+import { fileTreeIcon } from "../../../utils/fileTreeIcon";
+import styles from "./MessageFileCard.module.less";
 
 import { message as antMessage } from "@/utils/antdMessage";
 
@@ -40,9 +41,9 @@ export function MessageFileCard({
   const filePreview = useChatFilePreview();
   const [loading, setLoading] = useState(false);
   const needsAuth = needsAuthBlobFetch(url) || isDataUrl(url);
-  const label = filename || url;
-
   const resolvedPath = workspacePath || workspacePathFromAccessUrl(url) || "";
+  const label =
+    filename || resolvedPath.split(/[\\/]/).pop() || t("chat.flow.file");
   const previewable = Boolean(
     resolvedPath && agentId && isPreviewable(label) && filePreview,
   );
@@ -76,42 +77,59 @@ export function MessageFileCard({
   }, [previewable, resolvedPath, filePreview, agentId]);
 
   return (
-    <div className={styles.messageFileCard}>
-      <div className={styles.messageFileMeta}>
-        <Paperclip
-          size={16}
-          strokeWidth={2}
-          className={styles.messageFileIcon}
-          aria-hidden
-        />
-        <span className={styles.messageFileName} title={label}>
-          {label}
+    <article className={styles.card} aria-label={label}>
+      <span className={styles.icon} aria-hidden>
+        {fileTreeIcon(label, 24)}
+      </span>
+      <div className={styles.meta}>
+        {previewable ? (
+          <button
+            className={styles.name}
+            title={label}
+            onClick={openPreview}
+            type="button"
+          >
+            {label}
+          </button>
+        ) : (
+          <span className={styles.name} title={label}>
+            {label}
+          </span>
+        )}
+        <span className={styles.kind}>
+          {label.split(".").length > 1
+            ? label.split(".").pop()?.toUpperCase()
+            : t("chat.flow.file")}
         </span>
       </div>
-      {previewable && (
+      <div className={styles.actions}>
+        {previewable && (
+          <button
+            type="button"
+            className={styles.action}
+            onClick={openPreview}
+            title={t("common.preview")}
+            aria-label={t("common.preview")}
+          >
+            <Eye size={15} strokeWidth={2} />
+            <span>{t("common.preview")}</span>
+          </button>
+        )}
         <button
           type="button"
-          className={styles.messageFileActionBtn}
-          onClick={openPreview}
-          title={t("common.preview")}
-          aria-label={t("common.preview")}
+          className={styles.action}
+          onClick={(e) => {
+            e.stopPropagation();
+            void handleDownload();
+          }}
+          disabled={loading}
+          title={t("common.download")}
+          aria-label={t("common.download")}
         >
-          <Eye size={15} strokeWidth={2} />
+          <Download size={15} strokeWidth={2} />
+          <span>{t("common.download")}</span>
         </button>
-      )}
-      <button
-        type="button"
-        className={styles.messageFileActionBtn}
-        onClick={(e) => {
-          e.stopPropagation();
-          void handleDownload();
-        }}
-        disabled={loading}
-        title={t("common.download")}
-        aria-label={t("common.download")}
-      >
-        <Download size={15} strokeWidth={2} />
-      </button>
-    </div>
+      </div>
+    </article>
   );
 }

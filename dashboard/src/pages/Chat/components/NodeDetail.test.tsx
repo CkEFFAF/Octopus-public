@@ -14,7 +14,7 @@ vi.mock("../../../components/Markdown", () => ({
 }));
 describe("selected node async boundary", () => {
   it("does not label unread logs from a cancelled job as completed output", () => {
-    render(
+    const view = render(
       <NodeDetail
         node={{
           id: "job:context:614cd0fda8a6afc286d5379cbd92ea96",
@@ -32,7 +32,9 @@ describe("selected node async boundary", () => {
     expect(
       screen.getByRole("heading", { name: "workspace0034.nodeType.job" }),
     ).toBeTruthy();
-    expect(screen.getByText("#bd92ea96")).toBeTruthy();
+    expect(view.container.querySelector("details")?.textContent).toContain(
+      "614cd0fda8a6afc286d5379cbd92ea96",
+    );
     expect(screen.getByText("workspace0034.status.cancelled")).toBeTruthy();
     expect(screen.getByText("workspace0034.logsNotLoaded")).toBeTruthy();
     expect(screen.queryByText("workspace0034.noPublicOutput")).toBeNull();

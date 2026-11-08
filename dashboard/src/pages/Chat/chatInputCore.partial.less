@@ -494,11 +494,7 @@
   height: 32px;
   border-radius: 10px;
   border: none;
-  background: linear-gradient(
-    135deg,
-    var(--fn-color-brand),
-    var(--fn-color-brand-soft)
-  );
+  background: var(--fn-color-brand);
   color: #fff;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -524,11 +520,11 @@
 }
 
 .cancelBtn {
-  background: var(--fn-color-danger);
+  background: var(--fn-bg-secondary);
+  color: var(--fn-text-primary);
 
   &:hover {
-    background: var(--fn-color-danger) !important;
-    opacity: 0.85;
+    background: var(--fn-bg-hover) !important;
   }
 }
 

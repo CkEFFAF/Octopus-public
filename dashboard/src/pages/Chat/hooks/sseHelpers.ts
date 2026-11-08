@@ -11,6 +11,7 @@ import type {
   TokenUsage,
 } from "../../../api/types";
 import type { ContentBlockItem } from "../../../utils/messageParser";
+import type { ModelRouteDecision } from "../../../api/modules/modelRouting";
 
 export interface ToolCallData {
   name?: string;
@@ -102,6 +103,7 @@ export interface ChatMessage {
 
 /** Per-session state held in the chat store's module-scoped Map. */
 export interface SessionStreamState {
+  modelRoute?: ModelRouteDecision;
   modelRetry?: {
     phase: string;
     attempt: number;
@@ -153,6 +155,7 @@ export interface SessionStreamState {
 
 /** Read-only snapshot shape exposed via ``chatStore.getSnapshot``. */
 export interface SessionSnapshot {
+  modelRoute?: ModelRouteDecision;
   modelRetry?: SessionStreamState["modelRetry"];
   messages: ChatMessage[];
   isStreaming: boolean;

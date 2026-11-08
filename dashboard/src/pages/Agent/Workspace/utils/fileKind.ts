@@ -38,6 +38,7 @@ const TEXT_EXTENSIONS = new Set([
   "log",
   "lua",
   "md",
+  "markdown",
   "mdx",
   "php",
   "pl",

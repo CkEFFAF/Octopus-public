@@ -23,6 +23,8 @@ import { fileTreeIcon } from "../../utils/fileTreeIcon";
 import { fileSourcesApi } from "../../api/modules/fileSources";
 import { getDocKind } from "../../utils/docKind";
 import ResourcePanelContent from "../Chat/components/ResourcePanelContent";
+import Markdown from "../../components/Markdown/LazyMarkdown";
+import { isMarkdownFile } from "../../utils/textFile";
 import { decodeEditableText, encodeEditableText } from "./nativeText";
 import {
   base64ToBytes,
@@ -98,6 +100,7 @@ export default function NativeDeviceFiles({
     eol: string;
   } | null>(null);
   const [notice, setNotice] = useState("");
+  const [markdownPreview, setMarkdownPreview] = useState(true);
   const [preview, setPreview] = useState<{ path: string; id: string } | null>(
     null,
   );
@@ -258,6 +261,7 @@ export default function NativeDeviceFiles({
     if (!context || busy || entry.unavailable) return;
     if (!confirmLeave()) return;
     if (!entry.is_dir) setDirectoryOpen(false);
+    setMarkdownPreview(true);
     if (entry.is_dir) {
       setFile(null);
       setPreview(null);
@@ -568,6 +572,18 @@ export default function NativeDeviceFiles({
                     {dirty ? " •" : ""}
                   </code>
                   <Tag className={styles.encodingTag}>UTF-8</Tag>
+                  {isMarkdownFile(file.path) && (
+                    <Button
+                      size="small"
+                      onClick={() => setMarkdownPreview((value) => !value)}
+                    >
+                      {t(
+                        markdownPreview
+                          ? "workspace0034.source"
+                          : "common.preview",
+                      )}
+                    </Button>
+                  )}
                   {!writable && (
                     <Tag title={t("workspace0034.readOnlyFileHint")}>
                       {t("workspace0034.readOnlyFile")}
@@ -646,20 +662,33 @@ export default function NativeDeviceFiles({
                     </Button>
                   </div>
                 )}
-                <CodeEditor
-                  key={`${context?.context_id}:${file.path}`}
-                  path={file.path}
-                  value={file.text}
-                  onSave={() => {
-                    if (writable && dirty) void save();
-                  }}
-                  readOnly={!writable || busy}
-                  onChange={(text) =>
-                    setFile((current) =>
-                      current ? { ...current, text } : current,
-                    )
-                  }
-                />
+                {isMarkdownFile(file.path) && markdownPreview ? (
+                  <div
+                    style={{
+                      flex: 1,
+                      minHeight: 0,
+                      overflow: "auto",
+                      padding: "20px 24px",
+                    }}
+                  >
+                    <Markdown content={file.text} />
+                  </div>
+                ) : (
+                  <CodeEditor
+                    key={`${context?.context_id}:${file.path}`}
+                    path={file.path}
+                    value={file.text}
+                    onSave={() => {
+                      if (writable && dirty) void save();
+                    }}
+                    readOnly={!writable || busy}
+                    onChange={(text) =>
+                      setFile((current) =>
+                        current ? { ...current, text } : current,
+                      )
+                    }
+                  />
+                )}
               </>
             ) : (
               <Empty
