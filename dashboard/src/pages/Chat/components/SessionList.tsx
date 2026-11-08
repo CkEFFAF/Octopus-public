@@ -39,6 +39,8 @@ import { showConfirmModal } from "../../../utils/confirmModal";
 import ExpertAgentAvatar from "./ExpertAgentAvatar";
 import type { ExpertPhase } from "../../../components/AnimatedExpertAvatar/model";
 import { usePinnedExperts } from "../hooks/usePinnedExperts";
+import { useExpertOrder } from "../hooks/useExpertOrder";
+import SidebarExpertDrag, { SidebarDragHandle } from "./SidebarExpertDrag";
 import {
   ExpertPinButton,
   ExpertStatusLabel,
@@ -333,8 +335,10 @@ function ActiveAgentCard({
     <div className={styles.agentCardActive}>
       <div
         className={styles.agentCardProfile}
+        data-sidebar-expert={agent.agent_id}
         title={agent.description || undefined}
       >
+        <SidebarDragHandle />
         <ExpertAgentAvatar
           iconUrl={agent.icon_url}
           iconName={agent.icon_name}
@@ -482,6 +486,7 @@ function InactiveAgentRow({
     <div className={styles.agentRowWrap}>
       <div
         className={styles.agentRow}
+        data-sidebar-expert={onUnhide ? undefined : agent.agent_id}
         title={agent.description || undefined}
         onClick={onSelect}
         role="button"
@@ -493,6 +498,7 @@ function InactiveAgentRow({
           }
         }}
       >
+        {!onUnhide && <SidebarDragHandle />}
         <ExpertAgentAvatar
           iconUrl={agent.icon_url}
           iconName={agent.icon_name}
@@ -630,6 +636,7 @@ function SessionListContent({
   const [searchQuery, setSearchQuery] = useState("");
   const [showingHidden, setShowingHidden] = useState(false);
   const { pinnedIds, togglePin } = usePinnedExperts();
+  const { order } = useExpertOrder();
   const { filterVisible, pickHidden, hide, unhide, canHide } =
     useHiddenSharedExperts();
 
@@ -642,11 +649,13 @@ function SessionListContent({
     const visible = filterVisible(agents, {
       keepAgentIds: activeAgentId ? [activeAgentId] : [],
     });
-    return [...visible].sort(
-      (a, b) =>
-        Number(b.kind === "team") - Number(a.kind === "team") || b.id - a.id,
+    return order(
+      [...visible].sort(
+        (a, b) =>
+          Number(b.kind === "team") - Number(a.kind === "team") || b.id - a.id,
+      ),
     );
-  }, [agents, filterVisible, activeAgentId]);
+  }, [agents, filterVisible, activeAgentId, order]);
 
   // Leave the hidden-only view once nothing remains hidden.
   const viewingHidden = showingHidden && hiddenAgents.length > 0;
@@ -674,197 +683,203 @@ function SessionListContent({
   });
 
   return (
-    <div className={styles.sessionList}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "12px 14px 18px",
-        }}
-      >
-        <strong style={{ fontSize: 20 }}>{t("octopus.chat")}</strong>
-        <button
-          type="button"
-          className={styles.sessionEmptyAgentsLink}
-          onClick={() => navigate("/projects?new=1")}
+    <SidebarExpertDrag ids={sortedAgents.map((agent) => agent.agent_id)}>
+      <div className={styles.sessionList}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "12px 14px 18px",
+          }}
         >
-          {t("octopus.newGroupChat")}
-        </button>
-      </div>
-      {showSessions ? (
-        <div className={styles.sessionSearchWrap}>
-          <Search
-            size={14}
-            className={styles.sessionSearchIcon}
-            strokeWidth={2}
-          />
-          <input
-            type="search"
-            className={styles.sessionSearchInput}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t("chat.searchSessions", "搜索会话")}
-            aria-label={t("chat.searchSessions", "搜索会话")}
-          />
-        </div>
-      ) : null}
-
-      {agents.length === 0 ? (
-        <div className={styles.sessionEmptyAgents}>
-          <p className={styles.sessionEmptyAgentsText}>
-            {t("chat.noAgentsHint")}
-          </p>
+          <strong style={{ fontSize: 20 }}>{t("octopus.chat")}</strong>
           <button
             type="button"
             className={styles.sessionEmptyAgentsLink}
-            onClick={() => navigate("/experts")}
+            onClick={() => navigate("/projects?new=1")}
           >
-            {t("chat.createExpert")}
+            {t("octopus.newGroupChat")}
           </button>
         </div>
-      ) : (
-        <div className={styles.sessionItems}>
-          {!viewingHidden && (
-            <PinnedExperts
-              agents={pinnedAgents}
-              activeAgentId={activeAgentId}
-              activePhase={activePhase}
-              onSelect={(id) => {
-                setShowingHidden(false);
-                setSearchQuery("");
-                setRevealAgent(id);
-                onAgentSelect(id);
-              }}
-              onTogglePin={togglePin}
+        {showSessions ? (
+          <div className={styles.sessionSearchWrap}>
+            <Search
+              size={14}
+              className={styles.sessionSearchIcon}
+              strokeWidth={2}
             />
-          )}
-          {viewingHidden
-            ? hiddenAgents.map((agent) => (
-                <InactiveAgentRow
-                  key={agent.agent_id}
-                  agent={agent}
-                  phase={sidebarExpertPhase(agent)}
-                  onSelect={() => {
-                    unhide(agent.agent_id);
-                    setShowingHidden(false);
-                    onAgentSelect(agent.agent_id);
-                  }}
-                  onUnhide={() => unhide(agent.agent_id)}
-                />
-              ))
-            : agentsToRender.map((agent, index) => {
-                const expanded = agent.agent_id === expandedAgentId;
-                const row = expanded ? (
-                  <ActiveAgentCard
-                    key={agent.agent_id}
-                    agent={agent}
-                    phase={sidebarExpertPhase(agent, activePhase)}
-                    pinned={pinnedIds.includes(agent.agent_id)}
-                    onTogglePin={() => togglePin(agent.agent_id)}
-                    sessions={sessions}
-                    activeId={activeId}
-                    searchQuery={matchesAgent(agent) ? "" : searchQuery}
-                    hasMore={hasMore}
-                    loadingMore={loadingMore}
-                    onLoadMore={onLoadMore}
-                    onFetchAllSessions={onFetchAllSessions}
-                    onSelect={onSelect}
-                    onNewChat={onNewChat}
-                    onDelete={onDelete}
-                    onRename={onRename}
-                    onPin={onPin}
-                    onFork={onFork}
-                    onShare={onShare}
-                    activeForkDisabled={activeForkDisabled}
-                    activeForkDisabledHint={activeForkDisabledHint}
-                    onHide={
-                      canHide(agent) ? () => hide(agent.agent_id) : undefined
-                    }
-                  />
-                ) : (
+            <input
+              type="search"
+              className={styles.sessionSearchInput}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t("chat.searchSessions", "搜索会话")}
+              aria-label={t("chat.searchSessions", "搜索会话")}
+            />
+          </div>
+        ) : null}
+
+        {agents.length === 0 ? (
+          <div className={styles.sessionEmptyAgents}>
+            <p className={styles.sessionEmptyAgentsText}>
+              {t("chat.noAgentsHint")}
+            </p>
+            <button
+              type="button"
+              className={styles.sessionEmptyAgentsLink}
+              onClick={() => navigate("/experts")}
+            >
+              {t("chat.createExpert")}
+            </button>
+          </div>
+        ) : (
+          <div
+            className={styles.sessionItems}
+            data-sidebar-zone="main"
+            data-sidebar-scroll
+          >
+            {!viewingHidden && (
+              <PinnedExperts
+                agents={pinnedAgents}
+                activeAgentId={activeAgentId}
+                activePhase={activePhase}
+                onSelect={(id) => {
+                  setShowingHidden(false);
+                  setSearchQuery("");
+                  setRevealAgent(id);
+                  onAgentSelect(id);
+                }}
+                onTogglePin={togglePin}
+              />
+            )}
+            {viewingHidden
+              ? hiddenAgents.map((agent) => (
                   <InactiveAgentRow
                     key={agent.agent_id}
                     agent={agent}
                     phase={sidebarExpertPhase(agent)}
-                    pinned={pinnedIds.includes(agent.agent_id)}
-                    onTogglePin={() => togglePin(agent.agent_id)}
-                    onSelect={() => onAgentSelect(agent.agent_id)}
-                    onNewChat={() => onNewChat(agent.agent_id)}
-                    onHide={
-                      canHide(agent) ? () => hide(agent.agent_id) : undefined
-                    }
+                    onSelect={() => {
+                      unhide(agent.agent_id);
+                      setShowingHidden(false);
+                      onAgentSelect(agent.agent_id);
+                    }}
+                    onUnhide={() => unhide(agent.agent_id)}
                   />
-                );
-                const sectionStart =
-                  index === 0 ||
-                  (agent.kind === "team") !==
-                    (agentsToRender[index - 1].kind === "team");
-                return (
-                  <Fragment key={agent.agent_id}>
-                    {sectionStart && (
-                      <div
-                        style={{
-                          padding: "14px 10px 8px",
-                          fontSize: 11,
-                          color: "var(--fn-text-secondary)",
-                        }}
-                      >
-                        {t(
-                          agent.kind === "team"
-                            ? "octopus.groupChats"
-                            : "octopus.privateChats",
-                        )}
-                      </div>
-                    )}
-                    <div
-                      ref={(element) => {
-                        if (element)
-                          sectionRefs.current.set(agent.agent_id, element);
-                        else sectionRefs.current.delete(agent.agent_id);
-                      }}
-                    >
-                      {row}
-                    </div>
-                    {!expanded &&
-                      withWorkingSessions(
-                        [],
-                        sidebarActivity[agent.agent_id],
-                      ).map((session) => (
+                ))
+              : agentsToRender.map((agent, index) => {
+                  const expanded = agent.agent_id === expandedAgentId;
+                  const row = expanded ? (
+                    <ActiveAgentCard
+                      key={agent.agent_id}
+                      agent={agent}
+                      phase={sidebarExpertPhase(agent, activePhase)}
+                      pinned={pinnedIds.includes(agent.agent_id)}
+                      onTogglePin={() => togglePin(agent.agent_id)}
+                      sessions={sessions}
+                      activeId={activeId}
+                      searchQuery={matchesAgent(agent) ? "" : searchQuery}
+                      hasMore={hasMore}
+                      loadingMore={loadingMore}
+                      onLoadMore={onLoadMore}
+                      onFetchAllSessions={onFetchAllSessions}
+                      onSelect={onSelect}
+                      onNewChat={onNewChat}
+                      onDelete={onDelete}
+                      onRename={onRename}
+                      onPin={onPin}
+                      onFork={onFork}
+                      onShare={onShare}
+                      activeForkDisabled={activeForkDisabled}
+                      activeForkDisabledHint={activeForkDisabledHint}
+                      onHide={
+                        canHide(agent) ? () => hide(agent.agent_id) : undefined
+                      }
+                    />
+                  ) : (
+                    <InactiveAgentRow
+                      key={agent.agent_id}
+                      agent={agent}
+                      phase={sidebarExpertPhase(agent)}
+                      pinned={pinnedIds.includes(agent.agent_id)}
+                      onTogglePin={() => togglePin(agent.agent_id)}
+                      onSelect={() => onAgentSelect(agent.agent_id)}
+                      onNewChat={() => onNewChat(agent.agent_id)}
+                      onHide={
+                        canHide(agent) ? () => hide(agent.agent_id) : undefined
+                      }
+                    />
+                  );
+                  const sectionStart =
+                    index === 0 ||
+                    (agent.kind === "team") !==
+                      (agentsToRender[index - 1].kind === "team");
+                  return (
+                    <Fragment key={agent.agent_id}>
+                      {sectionStart && (
                         <div
-                          key={session.id}
-                          role="button"
-                          tabIndex={0}
-                          className={`${styles.sessionRow} ${styles.sessionRowWorking} ${styles.backgroundSessionShortcut}`}
-                          onClick={() => onSelect(session.id, agent.agent_id)}
-                          onKeyDown={(event) => {
-                            if (
-                              event.key === "Enter" &&
-                              event.target === event.currentTarget
-                            )
-                              onSelect(session.id, agent.agent_id);
+                          style={{
+                            padding: "14px 10px 8px",
+                            fontSize: 11,
+                            color: "var(--fn-text-secondary)",
                           }}
                         >
-                          <SessionRowContent session={session} />
+                          {t(
+                            agent.kind === "team"
+                              ? "octopus.groupChats"
+                              : "octopus.privateChats",
+                          )}
                         </div>
-                      ))}
-                  </Fragment>
-                );
-              })}
-          {hiddenAgents.length > 0 ? (
-            <button
-              type="button"
-              className={styles.expertHiddenToggle}
-              onClick={() => setShowingHidden((v) => !v)}
-            >
-              {viewingHidden
-                ? t("chat.expertListShowVisible")
-                : t("chat.expertListHidden", { count: hiddenAgents.length })}
-            </button>
-          ) : null}
-        </div>
-      )}
-    </div>
+                      )}
+                      <div
+                        ref={(element) => {
+                          if (element)
+                            sectionRefs.current.set(agent.agent_id, element);
+                          else sectionRefs.current.delete(agent.agent_id);
+                        }}
+                      >
+                        {row}
+                      </div>
+                      {!expanded &&
+                        withWorkingSessions(
+                          [],
+                          sidebarActivity[agent.agent_id],
+                        ).map((session) => (
+                          <div
+                            key={session.id}
+                            role="button"
+                            tabIndex={0}
+                            className={`${styles.sessionRow} ${styles.sessionRowWorking} ${styles.backgroundSessionShortcut}`}
+                            onClick={() => onSelect(session.id, agent.agent_id)}
+                            onKeyDown={(event) => {
+                              if (
+                                event.key === "Enter" &&
+                                event.target === event.currentTarget
+                              )
+                                onSelect(session.id, agent.agent_id);
+                            }}
+                          >
+                            <SessionRowContent session={session} />
+                          </div>
+                        ))}
+                    </Fragment>
+                  );
+                })}
+            {hiddenAgents.length > 0 ? (
+              <button
+                type="button"
+                className={styles.expertHiddenToggle}
+                onClick={() => setShowingHidden((v) => !v)}
+              >
+                {viewingHidden
+                  ? t("chat.expertListShowVisible")
+                  : t("chat.expertListHidden", { count: hiddenAgents.length })}
+              </button>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </SidebarExpertDrag>
   );
 }
 

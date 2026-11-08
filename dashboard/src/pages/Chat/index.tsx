@@ -89,6 +89,7 @@ import { isTeamAgent } from "../../utils/teamAgent";
 import ChatDockPanels from "./components/ChatDockPanels";
 import type { ChatDockAddTabHandlers } from "./components/ChatDockPanel";
 import { ChatFilePreviewProvider } from "./ChatFilePreviewContext";
+import { collectTurnFileChanges } from "./utils/turnFileChanges";
 import { ChatAgentProfileProvider } from "./ChatAgentProfileContext";
 import {
   ChatToolDockProvider,
@@ -649,10 +650,33 @@ function ChatPageInner() {
       ...(item.agent_id ? { agentId: item.agent_id } : {}),
     }));
     return listDockFilePathsForTree(
-      [...fromThread, ...fromTabs],
+      [
+        ...fromThread,
+        ...fromTabs,
+        ...collectTurnFileChanges(messages, resolvedAgentId).filter(
+          (file) => !file.deviceId,
+        ),
+      ],
       resolvedAgentId,
     );
-  }, [openTabs, resolvedAgentId, composerSession?.artifacts]);
+  }, [openTabs, resolvedAgentId, composerSession?.artifacts, messages]);
+
+  const recordedFileChanges = useMemo(
+    () => collectTurnFileChanges(messages, resolvedAgentId),
+    [messages, resolvedAgentId],
+  );
+  const latestUserIndex = messages.findLastIndex(
+    (item) => item.role === "user",
+  );
+  const latestTurnId = messages[latestUserIndex]?.id ?? "";
+  const latestFileChanges = useMemo(
+    () =>
+      collectTurnFileChanges(
+        messages.slice(latestUserIndex + 1),
+        resolvedAgentId,
+      ),
+    [messages, latestUserIndex, resolvedAgentId],
+  );
 
   const dockAgentNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -1311,6 +1335,11 @@ function ChatPageInner() {
         iconUrl={activeAgent?.icon_url}
         iconName={activeAgent?.icon_name}
         color={activeAgent?.color}
+        onConfigure={() => {
+          setProfileAgentId(null);
+          setProfileConfigureDefaults(!isTeamChat);
+          setAgentProfileOpen(true);
+        }}
       />
     ) : null;
 
@@ -1415,6 +1444,11 @@ function ChatPageInner() {
       <ChatFilePreviewProvider
         openFilePreview={openFileAt}
         openKnowledgeCitation={openKnowledgeCitation}
+        history={sharedExpertViewer ? [] : recordedFileChanges}
+        latest={sharedExpertViewer ? [] : latestFileChanges}
+        turnId={latestTurnId}
+        threadId={activeThreadId}
+        openFileList={openFileList}
       >
         <ChatToolDockProvider
           dockOpen={dockOpen}

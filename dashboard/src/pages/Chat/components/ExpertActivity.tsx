@@ -13,17 +13,22 @@ export default function ExpertActivity({
   iconUrl,
   iconName,
   color,
+  onConfigure,
 }: {
   phase: ExpertPhase;
   name?: string;
   iconUrl?: string | null;
   iconName?: string | null;
   color?: string | null;
+  onConfigure?: () => void;
 }) {
   const { t } = useTranslation();
   const species = resolveCharacter(iconUrl);
   return (
-    <div
+    <button
+      type="button"
+      onClick={onConfigure}
+      aria-label={t("chat.fileReview.configureExpert", { name })}
       className={styles.activity}
       data-phase={phase}
       title={`${name ?? ""} · ${t(`expertAnimation.phases.${phase}`)}`}
@@ -46,6 +51,6 @@ export default function ExpertActivity({
         <strong>{name}</strong>
         <span>{t(`expertAnimation.phases.${phase}`)}</span>
       </span>
-    </div>
+    </button>
   );
 }

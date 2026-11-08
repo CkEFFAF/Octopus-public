@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ExpertIcon } from "./iconForName";
 
 describe("expert portrait rendering", () => {
-  it("renders both builtin and selected characters as a cropped SVG", () => {
+  it("renders builtin and selected characters using GIF clips", () => {
     const { container, rerender } = render(
       <ExpertIcon iconUrl="/experts/avatars/scene-design.svg" size={32} />,
     );
@@ -11,14 +11,11 @@ describe("expert portrait rendering", () => {
       "data-species",
       "rabbit",
     );
-    expect(container.querySelector("svg image")).toHaveAttribute(
-      "href",
-      "/expert-animations/rabbit.webp",
+    expect(container.querySelector("img")).toHaveAttribute(
+      "src",
+      "/expert-animations/v2/rabbit/idle.gif",
     );
-    expect(
-      container.querySelector("svg image")?.getAttribute("clip-path"),
-    ).toMatch(/^url\(#/);
-    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("svg image")).toBeNull();
     rerender(
       <ExpertIcon
         iconUrl="/expert-animations/owl.webp"

@@ -2812,6 +2812,23 @@
       "job_cancel": "Request background task cancellation",
       "runCommand": "Run a terminal command",
       "runProgram": "Run {{program}}"
+    },
+    "fileReview": {
+      "scope": "{{count}} files in total, {{current}} in the selected turn. Diffs come from tool records; full content is read from the original source.",
+      "currentTurn": "This turn",
+      "turnDiff": "Turn changes",
+      "recordedDiff": "Recorded session changes",
+      "fullContent": "Current full content",
+      "liveHint": "The current file may include later turns or external changes.",
+      "readFailed": "Current content is unavailable. Recorded changes are still shown.",
+      "tooLarge": "This file exceeds the inline preview limit. Open the full file in the workspace.",
+      "configureExpert": "Configure expert: {{name}}",
+      "missingContext": "This relative device path has no recorded execution context. Open it from its original workspace."
+    },
+    "sidebarDrag": {
+      "pinHint": "Hold and drag an expert here to pin",
+      "moving": "Moving expert. Drop at the top to pin, or press Escape to cancel.",
+      "handle": "Drag to reorder, or use Alt plus arrow keys. Alt plus P toggles pinning."
     }
   },
   "tools": {
@@ -7803,7 +7820,12 @@
       "redpanda": "Red panda",
       "penguin": "Penguin",
       "corgi": "Corgi",
-      "raccoon": "Raccoon"
+      "raccoon": "Raccoon",
+      "panda": "Panda",
+      "koala": "Koala",
+      "otter": "Otter",
+      "dragon": "Dragon",
+      "bunny": "Blush bunny"
     },
     "phases": {
       "idle": "Ready",

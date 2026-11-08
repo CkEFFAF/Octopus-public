@@ -8,6 +8,8 @@ import {
 import ExpertAgentAvatar from "./ExpertAgentAvatar";
 import ExpertScheduleBadge from "./ExpertScheduleBadge";
 import styles from "../index.module.less";
+import dragStyles from "./SidebarExpertDrag.module.less";
+import { SidebarDragHandle } from "./SidebarExpertDrag";
 
 export function sidebarExpertPhase(
   agent: OctopAgent,
@@ -75,17 +77,22 @@ export function PinnedExperts({
   onTogglePin: (agentId: string) => void;
 }) {
   const { t } = useTranslation();
-  if (!agents.length) return null;
   return (
     <section
       className={styles.pinnedExperts}
-      aria-label={t("chat.pinnedExperts")}
+      data-sidebar-zone="pinned"
+      aria-label={agents.length ? t("chat.pinnedExperts") : undefined}
     >
       <div className={styles.expertSectionTitle}>
         <Pin size={12} />
         {t("chat.pinnedExperts")}
       </div>
       <div className={styles.pinnedExpertGrid}>
+        {!agents.length && (
+          <div className={dragStyles.dropHint}>
+            {t("chat.sidebarDrag.pinHint")}
+          </div>
+        )}
         {agents.map((agent) => {
           const phase = sidebarExpertPhase(
             agent,
@@ -94,15 +101,18 @@ export function PinnedExperts({
           return (
             <div
               key={agent.agent_id}
+              data-sidebar-expert={agent.agent_id}
               className={`${styles.pinnedExpertCard} ${
                 agent.agent_id === activeAgentId
                   ? styles.pinnedExpertActive
                   : ""
               }`}
             >
+              <SidebarDragHandle />
               <button
                 type="button"
                 className={styles.pinnedExpertSelect}
+                data-sidebar-select
                 onClick={() => onSelect(agent.agent_id)}
                 aria-current={
                   agent.agent_id === activeAgentId ? "true" : undefined

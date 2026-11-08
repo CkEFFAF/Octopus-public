@@ -1,4 +1,18 @@
 .activity {
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  padding: 4px 6px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  &:hover {
+    background: var(--fn-bg-secondary);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--fn-color-brand, #ee5775);
+    outline-offset: 2px;
+  }
   display: flex;
   align-items: center;
   gap: 6px;

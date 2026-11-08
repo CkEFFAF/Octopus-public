@@ -9,6 +9,7 @@ import {
   turnUsedBrowserTool,
 } from "../utils/messageContent";
 import { collectTurnFileChanges } from "../utils/turnFileChanges";
+import { useChatFilePreview } from "../ChatFilePreviewContext";
 import { layoutAssistantTurnHitl } from "../utils/layoutAssistantTurnHitl";
 import { useAgent } from "../../../context/AgentContext";
 import { TodoProgressPanel } from "../../../components/TodoProgressPanel";
@@ -98,6 +99,7 @@ function AssistantTurnView({
 }: AssistantTurnViewProps) {
   const { t } = useTranslation();
   const [changesOpen, setChangesOpen] = useState(false);
+  const filePreview = useChatFilePreview();
   const { activeAgentId } = useAgent();
   const agentId = agentIdProp ?? activeAgentId;
   const speakerAgentId =
@@ -331,7 +333,11 @@ function AssistantTurnView({
             className={`${styles.openBrowserPrompt} ${
               turnStreaming ? styles.openBrowserPromptActive : ""
             }`}
-            onClick={() => setChangesOpen(true)}
+            onClick={() =>
+              filePreview?.openFileChanges
+                ? filePreview.openFileChanges(turnFiles)
+                : setChangesOpen(true)
+            }
             aria-label={t(editCardKey, {
               count: Math.max(turnFileCount, 1),
             })}
