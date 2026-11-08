@@ -98,7 +98,6 @@ import ChatSidebarPanel from "./components/ChatSidebarPanel";
 import ChatTitleBar from "./components/ChatTitleBar";
 import ShareManagementDialog from "../../components/Sharing/ShareManagementDialog";
 import CollaborationPanel from "./components/CollaborationPanel";
-import ChatDeliverables from "./components/ChatDeliverables";
 import BackgroundWork from "./components/BackgroundWork";
 import { CollaborationProvider } from "./hooks/useCollaboration";
 import TeamChatBadge from "./components/TeamChatBadge";
@@ -1693,15 +1692,13 @@ function ChatPageInner() {
                     isTeam={isTeamChat}
                   >
                     <MessageList
-                      deliverables={
-                        resolvedAgentId &&
-                        activeThreadId &&
-                        !sharedExpertViewer ? (
-                          <ChatDeliverables
-                            agentId={resolvedAgentId}
-                            threadId={activeThreadId}
-                          />
-                        ) : undefined
+                      deliveryScope={
+                        resolvedAgentId && activeThreadId && !sharedExpertViewer
+                          ? {
+                              agentId: resolvedAgentId,
+                              threadId: activeThreadId,
+                            }
+                          : undefined
                       }
                       messageAnchor={
                         (
@@ -1735,11 +1732,7 @@ function ChatPageInner() {
                       onOpenBrowser={
                         hasBrowserTool ? openBrowserTab : undefined
                       }
-                      onEditFile={
-                        !sharedExpertViewer && panelFilePaths.length > 0
-                          ? openFileList
-                          : undefined
-                      }
+                      showFileChanges={!sharedExpertViewer}
                     />
                   </ChatAgentProfileProvider>
                 )}
@@ -2023,6 +2016,17 @@ function ChatPageInner() {
                     <CostMeterDock />
                     <ChatUsageFooter
                       key={`${resolvedAgentId}/${activeThreadId}`}
+                      agentId={
+                        !sharedExpertViewer && !activeAgent?.bridge
+                          ? resolvedAgentId ?? undefined
+                          : undefined
+                      }
+                      threadId={
+                        !sharedExpertViewer && !activeAgent?.bridge
+                          ? activeThreadId ?? undefined
+                          : undefined
+                      }
+                      isStreaming={isStreaming}
                       messages={messages}
                       hasMore={historyHasMore}
                       loading={historyLoading || historyRefreshing}

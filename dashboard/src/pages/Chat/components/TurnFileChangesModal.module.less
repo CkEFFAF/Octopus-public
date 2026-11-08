@@ -1,0 +1,146 @@
+.notice {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #7e8794;
+}
+.layout {
+  display: flex;
+  min-width: 0;
+  height: min(65vh, 640px);
+  border: 1px solid #e7eaf0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.files {
+  width: 205px;
+  flex-shrink: 0;
+  overflow: auto;
+  padding: 6px;
+  border-right: 1px solid #e7eaf0;
+  background: #fafbfc;
+  button {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    padding: 10px 8px;
+    color: #596575;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    svg {
+      flex-shrink: 0;
+    }
+    span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    &:hover {
+      background: #f0f2f6;
+    }
+    &:focus-visible {
+      outline: 2px solid #ee5775;
+      outline-offset: -2px;
+    }
+  }
+  .selected {
+    background: #fff0f3;
+    color: #b83f5a;
+    font-weight: 600;
+  }
+}
+.details {
+  min-width: 0;
+  flex: 1;
+  overflow: auto;
+}
+.fileLabel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  small {
+    color: #7e8794;
+    font-size: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+.path {
+  padding: 12px 16px;
+  border-bottom: 1px solid #edf0f4;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  small {
+    display: block;
+    margin-top: 3px;
+    color: #7e8794;
+  }
+}
+.edit {
+  margin-bottom: 12px;
+  pre {
+    margin: 0;
+    padding: 10px 16px;
+    font:
+      12px/1.65 Consolas,
+      "SFMono-Regular",
+      monospace;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+.editTitle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  span {
+    font-weight: 400;
+    color: #7e8794;
+  }
+}
+.label {
+  padding: 4px 16px;
+  font-size: 11px;
+  color: #7e8794;
+}
+.removed {
+  background: #fff0f0;
+  color: #a12e2e;
+}
+.added {
+  background: #eaf8ed;
+  color: #16733c;
+}
+.empty {
+  padding: 16px;
+  color: #7e8794;
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .layout {
+    flex-direction: column;
+  }
+  .files {
+    width: 100%;
+    display: flex;
+    flex-shrink: 0;
+    border-right: 0;
+    border-bottom: 1px solid #e7eaf0;
+    max-height: 108px;
+    button {
+      width: auto;
+      max-width: 180px;
+      flex-shrink: 0;
+    }
+  }
+}

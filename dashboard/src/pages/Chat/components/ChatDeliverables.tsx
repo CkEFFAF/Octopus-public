@@ -26,18 +26,23 @@ function ResourceCard({
   resource,
   onOpen,
   overview = false,
+  refreshToken = 0,
 }: {
   agentId: string;
   threadId: string;
   resource: CollaborationResource;
   onOpen: (resource: CollaborationResource) => void;
   overview?: boolean;
+  refreshToken?: number;
 }) {
   const { t } = useTranslation();
   const [image, setImage] = useState("");
   const [error, setError] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [thumbnailState, setThumbnailState] = useState<
+    "loading" | "failed" | null
+  >(null);
   const {
     resource_id: resourceId,
     version,
@@ -52,11 +57,16 @@ function ResourceCard({
     let url = "";
     setImage("");
     setPreviewOpen(false);
+    setThumbnailState(null);
     // Avoid eagerly loading a large image just to render a thumbnail.
     if (
-      /^image\/(png|jpeg|gif|webp|avif)$/.test(mediaType) &&
+      (/^image\/(png|jpeg|gif|webp|avif)$/i.test(
+        mediaType.split(";")[0].trim(),
+      ) ||
+        /\.(png|jpe?g|gif|webp|avif)$/i.test(resource.name)) &&
       size <= 8 * 1024 * 1024
     ) {
+      setThumbnailState("loading");
       void collaborationApi
         .resource(agentId, threadId, resourceId)
         .then((metadata) => {
@@ -68,16 +78,26 @@ function ResourceCard({
           if (!active) return;
           url = URL.createObjectURL(blob);
           setImage(url);
+          setThumbnailState(null);
         })
         .catch(() => {
-          /* Clicking the icon can retry through the resource panel. */
+          if (active) setThumbnailState("failed");
         });
     }
     return () => {
       active = false;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [agentId, threadId, resourceId, version, size, mediaType]);
+  }, [
+    agentId,
+    threadId,
+    resourceId,
+    version,
+    size,
+    mediaType,
+    resource.name,
+    refreshToken,
+  ]);
 
   async function download() {
     setDownloading(true);
@@ -106,7 +126,14 @@ function ResourceCard({
           title={t("chat.deliverables.open", { name: resource.name })}
         >
           {image ? (
-            <img src={image} alt={resource.name} />
+            <img
+              src={image}
+              alt={resource.name}
+              onError={() => {
+                setImage("");
+                setThumbnailState("failed");
+              }}
+            />
           ) : (
             fileTreeIcon(resource.name, 24)
           )}
@@ -117,6 +144,15 @@ function ResourceCard({
             <span className={styles.filenameExt}>{extension}</span>
           </strong>
           <span>{formatBytes(resource.size)}</span>
+          {thumbnailState && (
+            <span role="status">
+              {t(
+                thumbnailState === "loading"
+                  ? "chat.deliverables.imageLoading"
+                  : "chat.deliverables.imageFailed",
+              )}
+            </span>
+          )}
           {error && (
             <span role="alert">{t("collaboration.resourceError")}</span>
           )}
@@ -146,14 +182,17 @@ function ResourceCard({
 export default function ChatDeliverables({
   agentId,
   threadId,
+  items,
 }: {
   agentId: string;
   threadId: string;
+  items?: CollaborationResource[];
 }) {
   const { t } = useTranslation();
   const { page, error, refresh } = useCollaboration(agentId, threadId);
   const [kind, setKind] = useState<DeliverableKind | "all">("all");
   const [limit, setLimit] = useState(DELIVERY_PAGE_SIZE);
+  const [refreshToken, setRefreshToken] = useState(0);
   const [previewResource, setPreviewResource] =
     useState<CollaborationResource | null>(null);
   useEffect(() => {
@@ -161,7 +200,7 @@ export default function ChatDeliverables({
     setLimit(DELIVERY_PAGE_SIZE);
     setPreviewResource(null);
   }, [agentId, threadId]);
-  const resources = page.artifacts
+  const resources = (items ?? page.artifacts)
     .filter(
       (resource) =>
         resource.source_kind !== "upload" &&
@@ -199,7 +238,10 @@ export default function ChatDeliverables({
           size="small"
           type="text"
           icon={<RefreshCw size={14} />}
-          onClick={() => void refresh()}
+          onClick={() => {
+            setRefreshToken((token) => token + 1);
+            void refresh();
+          }}
           aria-label={t("common.refresh")}
           title={t("common.refresh")}
         />
@@ -249,6 +291,7 @@ export default function ChatDeliverables({
               key={resource.resource_id + resource.version}
               agentId={agentId}
               threadId={threadId}
+              refreshToken={refreshToken}
               resource={resource}
               onOpen={setPreviewResource}
               overview={imageOverview}

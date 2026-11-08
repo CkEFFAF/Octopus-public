@@ -2464,6 +2464,25 @@
     "openPhone": "Open remote phone",
     "openWorkspace": "Workspace",
     "editFileCard": "Edited {{count}} files",
+    "turnChanges": {
+      "currentExpert": "Current expert",
+      "deviceSource": "{{expert}} · Device {{device}}",
+      "expertSource": "Expert {{expert}}",
+      "replaceAllUnknown": "Replace all (occurrence count not recorded)",
+      "records": "File records for this answer: {{count}}",
+      "unverified": "This historical entry retained only a path. It does not confirm an edit, delivery or successful operation, and no original diff is available.",
+      "title": "This answer · {{count}} files",
+      "scope": "Only file records from this answer. Replacement text comes from the original tool records, with each operation preserved independently of other answers or current disk contents.",
+      "files": "Files in this answer",
+      "diff": "Changes in this answer",
+      "unavailable": "This historical record retained only the path. Before and after text was not recorded, so the original changes are unavailable.",
+      "operation": "Change {{number}}",
+      "replaceAll": "Replace all (recorded occurrences: {{count}})",
+      "before": "Before · replaced text",
+      "after": "After · replacement",
+      "written": "Content written in this answer",
+      "emptyText": "(empty text)"
+    },
     "fileWorkspace": "Workspace files",
     "fileWorkspaceHint": "Agent created or edited a file",
     "fileSwitch": "Switch file",
@@ -2721,6 +2740,8 @@
       "progress": "View progress"
     },
     "deliverables": {
+      "imageLoading": "Loading image…",
+      "imageFailed": "Image unavailable. Refresh to retry.",
       "title": "Delivered files",
       "open": "Preview {{name}}",
       "fileType": "File type",
@@ -2953,6 +2974,10 @@
     "generate_video": "Generate video"
   },
   "chatUsage": {
+    "recentRequest": "Latest request usage",
+    "recentCacheHit": "Latest cache hit",
+    "recentCacheDetail": "Latest completed model request: {{input}} input, {{cached}} cache reads",
+    "cachePending": "Cache statistics pending",
     "loading": "Loading usage…",
     "unavailable": "Usage unavailable while history is incomplete",
     "loadedMessages": "Loaded message usage",
@@ -2977,7 +3002,7 @@
       "cancelled": "Cancelled"
     },
     "details": "View full usage",
-    "cacheUnavailable": "Complete cache metrics were not reported"
+    "cacheUnavailable": "Complete cache data unavailable"
   },
   "workspace": {
     "refreshHint": "Refreshes root only; subfolders load on expand",

@@ -177,6 +177,12 @@ export const executionApi = {
     request<RequestHistory>(
       `${base(agent, thread)}?limit=100${before ? `&before=${before}` : ""}`,
     ),
+  recentRequests: (agent: string, thread: string, before?: number) =>
+    request<RequestHistory>(
+      `${base(agent, thread)}?limit=25${
+        before === undefined ? "" : `&before=${before}`
+      }`,
+    ),
   request: (agent: string, thread: string, id: string) =>
     request<RequestSnapshot>(
       `${base(agent, thread)}/${encodeURIComponent(id)}`,
