@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { Button, Image } from "antd";
-import { Download, Eye, Paperclip, RefreshCw } from "lucide-react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { Button, Image, Modal } from "antd";
+import { Download, Paperclip, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   collaborationApi,
@@ -18,17 +18,20 @@ import {
   type DeliverableKind,
 } from "../utils/deliverableFiles";
 import styles from "./ChatDeliverables.module.less";
+const ResourcePanelContent = lazy(() => import("./ResourcePanelContent"));
 
 function ResourceCard({
   agentId,
   threadId,
   resource,
   onOpen,
+  overview = false,
 }: {
   agentId: string;
   threadId: string;
   resource: CollaborationResource;
   onOpen: (resource: CollaborationResource) => void;
+  overview?: boolean;
 }) {
   const { t } = useTranslation();
   const [image, setImage] = useState("");
@@ -41,7 +44,9 @@ function ResourceCard({
     size,
     media_type: mediaType,
   } = resource;
-  const isImage = deliverableKind(resource) === "image";
+  const dot = resource.name.lastIndexOf(".");
+  const stem = dot > 0 ? resource.name.slice(0, dot) : resource.name;
+  const extension = dot > 0 ? resource.name.slice(dot) : "";
   useEffect(() => {
     let active = true;
     let url = "";
@@ -65,7 +70,7 @@ function ResourceCard({
           setImage(url);
         })
         .catch(() => {
-          /* The preview button can retry through the resource panel. */
+          /* Clicking the icon can retry through the resource panel. */
         });
     }
     return () => {
@@ -91,11 +96,14 @@ function ResourceCard({
   }
   return (
     <>
-      <article className={`${styles.card} ${isImage ? styles.imageCard : ""}`}>
+      <article
+        className={`${styles.card} ${overview ? styles.imageOverviewCard : ""}`}
+      >
         <button
           className={styles.preview}
           onClick={preview}
           aria-label={t("chat.deliverables.open", { name: resource.name })}
+          title={t("chat.deliverables.open", { name: resource.name })}
         >
           {image ? (
             <img src={image} alt={resource.name} />
@@ -104,35 +112,25 @@ function ResourceCard({
           )}
         </button>
         <div className={styles.meta}>
-          <strong title={resource.name}>{resource.name}</strong>
+          <strong title={resource.name}>
+            <span className={styles.filenameStem}>{stem}</span>
+            <span className={styles.filenameExt}>{extension}</span>
+          </strong>
           <span>{formatBytes(resource.size)}</span>
           {error && (
             <span role="alert">{t("collaboration.resourceError")}</span>
           )}
         </div>
-        <div className={styles.actions}>
-          <Button
-            size="small"
-            type="text"
-            icon={<Eye size={14} />}
-            onClick={preview}
-            aria-label={t("chat.deliverables.open", { name: resource.name })}
-            title={t("common.preview")}
-          >
-            {!isImage && t("common.preview")}
-          </Button>
-          <Button
-            size="small"
-            type={isImage ? "text" : "default"}
-            loading={downloading}
-            icon={<Download size={14} />}
-            onClick={() => void download()}
-            aria-label={t("chat.flow.downloadFile", { name: resource.name })}
-            title={t("common.download")}
-          >
-            {!isImage && t("common.download")}
-          </Button>
-        </div>
+        <Button
+          className={styles.download}
+          size="small"
+          type="text"
+          loading={downloading}
+          icon={<Download size={15} />}
+          onClick={() => void download()}
+          aria-label={t("chat.flow.downloadFile", { name: resource.name })}
+          title={t("common.download")}
+        />
       </article>
       {image && (
         <Image.PreviewGroup
@@ -148,19 +146,20 @@ function ResourceCard({
 export default function ChatDeliverables({
   agentId,
   threadId,
-  onOpen,
 }: {
   agentId: string;
   threadId: string;
-  onOpen: (resource: CollaborationResource) => void;
 }) {
   const { t } = useTranslation();
   const { page, error, refresh } = useCollaboration(agentId, threadId);
   const [kind, setKind] = useState<DeliverableKind | "all">("all");
   const [limit, setLimit] = useState(DELIVERY_PAGE_SIZE);
+  const [previewResource, setPreviewResource] =
+    useState<CollaborationResource | null>(null);
   useEffect(() => {
     setKind("all");
     setLimit(DELIVERY_PAGE_SIZE);
+    setPreviewResource(null);
   }, [agentId, threadId]);
   const resources = page.artifacts
     .filter(
@@ -179,13 +178,10 @@ export default function ChatDeliverables({
     (resource) => kind === "all" || deliverableKind(resource) === kind,
   );
   const visible = filtered.slice(0, limit);
-  const pictures = visible.filter(
-    (resource) => deliverableKind(resource) === "image",
-  );
-  const files = visible.filter(
-    (resource) => deliverableKind(resource) !== "image",
-  );
   const many = resources.length > DELIVERY_PAGE_SIZE;
+  const imageOverview =
+    resources.length <= 4 &&
+    resources.every((resource) => deliverableKind(resource) === "image");
   const filtering = kind !== "all";
   if (!resources.length && !error && !filtering) return null;
   return (
@@ -242,28 +238,20 @@ export default function ChatDeliverables({
       {filtered.length === 0 && (
         <p role="status">{t("chat.deliverables.noMatch")}</p>
       )}
-      {pictures.length > 0 && (
-        <div className={styles.gallery}>
-          {pictures.map((resource) => (
+      {visible.length > 0 && (
+        <div
+          className={`${styles.files} ${
+            imageOverview ? styles.imageOverviewGrid : ""
+          }`}
+        >
+          {visible.map((resource) => (
             <ResourceCard
               key={resource.resource_id + resource.version}
               agentId={agentId}
               threadId={threadId}
               resource={resource}
-              onOpen={onOpen}
-            />
-          ))}
-        </div>
-      )}
-      {files.length > 0 && (
-        <div className={styles.files}>
-          {files.map((resource) => (
-            <ResourceCard
-              key={resource.resource_id + resource.version}
-              agentId={agentId}
-              threadId={threadId}
-              resource={resource}
-              onOpen={onOpen}
+              onOpen={setPreviewResource}
+              overview={imageOverview}
             />
           ))}
         </div>
@@ -301,6 +289,29 @@ export default function ChatDeliverables({
           )}
         </div>
       )}
+      <Modal
+        centered
+        open={previewResource !== null}
+        title={previewResource?.name}
+        onCancel={() => setPreviewResource(null)}
+        footer={null}
+        width="min(920px, calc(100vw - 24px))"
+        classNames={{ body: styles.previewBody }}
+        destroyOnHidden
+      >
+        {previewResource && (
+          <Suspense
+            fallback={<p role="status">{t("collaboration.loading")}</p>}
+          >
+            <ResourcePanelContent
+              key={previewResource.resource_id}
+              agentId={agentId}
+              threadId={threadId}
+              resourceId={previewResource.resource_id}
+            />
+          </Suspense>
+        )}
+      </Modal>
     </section>
   );
 }

@@ -14,6 +14,21 @@ vi.mock("../../../api/modules/collaboration", () => ({
   downloadCollaborationResource: vi.fn(),
   verifiedResourceContent: vi.fn(),
 }));
+vi.mock("./ResourcePanelContent", () => ({
+  default: ({
+    agentId,
+    threadId,
+    resourceId,
+  }: {
+    agentId: string;
+    threadId: string;
+    resourceId: string;
+  }) => (
+    <output aria-label="Scoped resource preview">
+      {agentId}|{threadId}|{resourceId}
+    </output>
+  ),
+}));
 afterEach(() => vi.restoreAllMocks());
 const resource: CollaborationResource = {
   resource_id: "res-zip",
@@ -54,18 +69,25 @@ it("shows child expert deliveries inline and uses the root authorized scope", as
     next_cursor: 1,
     has_more: false,
   });
-  const open = vi.fn();
   render(
     <CollaborationProvider agentId="parent" threadId="root">
-      <ChatDeliverables agentId="parent" threadId="root" onOpen={open} />
+      <ChatDeliverables agentId="parent" threadId="root" />
     </CollaborationProvider>,
   );
-  expect(await screen.findByText("result.zip")).toBeInTheDocument();
-  expect(screen.queryByText("input.pdf")).not.toBeInTheDocument();
-  expect(screen.queryByText("failed.zip")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByText("common.preview"));
-  expect(open).toHaveBeenCalledWith(resource);
-  fireEvent.click(screen.getByText("common.download"));
+  expect(await screen.findByTitle("result.zip")).toBeInTheDocument();
+  expect(screen.queryByTitle("input.pdf")).not.toBeInTheDocument();
+  expect(screen.queryByTitle("failed.zip")).not.toBeInTheDocument();
+  expect(screen.queryByText("common.preview")).not.toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole("button", { name: "chat.deliverables.open" }),
+  );
+  expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  expect(
+    await screen.findByLabelText("Scoped resource preview"),
+  ).toHaveTextContent("parent|root|res-zip");
+  fireEvent.click(
+    screen.getByRole("button", { name: "chat.flow.downloadFile" }),
+  );
   await waitFor(() =>
     expect(downloadCollaborationResource).toHaveBeenCalledWith(
       "parent",
@@ -96,10 +118,9 @@ it("fetches image metadata and verified bytes rather than the producer's workspa
   );
   vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:verified");
   const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
-  const open = vi.fn();
   const { unmount } = render(
     <CollaborationProvider agentId="parent" threadId="root">
-      <ChatDeliverables agentId="parent" threadId="root" onOpen={open} />
+      <ChatDeliverables agentId="parent" threadId="root" />
     </CollaborationProvider>,
   );
   expect(await screen.findByRole("img")).toHaveAttribute(
@@ -116,7 +137,9 @@ it("fetches image metadata and verified bytes rather than the producer's workspa
   );
   const dialog = await screen.findByRole("dialog");
   expect(dialog.querySelector("img")).toHaveAttribute("src", "blob:verified");
-  expect(open).not.toHaveBeenCalled();
+  expect(
+    screen.queryByLabelText("Scoped resource preview"),
+  ).not.toBeInTheDocument();
   unmount();
   expect(revoke).toHaveBeenCalledWith("blob:verified");
 });
@@ -148,7 +171,7 @@ it("bounds a large collection with type and more-file controls, without search",
   });
   render(
     <CollaborationProvider agentId="parent" threadId="root">
-      <ChatDeliverables agentId="parent" threadId="root" onOpen={vi.fn()} />
+      <ChatDeliverables agentId="parent" threadId="root" />
     </CollaborationProvider>,
   );
   await waitFor(() => expect(screen.getAllByRole("article")).toHaveLength(6));
@@ -194,7 +217,7 @@ it("does not fetch image bytes for cards beyond the visible page", async () => {
   vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   render(
     <CollaborationProvider agentId="parent" threadId="root">
-      <ChatDeliverables agentId="parent" threadId="root" onOpen={vi.fn()} />
+      <ChatDeliverables agentId="parent" threadId="root" />
     </CollaborationProvider>,
   );
   await waitFor(() =>
@@ -233,7 +256,7 @@ it("keeps active filters clearable after published files are withdrawn", async (
     });
   render(
     <CollaborationProvider agentId="parent" threadId="root">
-      <ChatDeliverables agentId="parent" threadId="root" onOpen={vi.fn()} />
+      <ChatDeliverables agentId="parent" threadId="root" />
     </CollaborationProvider>,
   );
   fireEvent.click(

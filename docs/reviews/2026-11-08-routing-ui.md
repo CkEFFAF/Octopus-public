@@ -1,16 +1,16 @@
 # Review, feature/model-cache-routing, 2026-11-08
 
 **Reviewed by**: GPT-6 (author model unspecified)
-**Scope**: delivery filtering and Markdown viewing changes, uncommitted
+**Scope**: simplified delivery cards and preview modal, uncommitted relative to c36375a
 **Verdict**: Approve
 
 ## Summary
-Active delivery filters remain accessible when resources disappear. Markdown previews now cover workspace, published resources, expert files, subagent documents and device files, while preserving the existing editing and saving paths. No actionable defects were identified in the reviewed scope.
+Delivery cards now show a compact icon or thumbnail, filename, size and download control. Resource preview retains the root conversation scope; no actionable defects were identified in the reviewed change.
 
 ## Strengths
-- Device Markdown preview uses the already verified file contents and keeps the editable draft in state when toggling source.
-- Subagent form fields remain mounted during preview, preserving validation and draft values.
-- Delivery image previews retain authenticated, version-checked content loading.
+- Image previews use verified content and clean up object URLs; other previews use the existing scoped resource panel.
+- File extensions remain visible when long filename stems truncate, and the larger image layout is limited to small all-image collections.
+- Active type filters remain clearable when the collection shrinks.
 
 ## Test coverage
-Targeted regression tests cover filter threshold changes, preview/source toggling, Markdown file classification and verified resource previews. The author reports targeted frontend, TypeScript and localization checks passing.
+The author is running targeted frontend tests for this change; prior delivery and Markdown regression coverage remains in place.

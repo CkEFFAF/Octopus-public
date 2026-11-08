@@ -1700,7 +1700,6 @@ function ChatPageInner() {
                           <ChatDeliverables
                             agentId={resolvedAgentId}
                             threadId={activeThreadId}
-                            onOpen={openResource}
                           />
                         ) : undefined
                       }
