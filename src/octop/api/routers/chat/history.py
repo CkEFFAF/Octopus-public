@@ -29,6 +29,7 @@ from octop.infra.agents.threads.artifact import thread_artifacts_payload
 from octop.infra.agents.threads.context_breakdown import SEGMENT_KEYS, compute_context_breakdown
 from octop.infra.agents.threads.fork import fork_dashboard_thread
 from octop.infra.agents.workspace.dir import agent_facing_workspace_dir_from_config
+from octop.infra.conversations.heat import ThreadHeatService
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.hitl.coordinator import pending_hitl_payload
 from octop.infra.gateway.sidebar import sidebar_status
@@ -169,7 +170,11 @@ async def list_threads(
     require_agent_row(agent_id, user=user, as_user=as_user, server=server)
     thread_registry = server.app_runtime.gateway.thread_registry
     effective_uid = as_user if as_user is not None else user.id
-    rows = thread_registry.list_threads(agent_id=agent_id, user_id=effective_uid, limit=limit)
+    ranked = await asyncio.to_thread(
+        ThreadHeatService(server.services.repos).list, effective_uid, agent_id, limit
+    )
+    rows = [row for row, _heat in ranked]
+    heat = {row.thread_id: value for row, value in ranked}
     bound = thread_registry.get_bound_thread_id(
         ThreadRegistry.dashboard_key(agent_id=agent_id, user_id=effective_uid)
     )
@@ -184,6 +189,7 @@ async def list_threads(
             "title_source": r.title_source,
             "title_revision": r.title_revision,
             "metadata": metadata.get(r.thread_id),
+            "heat": heat[r.thread_id],
             "channel_type": r.channel_type,
             "session_key": r.session_key,
             "last_active": r.last_active,

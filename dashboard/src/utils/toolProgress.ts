@@ -40,6 +40,18 @@ export function toolProgress(
       t(key, typeof options === "string" ? { defaultValue: options } : options),
     label,
   ).summary;
+  if (["execute", "bash", "run_terminal_cmd", "shell"].includes(name)) {
+    // The activity line is a summary. Full scripts remain in tool details and approvals.
+    const command = String(input.command || input.cmd || "");
+    const program = command.match(
+      /(?:^|&&|\|\||[;\n])\s*(?:[^\s"']*[\\/])?(python(?:\d+(?:\.\d+)?)?|node|npm|pnpm|uv|git|pytest|curl)\b/i,
+    )?.[1];
+    action = program
+      ? t("chat.toolFeedback.runProgram", {
+          program: /^python/i.test(program) ? "Python" : program,
+        })
+      : t("chat.toolFeedback.runCommand");
+  }
   if (["job_status", "job_logs", "job_cancel"].includes(name))
     action = t(`chat.toolFeedback.${name}`);
   if (name === "read_attachment")

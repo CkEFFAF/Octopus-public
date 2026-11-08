@@ -14,7 +14,13 @@ import ChatUsageFooter from "./ChatUsageFooter";
 import { convertHistoryMessages } from "../hooks/useChat";
 import { sumVisibleTurnUsage } from "../utils/chatUsage";
 
-function ResizeFixture({ mobile = false }: { mobile?: boolean }) {
+function ResizeFixture({
+  mobile = false,
+  preview = false,
+}: {
+  mobile?: boolean;
+  preview?: boolean;
+}) {
   const composer = useComposerResize(mobile);
   const sidebar = useChatSidebarState(mobile);
   return (
@@ -29,7 +35,10 @@ function ResizeFixture({ mobile = false }: { mobile?: boolean }) {
         <output>{sidebar.isSidebarResizing ? "resizing" : "settled"}</output>
       </div>
       <div data-chat-composer>
-        <div ref={composer.wrapperRef} style={{ height: composer.height }}>
+        <div
+          ref={composer.wrapperRef}
+          style={{ height: composer.height, padding: 8, border: "1px solid" }}
+        >
           <div
             role="separator"
             aria-label="composer"
@@ -37,6 +46,20 @@ function ResizeFixture({ mobile = false }: { mobile?: boolean }) {
             onKeyDown={composer.onKeyDown}
           />
           <output>{Math.round(composer.height)}</output>
+          {preview && (
+            <div
+              data-composer-fixed
+              data-composer-preview
+              style={{ marginBottom: 8 }}
+            >
+              attachment
+            </div>
+          )}
+          <div
+            data-composer-fixed
+            data-testid="toolbar"
+            style={{ marginTop: 4 }}
+          />
         </div>
       </div>
     </div>
@@ -113,6 +136,7 @@ describe("chat layout sizes and usage", () => {
   });
 
   it("resizes the composer twice, restores its chosen height, and clamps for a smaller viewport", async () => {
+    localStorage.setItem(COMPOSER_HEIGHT_KEY, "180");
     const view = render(<ResizeFixture />);
     const handle = screen.getByRole("separator", { name: "composer" });
     fireEvent.pointerDown(handle, { button: 0, pointerId: 1, clientY: 700 });
@@ -138,6 +162,7 @@ describe("chat layout sizes and usage", () => {
   });
 
   it("cleans an interrupted drag and does not capture mobile touches", () => {
+    localStorage.setItem(COMPOSER_HEIGHT_KEY, "180");
     const view = render(<ResizeFixture />);
     fireEvent.pointerDown(screen.getByRole("separator", { name: "composer" }), {
       button: 0,
@@ -159,7 +184,29 @@ describe("chat layout sizes and usage", () => {
     expect(localStorage.getItem(COMPOSER_HEIGHT_KEY)).toBe("180");
   });
 
-  it("uses normalized turn totals once and switches usage scope with the session", () => {
+  it("grows a narrow composer to keep attachments, text and controls inside, retaining a larger chosen height", async () => {
+    window.innerWidth = 390;
+    const view = render(<ResizeFixture mobile preview />);
+    const preview = screen.getByText("attachment");
+    Object.defineProperty(preview, "scrollHeight", { value: 64 });
+    vi.spyOn(
+      screen.getByTestId("toolbar"),
+      "getBoundingClientRect",
+    ).mockReturnValue({ height: 72 } as DOMRect);
+    fireEvent(window, new Event("resize"));
+    await waitFor(() =>
+      expect(localStorage.getItem(COMPOSER_HEIGHT_KEY)).toBe("202"),
+    );
+    fireEvent.keyDown(screen.getByRole("separator", { name: "composer" }), {
+      key: "ArrowUp",
+    });
+    expect(localStorage.getItem(COMPOSER_HEIGHT_KEY)).toBe("222");
+    view.rerender(<ResizeFixture mobile />);
+    fireEvent(window, new Event("resize"));
+    expect(localStorage.getItem(COMPOSER_HEIGHT_KEY)).toBe("222");
+  });
+
+  it("uses normalized turn totals once and switches usage scope with the session", async () => {
     const messages = convertHistoryMessages([
       { role: "user", content: "hello", id: "u1" },
       {
@@ -192,13 +239,21 @@ describe("chat layout sizes and usage", () => {
     const view = render(
       <ChatUsageFooter messages={messages} hasMore loading={false} />,
     );
+    expect(screen.getByTestId("chat-usage-summary")).toHaveTextContent(
+      "chatUsage.loadedMessages 231",
+    );
+    expect(screen.getByTestId("chat-usage-summary")).toHaveTextContent("72.7%");
+    fireEvent.click(screen.getByTestId("chat-usage-summary"));
+    expect(await screen.findByText("220 chatUsage.input")).toBeInTheDocument();
     expect(
-      screen.getByText(/chatUsage.loadedMessages.*220.*160.*231/),
+      await screen.findByText("160 chatUsage.cacheHit (73%)"),
     ).toBeInTheDocument();
     view.rerender(
       <ChatUsageFooter messages={messages} hasMore={false} loading={false} />,
     );
-    expect(screen.getByText(/chatUsage.sessionTotal.*220/)).toBeInTheDocument();
+    expect(screen.getByTestId("chat-usage-summary")).toHaveTextContent(
+      "chatUsage.sessionTotal 231",
+    );
     view.rerender(
       <ChatUsageFooter messages={[]} hasMore={false} loading={false} />,
     );
@@ -216,5 +271,70 @@ describe("chat layout sizes and usage", () => {
     expect(
       screen.queryByText(/chatUsage.sessionTotal/),
     ).not.toBeInTheDocument();
+  });
+
+  it("does not invent cache rates for absent or mixed provider metrics", () => {
+    const unknown = {
+      id: "unknown",
+      role: "assistant" as const,
+      content: "done",
+      timestamp: 1,
+      usage: { input_tokens: 100, output_tokens: 1, total_tokens: 101 },
+    };
+    const known = {
+      ...unknown,
+      id: "known",
+      usage: { ...unknown.usage, cache_read_tokens: 80 },
+    };
+    expect(sumVisibleTurnUsage([unknown])?.cache_read_tokens).toBeUndefined();
+    expect(
+      sumVisibleTurnUsage([known, unknown])?.cache_read_tokens,
+    ).toBeUndefined();
+    const view = render(
+      <ChatUsageFooter messages={[unknown]} hasMore={false} loading={false} />,
+    );
+    expect(screen.getByTestId("chat-usage-summary")).not.toHaveTextContent("%");
+    view.rerender(
+      <ChatUsageFooter
+        messages={[known, unknown]}
+        hasMore={false}
+        loading={false}
+      />,
+    );
+    expect(screen.getByTestId("chat-usage-summary")).not.toHaveTextContent("%");
+    view.rerender(
+      <ChatUsageFooter
+        messages={[
+          { ...unknown, usage: { ...unknown.usage, cache_read_tokens: 0 } },
+        ]}
+        hasMore={false}
+        loading={false}
+      />,
+    );
+    expect(screen.getByTestId("chat-usage-summary")).toHaveTextContent("0%");
+    const projected = convertHistoryMessages([
+      { role: "user", content: "question", id: "u" },
+      {
+        role: "assistant",
+        content: "tool",
+        id: "a",
+        usage: {
+          input_tokens: 100,
+          output_tokens: 1,
+          input_token_details: { cache_read: 80 },
+        },
+      },
+      {
+        role: "assistant",
+        content: "done",
+        id: "b",
+        usage: { input_tokens: 120, output_tokens: 2 },
+      },
+    ]);
+    expect(sumVisibleTurnUsage(projected)?.cache_read_tokens).toBeUndefined();
+    view.rerender(
+      <ChatUsageFooter messages={projected} hasMore={false} loading={false} />,
+    );
+    expect(screen.getByTestId("chat-usage-summary")).not.toHaveTextContent("%");
   });
 });

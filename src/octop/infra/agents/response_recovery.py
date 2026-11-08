@@ -61,6 +61,7 @@ def recovery_request(request: dict[str, Any]) -> dict[str, Any]:
             "work_mode",
             "conversation_mode",
             "octop_reasoning_overrides",
+            "octop_model_route",
             "knowledge_base_ids",
             "locale",
         )
@@ -282,6 +283,9 @@ class ResponseRecovery:
                 )
             if model:
                 original_request["model"] = model
+                route = (original_request.get("configurable") or {}).get("octop_model_route")
+                if isinstance(route, dict) and route.get("model") != model:
+                    route.update(model=model, source="manual", reason="manual", available=True)
             actor = await asyncio.to_thread(self.repos.user_repo.get, owner)
             values = original_request.setdefault("configurable", {})
             values["user_is_admin"] = bool(actor and actor.role == "admin")
@@ -340,7 +344,13 @@ class ResponseRecovery:
             )
             status = "unknown"
             yield {"type": "recovery_ack", "status": "accepted", "response_id": response_id}
+            model_refs = getattr(self.manager, "_active_model_refs", None)
+            if isinstance(model_refs, dict) and request.get("model"):
+                model_refs[(agent, thread)] = request["model"]
+            route = (request.get("configurable") or {}).get("octop_model_route")
             try:
+                if isinstance(route, dict):
+                    yield {**route, "type": "model_route"}
                 with hitl_thread_scope(thread):
                     async with harness._invocation():
                         async for chunk in self._resume_chunks(harness, config, thread, baseline):
@@ -368,6 +378,8 @@ class ResponseRecovery:
                     logger.exception("Could not record response recovery thread=%s", thread)
                 raise
             finally:
+                if isinstance(model_refs, dict):
+                    model_refs.pop((agent, thread), None)
                 await asyncio.to_thread(
                     receipts.save,
                     event_id=event_id,

@@ -42,11 +42,25 @@ export function normalizeThreadArtifacts(
   return out;
 }
 
+export interface ThreadHeat {
+  score: number;
+  level: "running" | "attention" | "hot" | "warm" | "quiet";
+  interactions_24h: number;
+  interactions_7d: number;
+  work_7d: number;
+  background_count: number;
+  attention_count: number;
+  last_user_at: number;
+  next_overview_at: number;
+  overview_reason?: string;
+}
+
 export interface OctopThread {
   thread_id: string;
   title: string | null;
   title_source?: string;
   title_revision?: number;
+  heat?: ThreadHeat;
   metadata?: {
     one_liner: string;
     stage?: string;

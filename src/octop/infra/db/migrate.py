@@ -2004,6 +2004,17 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
             conn.execute("UPDATE _schema_version SET version = ?", (version,))
         return
     sql = path.read_text(encoding="utf-8")
+    if version == 39:
+        _ensure_column(
+            db,
+            "usage_log",
+            "cache_metrics_reported",
+            "INTEGER NOT NULL DEFAULT 0 CHECK (cache_metrics_reported IN (0, 1))",
+        )
+        _ensure_thread_activity_schema(db)
+        with db.connect() as conn:
+            conn.execute("UPDATE _schema_version SET version = ?", (version,))
+        return
     if version == 33:
         for column, ddl in re.findall(r"ALTER TABLE threads ADD COLUMN (\w+) ([^;]+);", sql):
             _ensure_column(db, "threads", column, ddl)
@@ -2160,6 +2171,20 @@ CREATE TABLE IF NOT EXISTS work_item_inputs (
         _apply_postgresql_migration(conn, sql)
 
 
+def _ensure_thread_activity_schema(db: DatabasePool) -> None:
+    suffix = ".pg.sql" if db.dialect == "postgresql" else ".sql"
+    path = _MIGRATIONS_DIR / f"039_cache_usage_availability{suffix}"
+    if not path.exists() or not _table_exists(db, "threads"):
+        return
+    ddl = path.read_text(encoding="utf-8").split("-- Session activity", 1)[1].split("\n", 1)[1]
+    ddl = ddl.split("UPDATE _schema_version", 1)[0]
+    with db.connect() as conn:
+        if db.dialect == "postgresql":
+            _apply_postgresql_migration(conn, ddl)
+        else:
+            conn.executescript(ddl)
+
+
 def run_migrations(db: DatabasePool) -> None:
     if db.dialect == "sqlite":
         _repair_legacy_schema(db)
@@ -2254,3 +2279,4 @@ def run_migrations(db: DatabasePool) -> None:
     _ensure_execution_schema(db)
     _ensure_device_update_schema(db)
     _ensure_browser_sessions_schema(db)
+    _ensure_thread_activity_schema(db)

@@ -109,6 +109,7 @@ interface ChatInputProps {
   onContinueChat?: () => void;
   onSteerInput?: (input: EnqueueChatItemInput) => Promise<boolean>;
   modelRetry?: import("../hooks/sseHelpers").SessionSnapshot["modelRetry"];
+  modelRoute?: import("../hooks/sseHelpers").SessionSnapshot["modelRoute"];
   startedAt?: number | null;
   currentTool?: ChatMessage["toolData"];
   onShowProgress?: () => void;
@@ -188,6 +189,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       onContinueChat,
       onSteerInput,
       modelRetry,
+      modelRoute,
       startedAt,
       currentTool,
       onShowProgress,
@@ -952,7 +954,6 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
           handleDrop(event);
         }}
       >
-        {backgroundWork}
         {isStreaming && onContinueChat ? (
           <ChatWorkStatus
             onContinueChat={onContinueChat}
@@ -961,32 +962,9 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             startedAt={startedAt}
             currentTool={currentTool}
             retry={modelRetry}
+            modelRoute={modelRoute}
           />
         ) : null}
-        {isStreaming && !isTeam && onSteerInput && (
-          <div className={styles.busySendIntent}>
-            <label>
-              {t("chat.flow.sendWhileWorking")}
-              <select
-                aria-label={t("chat.flow.sendWhileWorking")}
-                value={busyIntent}
-                onChange={(event) =>
-                  setBusyIntent(event.target.value as "supplement" | "queue")
-                }
-              >
-                <option value="supplement">{t("chat.flow.supplement")}</option>
-                <option value="queue">{t("chat.flow.queue")}</option>
-              </select>
-            </label>
-            <span>
-              {t(
-                busyIntent === "supplement"
-                  ? "chat.flow.supplementHint"
-                  : "chat.flow.queueHint",
-              )}
-            </span>
-          </div>
-        )}
         {onReclaimQueued && (
           <ChatQueuedMessages
             items={queuedItems}
@@ -1138,6 +1116,11 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
           )}
 
           <ChatInputActionsRow
+            backgroundWork={backgroundWork}
+            busyIntent={busyIntent}
+            onBusyIntentChange={
+              !isTeam && onSteerInput ? setBusyIntent : undefined
+            }
             runningSendLabel={
               onSteerInput &&
               busyIntent === "supplement" &&

@@ -15,6 +15,7 @@ export interface TokenUsage {
   input_tokens?: number;
   uncached_input_tokens?: number;
   cache_read_tokens?: number;
+  cache_metrics_reported?: boolean;
   cache_write_tokens?: number;
   output_tokens?: number;
   reasoning_tokens?: number;

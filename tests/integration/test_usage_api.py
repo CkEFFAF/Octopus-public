@@ -54,6 +54,7 @@ async def test_repo_record_and_summary_total(env: Any) -> None:
         input_tokens=100,
         uncached_input_tokens=30,
         cache_read_tokens=70,
+        cache_metrics_reported=True,
         output_tokens=50,
     )
     repo.record(
@@ -62,13 +63,14 @@ async def test_repo_record_and_summary_total(env: Any) -> None:
         thread_id="t1",
         model="openai:gpt-4o-mini",
         input_tokens=200,
+        cache_metrics_reported=True,
         output_tokens=80,
     )
     result = repo.summary(user_id=ctx["alice_id"], window="last_30d", granularity="total")
     assert result["input_tokens"] == 300
     assert result["uncached_input_tokens"] == 230
     assert result["cache_read_tokens"] == 70
-    assert result["cache_hit_percent"] == 23
+    assert result["cache_hit_percent"] == 23.33
     assert result["output_tokens"] == 130
     assert result["total_tokens"] == 430
     assert result["turns"] == 2
@@ -625,6 +627,7 @@ def test_usage_tracker_accumulates_calls_and_replaces_duplicate_call() -> None:
     )
 
     assert tracker.usage == {
+        "cache_metrics_reported": True,
         "input_tokens": 2_200,
         "uncached_input_tokens": 700,
         "cache_read_tokens": 1_500,

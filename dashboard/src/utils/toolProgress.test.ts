@@ -12,6 +12,24 @@ await i18n.init({
 });
 const t = i18n.t.bind(i18n);
 describe("observed tool feedback", () => {
+  it("keeps multiline scripts out of the activity summary", () => {
+    const view = toolProgress(
+      "execute",
+      {
+        command:
+          "cd /project && /opt/venv/bin/python - <<'PY'\nimport re\nprint('sensitive body')\nPY",
+      },
+      undefined,
+      t,
+    );
+    expect(view.action).toBe("运行 Python 命令");
+    expect(view.action).not.toContain("import");
+    expect(view.action).not.toContain("sensitive");
+    expect(
+      toolProgress("bash", { command: "printf '%s' opaque" }, undefined, t)
+        .action,
+    ).toBe("执行终端命令");
+  });
   it("explains a concrete file operation without asking another model", () => {
     const view = toolProgress(
       "read_file",

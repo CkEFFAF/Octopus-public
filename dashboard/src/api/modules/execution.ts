@@ -1,3 +1,4 @@
+import type { TokenUsage } from "../types";
 import { request } from "../request";
 import type { Device, DeviceRoot } from "./devices";
 
@@ -56,7 +57,7 @@ export interface RequestSnapshot {
   components_truncated?: boolean;
   omitted_component_count?: number;
   metadata_truncated?: boolean;
-  actual_usage: Record<string, number> | null;
+  actual_usage: TokenUsage | null;
   duration_ms: number | null;
   ttft_ms: number | null;
   transformation?: {

@@ -77,7 +77,7 @@ function ResourceCard({
     }
   }
   return (
-    <article className={styles.card}>
+    <article className={`${styles.card} ${image ? styles.imageCard : ""}`}>
       <button
         className={styles.preview}
         onClick={() => onOpen(resource)}

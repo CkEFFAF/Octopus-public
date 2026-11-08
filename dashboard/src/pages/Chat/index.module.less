@@ -586,30 +586,55 @@
     transform: none;
   }
 }
-.busySendIntent {
-  display: flex;
+.sendIntentTrigger {
+  display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  padding: 0 0 10px;
-  font-size: 12px;
+  justify-content: center;
+  gap: 3px;
+  min-height: 32px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: var(--fn-text-secondary);
-  label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  select {
-    padding: 5px 8px;
-    border: 1px solid var(--fn-border-primary);
-    border-radius: 6px;
-    background: var(--fn-bg-primary);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  &:hover {
     color: var(--fn-text-primary);
-    font: inherit;
-    &:focus-visible {
-      outline: 2px solid var(--fn-color-primary);
-      outline-offset: 2px;
-    }
+    background: var(--fn-bg-hover);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--fn-color-brand);
+    outline-offset: 2px;
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+.sendControls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.sendIntentOption {
+  max-width: min(320px, calc(100vw - 64px));
+  padding: 3px 0;
+  white-space: normal;
+  strong {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  span {
+    display: block;
+    margin-top: 3px;
+    color: var(--fn-text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
   }
 }
 .uploadPendingHint {

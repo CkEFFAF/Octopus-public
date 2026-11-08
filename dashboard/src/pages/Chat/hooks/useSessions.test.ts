@@ -9,6 +9,7 @@ import {
 } from "./useSessions";
 
 const listMock = vi.fn();
+const createMock = vi.fn();
 
 vi.mock("../../../api/modules/octopThreads", async (importOriginal) => ({
   ...(await importOriginal<
@@ -16,7 +17,7 @@ vi.mock("../../../api/modules/octopThreads", async (importOriginal) => ({
   >()),
   octopThreadsApi: {
     list: (...args: unknown[]) => listMock(...args),
-    create: vi.fn(),
+    create: (...args: unknown[]) => createMock(...args),
     delete: vi.fn(),
     patch: vi.fn(),
     rename: vi.fn(),
@@ -83,10 +84,83 @@ describe("useSessions agent switch", () => {
   beforeEach(() => {
     resetSessionStoreForTests();
     listMock.mockReset();
+    createMock.mockReset();
   });
 
   afterEach(() => {
     resetSessionStoreForTests();
+    vi.restoreAllMocks();
+  });
+
+  it("retains the open older thread on periodic and visibility refresh", async () => {
+    const recent = Array.from({ length: 11 }, (_, index) =>
+      threadRow("recent-" + index),
+    );
+    listMock
+      .mockResolvedValueOnce(recent)
+      .mockResolvedValueOnce([...recent, threadRow("older-thread")])
+      .mockResolvedValue(recent);
+    const timer = vi.spyOn(window, "setInterval");
+    const { result } = renderHook(() => useSessions("agent-a", "older-thread"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => {
+      await result.current.ensureThreadInList("older-thread");
+    });
+    expect(
+      result.current.sessions.some((session) => session.id === "older-thread"),
+    ).toBe(true);
+    const refresh = timer.mock.calls.find((call) => call[1] === 30_000)?.[0];
+    expect(typeof refresh).toBe("function");
+    await act(async () => {
+      (refresh as () => void)();
+    });
+    expect(
+      result.current.sessions.some((session) => session.id === "older-thread"),
+    ).toBe(true);
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(
+      result.current.sessions.some((session) => session.id === "older-thread"),
+    ).toBe(true);
+  });
+
+  it("keeps an in-flight new conversation through background refresh", async () => {
+    listMock.mockResolvedValue([threadRow("recent")]);
+    let resolveCreate!: (value: { thread_id: string }) => void;
+    createMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const { result } = renderHook(() => useSessions("agent-a"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    let created!: ReturnType<typeof result.current.createSession>;
+    act(() => {
+      created = result.current.createSession();
+    });
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(
+      result.current.sessions.some((session) => session.id === "__pending__"),
+    ).toBe(true);
+    await act(async () => {
+      resolveCreate({ thread_id: "created-thread" });
+      await created.resolvedId;
+    });
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(
+      result.current.sessions.some(
+        (session) => session.id === "created-thread",
+      ),
+    ).toBe(true);
+    expect(
+      result.current.sessions.some((session) => session.id === "__pending__"),
+    ).toBe(false);
   });
 
   it("clears previous-agent threads on the first render of a new agent", async () => {

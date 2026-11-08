@@ -307,7 +307,7 @@ function ChatPageInner() {
     loadMoreSessions,
     fetchAllSessions,
     ensureThreadInList,
-  } = useSessions(resolvedAgentId ?? null);
+  } = useSessions(resolvedAgentId ?? null, activeThreadId);
 
   useEffect(() => {
     return chatStore.onToolEvent((event) => {
@@ -405,6 +405,7 @@ function ChatPageInner() {
     isStreaming,
     thinkingStartedAt,
     modelRetry,
+    modelRoute,
     historyLoading,
     historyError,
     historyHasMore,
@@ -2043,6 +2044,7 @@ function ChatPageInner() {
                 }
                 runtimePhase={persistentQueue.runtime?.phase}
                 modelRetry={modelRetry}
+                modelRoute={modelRoute}
                 startedAt={thinkingStartedAt}
                 currentTool={
                   messages

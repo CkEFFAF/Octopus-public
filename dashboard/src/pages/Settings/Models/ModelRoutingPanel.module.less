@@ -1,0 +1,43 @@
+.panel {
+  margin: 16px 0;
+}
+.tasks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 24px;
+  margin: 20px 0;
+}
+.task {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.task label {
+  font-weight: 500;
+}
+.task :global(.ant-select),
+.task :global(.octop-select) {
+  width: 100%;
+}
+.task :global(.ant-typography),
+.task :global(.octop-typography) {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.preview {
+  border-top: 1px solid var(--fn-border-secondary);
+  margin-top: 20px;
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.taskSelect {
+  min-width: 160px;
+}
+@media (max-width: 640px) {
+  .tasks {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

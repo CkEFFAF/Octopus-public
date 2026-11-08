@@ -83,7 +83,7 @@ class RequestSnapshotOut(BaseModel):
     run_id: str | None = None
     model: str | None = None
     estimated_input_tokens: int
-    actual_usage: dict[str, int] | None = None
+    actual_usage: dict[str, int | bool] | None = None
     duration_ms: float | None = None
     ttft_ms: float | None = None
     transformation: dict[str, Any] | None = None

@@ -69,6 +69,9 @@ function host() {
   );
 }
 async function openTask() {
+  fireEvent.click(
+    await screen.findByRole("button", { name: /chat.workItems.title/ }),
+  );
   fireEvent.click(await screen.findByText(detail.title));
   await screen.findByText(detail.instructions);
 }
@@ -133,6 +136,7 @@ it("sends explicit requirements to only the selected worker attempt", async () =
 it("retains the command id when retrying an unconfirmed create request", async () => {
   vi.mocked(workItemsApi.create).mockRejectedValueOnce(new Error("network"));
   host();
+  fireEvent.click(screen.getByRole("button", { name: /chat.workItems.title/ }));
   fireEvent.click(screen.getByRole("button", { name: "chat.workItems.new" }));
   fireEvent.change(screen.getByLabelText("chat.workItems.taskTitle"), {
     target: { value: "New task" },
@@ -165,6 +169,7 @@ it("retains the command id when retrying an unconfirmed create request", async (
 it("does not upgrade an Ask-mode selection into background execution", async () => {
   setExecutionSelection(scope, { workMode: "ask" });
   host();
+  fireEvent.click(screen.getByRole("button", { name: /chat.workItems.title/ }));
   fireEvent.click(screen.getByRole("button", { name: "chat.workItems.new" }));
   expect(
     screen.getByRole("button", { name: "chat.workItems.start" }),

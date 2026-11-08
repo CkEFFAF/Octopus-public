@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import sqlite3
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -183,6 +185,55 @@ class HistoryStore:
                         "message_json": json.dumps(wire, ensure_ascii=False),
                         "created_at": row["started_at"],
                     }
+                )
+        return result
+
+    def user_activity_samples(self, since: float) -> list[dict[str, Any]]:
+        """Read role, identity and time only, without resolving message bodies."""
+
+        def field(node: Any, *keys: str) -> Any:
+            for key in keys:
+                if not isinstance(node, list) or len(node) != 2 or node[0] != "dict":
+                    return None
+                node = dict(node[1]).get(key)
+            return (
+                node[1]
+                if isinstance(node, list) and len(node) == 2 and node[0] == "value"
+                else None
+            )
+
+        result = []
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT d.thread_id,d.id,t.started_at,d.data "
+                "FROM documents d JOIN turns t ON t.id=d.turn_id WHERE d.kind='message' "
+                "AND t.started_at>=?",
+                (since,),
+            )
+            for row in rows:
+                node = json.loads(row["data"])
+                if field(node, "type") not in {"human", "user"}:
+                    continue
+                message_id = field(node, "data", "id") or field(node, "id")
+                source = field(node, "data", "additional_kwargs", "lc_source") or field(
+                    node, "additional_kwargs", "lc_source"
+                )
+                if source in {"summarization", "pinned_skill"} or str(message_id or "").startswith(
+                    "cron:"
+                ):
+                    continue
+                checkpoint = field(node, "data", "additional_kwargs", "checkpoint_ts") or field(
+                    node, "additional_kwargs", "checkpoint_ts"
+                )
+                try:
+                    stamp = float(checkpoint) / 1000 if checkpoint else float(row["started_at"])
+                except (TypeError, ValueError):
+                    stamp = float(row["started_at"])
+                if not math.isfinite(stamp) or stamp <= 0 or stamp > time.time() + 60:
+                    stamp = float(row["started_at"])
+                identity = f"human:{message_id}" if message_id else f"archive:{row['id']}"
+                result.append(
+                    {"thread_id": row["thread_id"], "source_id": identity, "occurred_at": stamp}
                 )
         return result
 

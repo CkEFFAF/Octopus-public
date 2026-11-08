@@ -78,6 +78,33 @@ def enqueue(setup, command="one"):
     )
 
 
+def test_activity_uses_queued_admission_time_and_identity_on_late_dispatch(
+    setup_queue, monkeypatch
+):
+    import time
+
+    from langchain_core.messages import HumanMessage
+
+    from octop.infra.conversations.activity import record_user_request
+
+    queue, repos, owner, *_ = setup_queue
+    now = time.time()
+    received = now - 2 * 3600
+    with monkeypatch.context() as patch:
+        patch.setattr(time, "time", lambda: received)
+        receipt = enqueue(setup_queue, "timed")
+    request = {"messages": [HumanMessage(content="timed")]}
+    record_user_request(repos, owner, "agent", "thread", request, "queue:timed")
+    assert request["messages"][0].id == "steer:timed"
+    values = repos.thread_activity_repo.signals(owner, "agent", now)["thread"]
+    assert values["interactions_24h"] == 1
+    assert values["last_user_at"] == receipt["created_at"] == received
+    enqueue(setup_queue, "timed")
+    assert (
+        repos.thread_activity_repo.signals(owner, "agent", now)["thread"]["interactions_24h"] == 1
+    )
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("kind", ["file", "image"])
 @pytest.mark.parametrize("text", ["", "请结合补充附件"])

@@ -14,6 +14,7 @@ import type { HitlSessionPolicy } from "../../../api/types/hitl";
 import type { ThreadArtifact } from "../../../api/modules/octopThreads";
 import * as chatStore from "./chatStore";
 import type { WorkMode } from "../utils/workMode";
+import { reportedCacheRead } from "../utils/chatUsage";
 import { shouldBlockHistoryRefresh } from "./wsResumeGate";
 import {
   generateId,
@@ -81,13 +82,8 @@ function normalizeTokenUsage(value: unknown): TokenUsage | undefined {
   };
 
   let input = count(raw.input_tokens ?? raw.prompt_tokens);
-  const cacheRead =
-    count(raw.cache_read_tokens) ||
-    count(raw.prompt_cache_hit_tokens) ||
-    detailCount(raw.input_token_details ?? raw.prompt_tokens_details, [
-      "cache_read",
-      "cached_tokens",
-    ]);
+  const reportedRead = reportedCacheRead(raw);
+  const cacheRead = reportedRead ?? 0;
   const cacheWrite =
     count(raw.cache_write_tokens) ||
     detailCount(raw.input_token_details ?? raw.prompt_tokens_details, [
@@ -113,7 +109,7 @@ function normalizeTokenUsage(value: unknown): TokenUsage | undefined {
     ...raw,
     input_tokens: input,
     uncached_input_tokens: uncached,
-    cache_read_tokens: cacheRead,
+    cache_read_tokens: reportedRead,
     cache_write_tokens: cacheWrite,
     output_tokens: output,
     reasoning_tokens: reasoning,
@@ -582,12 +578,14 @@ function convertCallEntries(entries: CallEntry[]): ChatMessage[] {
     model_calls: 0,
   });
   let turnAcc: TokenUsage | null = null;
+  let turnCacheComplete = true;
   let turnLastInputTokens = 0;
   let turnLastAiIdx: number | null = null;
   let turnLastPlainAiIdx: number | null = null;
 
   const flushTurn = () => {
     if (!turnAcc) return;
+    if (!turnCacheComplete) delete turnAcc.cache_read_tokens;
     const hasAny =
       (turnAcc.input_tokens || 0) > 0 ||
       (turnAcc.output_tokens || 0) > 0 ||
@@ -607,6 +605,7 @@ function convertCallEntries(entries: CallEntry[]): ChatMessage[] {
       }
     }
     turnAcc = null;
+    turnCacheComplete = true;
     turnLastInputTokens = 0;
     turnLastAiIdx = null;
     turnLastPlainAiIdx = null;
@@ -628,6 +627,7 @@ function convertCallEntries(entries: CallEntry[]): ChatMessage[] {
 
     const u = m.usage;
     if (u) {
+      if (reportedCacheRead(u) === undefined) turnCacheComplete = false;
       const callIn =
         typeof u.input_tokens === "number" && u.input_tokens > 0
           ? u.input_tokens
@@ -872,6 +872,7 @@ export function useChat(
     liveSpeakers,
   } = useSyncExternalStore(subscribeStore, getStoreSnapshot);
   const modelRetry = getStoreSnapshot().modelRetry;
+  const modelRoute = getStoreSnapshot().modelRoute;
 
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyRefreshing, setHistoryRefreshing] = useState(false);
@@ -1271,6 +1272,7 @@ export function useChat(
 
   return {
     modelRetry,
+    modelRoute,
     messages,
     isStreaming,
     thinkingStartedAt,

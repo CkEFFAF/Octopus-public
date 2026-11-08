@@ -37,6 +37,8 @@ def test_aggregate_metrics_sums_durations_and_tokens() -> None:
                 "ttft_ms": 100.0,
                 "tok_per_s": 50.0,
                 "input_tokens": 100,
+                "cache_read_tokens": 0,
+                "cache_metrics_reported": True,
                 "output_tokens": 50,
             },
         ),
@@ -50,6 +52,7 @@ def test_aggregate_metrics_sums_durations_and_tokens() -> None:
                 "input_tokens": 300,
                 "output_tokens": 150,
                 "cache_read_tokens": 100,
+                "cache_metrics_reported": True,
             },
         ),
         _event(seq=3, kind="tool", payload={"tool_duration_ms": 500.0}),
@@ -66,7 +69,7 @@ def test_aggregate_metrics_sums_durations_and_tokens() -> None:
         tool_duration_ms=1000.0,
         ttft_avg_ms=200.0,
         tok_per_s=62.5,
-        cache_hit_ratio=0.2,
+        cache_hit_ratio=0.25,
         input_tokens=400,
         output_tokens=200,
         cache_read_tokens=100,
@@ -92,3 +95,47 @@ def test_aggregate_metrics_counts_user_turns() -> None:
     assert metrics.input_tokens is None
     assert metrics.output_tokens is None
     assert metrics.cache_read_tokens is None
+
+
+def test_cache_hit_ratio_uses_input_total_that_already_includes_cache() -> None:
+    metrics = aggregate_metrics(
+        [
+            _event(
+                seq=1,
+                kind="assistant",
+                payload={
+                    "input_tokens": 1000,
+                    "cache_read_tokens": 800,
+                    "cache_metrics_reported": True,
+                },
+            )
+        ]
+    )
+    assert metrics.cache_hit_ratio == 0.8
+
+
+def test_mixed_and_legacy_cache_provenance_has_no_ratio() -> None:
+    for flag in (False, None):
+        metrics = aggregate_metrics(
+            [
+                _event(
+                    seq=1,
+                    kind="assistant",
+                    payload={
+                        "input_tokens": 100,
+                        "cache_read_tokens": 80,
+                        "cache_metrics_reported": True,
+                    },
+                ),
+                _event(
+                    seq=2,
+                    kind="assistant",
+                    payload={
+                        "input_tokens": 100,
+                        "cache_read_tokens": 0,
+                        **({"cache_metrics_reported": flag} if flag is not None else {}),
+                    },
+                ),
+            ]
+        )
+        assert metrics.cache_hit_ratio is None

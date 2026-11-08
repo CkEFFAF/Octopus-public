@@ -31,6 +31,44 @@ def _workspace(root: str, *, virtual_mode: bool = False) -> BackendWorkspace:
     return BackendWorkspace(backend, root)
 
 
+@pytest.mark.asyncio
+async def test_failed_send_does_not_invent_or_emit_an_image(tmp_path: Path) -> None:
+    from octop.infra.gateway.media.tool_media import (
+        enrich_tool_output_string_sync,
+        media_events_from_tool_result,
+    )
+
+    error = "send_file_to_user: no such file: /project/outbound/figure.png. Use an existing workspace-relative path."
+    assert enrich_tool_output_string_sync(error, agent_id="main") == error
+    chunk = {"messages": [{"name": "send_file_to_user", "status": "error", "content": error}]}
+    workspace = _workspace(str(tmp_path))
+    enriched = await enrich_tool_result_with_backend(chunk, agent_id="main", workspace=workspace)
+    assert enriched["messages"][0]["content"] == error
+    assert [
+        frame
+        async for frame in attachment_frames_from_tool_result(
+            enriched, agent_id="main", workspace=workspace
+        )
+    ] == []
+    broken = {
+        "messages": [
+            {
+                "name": "send_file_to_user",
+                "status": "error",
+                "content": json.dumps(
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "data": "UE5H", "media_type": "image/png"},
+                    }
+                ),
+            }
+        ]
+    }
+    assert [
+        event async for event in media_events_from_tool_result(broken, workspace=workspace)
+    ] == []
+
+
 def _default_virtual_workspace(root: str) -> BackendWorkspace:
     """BackendWorkspace matching Octop's platform default agent backend.
 

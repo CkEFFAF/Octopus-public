@@ -930,6 +930,22 @@
 @container chat-main (max-width: 560px) {
   .actionsRow {
     gap: 4px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    row-gap: 6px;
+  }
+
+  .actionsRow > .inputActions {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .inputActions .sendControls {
+    margin-left: auto;
+  }
+  .actionsRow[data-layout="compact"] .secondaryActions {
+    min-width: 0;
   }
 
   .actionsRow .composerModelTrigger {

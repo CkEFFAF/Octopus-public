@@ -61,6 +61,7 @@ def test_turn_usage_from_langchain_style_objects() -> None:
     ]
     out = turn_usage_from_messages(messages)
     assert out == {
+        "cache_metrics_reported": False,
         "input_tokens": 15,
         "uncached_input_tokens": 15,
         "cache_read_tokens": 0,

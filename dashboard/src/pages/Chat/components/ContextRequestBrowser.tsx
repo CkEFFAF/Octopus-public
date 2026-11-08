@@ -1,3 +1,4 @@
+import { reportedCacheRead } from "../utils/chatUsage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Empty, Input, Segmented, Spin, Tag } from "antd";
 import { ArrowDownAZ, ArrowUpAZ } from "lucide-react";
@@ -593,9 +594,11 @@ export default function ContextRequestBrowser({
                 ],
                 [
                   t("chat.contextInspect.cache"),
-                  selected.actual_usage?.input_tokens
+                  selected.actual_usage?.input_tokens &&
+                  selected.actual_usage.cache_metrics_reported === true &&
+                  reportedCacheRead(selected.actual_usage) !== undefined
                     ? `${(
-                        (selected.actual_usage.cache_read_tokens /
+                        ((reportedCacheRead(selected.actual_usage) ?? 0) /
                           selected.actual_usage.input_tokens) *
                         100
                       ).toFixed(1)}%`

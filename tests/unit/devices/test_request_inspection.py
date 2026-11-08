@@ -77,7 +77,12 @@ def test_requests_persist_updates_page_and_ownership() -> None:
             {
                 **event,
                 "status": "completed",
-                "actual_usage": {"input_tokens": 30, "output_tokens": 2},
+                "actual_usage": {
+                    "input_tokens": 30,
+                    "output_tokens": 2,
+                    "cache_read_tokens": 0,
+                    "cache_metrics_reported": True,
+                },
             },
         )
         restored = RequestInspectionService(repos)
@@ -95,6 +100,7 @@ def test_requests_persist_updates_page_and_ownership() -> None:
             }
         )
         assert response.transformation["after_estimated_tokens"] == 25
+        assert response.model_dump(mode="json")["actual_usage"]["cache_metrics_reported"] is True
         assert "components" not in history["requests"][0]
         assert (
             restored.get(owner, "expert", "thread", "request-a")["components"][0]["content"]
@@ -145,7 +151,7 @@ def test_folded_execution_schema_reconciles_existing_watermark() -> None:
         db.conn.execute("DROP TABLE request_snapshots")
         db.conn.execute("DROP TABLE thread_execution_settings")
         run_migrations(db)
-        assert db.conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 38
+        assert db.conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 39
         assert db.conn.execute("SELECT COUNT(*) FROM request_snapshots").fetchone()[0] == 0
         assert db.conn.execute("SELECT COUNT(*) FROM thread_execution_settings").fetchone()[0] == 0
     finally:

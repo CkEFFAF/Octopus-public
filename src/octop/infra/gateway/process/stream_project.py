@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import base64
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -88,10 +90,40 @@ async def _project_chunks(
     projection_state: StreamProjectionState | None,
     hitl_coordinator: HitlChannelCoordinator | None,
     hitl_ctx: HitlStreamContext | None,
+    resource_scope: tuple[int, str] | None = None,
 ) -> AsyncIterator[MessageEvent]:
     loc = normalize_locale(str(locale))
     tool_state = _ToolProjectionState()
     harness_workspace = harness_workspace_for_agent(agent_manager, agent_id)
+
+    async def published_media(published: dict[str, Any]) -> dict[str, Any] | None:
+        from octop.infra.documents.resources import ResourceService, denied
+
+        scope = (hitl_ctx.user_id, hitl_ctx.thread_id) if hitl_ctx is not None else resource_scope
+        if scope is None:
+            return None
+        owner, thread = scope
+        resources = ResourceService(agent_manager)
+        resource = await asyncio.to_thread(
+            resources.owner_view, owner, agent_id, thread, str(published["resource_id"])
+        )
+        if (
+            resource["version"] != published.get("version")
+            or resource.get("publication_state") != "published"
+        ):
+            raise denied()
+        data = await resources.bytes(owner, resource)
+        mime = str(resource["media_type"])
+        kind = mime.split("/", 1)[0]
+        return {
+            "type": kind if kind in {"image", "video", "audio"} else "file",
+            "filename": resource["name"],
+            "source": {
+                "type": "base64",
+                "data": base64.b64encode(data).decode("ascii"),
+                "media_type": mime,
+            },
+        }
 
     def _tool_label(raw: str) -> str:
         return tool_display_name(raw, loc)
@@ -176,6 +208,7 @@ async def _project_chunks(
                     async for media_event in media_events_from_tool_result(
                         chunk_for_media,
                         workspace=harness_workspace,
+                        resource_loader=published_media,
                     ):
                         yield media_event
             tool_state.current_node = node
@@ -229,6 +262,9 @@ async def project_stream(
         projection_state=projection_state,
         hitl_coordinator=hitl_coordinator,
         hitl_ctx=hitl_ctx,
+        resource_scope=(int(request["user"]), str(request["thread_id"]))
+        if request.get("user") and request.get("thread_id")
+        else None,
     ):
         yield ev
 

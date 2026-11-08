@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from octop.infra.conversations.errors import generation_error_code
 from octop.infra.conversations.generation import generate_json
+from octop.infra.conversations.heat import ThreadHeatService
 from octop.infra.conversations.models import (
     BriefPatch,
     ConversationBrief,
@@ -61,6 +62,8 @@ class ConversationService:
         notify: Callable[[int, dict[str, Any]], Awaitable[None]] | None = None,
     ) -> None:
         self.manager, self.timezone, self.notify = manager, timezone, notify
+        self._activity_seeded = False
+        self._activity_seeded_at = 0.0
 
     @property
     def repos(self) -> RepoBundle:
@@ -106,10 +109,17 @@ class ConversationService:
             self.repos.conversation_metadata_repo.settings(owner)
         )
 
-    def resolve_model(self, owner: int, choice: str, title_choice: str = "account") -> str | None:
+    def resolve_model(
+        self, owner: int, choice: str, title_choice: str = "account", purpose: str = "title"
+    ) -> str | None:
         if choice == "same":
-            choice = title_choice
+            return self.resolve_model(owner, title_choice, "account", "title")
         if choice == "account":
+            from octop.infra.agents.providers.routing import ModelRoutingService
+
+            router = ModelRoutingService(self.repos, owner)
+            if router.config().enabled:
+                return router.resolve(task="title" if purpose == "title" else "summary").model
             name, model = self.repos.settings_repo.get_active_model(owner)
             choice = f"{name}/{model}" if name and model else ""
         return (
@@ -128,7 +138,7 @@ class ConversationService:
             if m.enabled and "text" in m.input
         ]
         title = self.resolve_model(owner, cfg.title_model)
-        brief = self.resolve_model(owner, cfg.brief_model, cfg.title_model)
+        brief = self.resolve_model(owner, cfg.brief_model, cfg.title_model, "summary")
         return SettingsView(
             **cfg.model_dump(),
             models=models,
@@ -638,6 +648,14 @@ class ConversationService:
         return DigestResult.model_validate(data)
 
     async def tick(self) -> None:
+        if not self._activity_seeded or time.time() - self._activity_seeded_at > 86400:
+            since = time.time() - 28 * 86400
+            await asyncio.to_thread(self.repos.thread_activity_repo.seed_legacy, since)
+            if self.archive:
+                samples = await asyncio.to_thread(self.archive.store.user_activity_samples, since)
+                await asyncio.to_thread(self.repos.thread_activity_repo.seed_archive, samples)
+            self._activity_seeded = True
+            self._activity_seeded_at = time.time()
         if self.archive:
             for change in await asyncio.to_thread(self.archive.store.metadata_changes):
                 await asyncio.to_thread(
@@ -849,21 +867,20 @@ class ConversationService:
             repo.finish(job, "ready")
             return
         runtime = getattr(self.manager, "_conversation_runtime", {})
-        if (
-            job["kind"] == "auto"
-            and row.title_source == "fallback"
-            and runtime.get("turn_active")
-            and runtime["turn_active"](thread)
-        ):
-            repo.finish(job, "queued", delay=5)
-            return
-        if (
-            job["kind"] == "auto"
-            and meta["generated_at"]
-            and time.time() - meta["generated_at"] < 60
-        ):
-            repo.finish(job, "queued", delay=max(1, 60 - (time.time() - meta["generated_at"])))
-            return
+        if job["kind"] == "auto":
+            active = bool(runtime.get("turn_active") and runtime["turn_active"](thread)) or bool(
+                self.manager.steering_status(agent, thread)
+            )
+            due, reason = await asyncio.to_thread(
+                ThreadHeatService(self.repos).due,
+                owner,
+                row,
+                float(meta["generated_at"] or 0),
+                active,
+            )
+            if due > time.time() + 1:
+                repo.defer_auto(job, due, reason)
+                return
         messages, coverage = await asyncio.to_thread(self._chunk, thread, meta)
         coverage.archive_revision = archive_revision
         previous = meta["snapshot"]
@@ -885,7 +902,7 @@ class ConversationService:
             repo.finish(job, "ready")
             return
         title_model = self.resolve_model(owner, cfg.title_model)
-        brief_model = self.resolve_model(owner, cfg.brief_model, cfg.title_model)
+        brief_model = self.resolve_model(owner, cfg.brief_model, cfg.title_model, "summary")
         title: str | None = None
         title_error: Exception | None = None
         if title_needed:
@@ -1153,7 +1170,7 @@ class ConversationService:
             repo.finish(job, "cancelled", error="METADATA_CONFIGURATION_CHANGED")
             return
         after = tuple(progress["after"]) if progress["after"] else None
-        model = self.resolve_model(owner, cfg.brief_model, cfg.title_model)
+        model = self.resolve_model(owner, cfg.brief_model, cfg.title_model, "summary")
         # Persist each reduction step. The next page retries independently after a crash.
         rows = repo.events(thread, request["from_ts"], request["to_ts"], after=after, limit=9)
         more, rows = len(rows) > 8, rows[:8]

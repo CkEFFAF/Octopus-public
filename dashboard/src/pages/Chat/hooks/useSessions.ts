@@ -3,6 +3,7 @@ import {
   normalizeThreadArtifacts,
   octopThreadsApi,
   type ThreadArtifact,
+  type ThreadHeat,
 } from "../../../api/modules/octopThreads";
 import type { HitlSessionPolicy } from "../../../api/types/hitl";
 import * as chatStore from "./chatStore";
@@ -13,6 +14,7 @@ import { parseHitlSessionPolicy } from "../utils/hitlSessionPolicy";
 export interface Session {
   id: string;
   name: string;
+  heat?: ThreadHeat;
   metadata?: {
     one_liner: string;
     stage?: string;
@@ -46,6 +48,7 @@ export type ThreadProbeResult = "found" | "missing" | "unknown";
 export function toSession(row: {
   thread_id: string;
   title: string | null;
+  heat?: ThreadHeat;
   metadata?: Session["metadata"];
   last_active: number;
   created_at?: number;
@@ -75,6 +78,7 @@ export function toSession(row: {
   return {
     id: row.thread_id,
     name: formatThreadTitle(row.title) || "New Chat",
+    heat: row.heat,
     metadata: row.metadata,
     threadId: row.thread_id,
     updatedAt: sortTs > 0 ? new Date(sortTs * 1000).toISOString() : null,
@@ -98,10 +102,12 @@ export function toSession(row: {
   };
 }
 
-/** Mirror server order: pinned first, then recency (empty chats use created_at). */
+/** Mirror server order: pinned first, heat, then recency. */
 export function sortSessions(sessions: Session[]): Session[] {
   return [...sessions].sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    const heat = (b.heat?.score ?? 0) - (a.heat?.score ?? 0);
+    if (heat) return heat;
     const ta = a.updatedAt ? Date.parse(a.updatedAt) : 0;
     const tb = b.updatedAt ? Date.parse(b.updatedAt) : 0;
     if (tb !== ta) return tb - ta;
@@ -341,9 +347,22 @@ function applySessionPage(
 ) {
   _loadedLimitByAgent.set(agentId, limit);
   _hasMore = hasMore;
-  setModuleSessions(
-    visibleSessionsForAgent(allSessions, agentId, activeThreadId),
+  const retained = _sessions.filter(
+    (session) =>
+      (session.id === activeThreadId || isPendingThread(session.id)) &&
+      !allSessions.some((next) => next.id === session.id),
   );
+  const visible = visibleSessionsForAgent(
+    [...allSessions, ...retained],
+    agentId,
+    activeThreadId,
+  );
+  const pending = retained.filter(
+    (session) =>
+      isPendingThread(session.id) &&
+      !visible.some((next) => next.id === session.id),
+  );
+  setModuleSessions([...pending, ...visible]);
 }
 
 function setModuleLoadingMore(value: boolean) {
@@ -394,7 +413,10 @@ export function resetSessionStoreForTests() {
   };
 }
 
-export function useSessions(agentId: string | null) {
+export function useSessions(
+  agentId: string | null,
+  activeThreadId?: string | null,
+) {
   syncStoreToAgent(agentId);
   const { sessions, loading, hasMore, loadingMore } = useSyncExternalStore(
     subscribeSessionStore,
@@ -416,7 +438,7 @@ export function useSessions(agentId: string | null) {
         );
         if (_storeAgentId !== agentId) return _sessions;
         applySessionPage(valid, more, limit, agentId, activeThreadId);
-        return visibleSessionsForAgent(valid, agentId, activeThreadId);
+        return _sessions;
       } catch {
         return _sessions;
       } finally {
@@ -427,6 +449,23 @@ export function useSessions(agentId: string | null) {
     },
     [agentId],
   );
+  useEffect(() => {
+    if (!agentId) return;
+    let pending = false;
+    const refreshActivity = () => {
+      if (document.visibilityState === "hidden" || pending) return;
+      pending = true;
+      void fetchSessions(activeThreadId ?? undefined).finally(() => {
+        pending = false;
+      });
+    };
+    const timer = window.setInterval(refreshActivity, 30_000);
+    document.addEventListener("visibilitychange", refreshActivity);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshActivity);
+    };
+  }, [agentId, activeThreadId, fetchSessions]);
 
   const loadMoreSessions = useCallback(
     async (activeThreadId?: string) => {

@@ -385,5 +385,6 @@
     "octop_harness-1.0.2.post4.dev5+media.1.dist-info/entry_points.txt": "8b18884440c89112575737f49cbc14737d4ccf0491530922812a4d20badf0462",
     "octop_harness-1.0.2.post4.dev5+media.1.dist-info/licenses/LICENSE": "3b9f05faaec9bd79645e322ff91a2772025db00190f8ef0b694859bc7540437b",
     "octop_harness-1.0.2.post4.dev5+media.1.dist-info/RECORD": "9a9e60708f0eac3b6ba56329af9070313f52697c1738ebc4e0cbe2e270418093"
-  }
+  },
+  "source_archive": "media-source.zip"
 }

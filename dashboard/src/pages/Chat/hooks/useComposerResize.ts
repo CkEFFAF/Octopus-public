@@ -29,7 +29,7 @@ export function useComposerResize(isMobile: boolean) {
     } catch {
       /* storage unavailable */
     }
-    return isMobile ? 140 : 180;
+    return isMobile ? 152 : 132;
   });
   const heightRef = useRef(height);
   heightRef.current = height;
@@ -58,7 +58,8 @@ export function useComposerResize(isMobile: boolean) {
     [clamp],
   );
   useEffect(() => {
-    const parent = wrapperRef.current?.closest("[data-chat-main]");
+    const wrapper = wrapperRef.current;
+    const parent = wrapper?.closest("[data-chat-main]");
     const resize = () => {
       const viewport = window.visualViewport?.height ?? window.innerHeight;
       const parentHeight = parent?.getBoundingClientRect().height || viewport;
@@ -87,10 +88,41 @@ export function useComposerResize(isMobile: boolean) {
         1,
         Math.min(viewport, parentHeight) - fixedChrome - shellExtra,
       );
-      const min = composerMinHeight(available);
+      const compact =
+        (parent?.getBoundingClientRect().width || window.innerWidth) <= 560;
+      const pixels = (value: string) => Number.parseFloat(value) || 0;
+      const wrapperStyle = wrapper && getComputedStyle(wrapper);
+      const contentMinimum = wrapperStyle
+        ? pixels(wrapperStyle.paddingTop) +
+          pixels(wrapperStyle.paddingBottom) +
+          pixels(wrapperStyle.borderTopWidth) +
+          pixels(wrapperStyle.borderBottomWidth) +
+          36 +
+          Array.from(
+            wrapper.querySelectorAll<HTMLElement>("[data-composer-fixed]"),
+          ).reduce((sum, child) => {
+            const style = getComputedStyle(child);
+            if (style.display === "none") return sum;
+            // Reserve one full attachment row; extra rows remain scrollable.
+            const childHeight = child.hasAttribute("data-composer-preview")
+              ? Math.min(child.scrollHeight, 96)
+              : child.getBoundingClientRect().height;
+            return (
+              sum +
+              childHeight +
+              pixels(style.marginTop) +
+              pixels(style.marginBottom)
+            );
+          }, 0)
+        : 0;
+      const min = Math.max(
+        composerMinHeight(available),
+        compact ? Math.min(152, available) : 0,
+        Math.min(Math.ceil(contentMinimum), available),
+      );
       minRef.current = min;
       setMinHeight(min);
-      const limit = composerMaxHeight(available);
+      const limit = Math.max(min, composerMaxHeight(available));
       maxRef.current = limit;
       setMaxHeight(limit);
       commit(heightRef.current);
@@ -98,11 +130,21 @@ export function useComposerResize(isMobile: boolean) {
     resize();
     const observer = new ResizeObserver(resize);
     if (parent) observer.observe(parent);
+    const observeContent = () => {
+      wrapper
+        ?.querySelectorAll("[data-composer-fixed]")
+        .forEach((child) => observer.observe(child));
+      resize();
+    };
+    observeContent();
+    const mutations = new MutationObserver(observeContent);
+    if (wrapper) mutations.observe(wrapper, { childList: true });
     window.addEventListener("resize", resize);
     window.visualViewport?.addEventListener("resize", resize);
     return () => {
       cleanupRef.current?.();
       observer.disconnect();
+      mutations.disconnect();
       window.removeEventListener("resize", resize);
       window.visualViewport?.removeEventListener("resize", resize);
     };

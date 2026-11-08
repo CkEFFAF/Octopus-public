@@ -34,13 +34,28 @@ export function collectTurnToolMedia(
     files.push(...batch.files);
   }
 
-  return { images, videos, files };
+  const unique = <T extends { url: string }>(items: T[]): T[] => [
+    ...new Map(items.map((item) => [item.url, item])).values(),
+  ];
+  const mediaUrls = new Set([...images, ...videos].map((item) => item.url));
+  return {
+    images: unique(images),
+    videos: unique(videos),
+    files: unique(files.filter((file) => !mediaUrls.has(file.url))),
+  };
 }
 
 export function collectMessageToolMedia(
   message: ChatMessage,
   agentId?: string | null,
 ): TurnToolMedia {
+  if (
+    message.toolData?.errorCode ||
+    message.status === "error" ||
+    message.errorInfo
+  ) {
+    return { images: [], videos: [], files: [] };
+  }
   const owner = agentId ?? null;
   const cached = messageMediaCache.get(message)?.get(owner);
   if (cached) return cached;

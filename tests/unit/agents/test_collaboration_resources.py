@@ -79,6 +79,148 @@ class Workspace:
 
 
 @pytest.mark.asyncio
+async def test_send_file_uses_bound_device_snapshot_and_rejects_failed_delivery(
+    rig: Any, monkeypatch: Any
+) -> None:
+    from unittest.mock import MagicMock
+
+    from langchain_core.messages import ToolMessage
+
+    from octop.infra.agents.middleware.file_delivery import FileDeliveryMiddleware
+
+    payload = b"PNG generated on the execution device"
+    digest = hashlib.sha256(payload).hexdigest()
+    context = SimpleNamespace(
+        agent_id="parent", thread_id="root", device_id="gpu", target_kind="device"
+    )
+    requests: list[tuple[str, dict[str, Any]]] = []
+
+    async def execute(
+        owner: int, context_id: str, action: str, params: dict[str, Any], **_: Any
+    ) -> dict[str, Any]:
+        assert owner == rig.owner and context_id == "gpu-context"
+        requests.append((action, params))
+        if action == "fs.download.begin":
+            if params["path"].endswith("missing.png"):
+                raise FileNotFoundError("missing on GPU")
+            result = {"transfer_id": "download", "size": len(payload), "sha256": digest}
+        elif action == "fs.download.chunk":
+            result = {"data_b64": base64.b64encode(payload).decode()}
+        else:
+            result = {"closed": True}
+        return {"result": result}
+
+    monkeypatch.setattr(
+        "octop.infra.execution.service.ExecutionService",
+        lambda _: SimpleNamespace(get=lambda *a: context, call=execute),
+    )
+    middleware = FileDeliveryMiddleware(rig.resources, "parent")
+    handler = AsyncMock(return_value=ToolMessage(content="expert store file", tool_call_id="send"))
+    request = MagicMock()
+    request.tool_call = {
+        "name": "send_file_to_user",
+        "id": "send",
+        "args": {"file_path": "/project/figure.png"},
+    }
+    token = var_child_runnable_config.set(
+        {
+            "configurable": {
+                "user": rig.owner,
+                "thread_id": "root",
+                "language": "zh",
+                "octop_execution_context": {"context_id": "gpu-context"},
+            }
+        }
+    )
+    try:
+        sent = await middleware.awrap_tool_call(request, handler)
+        resource = json.loads(sent.content)
+        assert sent.status == "success" and resource["status"] == "published"
+        assert resource["source_device_id"] == "gpu"
+        stored = rig.resources.owner_view(rig.owner, "parent", "root", resource["resource_id"])
+        assert await rig.resources.bytes(rig.owner, stored) == payload
+        assert requests[0] == ("fs.download.begin", {"path": "/project/figure.png"})
+        handler.assert_not_awaited()
+        from octop.infra.gateway.process.stream_project import project_stream
+
+        async def stream(*_: Any):
+            yield {"type": "tool_call_chunk", "index": 0, "name": "send_file_to_user", "args": "{}"}
+            yield {"type": "tool_result", "messages": [sent]}
+
+        monkeypatch.setattr(rig.manager, "stream", stream, raising=False)
+        monkeypatch.setattr(
+            "octop.infra.gateway.process.stream_project.harness_workspace_for_agent",
+            lambda *_: rig.workspaces["parent"],
+        )
+        events = [
+            event
+            async for event in project_stream(
+                rig.manager, "parent", {"user": str(rig.owner), "thread_id": "root"}
+            )
+        ]
+        parts = [
+            part
+            for event in events
+            for part in (event.content or [])
+            if getattr(part, "data", None)
+        ]
+        assert len(parts) == 1 and base64.b64decode(parts[0].data) == payload
+        assert not parts[0].url
+        request.tool_call["args"]["file_path"] = "/project/missing.png"
+        failed = await middleware.awrap_tool_call(request, handler)
+        assert failed.status == "error" and json.loads(failed.content)["is_error"] is True
+        assert "image" not in json.loads(failed.content)
+        request.tool_call["args"]["file_path"] = "/.agent/outbound/store.png"
+        assert (await middleware.awrap_tool_call(request, handler)).content == "expert store file"
+        handler.assert_awaited_once()
+    finally:
+        var_child_runnable_config.reset(token)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["ask", "plan"])
+async def test_send_file_keeps_canonical_mode_guard(rig: Any, mode: str, monkeypatch: Any) -> None:
+    from unittest.mock import MagicMock
+
+    from octop_harness.middleware.conversation_mode import ConversationModeMiddleware
+
+    from octop.infra.agents.middleware.file_delivery import FileDeliveryMiddleware
+
+    publisher = AsyncMock()
+    monkeypatch.setattr(rig.resources, "publish", publisher)
+    middleware = FileDeliveryMiddleware(rig.resources, "parent")
+    downstream = ConversationModeMiddleware()
+    request = MagicMock()
+    request.tool_call = {
+        "name": "send_file_to_user",
+        "id": "stale",
+        "args": {"file_path": "/project/figure.png"},
+    }
+    token = var_child_runnable_config.set(
+        {
+            "configurable": {
+                "user": rig.owner,
+                "thread_id": "root",
+                "conversation_mode": mode,
+                "octop_execution_context": {"context_id": "gpu-context"},
+            }
+        }
+    )
+    try:
+        terminal = AsyncMock()
+
+        async def handler(req: Any):
+            return await downstream.awrap_tool_call(req, terminal)
+
+        result = await middleware.awrap_tool_call(request, handler)
+        assert result.status == "error"
+        publisher.assert_not_awaited()
+        terminal.assert_not_awaited()
+    finally:
+        var_child_runnable_config.reset(token)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("legacy_errno", [None, 2, 20])
 async def test_delivery_reports_missing_target_parent_and_can_retry(
     rig: Any, tmp_path: Path, monkeypatch: Any, legacy_errno: int | None

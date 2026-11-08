@@ -121,6 +121,10 @@ export function splitAssistantTurn(
   const thinkings: ThinkingProcessItem[] = [];
   const processSteps: ProcessStep[] = [];
   const textParts: string[] = [];
+  const attachments = new Map<
+    string,
+    NonNullable<ChatMessage["attachments"]>[number]
+  >();
   let answerTemplate: ChatMessage | null = null;
   let answerStreaming = false;
 
@@ -141,6 +145,10 @@ export function splitAssistantTurn(
       processSteps.push({ kind: "tool", message: msg });
       continue;
     }
+    for (const attachment of msg.attachments ?? []) {
+      if (msg.role === "assistant") attachments.set(attachment.url, attachment);
+    }
+    if (!answerTemplate && attachments.size) answerTemplate = msg;
     if (textContent.trim()) {
       textParts.push(textContent);
       answerTemplate = msg;
@@ -161,12 +169,13 @@ export function splitAssistantTurn(
       messages.some((item) => item.teamWrapup) ||
       !hasCompletedToolBetweenTexts(messages));
   const answerMessage =
-    answerTemplate && textParts.length > 0
+    answerTemplate && (textParts.length > 0 || attachments.size > 0)
       ? {
           ...answerTemplate,
           content: joinFragments
             ? joinAnswerParts(textParts)
-            : textParts[textParts.length - 1],
+            : textParts[textParts.length - 1] || "",
+          attachments: attachments.size ? [...attachments.values()] : undefined,
           contentBlocks: undefined,
           status: answerStreaming
             ? ("streaming" as const)

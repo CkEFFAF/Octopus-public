@@ -123,7 +123,11 @@ export default function ChatInputPreviewBar({
   );
 
   return (
-    <div className={styles.imagePreviewBar}>
+    <div
+      data-composer-fixed
+      data-composer-preview
+      className={styles.imagePreviewBar}
+    >
       {imageAttachments.length > 0 ? (
         <Image.PreviewGroup>
           {attachments.map((attachment, idx) =>

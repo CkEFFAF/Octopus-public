@@ -67,6 +67,30 @@ const shortcut = {
 };
 
 describe("ChatInputActionsRow responsive toolbar", () => {
+  it("changes the running send intent without sending or stopping the task", async () => {
+    const onBusyIntentChange = vi.fn();
+    render(
+      <MemoryRouter>
+        <ChatInputActionsRow
+          {...baseProps}
+          isStreaming
+          canSend
+          text="follow up"
+          runningSendLabel="Add"
+          busyIntent="supplement"
+          onBusyIntentChange={onBusyIntentChange}
+        />
+      </MemoryRouter>,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "chat.flow.sendWhileWorking" }),
+    );
+    fireEvent.click(await screen.findByText("chat.flow.queue"));
+    expect(onBusyIntentChange).toHaveBeenCalledWith("queue");
+    expect(baseProps.onSubmit).not.toHaveBeenCalled();
+    expect(baseProps.onCancel).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+  });
   beforeEach(() => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
       width: 900,
