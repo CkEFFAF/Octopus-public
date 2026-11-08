@@ -2815,6 +2815,9 @@
     }
   },
   "tools": {
+    "register_wakeup_hook": "Register event callback",
+    "wakeup_hook_status": "Inspect event callbacks",
+    "cancel_wakeup_hook": "Cancel event callback",
     "get_conversation_brief": "Read conversation overview",
     "list_conversation_events": "Read conversation events",
     "read_conversation_source": "Read conversation source",
@@ -8169,7 +8172,8 @@
       "delegation": "Delegation",
       "job": "Background job",
       "tool": "Tool call",
-      "device": "Device action"
+      "device": "Device action",
+      "hook": "Event callback"
     },
     "chooseTarget": "Choose an execution target",
     "chooseTargetDetail": "Choose an authorized device or local execution target below, then open its workspace.",
@@ -8213,6 +8217,12 @@
     "observationStale": "Status needs confirmation",
     "inspectTasks": "Inspect runs and plans",
     "jobProgram": "Run {{name}}",
+    "jobLabels": {
+      "log": "Inspect {{name}} logs",
+      "log_gpu": "Monitor {{name}} and GPU status",
+      "gpu": "Inspect GPU status"
+    },
+    "reportedProgress": "Script reported progress",
     "backgroundExplanation": "This task runs independently in the background. Inspect its actual status and logs."
   },
   "conversationMetadata": {

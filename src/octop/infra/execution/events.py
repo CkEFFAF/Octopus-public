@@ -226,9 +226,29 @@ class RunInspectionService:
         labels = {
             key: value
             for key, value in (previous or {}).get("payload", {}).items()
-            if key in {"program", "command_preview", "cwd"}
+            if key
+            in {
+                "program",
+                "command_preview",
+                "cwd",
+                "title",
+                "job_kind",
+                "subject",
+                "notify_on_exit",
+                "progress_hook_id",
+            }
         }
-        if program:
+        from octop.infra.execution.foreground_policy import job_label_data
+
+        labels.update(job_label_data(argv))
+        title = result.get("title")
+        if isinstance(title, str) and title.strip():
+            labels["title"] = title.strip()[:120]
+        if isinstance(result.get("notify_on_exit"), bool):
+            labels["notify_on_exit"] = result["notify_on_exit"]
+        if isinstance(result.get("progress_hook_id"), str):
+            labels["progress_hook_id"] = result["progress_hook_id"]
+        if program and not labels.get("program"):
             labels["program"] = program
         if preview:
             labels["command_preview"] = preview

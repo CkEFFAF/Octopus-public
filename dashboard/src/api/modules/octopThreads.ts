@@ -114,6 +114,10 @@ export interface SidebarStatus {
     status: string;
     updated_at: number;
     stale: boolean;
+    title?: string | null;
+    job_kind?: string | null;
+    subject?: string | null;
+    progress?: Record<string, unknown> | null;
   }>;
   schedule_counts?: { schedules: number; reminders: number };
   working_threads: Array<

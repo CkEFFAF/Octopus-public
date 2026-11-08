@@ -40,6 +40,11 @@ it("keeps IDs and event streams out of the summary, with bounded details in plac
       status: "running",
       updated_at: 1,
       lifecycle: "active",
+      job_title: i === 0 ? "核对验证指标" : null,
+      progress:
+        i === 0
+          ? { source: "script_reported", percent: 42, phase: "核对中" }
+          : null,
     })),
     total: 3,
     counts: { active: 3, completed: 0 },
@@ -68,6 +73,8 @@ it("keeps IDs and event streams out of the summary, with bounded details in plac
   );
   expect(screen.getByText("实验迁移结果")).toBeVisible();
   expect(screen.getByText("正在检查对照差异")).toBeVisible();
+  expect(await screen.findByText("核对验证指标")).toBeVisible();
+  expect(screen.getByRole("progressbar")).toHaveAttribute("value", "42");
   expect(screen.queryByText("62c20c0ff8579cc79b5e12ccba4f5a05")).toBeNull();
   expect(snapshot).not.toHaveBeenCalled();
   fireEvent.click(

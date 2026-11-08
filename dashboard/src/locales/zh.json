@@ -2815,6 +2815,9 @@
     }
   },
   "tools": {
+    "register_wakeup_hook": "注册事件唤醒",
+    "wakeup_hook_status": "查看事件回调",
+    "cancel_wakeup_hook": "取消事件回调",
     "get_conversation_brief": "读取会话概览",
     "list_conversation_events": "读取会话事件",
     "read_conversation_source": "读取会话来源",
@@ -8169,7 +8172,8 @@
       "delegation": "专家协作",
       "job": "后台任务",
       "tool": "工具调用",
-      "device": "设备操作"
+      "device": "设备操作",
+      "hook": "事件回调"
     },
     "chooseTarget": "选择执行位置",
     "chooseTargetDetail": "工作区需要明确的设备或本机执行位置。请在下方选择已有授权目标，再打开工作区。",
@@ -8213,6 +8217,12 @@
     "observationStale": "状态待确认",
     "inspectTasks": "查看运行与计划",
     "jobProgram": "运行 {{name}}",
+    "jobLabels": {
+      "log": "查看 {{name}} 日志",
+      "log_gpu": "监测 {{name}} 与 GPU 状态",
+      "gpu": "检查 GPU 状态"
+    },
+    "reportedProgress": "脚本上报进度",
     "backgroundExplanation": "任务在后台独立执行，可查看实际状态和日志。"
   },
   "conversationMetadata": {

@@ -102,6 +102,9 @@ class ActivityService:
         events = page["events"]
         active = inspection.events.active(owner, agent, thread, limit=201) if before is None else []
         events = list({event["event_id"]: event for event in [*active[:200], *events]}.values())
+        job_progress = inspection.events.job_progress(
+            owner, [event["event_id"] for event in events if event["kind"] == "job"]
+        )
         plans = self.repos.workbench_repo.list(owner, agent, thread, "plan")
         invocations = CollaborationService(self.manager).listing(owner, agent, thread, 0, 1)[
             "invocations"
@@ -142,7 +145,15 @@ class ActivityService:
         live_run = live.get("run_id") if live else None
         for event in events:
             payload = event["payload"]
-            if event["kind"] not in {"dispatch", "job", "tool", "device"}:
+            if (
+                event["kind"] == "hook"
+                and payload.get("delivery_mode") == "progress"
+                and payload.get("job_event_id") in ids
+            ):
+                continue
+            if event["event_id"] in job_progress:
+                payload = {**payload, "progress": job_progress[event["event_id"]]}
+            if event["kind"] not in {"dispatch", "job", "tool", "device", "hook"}:
                 continue
             task = tasks.get((event["run_id"], str(payload.get("task_id") or "")))
             status = {"started": "running", "accepted": "waiting"}.get(
@@ -163,7 +174,8 @@ class ActivityService:
             node = {
                 "id": event["event_id"],
                 "type": "subagent" if event["kind"] == "dispatch" else event["kind"],
-                "name": payload.get("subagent_type")
+                "name": payload.get("title")
+                or payload.get("subagent_type")
                 or payload.get("name")
                 or payload.get("action")
                 or payload.get("job_id")

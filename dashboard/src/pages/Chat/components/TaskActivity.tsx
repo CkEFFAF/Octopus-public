@@ -47,6 +47,7 @@ import ScheduleBrowser, {
 import TaskActivityGraph from "./TaskActivityGraph";
 import styles from "./TaskActivity.module.less";
 import { activityLabel } from "../utils/activityLabel";
+import JobProgress from "./JobProgress";
 
 export const OPEN_TASK_ACTIVITY_EVENT = "octop:open-task-activity";
 
@@ -190,6 +191,7 @@ export function NodeDetail({
             )}
       </p>
       <ActivityStatus node={node} stale={stale} />
+      <JobProgress value={node.details?.progress} />
       {node.declared_status && (
         <p>
           {t("workspace0034.declared")}: {node.declared_status}
@@ -549,6 +551,7 @@ export default function TaskActivity({
           </span>
           <span className={styles.rowMain}>
             <strong>{activityLabel(node, t)}</strong>
+            <JobProgress value={node.details?.progress} />
             <small>
               {String(
                 node.details?.subagent_type ??
@@ -619,9 +622,12 @@ export default function TaskActivity({
             .filter((n) => n.type !== "tool" && n.type !== "device")
             .slice(0, 3)
             .map((n) => (
-              <div className={styles.summaryRow} key={n.id}>
-                <span>{activityLabel(n, t)}</span>
-                <ActivityStatus node={n} stale={stale} />
+              <div key={n.id}>
+                <div className={styles.summaryRow}>
+                  <span>{activityLabel(n, t)}</span>
+                  <ActivityStatus node={n} stale={stale} />
+                </div>
+                <JobProgress value={n.details?.progress} />
               </div>
             ))}
           <div className={styles.summarySchedule}>

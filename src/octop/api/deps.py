@@ -65,6 +65,11 @@ def is_jwt_exempt_path(path: str) -> bool:
 
 
 def is_jwt_exempt_request(request: Request) -> bool:
+    if request.method == "POST":
+        import re
+
+        if re.fullmatch(r"/api/wakeup-hooks/wh_[0-9a-f]{32}/fire", request.url.path):
+            return True
     if request.method == "GET":
         import re
 

@@ -8,8 +8,11 @@ import {
 } from "../../../api/modules/execution";
 import { base64ToBytes, formatBytes } from "../../Devices/helpers";
 import styles from "./ExecutionWorkbench.module.less";
+import JobProgress from "./JobProgress";
 
 interface Job {
+  title?: string;
+  progress?: unknown;
   job_id: string;
   argv: string[];
   cwd: string;
@@ -195,13 +198,14 @@ export default function ExecutionJobs({
               onClick={() => setSelected(item.job_id)}
             >
               <b title={item.argv?.join(" ")}>
-                {item.argv?.join(" ") || item.job_id}
-                {item.argv_truncated && "…"}
+                {item.title || item.argv?.join(" ") || item.job_id}
+                {!item.title && item.argv_truncated && "…"}
               </b>
               <Tag>
                 {t(`chat.execution.status.${item.status}`, item.status)}
               </Tag>
               <code>{item.job_id.slice(0, 8)}</code>
+              <JobProgress value={item.progress} />
             </button>
           ))}
           {hasMore && (
@@ -213,6 +217,7 @@ export default function ExecutionJobs({
         <section>
           {job ? (
             <>
+              <JobProgress value={job.progress} />
               <div className={styles.jobDetails}>
                 <code>{job.cwd}</code>
                 <span>

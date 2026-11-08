@@ -40,6 +40,11 @@ export interface BackgroundJobPage {
     status: string;
     updated_at: number;
     lifecycle: string;
+    job_title?: string | null;
+    name?: string | null;
+    job_kind?: string | null;
+    subject?: string | null;
+    progress?: Record<string, unknown> | null;
   }>;
   counts: Record<string, number>;
   total: number;
