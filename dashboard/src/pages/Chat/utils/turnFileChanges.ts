@@ -14,6 +14,7 @@ export interface TurnFileChange {
   path: string;
   agentId?: string;
   deviceId?: string;
+  contextId?: string;
   confirmed: boolean;
   edits: RecordedFileEdit[];
 }
@@ -21,6 +22,7 @@ export interface TurnFileChange {
 interface FileRecord {
   path: string;
   deviceId?: string;
+  contextId?: string;
   completed: boolean;
   edit?: RecordedFileEdit;
 }
@@ -61,6 +63,8 @@ function parseFileRecord(message: ChatMessage): FileRecord | null {
   const result: FileRecord = {
     path: rawPath.trim(),
     deviceId: typeof deviceId === "string" ? deviceId : undefined,
+    contextId:
+      typeof context.context_id === "string" ? context.context_id : undefined,
     completed: false,
   };
   if (
@@ -161,11 +165,13 @@ export function collectTurnFileChanges(
         path,
         agentId: owner,
         deviceId,
+        contextId: record.contextId,
         confirmed: true,
         edits: [],
       };
       files.set(key, file);
     }
+    file.contextId = record.contextId ?? file.contextId;
     if (record.edit && !file.edits.some((edit) => edit.id === record.edit!.id))
       file.edits.push(record.edit);
   }

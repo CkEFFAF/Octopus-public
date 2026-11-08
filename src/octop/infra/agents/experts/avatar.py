@@ -24,6 +24,11 @@ EXPERT_AVATAR_CHARACTERS = (
     "penguin",
     "corgi",
     "raccoon",
+    "panda",
+    "koala",
+    "otter",
+    "dragon",
+    "bunny",
 )
 AVATAR_DIR = ".octop"
 _AVATAR_NAMES: tuple[str, ...] = (

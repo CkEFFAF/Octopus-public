@@ -1,68 +1,55 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AnimatedExpertAvatar from ".";
-
-afterEach(() => {
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-});
-describe("animated expert playback", () => {
-  it("advances pose frames and resets immediately for approval and error", () => {
-    vi.useFakeTimers();
-    const { container, rerender } = render(
+afterEach(() => vi.restoreAllMocks());
+describe("native GIF playback", () => {
+  it("switches clips when real work changes and falls back to a static frame on load failure", () => {
+    const { rerender } = render(
       <AnimatedExpertAvatar species="fox" phase="coding" />,
     );
-    const frame = () =>
-      container.querySelector("[data-frame]")?.getAttribute("data-frame");
-    expect(frame()).toBe("14");
-    act(() => vi.advanceTimersByTime(750));
-    expect(frame()).toBe("15");
-    rerender(<AnimatedExpertAvatar species="fox" phase="waiting_permission" />);
-    expect(frame()).toBe("20");
-    expect(container.querySelector("[data-animated]")).toHaveAttribute(
-      "data-animated",
-      "false",
+    expect(screen.getByRole("img")).toHaveAttribute(
+      "src",
+      "/expert-animations/v2/fox/working.gif",
     );
-    rerender(<AnimatedExpertAvatar species="fox" phase="error" />);
-    expect(frame()).toBe("23");
+    rerender(<AnimatedExpertAvatar species="fox" phase="waiting_permission" />);
+    expect(screen.getByRole("img")).toHaveAttribute(
+      "src",
+      "/expert-animations/v2/fox/waiting.gif",
+    );
+    fireEvent.error(screen.getByRole("img"));
+    expect(screen.getByRole("img")).toHaveAttribute(
+      "src",
+      "/expert-animations/v2/fox/waiting.png",
+    );
   });
-  it("stops frames when the page is hidden and resumes playback", () => {
-    vi.useFakeTimers();
-    const { container } = render(<AnimatedExpertAvatar phase="welcome" />);
+  it("uses still images in hidden tabs and resumes the same action", () => {
+    render(<AnimatedExpertAvatar species="owl" phase="thinking" />);
     const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
     act(() => document.dispatchEvent(new Event("visibilitychange")));
-    act(() => vi.advanceTimersByTime(3000));
-    expect(container.querySelector("[data-frame]")).toHaveAttribute(
-      "data-frame",
-      "2",
-    );
-    expect(container.querySelector("[data-animated]")).toHaveAttribute(
-      "data-animated",
-      "false",
+    expect(screen.getByRole("img")).toHaveAttribute(
+      "src",
+      "/expert-animations/v2/owl/thinking.png",
     );
     hidden.mockReturnValue(false);
     act(() => document.dispatchEvent(new Event("visibilitychange")));
-    act(() => vi.advanceTimersByTime(650));
-    expect(container.querySelector("[data-frame]")).toHaveAttribute(
-      "data-frame",
-      "3",
+    expect(screen.getByRole("img")).toHaveAttribute(
+      "src",
+      "/expert-animations/v2/owl/thinking.gif",
     );
   });
-  it("honors reduced motion and labels the state accessibly", () => {
+  it("honors reduced motion and keeps the accessible phase label", () => {
     vi.spyOn(window, "matchMedia").mockReturnValue({
       matches: true,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     } as unknown as MediaQueryList);
-    const { container } = render(
-      <AnimatedExpertAvatar species="owl" phase="thinking" />,
-    );
-    expect(container.querySelector("[data-animated]")).toHaveAttribute(
-      "data-animated",
-      "false",
+    render(<AnimatedExpertAvatar species="dragon" phase="thinking" />);
+    expect(screen.getByRole("img")).toHaveAttribute(
+      "src",
+      "/expert-animations/v2/dragon/thinking.png",
     );
     expect(screen.getByRole("img")).toHaveAccessibleName(
-      "expertAnimation.characters.owl · expertAnimation.phases.thinking",
+      "expertAnimation.characters.dragon · expertAnimation.phases.thinking",
     );
   });
 });

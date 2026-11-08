@@ -188,6 +188,8 @@ No `octop user login` — CLI trusts local filesystem access to `~/.octop`. Pin 
 
 Frontend talks to Octop **only** via `/api` HTTP — never import or assume Python module layout.
 
+Chat file review shares `FileChangesReview` between the dock and turn entries. Keep recorded turn edits separate from current file reads, preserve expert/device provenance, and use a device file's original execution context for relative paths. Builtin expert identities retain `/expert-animations/<character>.webp`; playback uses the eight GIF clips and static fallbacks under `expert-animations/v2/`, with fourteen clay characters plus the reference blush bunny. `scripts/encode_expert_gifs.py` encodes 4 by 8 imagegen sheets. Sidebar expert order and pins are account-scoped browser preferences shared by both navigation layouts.
+
 ## 6. Run commands
 
 ```bash

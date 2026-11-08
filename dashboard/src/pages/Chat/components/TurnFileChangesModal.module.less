@@ -3,6 +3,111 @@
   font-size: 12px;
   color: #7e8794;
 }
+.review {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px;
+  .layout {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+  }
+  .files {
+    width: 165px;
+  }
+  .details {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .path {
+    flex-shrink: 0;
+    position: relative;
+    padding-right: 70px;
+  }
+}
+.comparison {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-height: 0;
+}
+.diffPane,
+.currentPane {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+.fileActions {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  display: flex;
+  gap: 8px;
+  button {
+    border: 0;
+    padding: 3px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+}
+.currentPane {
+  border-left: 1px solid var(--fn-border-color, #e7eaf0);
+}
+.paneTitle {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--fn-bg-secondary, #fafbfc);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  button {
+    border: 0;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+  }
+}
+.turnBadge {
+  font-size: 10px;
+  font-style: normal;
+  color: #b83f5a;
+}
+.liveHint {
+  padding: 0 12px;
+  font-size: 11px;
+  color: var(--fn-text-secondary, #7e8794);
+}
+.fullContent {
+  margin: 0;
+  padding: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    12px/1.65 Consolas,
+    monospace;
+}
+@container (max-width: 750px) {
+  .comparison {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .currentPane {
+    border-left: 0;
+    border-top: 1px solid #e7eaf0;
+  }
+}
+.review {
+  container-type: inline-size;
+}
 .layout {
   display: flex;
   min-width: 0;
@@ -125,6 +230,25 @@
   padding: 16px;
   color: #7e8794;
   font-size: 12px;
+}
+@container (max-width: 480px) {
+  .review .layout {
+    flex-direction: column;
+  }
+  .review .files {
+    width: 100%;
+    height: 80px;
+    max-height: 80px;
+    display: flex;
+    border-right: 0;
+    border-bottom: 1px solid #e7eaf0;
+  }
+  .review .files button {
+    width: auto;
+    min-width: 140px;
+    max-width: 185px;
+    flex-shrink: 0;
+  }
 }
 @media (max-width: 600px) {
   .layout {

@@ -9,6 +9,23 @@ const msg = (extra: Partial<ChatMessage>): ChatMessage => ({
   ...extra,
 });
 describe("real conversation animation states", () => {
+  it("uses device actions and shell commands so actual work exercises the clips", () => {
+    expect(toolAnimationPhase("device_run", { action: "fs.write" })).toBe(
+      "coding",
+    );
+    expect(toolAnimationPhase("device_run", { action: "fs.read" })).toBe(
+      "reading",
+    );
+    expect(toolAnimationPhase("exec_command", { cmd: "npm run test" })).toBe(
+      "verifying",
+    );
+    expect(
+      toolAnimationPhase("device_run", {
+        action: "process.run",
+        params: { command: "uv run pytest" },
+      }),
+    ).toBe("verifying");
+  });
   it.each([
     ["web_search", "searching"],
     ["read_file", "reading"],
