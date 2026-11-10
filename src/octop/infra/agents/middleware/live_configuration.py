@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import os
+import sys
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from functools import lru_cache
@@ -33,7 +34,7 @@ def _manifest_meta(text: str) -> dict[str, Any]:
 
 
 def _change_time(fd: int, info: os.stat_result) -> int | None:
-    if os.name != "nt":
+    if sys.platform != "win32":
         return info.st_ctime_ns
     # Windows st_ctime is creation time. FileBasicInfo supplies ChangeTime,
     # including edits whose writer restores the previous LastWriteTime.
