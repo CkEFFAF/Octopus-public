@@ -103,7 +103,7 @@ async def test_local_manifest_versions_reuse_metadata_and_invalidate_on_edits(li
     root.mkdir(parents=True)
     path = root / "SKILL.md"
     path.write_text("---\nname: sample\ndescription: first\n---\nbody", encoding="utf-8")
-    workspace = BackendWorkspace(FilesystemBackend(root_dir=tmp_path), tmp_path)
+    workspace = BackendWorkspace(FilesystemBackend(root_dir=tmp_path, virtual_mode=False), tmp_path)
     workspace.skill_catalog_roots = lambda **kwargs: [(str(tmp_path / "skills"), "workspace")]
     original = workspace.aread_text
     workspace.aread_text = AsyncMock(wraps=original)

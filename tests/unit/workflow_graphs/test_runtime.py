@@ -346,6 +346,31 @@ async def test_failed_script_preflight_releases_capacity_without_unknown_outcome
     assert rig.service.run(rig.owner, run["id"])["status"] == "failed"
 
 
+async def test_outdated_script_receiver_fails_before_submission_and_releases_capacity(
+    rig, monkeypatch
+):
+    from octop.infra.devices.protocol import JOB_ENVIRONMENT_UNSUPPORTED, device_error
+
+    source = await local_source(rig)
+    graph = definition(
+        [{"id": "script", "kind": "script", "label": "Evaluate", "argv": ["unused"]}],
+        [("start", "script", "next"), ("script", "end", "next")],
+        execution_context_id=source.context_id,
+    )
+    publish(rig, graph)
+
+    def reject(*args, **kwargs):
+        raise device_error(JOB_ENVIRONMENT_UNSUPPORTED, status=409)
+
+    monkeypatch.setattr(rig.service.execution, "_prepare", reject)
+    run = await rig.service.start(rig.owner, "research", StartRun(request_id="outdated"))
+    await drain(rig.service, 3)
+    script = rig.service.store.activations(rig.owner, run["id"])[1]
+    assert script["status"] == "failed" and script["capacity_held"] == 0
+    assert script["error"] == JOB_ENVIRONMENT_UNSUPPORTED
+    assert rig.service.run(rig.owner, run["id"])["status"] == "failed"
+
+
 async def test_reconciliation_looks_up_original_job_without_starting_a_command(rig, monkeypatch):
     source = await local_source(rig)
     graph = definition(

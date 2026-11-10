@@ -498,6 +498,8 @@ class ExecutionService:
             raise OctopError(
                 ErrorCode.FORBIDDEN, "local execution policy changed; start a new context"
             )
+        if row is not None:
+            self.devices.check_job_environment(row.device_id, action, params)
         prepared = dict(params)
         prepared["execution_context_id"] = context.context_id
         prepared["policy_revision"] = context.policy_revision

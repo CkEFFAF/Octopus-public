@@ -437,6 +437,7 @@ class DeviceClient:
                         "hostname": platform.node(),
                         "client_protocol_version": CLIENT_PROTOCOL_VERSION,
                         "job_protocol_version": 1 if executor.state_dir else 0,
+                        "job_environment_protocol_version": 1 if executor.state_dir else 0,
                         "workbench_protocol_version": 1,
                         "terminal_protocol_version": 1,
                         "capability_protocol_version": 1,

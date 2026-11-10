@@ -17,6 +17,7 @@ from typing import Any
 from octop.infra.cron.delivery import CronDeliveryCommand, WorkflowAdmissionDeferred
 from octop.infra.cron.origin_target import ensure_pin_session
 from octop.infra.devices.jobs import confirmed_stopped, process_identity
+from octop.infra.devices.protocol import JOB_ENVIRONMENT_UNSUPPORTED
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.utils.ulid import new_ulid
 from octop.infra.workflow_graphs.models import (
@@ -548,12 +549,15 @@ class WorkflowRunner:
         except Exception as exc:
             if graph is not None:
                 # Never infer a failed side effect from an absent response.
+                message = f"node execution failed ({type(exc).__name__})"
+                if isinstance(exc, OctopError) and exc.message == JOB_ENVIRONMENT_UNSUPPORTED:
+                    message = JOB_ENVIRONMENT_UNSUPPORTED
                 self.error(
                     row,
                     graph,
                     node,
                     state,
-                    f"node execution failed ({type(exc).__name__})",
+                    message,
                     unknown=submitted,
                 )
             logger.warning("Workflow activation stopped: %s (%s)", row["id"], type(exc).__name__)
