@@ -70,8 +70,8 @@ class WakeupHookService:
                 ErrorCode.FORBIDDEN, "wakeup hook requires this expert's original thread"
             )
         self._scope({"owner_user_id": owner, "agent_id": agent, "thread_id": thread_id})
-        if delivery_mode not in {"wake", "progress"}:
-            raise ValueError("delivery_mode must be wake or progress")
+        if delivery_mode not in {"wake", "progress", "signal"}:
+            raise ValueError("delivery_mode must be wake, progress or signal")
         if resume_mode not in {"observe", "continue"}:
             raise ValueError("resume_mode must be observe or continue")
         if resume_mode == "continue" and (context is None or delivery_mode != "wake"):
@@ -460,6 +460,8 @@ class WakeupHookService:
         )
 
         self._scope(row)
+        if row["payload"].get("delivery_mode") == "signal":
+            return
         if row["status"] != "queued":
             return
         owner = int(row["owner_user_id"])

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tempfile
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,6 +17,7 @@ from deepagents.backends.protocol import (
     LsResult,
     ReadResult,
 )
+from langchain_core.messages import BaseMessage
 from octop_gateway.channel import BaseChannel
 from octop_gateway.models import InboundMessage, MessageEvent
 from octop_harness.backends.workspace import BackendWorkspace
@@ -111,6 +112,18 @@ class FakeHarnessAgent:
         for chunk in self.chunks:
             yield chunk
         yield {"type": "state_snapshot", "data": {}}
+
+    async def aappend_messages(
+        self, thread_id: str, messages: Sequence[BaseMessage]
+    ) -> list[BaseMessage]:
+        """Persist canonical host messages using the same ID reducer as Harness."""
+        from langgraph.graph.message import add_messages
+
+        prepared = list(messages)
+        self._thread_messages[thread_id] = add_messages(
+            self._thread_messages.get(thread_id, []), prepared
+        )
+        return prepared
 
     def close(self) -> None:
         self.closed = True

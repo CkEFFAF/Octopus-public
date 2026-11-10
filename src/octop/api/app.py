@@ -243,6 +243,7 @@ def build_app(server: OctopServer) -> FastAPI:
         voice,
         wakeup_hooks,
         work_items,
+        workflow_graphs,
         workspace,
     )
     from octop.api.routers.filesystem import router as filesystem_router
@@ -285,6 +286,7 @@ def build_app(server: OctopServer) -> FastAPI:
             _RouterMount(channels.router, "/api", ["channels"]),
             _RouterMount(cron.router, "/api", ["cron"]),
             _RouterMount(task_board.router, "/api", ["task-board"]),
+            _RouterMount(workflow_graphs.router, "/api", ["workflow-graphs"]),
             _RouterMount(work_items.router, "/api", ["work-items"]),
             _RouterMount(settings.router, "/api", ["settings"]),
             _RouterMount(envs.router, "/api", ["envs"]),

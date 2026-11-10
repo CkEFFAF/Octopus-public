@@ -1424,7 +1424,9 @@ class DeviceService:
                 }
                 if action == "desktop.input"
                 else {
-                    key: value for key, value in params.items() if key not in {"text", "data_b64"}
+                    key: value
+                    for key, value in params.items()
+                    if key not in {"text", "data_b64", "env"}
                 }
             )
             self.repos.device_repo.create_operation(

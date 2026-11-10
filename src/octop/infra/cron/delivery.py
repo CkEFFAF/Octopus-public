@@ -39,6 +39,10 @@ class WorkItemInteractionRequired(Exception):
     """The work-item worker paused; its registered request must be answered."""
 
 
+class WorkflowAdmissionDeferred(Exception):
+    """The Graph lost admission while waiting for the conversation lock."""
+
+
 @dataclass(frozen=True)
 class CronDeliveryCommand:
     """Immutable inputs for one scheduled delivery attempt."""
@@ -66,6 +70,10 @@ class CronDeliveryCommand:
     wakeup_context_id: str = ""
     allow_interaction: bool = False
     on_chunk: Callable[[dict[str, Any]], None] | None = None
+    workflow_context: dict[str, Any] | None = None
+    workflow_execution_context_id: str = ""
+    workflow_work_mode: str = "ask"
+    on_admission: Callable[[], bool] | None = None
 
 
 class CronDeliveryService:
@@ -126,14 +134,19 @@ class CronDeliveryService:
                 else None
             )
         attempts = self._repos.cron_attempt_repo
-        attempts.create(
-            attempt,
-            command.user_id,
-            command.agent_id,
-            command.cron_id,
-            source_thread,
-            command.reason,
-        )
+
+        def create_attempt() -> None:
+            attempts.create(
+                attempt,
+                command.user_id,
+                command.agent_id,
+                command.cron_id,
+                source_thread,
+                command.reason,
+            )
+
+        if command.on_admission is None:
+            create_attempt()
         command = replace(
             command,
             task_run_id=(command.task_run_id or new_ulid()) if command.task_type == "agent" else "",
@@ -205,6 +218,10 @@ class CronDeliveryService:
                 await self.inherit_report_target(
                     command.user_id, original.thread_id, session.thread_id
                 )
+            if command.on_admission is not None:
+                if not command.on_admission():
+                    raise WorkflowAdmissionDeferred()
+                create_attempt()
             attempts.update(
                 command.user_id,
                 attempt,
@@ -252,9 +269,15 @@ class CronDeliveryService:
                     thread_repo=self._repos.thread_repo,
                     gateway=self._gateway,
                 )
-                await self._gateway.run_locked_on_session(target, _locked)
+                if command.on_admission is not None:
+                    if not await self._gateway.try_run_locked_on_session(target, _locked):
+                        raise WorkflowAdmissionDeferred()
+                else:
+                    await self._gateway.run_locked_on_session(target, _locked)
             else:
                 await self._gateway.run_in_session(command.agent_id, command.session_key, _locked)
+        except WorkflowAdmissionDeferred:
+            raise
         except WorkItemInteractionRequired:
             attempts.update(command.user_id, attempt, "paused")
             raise
@@ -748,20 +771,23 @@ class CronDeliveryService:
                     "wakeup hook is cancelled or its original conversation is unavailable"
                 )
 
-        if (command.wakeup_hook_id and not command.wakeup_context_id) or is_team_agent(
-            self._agent_manager.get_row(command.agent_id)
+        if (
+            (command.workflow_context is not None and not command.workflow_execution_context_id)
+            or (command.wakeup_hook_id and not command.wakeup_context_id)
+            or is_team_agent(self._agent_manager.get_row(command.agent_id))
         ):
             servers: list[str] = []
         else:
             servers = [name.strip() for name in command.mcp_servers if name.strip()]
             extra_defaults = self._agent_manager.default_mcp_servers(command.agent_id)
             pack_scope = {"agent_id": command.agent_id}
-            if command.wakeup_hook_id and command.wakeup_context_id:
+            frozen_context = command.workflow_execution_context_id or (
+                command.wakeup_context_id if command.wakeup_hook_id else ""
+            )
+            if frozen_context:
                 from octop.infra.db.repos.execution import ExecutionContextRepo
 
-                origin = ExecutionContextRepo(self._repos.db).get(
-                    session.user_id, command.wakeup_context_id
-                )
+                origin = ExecutionContextRepo(self._repos.db).get(session.user_id, frozen_context)
                 if origin is None:
                     raise ValueError("wakeup execution source unavailable")
                 pack_scope.update(
@@ -836,6 +862,17 @@ class CronDeliveryService:
             }
         if command.task_run_id:
             request.setdefault("configurable", {})["octop_task_run_id"] = command.task_run_id
+        if command.workflow_context is not None:
+            cfg = request.setdefault("configurable", {})
+            cfg["octop_graph_context"] = command.workflow_context
+            cfg["work_mode"] = command.workflow_work_mode
+            request["conversation_mode"] = command.workflow_work_mode
+            if command.workflow_execution_context_id:
+                cfg["octop_execution_context"] = {
+                    "context_id": command.workflow_execution_context_id
+                }
+            else:
+                cfg["octop_wakeup_event_only"] = True
         if command.wakeup_hook_id:
             request["conversation_mode"] = "ask"
             cfg = request.setdefault("configurable", {})

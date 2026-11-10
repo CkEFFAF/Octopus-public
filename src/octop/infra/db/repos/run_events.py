@@ -288,12 +288,14 @@ class RunEventRepo:
         if self.db.dialect == "postgresql":
             job = "h.payload_json::jsonb->>'job_event_id'"
             expiry = "(h.payload_json::jsonb->>'expires_at')::double precision"
+            mode = "h.payload_json::jsonb->>'delivery_mode'"
         else:
             job = "json_extract(h.payload_json,'$.job_event_id')"
             expiry = "json_extract(h.payload_json,'$.expires_at')"
+            mode = "json_extract(h.payload_json,'$.delivery_mode')"
         with self.db.connect() as conn:
             rows = conn.execute(
-                f"SELECT h.* FROM run_events h WHERE h.kind='hook' AND (h.status='queued' OR (h.status='waiting' AND ({expiry}<=? OR EXISTS(SELECT 1 FROM run_events j WHERE j.owner_user_id=h.owner_user_id AND j.event_id=({job}) AND j.kind='job' AND j.status IN ('completed','failed','cancelled'))))) ORDER BY CASE WHEN h.status='queued' THEN 0 ELSE 1 END,h.updated_at,h.id LIMIT ?",
+                f"SELECT h.* FROM run_events h WHERE h.kind='hook' AND COALESCE(({mode}),'wake') <> 'signal' AND (h.status='queued' OR (h.status='waiting' AND ({expiry}<=? OR EXISTS(SELECT 1 FROM run_events j WHERE j.owner_user_id=h.owner_user_id AND j.event_id=({job}) AND j.kind='job' AND j.status IN ('completed','failed','cancelled'))))) ORDER BY CASE WHEN h.status='queued' THEN 0 ELSE 1 END,h.updated_at,h.id LIMIT ?",
                 (time.time(), limit),
             ).fetchall()
         return [{**self._public(row), "owner_user_id": row["owner_user_id"]} for row in rows]

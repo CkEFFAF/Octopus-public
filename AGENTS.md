@@ -462,4 +462,5 @@ hotfix/* ──PR──► main (+ tag) and ──PR──► develop
 
 ## Context files
 
+- [src/octop/infra/workflow_graphs/AGENTS.md](src/octop/infra/workflow_graphs/AGENTS.md): Durable Graph execution, context projection and receipt recovery; user guide in `docs/workflow-graphs.md`.
 - [src/octop/infra/plugins/AGENTS.md](src/octop/infra/plugins/AGENTS.md): Dashboard plugin catalog, private account settings and official quota lookup.

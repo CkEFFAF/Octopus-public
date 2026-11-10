@@ -45,6 +45,7 @@ async def run(path: Path) -> None:
         "stdin": asyncio.subprocess.DEVNULL,
         "stdout": asyncio.subprocess.PIPE,
         "stderr": asyncio.subprocess.STDOUT,
+        "env": {**os.environ, **manifest.get("env", {})},
     }
     if os.name == "nt":
         spawn["creationflags"] = (

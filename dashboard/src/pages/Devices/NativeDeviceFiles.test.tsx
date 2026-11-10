@@ -78,6 +78,7 @@ describe("native directory request states", () => {
       />,
     );
     fireEvent.click(await screen.findByRole("button", { name: /^report\.md/ }));
+    await screen.findByRole("button", { name: "workspace0034.source" });
     await vi.dynamicImportSettled();
     expect(
       await screen.findByRole("heading", { name: "设备报告" }),

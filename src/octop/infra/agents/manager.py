@@ -379,6 +379,7 @@ class AgentManager:
         self._expert_catalog = expert_catalog
         self._plugin_manager = plugin_manager
         self._task_board: Any | None = None
+        self._workflow_graphs: Any | None = None
         self._device_service: Any | None = None
         self._cron_manager: CronManager | None = None
         self._proactive_scheduler: ProactiveCareScheduler | None = None
@@ -468,6 +469,9 @@ class AgentManager:
 
     def set_task_board(self, service: Any) -> None:
         self._task_board = service
+
+    def set_workflow_graphs(self, service: Any) -> None:
+        self._workflow_graphs = service
 
     def set_native_management_context(self, **context: Any) -> None:
         """Wire shared product services before harnesses are built."""
@@ -3832,12 +3836,20 @@ class AgentManager:
         from octop.infra.conversations.tools import build_conversation_tools
 
         agent_middleware.insert(4, ConversationBriefMiddleware(self, row.agent_id))
+        if self._workflow_graphs is not None:
+            from octop.infra.workflow_graphs.middleware import WorkflowContextMiddleware
+
+            agent_middleware.append(WorkflowContextMiddleware(self._workflow_graphs, row.agent_id))
 
         merged_tools: list[Any] = [
             *board_tools,
             *device_tools,
             *build_work_mode_tools(WorkModeService(self._repos), row.agent_id),
         ]
+        if self._workflow_graphs is not None:
+            from octop.infra.workflow_graphs.tools import build_workflow_tools
+
+            merged_tools.extend(build_workflow_tools(self._workflow_graphs, row.agent_id))
         from octop.infra.agents.native_management_tools import build_native_management_tools
 
         merged_tools.extend(
