@@ -1,6 +1,6 @@
 # Agent-configurable workflow graphs
 
-**Status**: In Progress
+**Status**: Accepted
 **Date**: 2026-11-10
 **Mode**: FEATURE
 **Confirmed**: User accepted the full specification and independent cross-check. Follow-up decisions: budget exhaustion pauses successors and retains accepted Jobs; script events can start new runs as well as signal waiting runs.
