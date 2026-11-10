@@ -48,12 +48,12 @@ async def call(tools: Any, tool_name: str, **args: Any) -> dict[str, Any]:
 async def test_expert_animal_avatar_and_color_persist_through_native_tools(native: Any) -> None:
     client, server, auth, _aid, _uid, tools = native
     created = await call(
-        tools, "octop_expert_create", name="Animal expert", avatar_character="fox", color="#F93"
+        tools, "octop_expert_create", name="Animal expert", avatar_character="dragon", color="#F93"
     )
     assert created["saved"] is True, created
     aid = created["agent_id"]
-    assert created["avatar_character"] == "fox"
-    assert created["icon_url"] == "/expert-animations/fox.webp"
+    assert created["avatar_character"] == "dragon"
+    assert created["icon_url"] == "/expert-animations/dragon.webp"
     assert created["color"] == "#ff9933"
     persisted = (await client.get(f"/api/agents/{aid}", headers=auth)).json()
     assert persisted["icon_url"] == created["icon_url"]
@@ -71,7 +71,7 @@ async def test_expert_animal_avatar_and_color_persist_through_native_tools(nativ
     assert persisted["icon_url"] == "/expert-animations/rabbit.webp"
     assert persisted["color"] == "#4b74fa"
     for invalid in (
-        {"avatar_character": "dragon"},
+        {"avatar_character": "not-an-avatar"},
         {"color": "broken"},
         {"avatar_character": "fox", "icon_url": "/expert-animations/cat.webp"},
     ):

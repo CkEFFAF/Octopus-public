@@ -368,6 +368,22 @@ class DeviceClient:
         revision = frame.get("policy_revision", 0)
         if type(revision) is not int or revision < 0:
             raise DeviceExecutionError("invalid policy revision")
+        fingerprint = json.dumps(
+            {
+                key: frame.get(key)
+                for key in (
+                    "controller_id",
+                    "policy_revision",
+                    "trust_mode",
+                    "permissions",
+                    "working_dir",
+                )
+            },
+            sort_keys=True,
+        )
+        applied = getattr(self, "_applied_policy", None)
+        if frame.get("type") == "heartbeat_ack" and applied == (executor, fingerprint):
+            return
         state = self.load_state()
         if state is None or revision == 0:
             return
@@ -408,6 +424,7 @@ class DeviceClient:
         ):
             policy[option] = permission in executor.local_permissions
         save_private_json(self.state_path, state)
+        self._applied_policy = (executor, fingerprint)
         await socket.send(
             json.dumps(
                 {
@@ -420,6 +437,7 @@ class DeviceClient:
                         "hostname": platform.node(),
                         "client_protocol_version": CLIENT_PROTOCOL_VERSION,
                         "job_protocol_version": 1 if executor.state_dir else 0,
+                        "job_environment_protocol_version": 1 if executor.state_dir else 0,
                         "workbench_protocol_version": 1,
                         "terminal_protocol_version": 1,
                         "capability_protocol_version": 1,

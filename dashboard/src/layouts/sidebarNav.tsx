@@ -52,6 +52,7 @@ export const SIDEBAR_NAV_KEYS = [
   "chat",
   "experts",
   "tasks",
+  "workflow-graphs",
   "token-usage",
   "personalization",
   "channels",
@@ -163,6 +164,12 @@ export function buildNavSections(
           path: "/tasks",
           icon: <Timer size={iconSize} strokeWidth={iconStroke} />,
           labelKey: "nav.tasks",
+        },
+        {
+          key: "workflow-graphs",
+          path: "/workflow-graphs",
+          icon: <Waypoints size={iconSize} strokeWidth={iconStroke} />,
+          labelKey: "workflowGraph.title",
         },
         {
           key: "token-usage",

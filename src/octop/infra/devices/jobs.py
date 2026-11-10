@@ -143,6 +143,20 @@ class JobSupervisor:
         ):
             raise ValueError("Job argv must be a nonempty list of strings")
         job_id = hashlib.sha256(key.encode()).hexdigest()[:32]
+        environment = params.get("env", {})
+        if (
+            not isinstance(environment, dict)
+            or len(environment) > 128
+            or any(
+                not isinstance(name, str)
+                or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", name)
+                or not isinstance(value, str)
+                or "\x00" in value
+                for name, value in environment.items()
+            )
+            or len(json.dumps(environment, ensure_ascii=False).encode()) > 128 * 1024
+        ):
+            raise ValueError("invalid Job environment")
         payload = {
             "argv": argv,
             "cwd": str(cwd),
@@ -150,6 +164,8 @@ class JobSupervisor:
             "policy_revision": params.get("policy_revision"),
             "grant_version": params.get("grant_version"),
         }
+        if environment:
+            payload["env"] = environment
         # A retry from a later request still refers to the originally accepted
         # Job. Preserve its origin context, but compare execution parameters.
         fingerprint = hashlib.sha256(
@@ -250,7 +266,7 @@ class JobSupervisor:
                     cpu += sum(process.cpu_times()[:2])
             resources = {"rss_bytes": rss, "cpu_seconds": cpu, "gpu": gpu_processes(set(members))}
         return {
-            **{k: v for k, v in manifest.items() if k != "fingerprint"},
+            **{k: v for k, v in manifest.items() if k not in {"fingerprint", "env"}},
             **state,
             "resources": resources,
             "observed_at": time.time(),

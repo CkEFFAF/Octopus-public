@@ -150,15 +150,46 @@ export function speakerTurnWasInterrupted(
  * treating them as turn breakers produced multiple process summaries for one
  * user round-trip. Keep ``tool`` inside the assistant group.
  */
+import { firstMessageChange } from "./messageChanges";
+
+const groupedInputs = new WeakMap<
+  MessageGroup[],
+  {
+    messages: ChatMessage[];
+    hostAgentId?: string;
+    ends: number[];
+  }
+>();
+
 export function groupConsecutiveAssistantMessages(
   messages: ChatMessage[],
   hostAgentId?: string,
   previousGroups: MessageGroup[] = [],
 ): MessageGroup[] {
-  const groups: MessageGroup[] = [];
+  const previousInput = groupedInputs.get(previousGroups);
+  const changedFrom =
+    previousInput?.hostAgentId === hostAgentId && previousInput
+      ? firstMessageChange(messages, previousInput.messages)
+      : undefined;
+  let prefix = 0;
+  if (changedFrom !== undefined && previousInput) {
+    let lo = 0,
+      hi = previousInput.ends.length;
+    while (lo < hi) {
+      const middle = (lo + hi) >>> 1;
+      if (previousInput.ends[middle] <= changedFrom) lo = middle + 1;
+      else hi = middle;
+    }
+    // Include the preceding group so edits can merge across an old boundary.
+    prefix = Math.max(0, lo - 1);
+  }
+  const groups: MessageGroup[] = previousGroups.slice(0, prefix);
+  const ends = previousInput?.ends.slice(0, prefix) ?? [];
+  const start = ends.at(-1) ?? 0;
+  let position = start;
   let currentGroup: ChatMessage[] = [];
   const previousByFirstMessage = new Map(
-    previousGroups.map((group) => [group.messages[0], group]),
+    previousGroups.slice(prefix).map((group) => [group.messages[0], group]),
   );
   const appendGroup = (isGroup: boolean, items: ChatMessage[]) => {
     const previous = previousByFirstMessage.get(items[0]);
@@ -169,9 +200,12 @@ export function groupConsecutiveAssistantMessages(
         ? previous
         : { isGroup, messages: items },
     );
+    position += items.length;
+    ends.push(position);
   };
 
-  for (const msg of messages) {
+  for (let index = start; index < messages.length; index++) {
+    const msg = messages[index];
     if (isAssistantTurnRole(msg.role)) {
       if (
         currentGroup.length > 0 &&
@@ -205,5 +239,6 @@ export function groupConsecutiveAssistantMessages(
     appendGroup(true, currentGroup);
   }
 
+  groupedInputs.set(groups, { messages, hostAgentId, ends });
   return groups;
 }

@@ -30,6 +30,7 @@ it("previews expert Markdown, preserves edits through preview and only saves exp
       onSaved={vi.fn()}
     />,
   );
+  await vi.dynamicImportSettled();
   expect(
     await screen.findByRole("heading", { name: "专家说明" }),
   ).toBeInTheDocument();

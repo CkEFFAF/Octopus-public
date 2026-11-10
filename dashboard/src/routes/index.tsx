@@ -4,6 +4,7 @@ import { Navigate, useLocation } from "react-router-dom";
 // Lazy-loaded pages — Common
 const ProjectsPage = lazy(() => import("../pages/Projects"));
 const TaskBoardPage = lazy(() => import("../pages/TaskBoard"));
+const WorkflowGraphsPage = lazy(() => import("../pages/WorkflowGraphs"));
 const DevicesPage = lazy(() => import("../pages/Devices"));
 const ExpertsPage = lazy(() => import("../pages/Experts"));
 const CronJobsPage = lazy(() => import("../pages/Control/CronJobs"));
@@ -58,6 +59,7 @@ export interface RouteConfig {
 export const pathToKey: Record<string, string> = {
   "/projects": "projects",
   "/task-board": "task-board",
+  "/workflow-graphs": "workflow-graphs",
   "/devices": "devices",
   "/chat": "chat",
   // Common
@@ -113,6 +115,7 @@ export const pathToKey: Record<string, string> = {
  * Pages that should fill the entire content area without padding/scroll wrapper.
  */
 export const FULLSCREEN_PATHS = new Set([
+  "/workflow-graphs",
   "/workbench",
   "/workbench/terminal",
   "/workbench/browser",
@@ -167,6 +170,7 @@ export const routeConfigs: RouteConfig[] = [
   // Common
   { path: "/projects", element: <ProjectsPage /> },
   { path: "/task-board", element: <TaskBoardPage /> },
+  { path: "/workflow-graphs", element: <WorkflowGraphsPage /> },
   { path: "/devices", element: <DevicesPage /> },
   { path: "/experts", element: <ExpertsPage /> },
   { path: "/tasks", element: <CronJobsPage /> },

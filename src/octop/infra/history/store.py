@@ -11,6 +11,7 @@ import json
 import math
 import sqlite3
 import time
+from collections import OrderedDict
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -63,6 +64,7 @@ class HistoryStore:
         if not existed and marker.exists():
             raise FileNotFoundError("The required history archive is missing: " + str(path))
         self.path = path
+        self._text_blocks: OrderedDict[str, tuple[str, str]] = OrderedDict()
         self.db = SqlitePool(path)
         try:
             with self.db.connect() as conn:
@@ -262,9 +264,19 @@ class HistoryStore:
         }
         refs: set[str] = set()
 
-        def intern(item: Any) -> str:
-            body = dumps(item)
-            digest = hashlib.sha256(body.encode()).hexdigest()
+        def intern(item: Any, *, text_block: bool = False) -> str:
+            reusable = text_block and len(item) == TEXT_BLOCK_SIZE
+            cached = self._text_blocks.get(item) if reusable else None
+            if cached is not None:
+                body, digest = cached
+                self._text_blocks.move_to_end(item)
+            else:
+                body = dumps(item)
+                digest = hashlib.sha256(body.encode()).hexdigest()
+                if reusable:
+                    self._text_blocks[item] = (body, digest)
+                    while len(self._text_blocks) > 1024:
+                        self._text_blocks.popitem(last=False)
             if digest not in old_refs and digest not in refs:
                 conn.execute("INSERT OR IGNORE INTO bodies VALUES (?,?)", (digest, body))
             refs.add(digest)
@@ -275,7 +287,7 @@ class HistoryStore:
                 return [
                     "text",
                     [
-                        intern(item[start : start + TEXT_BLOCK_SIZE])
+                        intern(item[start : start + TEXT_BLOCK_SIZE], text_block=True)
                         for start in range(0, len(item), TEXT_BLOCK_SIZE)
                     ],
                 ]
@@ -309,19 +321,58 @@ class HistoryStore:
                 (digest, digest),
             )
 
-    def _decode(self, conn: sqlite3.Connection, node: Any) -> Any:
+    def _decode_many(self, conn: sqlite3.Connection, nodes: list[Any]) -> list[Any]:
+        """Fetch shared bodies once per page without exceeding SQLite's bind limit."""
+        digests: set[str] = set()
+
+        def collect(node: Any) -> None:
+            tag, value = node
+            if tag == "body":
+                digests.add(value)
+            elif tag == "text":
+                digests.update(value)
+            elif tag == "dict":
+                for _, child in value:
+                    collect(child)
+            elif tag == "list":
+                for child in value:
+                    collect(child)
+
+        for node in nodes:
+            collect(node)
+        keys = sorted(digests)
+        bodies: dict[str, str] = {}
+        for offset in range(0, len(keys), 400):
+            batch = keys[offset : offset + 400]
+            marks = ",".join("?" for _ in batch)
+            bodies.update(
+                (row["digest"], row["value"])
+                for row in conn.execute(
+                    f"SELECT digest,value FROM bodies WHERE digest IN ({marks})", batch
+                )
+            )
+        return [self._decode(conn, node, bodies) for node in nodes]
+
+    def _decode(
+        self, conn: sqlite3.Connection, node: Any, bodies: dict[str, str] | None = None
+    ) -> Any:
         tag, value = node
         if tag == "body":
+            if bodies is not None:
+                if value not in bodies:
+                    raise ValueError("History body reference is missing")
+                # Each occurrence must remain independently mutable.
+                return json.loads(bodies[value])
             row = conn.execute("SELECT value FROM bodies WHERE digest=?", (value,)).fetchone()
             if row is None:
                 raise ValueError("History body reference is missing")
             return json.loads(row[0])
         if tag == "text":
-            return "".join(self._decode(conn, ["body", digest]) for digest in value)
+            return "".join(self._decode(conn, ["body", digest], bodies) for digest in value)
         if tag == "dict":
-            return {k: self._decode(conn, v) for k, v in value}
+            return {k: self._decode(conn, v, bodies) for k, v in value}
         if tag == "list":
-            return [self._decode(conn, v) for v in value]
+            return [self._decode(conn, v, bodies) for v in value]
         if tag == "value":
             return value
         raise ValueError("Unknown history encoding")
@@ -351,15 +402,16 @@ class HistoryStore:
                 + " ORDER BY d.seq",
                 args,
             ).fetchall()
+            values = self._decode_many(conn, [json.loads(row["data"]) for row in rows])
             return [
                 {
                     "id": row["id"],
                     "seq": row["seq"],
                     "turn_id": row["turn_id"],
                     "status": row["status"],
-                    "value": self._decode(conn, json.loads(row["data"])),
+                    "value": value,
                 }
-                for row in rows
+                for row, value in zip(rows, values, strict=True)
             ]
 
     def get_event(self, event_id: str) -> dict[str, Any] | None:
@@ -371,7 +423,7 @@ class HistoryStore:
             ).fetchone()
             if row is None:
                 return None
-            value: dict[str, Any] = self._decode(conn, json.loads(row[0]))
+            value: dict[str, Any] = self._decode_many(conn, [json.loads(row[0])])[0]
             return value
 
     def message_page(
@@ -386,9 +438,9 @@ class HistoryStore:
                 "AND (? IS NULL OR d.seq<?) ORDER BY d.seq DESC LIMIT ?",
                 (thread_id, segment_id, before, before, limit),
             ).fetchall()
+            values = self._decode_many(conn, [json.loads(row["data"]) for row in rows])
             return [
-                {"seq": row["seq"], "value": self._decode(conn, json.loads(row["data"]))}
-                for row in rows
+                {"seq": row["seq"], "value": value} for row, value in zip(rows, values, strict=True)
             ]
 
     def event_page(self, thread_id: str, before: int | None, limit: int) -> list[dict[str, Any]]:
@@ -400,7 +452,8 @@ class HistoryStore:
                 "AND (? IS NULL OR seq<?) ORDER BY seq DESC LIMIT ?",
                 (thread_id, before, before, limit),
             ).fetchall()
-            return [self._decode(conn, json.loads(row[0])) for row in rows]
+            return self._decode_many(conn, [json.loads(row[0]) for row in rows])
 
     def close(self) -> None:
         self.db.close()
+        self._text_blocks.clear()

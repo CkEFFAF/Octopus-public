@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "name": "实验完成后唤醒",
+  "agent_id": "your_expert",
+  "nodes": [
+    {
+      "id": "start",
+      "kind": "entry",
+      "label": "开始",
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "registered",
+      "kind": "event",
+      "label": "注册评估回调",
+      "position": {
+        "x": 340,
+        "y": 100
+      },
+      "event_type": "evaluation.done",
+      "purpose": "评估完成后继续分析"
+    },
+    {
+      "id": "evaluate",
+      "kind": "script",
+      "label": "运行带回调的评估",
+      "position": {
+        "x": 680,
+        "y": 100
+      },
+      "argv": [
+        "python",
+        "evaluate_with_callback.py"
+      ],
+      "callback_node": "registered"
+    },
+    {
+      "id": "signal",
+      "kind": "wait_event",
+      "label": "等待评估事件",
+      "position": {
+        "x": 1020,
+        "y": 100
+      },
+      "event_node": "registered"
+    },
+    {
+      "id": "analyze",
+      "kind": "agent",
+      "label": "核对结果并改进",
+      "position": {
+        "x": 1360,
+        "y": 100
+      },
+      "prompt": "核对实验与事件中的证据。分析结果并做有依据的改进，遵守专家和服务器规矩。",
+      "inputs": {
+        "event": {
+          "path": "$.event"
+        }
+      }
+    },
+    {
+      "id": "finish",
+      "kind": "end",
+      "label": "结束",
+      "position": {
+        "x": 1700,
+        "y": 100
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "start_next_registered",
+      "source": "start",
+      "target": "registered",
+      "port": "next"
+    },
+    {
+      "id": "registered_next_evaluate",
+      "source": "registered",
+      "target": "evaluate",
+      "port": "next"
+    },
+    {
+      "id": "evaluate_next_signal",
+      "source": "evaluate",
+      "target": "signal",
+      "port": "next"
+    },
+    {
+      "id": "signal_next_analyze",
+      "source": "signal",
+      "target": "analyze",
+      "port": "next"
+    },
+    {
+      "id": "analyze_next_finish",
+      "source": "analyze",
+      "target": "finish",
+      "port": "next"
+    }
+  ],
+  "limits": {
+    "max_steps": 100,
+    "max_seconds": 86400,
+    "max_parallel": 4
+  },
+  "execution_context_id": "your_execution_context"
+}

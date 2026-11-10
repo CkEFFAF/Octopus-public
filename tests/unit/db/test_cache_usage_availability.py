@@ -57,7 +57,7 @@ def test_unknown_zero_and_mixed_usage_survive_ledger_round_trip(tmp_path: Path) 
     ]
     run_migrations(pool)
     with pool.connect() as conn:
-        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 39
+        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 40
         conn.execute("UPDATE _schema_version SET version=38")
     run_migrations(pool)
     assert [row.cache_metrics_reported for row in repos.usage_repo.list_detail(user_id=owner)] == [

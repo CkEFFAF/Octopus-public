@@ -24,6 +24,7 @@ SIDEBAR_NAV_KEYS = frozenset(
         "chat",
         "experts",
         "tasks",
+        "workflow-graphs",
         "token-usage",
         "thread-shares",
         "personalization",

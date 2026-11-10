@@ -107,12 +107,16 @@ def test_env_sqlite_path_without_database_section(tmp_path: Path, monkeypatch: p
     root = tmp_path / ".octop"
     root.mkdir()
     (root / "config.json").write_text(json.dumps({"port": 8088}))
-    monkeypatch.setenv("OCTOP_DATABASE_SQLITE_PATH", "/tmp/custom-octop.db")
+    custom_path = tmp_path / "custom-octop.db"
+    monkeypatch.setenv("OCTOP_DATABASE_SQLITE_PATH", str(custom_path))
     paths = PathLayout(root)
     cfg = load_config(paths.config)
     assert cfg.database_in_file is False
     pool = open_database(cfg, paths)
-    assert pool.path == cfg.database.resolve_sqlite_path(paths.root)
+    try:
+        assert pool.path == custom_path
+    finally:
+        pool.close()
 
 
 def test_postgresql_returns_postgres_pool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

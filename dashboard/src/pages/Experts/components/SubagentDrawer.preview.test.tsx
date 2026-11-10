@@ -28,6 +28,7 @@ it("previews subagent Markdown body without frontmatter and keeps source edits",
     );
   }
   render(<Example />);
+  await vi.dynamicImportSettled();
   expect(
     await screen.findByRole("heading", { name: "审查要求" }),
   ).toBeInTheDocument();

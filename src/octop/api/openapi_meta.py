@@ -76,6 +76,10 @@ HITL resume still uses `POST /api/agents/{agent_id}/chat/hitl/resume` (SSE).
 OPENAPI_TAGS: list[dict[str, str]] = [
     {"name": "task-board", "description": "Durable user task ledger and host execution."},
     {
+        "name": "workflow-graphs",
+        "description": "Versioned Agent workflows, context routing, durable events and run inspection.",
+    },
+    {
         "name": "work-items",
         "description": "Independent chat work items (0043): create/list/progress/events/input/cancel; task.changed notifications.",
     },

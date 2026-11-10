@@ -748,6 +748,28 @@ class ConnectorService:
             raise ValueError(f"mcp_servers not available for user: {unknown}")
         return list(names)
 
+    def custom_parallel_calls(self, user_id: int, server_name: str) -> int:
+        """Operator opt-in for independent HTTP calls, never inferred from tool hints."""
+        spec = self.get_custom_servers(user_id).get(server_name)
+        if not isinstance(spec, dict) and server_name.startswith("custom__"):
+            parts = server_name.split("__", 2)
+            if len(parts) != 3:
+                return 1
+            _, instance_id, name = parts
+            parent = self._repo.get(instance_id)
+            if parent is None or not parent.has_credentials or parent.status != "active":
+                return 1
+            shared = extract_servers(self.decrypt(instance_id)).get(name)
+            spec = shared if isinstance(shared, dict) and shared.get("shared") is True else None
+        if (
+            not isinstance(spec, dict)
+            or not server_enabled(spec)
+            or spec.get("transport") != "streamable_http"
+        ):
+            return 1
+        limit = spec.get("max_concurrent_calls", 1)
+        return limit if type(limit) is int and 1 <= limit <= 8 else 1
+
     def custom_harness_configs(self, user_id: int) -> dict[str, Any]:
         configs = enabled_harness_configs(self.get_custom_servers(user_id))
         for parent in self._repo.list_by_kind(CUSTOM_MCP_KIND):

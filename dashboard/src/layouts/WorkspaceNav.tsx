@@ -28,7 +28,7 @@ const groups = [
     id: "projects",
     icon: Users,
     path: "/projects",
-    keys: ["projects", "task-board", "tasks"],
+    keys: ["projects", "task-board", "workflow-graphs", "tasks"],
   },
   {
     id: "agents",
