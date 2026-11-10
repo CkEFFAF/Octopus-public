@@ -75,6 +75,128 @@ async def test_wrap_tools_serialize_ainvoke() -> None:
     assert order == ["start", "end", "start", "end"]
 
 
+async def test_opt_in_parallel_gate_bounds_calls_and_rechecks_queued_access():
+    ready, release = asyncio.Event(), asyncio.Event()
+    active = 0
+    peak = 0
+    allowed = True
+
+    class FakeTool:
+        name = "independent_read"
+        description = "read"
+        args_schema = None
+
+        async def ainvoke(self, *_args, **_kwargs):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            if active == 2:
+                ready.set()
+            try:
+                await release.wait()
+                return "ok"
+            finally:
+                active -= 1
+
+    def access():
+        if not allowed:
+            raise PermissionError("revoked")
+
+    lock = asyncio.Lock()
+    wrapped = wrap_tools_for_shared_use(
+        [FakeTool()], lock, check_access=access, max_concurrent_calls=2
+    )[0]
+    calls = [asyncio.create_task(wrapped.ainvoke({})) for _ in range(3)]
+    try:
+        await asyncio.wait_for(ready.wait(), 5)
+        assert active == peak == 2
+        allowed = False
+        release.set()
+        results = await asyncio.gather(*calls, return_exceptions=True)
+        assert results.count("ok") == 2
+        assert sum(isinstance(value, PermissionError) for value in results) == 1
+        allowed = True
+        assert await wrapped.ainvoke({}) == "ok"
+    finally:
+        release.set()
+        await asyncio.gather(*calls, return_exceptions=True)
+
+
+async def test_parallel_policy_change_invalidates_previously_cached_tools():
+    from octop.infra.agents.manager import AgentManager
+    from octop.infra.errors import OctopError
+
+    limit = [2]
+    manager = object.__new__(AgentManager)
+    manager._mcp_tool_cache = {}
+    manager._mcp_tool_cache_locks = {}
+    manager._mcp_tool_cache_guard = asyncio.Lock()
+    manager._paths = MagicMock(root=MagicMock())
+    manager._repos = SimpleNamespace(
+        user_repo=SimpleNamespace(get=lambda _: SimpleNamespace(role="admin"))
+    )
+    manager._connector_svc = SimpleNamespace(custom_parallel_calls=lambda *_: limit[0])
+    inner = MagicMock(name="read")
+    inner.name, inner.description, inner.args_schema, inner.metadata = "read", "read", None, None
+    inner.ainvoke = AsyncMock(return_value="ok")
+    spec = {"transport": "streamable_http", "url": "https://example.com/mcp"}
+    with patch("octop_harness.mcp.aload_mcp_tools", AsyncMock(return_value=[inner])):
+        previous = (await manager._get_or_load_mcp_tools(1, "remote", spec))[0]
+        assert await previous.ainvoke({}) == "ok"
+        limit[0] = 1
+        with pytest.raises(OctopError, match="concurrency policy"):
+            await previous.ainvoke({})
+        current = (await manager._get_or_load_mcp_tools(1, "remote", spec))[0]
+        assert current is not previous
+        assert await current.ainvoke({}) == "ok"
+
+
+async def test_gate_limit_reduction_and_cancellation_do_not_leak_capacity():
+    ready = asyncio.Event()
+    releases = [asyncio.Event(), asyncio.Event()]
+    entered = []
+
+    class FakeTool:
+        name, description, args_schema = "bounded", "bounded", None
+
+        async def ainvoke(self, *_args, **_kwargs):
+            index = len(entered)
+            entered.append(index)
+            if index == 1:
+                ready.set()
+            if index < 2:
+                await releases[index].wait()
+            return "ok"
+
+    lock = asyncio.Lock()
+    old = wrap_tools_for_shared_use([FakeTool()], lock, max_concurrent_calls=2)[0]
+    calls = [asyncio.create_task(old.ainvoke({})) for _ in range(2)]
+    pending = None
+    try:
+        await asyncio.wait_for(ready.wait(), 5)
+        current = wrap_tools_for_shared_use([FakeTool()], lock, max_concurrent_calls=1)[0]
+        pending = asyncio.create_task(current.ainvoke({}))
+        await asyncio.sleep(0)
+        calls[0].cancel()
+        await asyncio.gather(calls[0], return_exceptions=True)
+        await asyncio.sleep(0)
+        assert entered == [0, 1]  # One old call still occupies the reduced capacity.
+        pending.cancel()
+        await asyncio.gather(pending, return_exceptions=True)
+        releases[1].set()
+        await calls[1]
+        assert await current.ainvoke({}) == "ok"
+        assert entered == [0, 1, 2]
+    finally:
+        for release in releases:
+            release.set()
+        if pending is not None:
+            pending.cancel()
+        await asyncio.gather(
+            *calls, *([pending] if pending is not None else []), return_exceptions=True
+        )
+
+
 @pytest.mark.asyncio
 async def test_get_or_load_caches_and_reuses() -> None:
     from octop.infra.agents.manager import AgentManager

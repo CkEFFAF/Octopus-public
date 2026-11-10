@@ -38,6 +38,7 @@ describe("sidebarNavLayout", () => {
       "chat",
       "experts",
       "tasks",
+      "workflow-graphs",
       "token-usage",
     ]);
     expect(editor.groups.map((group) => group.id)).toEqual([

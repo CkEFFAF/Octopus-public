@@ -36,6 +36,7 @@ from octop.infra.devices.protocol import (
     merge_enroll_permissions,
     result_status,
     validate_action,
+    validate_job_environment,
 )
 from octop.infra.devices.transfer_protocol import (
     cancel_frame,
@@ -68,6 +69,7 @@ class DeviceConnection:
     send: Send
     close: Close
     root_candidates: list[dict[str, Any]] | None = None
+    job_environment_protocol_version: int = 0
 
 
 class DeviceService:
@@ -436,7 +438,7 @@ class DeviceService:
         if frame.get("type") == "heartbeat":
             self.repos.device_repo.touch_seen(row.device_id)
             sw = frame.get("software_version")
-            if isinstance(sw, str) and sw.strip():
+            if isinstance(sw, str) and sw.strip() and sw.strip() != row.software_version:
                 self.repos.device_repo.set_software_version(row.device_id, sw.strip())
                 row = self.repos.device_repo.get(row.device_id) or row
             await connection.send(self.grants(row, kind="heartbeat_ack"))
@@ -483,6 +485,7 @@ class DeviceService:
                     "hostname",
                     "client_protocol_version",
                     "job_protocol_version",
+                    "job_environment_protocol_version",
                     "workbench_protocol_version",
                     "terminal_protocol_version",
                     "capability_protocol_version",
@@ -496,6 +499,9 @@ class DeviceService:
                 raise device_error("invalid device runtime metadata")
             self.repos.device_repo.report_policy(
                 row.device_id, revision=revision, trust_mode=mode, metadata=safe
+            )
+            connection.job_environment_protocol_version = (
+                1 if safe.get("job_environment_protocol_version") == 1 else 0
             )
         elif frame.get("type") == "result":
             self._result(connection, frame)
@@ -1264,6 +1270,18 @@ class DeviceService:
                         op.operation_id, status="cancelled", error="device permission changed"
                     )
 
+    def check_job_environment(self, device_id: str, action: str, params: dict[str, Any]) -> None:
+        if action != "jobs.start" or not params.get("env"):
+            return
+        connection = self._connections.get(device_id)
+        if connection is None:
+            raise OctopError(ErrorCode.DEVICE_OFFLINE, "device offline")
+        validate_job_environment(
+            action,
+            params,
+            {"job_environment_protocol_version": connection.job_environment_protocol_version},
+        )
+
     def authorize(
         self,
         owner: int,
@@ -1300,6 +1318,7 @@ class DeviceService:
             )
         if required and (required not in row.permissions or required not in row.capabilities):
             raise OctopError(ErrorCode.FORBIDDEN, "device capability not granted")
+        self.check_job_environment(device_id, action, params)
         if action.startswith("capabilities.") and (
             not self.owner_trusted(row)
             or (row.runtime_metadata or {}).get("capability_protocol_version") != 1
@@ -1424,7 +1443,9 @@ class DeviceService:
                 }
                 if action == "desktop.input"
                 else {
-                    key: value for key, value in params.items() if key not in {"text", "data_b64"}
+                    key: value
+                    for key, value in params.items()
+                    if key not in {"text", "data_b64", "env"}
                 }
             )
             self.repos.device_repo.create_operation(

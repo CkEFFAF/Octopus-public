@@ -1,0 +1,828 @@
+.wg-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fn-text-primary);
+  background: var(--fn-bg-secondary);
+}
+.wg-header {
+  height: 58px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 20px;
+  background: var(--fn-bg-container);
+  border-bottom: 1px solid var(--fn-border-primary);
+}
+.wg-header-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.wg-workflow-picker {
+  height: 38px;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.wg-header h1 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 650;
+  max-width: 300px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wg-header-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--fn-border-primary);
+}
+.wg-header .ant-tag,
+.wg-header .octop-tag {
+  margin: 0;
+  font-size: 11px;
+}
+.wg-published-state {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--fn-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.wg-published-state i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fn-color-success);
+}
+.wg-dirty {
+  color: var(--fn-text-brand);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.wg-page {
+  display: flex;
+  flex: 1;
+  height: 0;
+  min-height: 0;
+  min-width: 0;
+}
+.wg-workbench {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.wg-editor {
+  display: flex;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.wg-canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--fn-bg-secondary);
+  background-image: radial-gradient(
+    var(--fn-border-strong) 0.8px,
+    transparent 0.8px
+  );
+  background-size: 24px 24px;
+  touch-action: none;
+}
+.wg-world {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+.wg-add-tool {
+  position: absolute;
+  z-index: 5;
+  left: 20px;
+  top: 20px;
+}
+.wg-add-tool > button {
+  background: var(--fn-bg-container);
+  box-shadow: var(--fn-shadow-sm);
+  font-size: 13px;
+  font-weight: 550;
+}
+.wg-node-menu {
+  width: 334px;
+  max-height: 65vh;
+  overflow: auto;
+  padding: 4px;
+}
+.wg-node-menu h3 {
+  font-size: 13px;
+  margin: 4px 4px 12px;
+}
+.wg-node-menu > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.wg-node-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--fn-bg-container);
+  color: var(--fn-text-primary);
+  padding: 10px 8px;
+  cursor: pointer;
+}
+.wg-node-option:hover {
+  background: var(--fn-bg-secondary);
+  border-color: var(--fn-border-primary);
+}
+.wg-node-option:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.wg-node-option > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.wg-node-option strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.wg-node-option small {
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--fn-text-secondary);
+}
+.wg-node-option-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--wg-node-color) 10%, transparent);
+  color: var(--wg-node-color);
+}
+.wg-node,
+.wg-node-option {
+  --wg-node-color: var(--fn-color-brand);
+}
+.wg-node.kind-entry,
+.wg-node-option.kind-entry {
+  --wg-node-color: var(--fn-color-success);
+}
+.wg-node.kind-script,
+.wg-node-option.kind-script {
+  --wg-node-color: var(--fn-color-info);
+}
+.wg-node.kind-condition,
+.wg-node-option.kind-condition {
+  --wg-node-color: var(--fn-color-warning);
+}
+.wg-node.kind-event,
+.wg-node-option.kind-event,
+.wg-node.kind-wait_event,
+.wg-node-option.kind-wait_event {
+  --wg-node-color: var(--fn-color-info);
+}
+.wg-node.kind-wait_time,
+.wg-node-option.kind-wait_time {
+  --wg-node-color: var(--fn-color-warning);
+}
+.wg-node.kind-end,
+.wg-node-option.kind-end {
+  --wg-node-color: var(--fn-text-secondary);
+}
+.wg-node {
+  pointer-events: auto;
+  position: absolute;
+  width: 272px;
+  border: 1px solid var(--fn-border-primary);
+  border-radius: 12px;
+  background: var(--fn-bg-elevated);
+  box-shadow: var(--fn-shadow-sm);
+}
+.wg-node:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--wg-node-color) 45%,
+    var(--fn-border-primary)
+  );
+}
+.wg-node.selected {
+  border-color: var(--wg-node-color);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--wg-node-color) 13%, transparent),
+    var(--fn-shadow-md);
+}
+.wg-node-heading {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-content: start;
+  column-gap: 11px;
+  position: relative;
+  width: 100%;
+  height: var(--wg-head-height);
+  padding: 14px 16px 12px;
+  border: 0;
+  border-radius: 12px 12px 0 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: grab;
+  user-select: none;
+}
+.wg-node-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--wg-node-color) 11%, transparent);
+  color: var(--wg-node-color);
+}
+.wg-node-title {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  justify-content: center;
+  min-width: 0;
+  padding-right: 9px;
+}
+.wg-kind {
+  color: var(--fn-text-secondary);
+  font-size: 10.5px;
+  line-height: 13px;
+}
+.wg-node-title strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+  font-size: 14px;
+  line-height: 18px;
+  font-weight: 650;
+}
+.wg-node-preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  grid-column: 1/-1;
+  margin-top: 10px;
+  min-height: 32px;
+  max-height: 36px;
+  overflow: hidden;
+  color: var(--fn-text-secondary);
+  font-size: 11.5px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+}
+.wg-node-preview.is-command {
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--fn-bg-secondary);
+  font-family: var(--fn-font-mono);
+  font-size: 10.5px;
+  line-height: 15px;
+}
+.wg-node-context {
+  display: flex;
+  grid-column: 1/-1;
+  gap: 5px;
+  margin-top: 7px;
+  min-width: 0;
+}
+.wg-node-context > span {
+  font-size: 10px;
+  line-height: 17px;
+  color: var(--fn-text-secondary);
+  background: var(--fn-bg-secondary);
+  border: 1px solid var(--fn-border-secondary);
+  border-radius: 4px;
+  padding: 0 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wg-node-state {
+  position: absolute;
+  top: 18px;
+  right: 14px;
+}
+.wg-node-state i {
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fn-text-tertiary);
+}
+.wg-node.state-running .wg-node-state i {
+  background: var(--fn-color-brand);
+  box-shadow: 0 0 0 3px var(--fn-color-brand-bg);
+}
+.wg-node.state-completed .wg-node-state i {
+  background: var(--fn-color-success);
+}
+.wg-node.state-failed .wg-node-state i,
+.wg-node.state-unknown .wg-node-state i {
+  background: var(--fn-color-error);
+}
+.wg-node[class*="state-waiting"] .wg-node-state i {
+  background: var(--fn-color-warning);
+}
+.wg-ports {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--fn-border-secondary);
+  padding: 0;
+}
+.wg-ports:empty {
+  display: none;
+}
+.wg-ports button {
+  position: relative;
+  height: 28px;
+  padding: 0 18px 0 16px;
+  border: 0;
+  background: transparent;
+  color: var(--fn-text-secondary);
+  font-size: 10.5px;
+  text-align: right;
+  cursor: crosshair;
+}
+.wg-ports button:last-child {
+  border-radius: 0 0 12px 12px;
+}
+.wg-ports button:hover,
+.wg-ports button[aria-pressed="true"] {
+  background: var(--fn-bg-secondary);
+}
+.wg-ports button:disabled {
+  cursor: default;
+  opacity: 1;
+}
+.wg-ports i {
+  position: absolute;
+  right: -6px;
+  top: 8px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--wg-node-color);
+  border-radius: 50%;
+  background: var(--fn-bg-elevated);
+}
+.wg-ports .wg-port-error i {
+  border-color: var(--fn-text-tertiary);
+}
+.wg-ports .wg-port-error:hover i {
+  border-color: var(--fn-color-error);
+}
+.wg-ports .wg-port-true i {
+  border-color: var(--fn-color-success);
+}
+.wg-ports .wg-port-false i {
+  border-color: var(--fn-color-warning);
+}
+.wg-ports button[aria-pressed="true"] i {
+  background: var(--wg-node-color);
+}
+.wg-input-port {
+  position: absolute;
+  left: -12px;
+  top: 42px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: crosshair;
+}
+.wg-input-port::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--wg-node-color);
+  border-radius: 50%;
+  background: var(--fn-bg-elevated);
+}
+.wg-edges {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  color: var(--fn-text-secondary);
+}
+.wg-edges g {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.wg-edge {
+  fill: none;
+  stroke: var(--fn-text-secondary);
+  stroke-width: 1.6;
+}
+.wg-edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 18;
+  pointer-events: stroke;
+}
+.wg-edges .selected .wg-edge {
+  stroke: var(--fn-color-brand);
+  stroke-width: 2.5;
+}
+.wg-edges text {
+  fill: var(--fn-text-secondary);
+  font-size: 10px;
+  paint-order: stroke;
+  stroke: var(--fn-bg-secondary);
+  stroke-width: 4;
+}
+.wg-canvas-controls {
+  position: absolute;
+  left: 20px;
+  bottom: 20px;
+}
+.wg-canvas-controls > div {
+  box-shadow: var(--fn-shadow-sm);
+}
+.wg-connect-hint {
+  position: absolute;
+  top: 22px;
+  left: 170px;
+  padding: 8px 12px;
+  border: 1px solid var(--fn-color-brand-border);
+  background: var(--fn-bg-container);
+  border-radius: 8px;
+  box-shadow: var(--fn-shadow-sm);
+  font-size: 12px;
+}
+.wg-node-panel {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 344px;
+  height: 100%;
+  min-height: 0;
+  border-left: 1px solid var(--fn-border-primary);
+  background: var(--fn-bg-container);
+}
+.wg-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  flex-shrink: 0;
+  padding: 0 12px 0 18px;
+  border-bottom: 1px solid var(--fn-border-primary);
+  font-size: 12px;
+}
+.wg-inspector {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow: auto;
+  padding: 18px;
+}
+.wg-inspector h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.wg-inspector > small {
+  display: block;
+  margin-bottom: 18px;
+  color: var(--fn-text-tertiary);
+  font-family: var(--fn-font-mono);
+  font-size: 10px;
+}
+.wg-inspector .ant-collapse,
+.wg-inspector .octop-collapse {
+  margin-bottom: 16px;
+}
+.wg-json,
+.wg-detail-json {
+  font-family: var(--fn-font-mono);
+  font-size: 12px;
+}
+.wg-detail-json {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--fn-bg-code);
+  padding: 12px;
+  max-height: 360px;
+  overflow: auto;
+  border-radius: 8px;
+}
+.wg-settings-drawer .wg-inspector {
+  padding: 20px 0;
+  overflow: visible;
+}
+.wg-settings-actions {
+  position: sticky;
+  top: -24px;
+  z-index: 2;
+  padding: 0 0 18px;
+  background: var(--fn-bg-container);
+  border-bottom: 1px solid var(--fn-border-primary);
+}
+.wg-settings-actions h3,
+.wg-settings-utilities h3 {
+  font-size: 12px;
+  margin: 0 0 12px;
+  color: var(--fn-text-secondary);
+}
+.wg-settings-actions .ant-space,
+.wg-settings-actions .octop-space {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+}
+.wg-settings-actions .ant-space-item > button,
+.wg-settings-actions .octop-space-item > button {
+  width: 100%;
+  justify-content: flex-start;
+}
+.wg-settings-utilities {
+  border-top: 1px solid var(--fn-border-primary);
+  padding-top: 18px;
+}
+.wg-statusbar {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--fn-text-secondary);
+}
+.wg-statusbar > div {
+  display: flex;
+  flex-wrap: wrap;
+}
+.wg-library {
+  width: 100%;
+  padding: 0;
+}
+.wg-library h2 {
+  display: none;
+}
+.wg-library > button {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  gap: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  width: 100%;
+  padding: 14px;
+  border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+}
+.wg-library > button:hover {
+  background: var(--fn-bg-secondary);
+}
+.wg-library > button.active {
+  background: var(--fn-bg-selected);
+  border-color: var(--fn-color-brand-border);
+}
+.wg-library small,
+.wg-library p {
+  color: var(--fn-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.wg-issues {
+  max-height: 90px;
+  overflow: auto;
+  background: var(--fn-bg-warning-light);
+  padding: 6px 16px;
+  flex-shrink: 0;
+}
+.wg-issues button {
+  display: block;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--fn-text-primary);
+  text-align: left;
+  font-size: 11px;
+  padding: 3px;
+}
+.wg-runs {
+  flex-shrink: 0;
+  height: 38px;
+  overflow: hidden;
+  border-top: 1px solid var(--fn-border-primary);
+  background: var(--fn-bg-container);
+}
+.wg-runs.expanded {
+  height: 260px;
+  max-height: 42%;
+  overflow: auto;
+}
+.wg-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 38px;
+  padding: 0 16px 0 10px;
+  gap: 12px;
+}
+.wg-footer > div {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--fn-text-secondary);
+}
+.wg-footer > button {
+  font-size: 12px;
+  gap: 6px;
+}
+.wg-run-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--fn-border-secondary);
+  font-size: 12px;
+}
+.wg-runs > p {
+  color: var(--fn-text-secondary);
+  padding: 0 16px;
+}
+.wg-timeline {
+  display: flex;
+  gap: 8px;
+  list-style: none;
+  padding: 10px 16px;
+  overflow-x: auto;
+  margin: 0;
+}
+.wg-timeline button {
+  min-width: 140px;
+  text-align: left;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--fn-border-primary);
+  border-left: 3px solid var(--fn-border-strong);
+  border-radius: 7px;
+  background: var(--fn-bg-primary);
+  color: inherit;
+  cursor: pointer;
+}
+.wg-timeline small {
+  grid-column: 2;
+  color: var(--fn-text-secondary);
+}
+.wg-timeline .state-running {
+  border-left-color: var(--fn-color-brand);
+}
+.wg-timeline .state-completed {
+  border-left-color: var(--fn-color-success);
+}
+.wg-timeline .state-failed,
+.wg-timeline .state-unknown {
+  border-left-color: var(--fn-color-error);
+}
+.wg-timeline [class*="state-waiting"] {
+  border-left-color: var(--fn-color-warning);
+}
+.wg-empty {
+  margin: auto;
+  padding: 36px 24px;
+  text-align: center;
+  max-width: 680px;
+}
+.wg-empty > svg {
+  color: var(--fn-color-brand);
+}
+.wg-empty h2 {
+  font-size: 24px;
+  margin: 20px 0 12px;
+}
+.wg-empty p {
+  color: var(--fn-text-secondary);
+  line-height: 1.8;
+}
+.wg-busy {
+  position: absolute;
+  right: 20px;
+  top: 16px;
+  padding: 5px;
+  background: var(--fn-bg-elevated);
+  border-radius: 8px;
+  z-index: 9;
+}
+.wg-shell button:focus-visible,
+.wg-node-option:focus-visible,
+.wg-edges g:focus-visible,
+.wg-canvas:focus-visible {
+  outline: 2px solid var(--fn-border-focus);
+  outline-offset: 3px;
+}
+.wg-shell .ant-btn,
+.wg-shell .octop-btn,
+.wg-settings-drawer .ant-btn,
+.wg-settings-drawer .octop-btn {
+  border-radius: 8px;
+}
+@media (max-width: 1100px) {
+  .wg-node-panel {
+    width: 310px;
+  }
+  .wg-published-state {
+    display: none;
+  }
+}
+@media (max-width: 720px) {
+  .wg-header {
+    height: 52px;
+    padding: 0 10px;
+    gap: 8px;
+  }
+  .wg-header-identity {
+    gap: 7px;
+  }
+  .wg-header h1 {
+    max-width: 40vw;
+    font-size: 14px;
+  }
+  .wg-header-divider {
+    display: none;
+  }
+  .wg-header .wg-dirty {
+    display: none;
+  }
+  .wg-node-panel {
+    position: absolute;
+    z-index: 8;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 55%;
+    width: 100%;
+    border-left: 0;
+    border-top: 1px solid var(--fn-border-primary);
+    box-shadow: var(--fn-shadow-lg);
+  }
+  .wg-add-tool {
+    top: 12px;
+    left: 12px;
+  }
+  .wg-canvas-controls {
+    left: 12px;
+    bottom: 12px;
+  }
+  .wg-connect-hint {
+    top: 62px;
+    left: 12px;
+    max-width: calc(100% - 24px);
+  }
+  .wg-footer {
+    padding-right: 10px;
+  }
+  .wg-footer .wg-dirty {
+    display: none;
+  }
+  .wg-node-menu {
+    width: 300px;
+  }
+  .wg-runs.expanded {
+    max-height: 48%;
+  }
+}

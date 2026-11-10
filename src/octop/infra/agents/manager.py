@@ -379,6 +379,7 @@ class AgentManager:
         self._expert_catalog = expert_catalog
         self._plugin_manager = plugin_manager
         self._task_board: Any | None = None
+        self._workflow_graphs: Any | None = None
         self._device_service: Any | None = None
         self._cron_manager: CronManager | None = None
         self._proactive_scheduler: ProactiveCareScheduler | None = None
@@ -468,6 +469,9 @@ class AgentManager:
 
     def set_task_board(self, service: Any) -> None:
         self._task_board = service
+
+    def set_workflow_graphs(self, service: Any) -> None:
+        self._workflow_graphs = service
 
     def set_native_management_context(self, **context: Any) -> None:
         """Wire shared product services before harnesses are built."""
@@ -1729,7 +1733,15 @@ class AgentManager:
             wrap_tools_for_shared_use,
         )
 
-        fp = fingerprint_mcp_spec(spec)
+        def parallel_limit() -> int:
+            service = getattr(self, "_connector_svc", None)
+            read = getattr(service, "custom_parallel_calls", None)
+            value = read(user_id, server_name) if callable(read) else 1
+            return value if type(value) is int and 1 <= value <= 8 else 1
+
+        limit = parallel_limit() if spec.get("transport") == "streamable_http" else 1
+        connection_fp = fingerprint_mcp_spec(spec)
+        fp = connection_fp if limit == 1 else f"{connection_fp}:parallel:{limit}"
         cache_key = (user_id, server_name, fp)
         cached = self._mcp_tool_cache.get(cache_key)
         if cached is not None:
@@ -1779,17 +1791,27 @@ class AgentManager:
                 authorize_stdio_mcp_spec(actor, spec, location="control_server")
                 if server_name.startswith("custom__"):
                     current = self._connector_svc.custom_harness_configs(user_id).get(server_name)
-                    if not isinstance(current, dict) or fingerprint_mcp_spec(current) != fp:
+                    if (
+                        not isinstance(current, dict)
+                        or fingerprint_mcp_spec(current) != connection_fp
+                    ):
                         raise OctopError(ErrorCode.FORBIDDEN, "shared MCP is no longer available")
+                if limit > 1 and parallel_limit() != limit:
+                    raise OctopError(
+                        ErrorCode.FORBIDDEN, "MCP concurrency policy changed; reload tools"
+                    )
 
             wrapped = wrap_tools_for_shared_use(
                 raw,
                 server_lock,
                 check_access=(
                     check_shared_access
-                    if server_name.startswith("custom__") or spec.get("transport") == "stdio"
+                    if server_name.startswith("custom__")
+                    or spec.get("transport") == "stdio"
+                    or limit > 1
                     else None
                 ),
+                max_concurrent_calls=limit,
             )
             self._mcp_tool_cache[cache_key] = wrapped
             stale = [
@@ -3814,12 +3836,20 @@ class AgentManager:
         from octop.infra.conversations.tools import build_conversation_tools
 
         agent_middleware.insert(4, ConversationBriefMiddleware(self, row.agent_id))
+        if self._workflow_graphs is not None:
+            from octop.infra.workflow_graphs.middleware import WorkflowContextMiddleware
+
+            agent_middleware.append(WorkflowContextMiddleware(self._workflow_graphs, row.agent_id))
 
         merged_tools: list[Any] = [
             *board_tools,
             *device_tools,
             *build_work_mode_tools(WorkModeService(self._repos), row.agent_id),
         ]
+        if self._workflow_graphs is not None:
+            from octop.infra.workflow_graphs.tools import build_workflow_tools
+
+            merged_tools.extend(build_workflow_tools(self._workflow_graphs, row.agent_id))
         from octop.infra.agents.native_management_tools import build_native_management_tools
 
         merged_tools.extend(

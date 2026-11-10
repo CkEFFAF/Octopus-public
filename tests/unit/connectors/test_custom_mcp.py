@@ -53,6 +53,26 @@ def _ensure_user(db: SqlitePool) -> int:
     return int(row["id"])
 
 
+def test_parallel_call_policy_is_explicit_http_only_and_not_forwarded_to_sdk():
+    spec = normalize_server_spec(
+        "parallel",
+        {
+            "transport": "streamable_http",
+            "url": "https://example.com/mcp",
+            "max_concurrent_calls": 4,
+        },
+    )
+    assert spec["max_concurrent_calls"] == 4
+    assert "max_concurrent_calls" not in harness_spec_for_server(spec)
+    for limit in (0, 9, True, "4"):
+        with pytest.raises(ValueError):
+            normalize_server_spec("bad", {**spec, "max_concurrent_calls": limit})
+    with pytest.raises(ValueError):
+        normalize_server_spec(
+            "stateful", {"transport": "stdio", "command": "test", "max_concurrent_calls": 2}
+        )
+
+
 def _ensure_second_user(db: SqlitePool) -> int:
     with db.transaction() as conn:
         conn.execute(

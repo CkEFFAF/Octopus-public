@@ -12,6 +12,7 @@ it("opens uppercase .markdown files as rendered documents instead of binaries", 
       onChange={() => {}}
     />,
   );
+  await vi.dynamicImportSettled();
   expect(
     await screen.findByRole("heading", { name: "工作记录" }),
   ).toBeInTheDocument();

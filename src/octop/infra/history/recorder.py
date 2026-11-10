@@ -478,4 +478,7 @@ class RecordingTracker(TurnHistoryTracker):
 
 async def flush_tracker(tracker: TurnHistoryTracker | None) -> None:
     if isinstance(tracker, RecordingTracker):
-        await tracker.flush()
+        from octop.infra.metrics import PERFORMANCE
+
+        with PERFORMANCE.measure("archive_flush"):
+            await tracker.flush()

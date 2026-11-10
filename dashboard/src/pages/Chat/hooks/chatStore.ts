@@ -44,6 +44,7 @@ import {
   sameStreamingSpeaker,
   speakerTurnWasInterrupted,
 } from "../utils/messageGrouping";
+import { recordMessageChange } from "../utils/messageChanges";
 import { turnStatusAction } from "./turnStatusGate";
 import { mergePatchedToolOutput } from "../../../plugins/toolRenderers/parseToolOutput";
 import {
@@ -499,9 +500,10 @@ function getOrCreate(sessionId: string): SessionStreamState {
   return state;
 }
 
-// Reduce every frame immediately, but publish stream bursts at most once per
-// window. A timer also runs in hidden tabs where animation frames may pause.
+// Reduce frames immediately. Materialize immutable snapshots only when read or
+// published, so one burst does not copy the history array for every token.
 const STREAM_NOTIFICATION_INTERVAL_MS = 32;
+const dirtySnapshots = new WeakSet<SessionStreamState>();
 const pendingStreamNotifications = new WeakMap<
   SessionStreamState,
   ReturnType<typeof setTimeout>
@@ -516,10 +518,7 @@ function clearPendingStreamNotification(state: SessionStreamState): void {
 }
 
 function notify(state: SessionStreamState, batchStreamFrame = false) {
-  // Rebuild the snapshot reference so useSyncExternalStore sees the change.
-  // Imperative readers always see the latest immutable reduction, even while
-  // subscriber callbacks are waiting for the next publication window.
-  state._snapshot = buildSnapshot(state);
+  dirtySnapshots.add(state);
   if (batchStreamFrame) {
     if (state.listeners.size > 0 && !pendingStreamNotifications.has(state)) {
       pendingStreamNotifications.set(
@@ -529,6 +528,7 @@ function notify(state: SessionStreamState, batchStreamFrame = false) {
     }
     return;
   }
+  refreshSnapshot(state);
   // Lifecycle/terminal updates supersede any queued stream publication.
   clearPendingStreamNotification(state);
   for (const fn of state.listeners) {
@@ -538,6 +538,24 @@ function notify(state: SessionStreamState, batchStreamFrame = false) {
       /* ignore */
     }
   }
+}
+
+function refreshSnapshot(state: SessionStreamState): void {
+  if (!dirtySnapshots.has(state)) return;
+  state._snapshot = buildSnapshot(state);
+  dirtySnapshots.delete(state);
+}
+
+/** Copy on write only when a reader holds the current array. */
+function replaceStreamingMessage(
+  state: SessionStreamState,
+  index: number,
+  message: ChatMessage,
+): void {
+  const previous = state.messages;
+  if (previous === state._snapshot.messages) state.messages = previous.slice();
+  recordMessageChange(state.messages, previous, index);
+  state.messages[index] = message;
 }
 
 function beginStream(state: SessionStreamState, sessionId: string): void {
@@ -698,6 +716,7 @@ export function subscribe(sessionId: string, listener: () => void): () => void {
 export function getSnapshot(sessionId: string): SessionSnapshot {
   const state = sessionStates.get(sessionId);
   if (!state) return EMPTY_SNAPSHOT;
+  refreshSnapshot(state);
   return state._snapshot;
 }
 
@@ -1724,15 +1743,11 @@ function appendToTextBubble(
   const prev = target.content || "";
   if (prev && (content === prev || content.startsWith(prev))) {
     if (content === prev && !forceStatus) return;
-    state.messages = [
-      ...state.messages.slice(0, idx),
-      {
-        ...target,
-        content,
-        status: forceStatus ?? target.status,
-      },
-      ...state.messages.slice(idx + 1),
-    ];
+    replaceStreamingMessage(state, idx, {
+      ...target,
+      content,
+      status: forceStatus ?? target.status,
+    });
     return;
   }
   const nextContent = prev + content;
@@ -1749,23 +1764,19 @@ function appendToTextBubble(
     } else {
       blocks.push({ type: "text", content });
     }
-    state.messages = [
-      ...state.messages.slice(0, idx),
-      {
-        ...target,
-        content: nextContent,
-        contentBlocks: blocks,
-        status: nextStatus,
-      },
-      ...state.messages.slice(idx + 1),
-    ];
+    replaceStreamingMessage(state, idx, {
+      ...target,
+      content: nextContent,
+      contentBlocks: blocks,
+      status: nextStatus,
+    });
     return;
   }
-  state.messages = [
-    ...state.messages.slice(0, idx),
-    { ...target, content: nextContent, status: nextStatus },
-    ...state.messages.slice(idx + 1),
-  ];
+  replaceStreamingMessage(state, idx, {
+    ...target,
+    content: nextContent,
+    status: nextStatus,
+  });
 }
 
 /** Append a token fragment to the last streaming assistant text bubble,
@@ -1841,11 +1852,11 @@ function appendStreamingToken(
         : prev
       : content;
     if (next !== prev || target.status !== "done") {
-      state.messages = [
-        ...state.messages.slice(0, idx),
-        { ...target, content: next, status: "done" },
-        ...state.messages.slice(idx + 1),
-      ];
+      replaceStreamingMessage(state, idx, {
+        ...target,
+        content: next,
+        status: "done",
+      });
     }
     return;
   }
@@ -1898,15 +1909,11 @@ function appendStreamingToken(
     // LangGraph may re-emit the completed AIMessage after incremental tokens.
     if (prev && (content === prev || content.startsWith(prev))) {
       if (content === prev && target.status === "streaming") return;
-      state.messages = [
-        ...state.messages.slice(0, idx),
-        {
-          ...target,
-          content,
-          status: target.status === "done" ? "streaming" : target.status,
-        },
-        ...state.messages.slice(idx + 1),
-      ];
+      replaceStreamingMessage(state, idx, {
+        ...target,
+        content,
+        status: target.status === "done" ? "streaming" : target.status,
+      });
       return;
     }
     const nextContent = prev + content;
@@ -1922,23 +1929,19 @@ function appendStreamingToken(
       } else {
         blocks.push({ type: "text", content });
       }
-      state.messages = [
-        ...state.messages.slice(0, idx),
-        {
-          ...target,
-          content: nextContent,
-          contentBlocks: blocks,
-          status: nextStatus,
-        },
-        ...state.messages.slice(idx + 1),
-      ];
+      replaceStreamingMessage(state, idx, {
+        ...target,
+        content: nextContent,
+        contentBlocks: blocks,
+        status: nextStatus,
+      });
       return;
     }
-    state.messages = [
-      ...state.messages.slice(0, idx),
-      { ...target, content: nextContent, status: nextStatus },
-      ...state.messages.slice(idx + 1),
-    ];
+    replaceStreamingMessage(state, idx, {
+      ...target,
+      content: nextContent,
+      status: nextStatus,
+    });
     return;
   }
   sealPriorStreamingAssistants(state, speaker);
@@ -1981,16 +1984,12 @@ function appendStreamingReasoning(
       blocks.push({ type: "thinking", content });
     }
     const nextStatus = last.status === "done" ? "streaming" : last.status;
-    state.messages = [
-      ...state.messages.slice(0, lastIdx),
-      {
-        ...last,
-        contentBlocks: blocks,
-        status: nextStatus,
-        speakerAgentId: speaker ?? last.speakerAgentId,
-      },
-      ...state.messages.slice(lastIdx + 1),
-    ];
+    replaceStreamingMessage(state, lastIdx, {
+      ...last,
+      contentBlocks: blocks,
+      status: nextStatus,
+      speakerAgentId: speaker ?? last.speakerAgentId,
+    });
     return;
   }
   sealPriorStreamingAssistants(state, speaker);

@@ -70,6 +70,8 @@ def is_jwt_exempt_request(request: Request) -> bool:
 
         if re.fullmatch(r"/api/wakeup-hooks/wh_[0-9a-f]{32}/fire", request.url.path):
             return True
+        if re.fullmatch(r"/api/workflow-graphs/[A-Za-z0-9_-]{1,80}/events", request.url.path):
+            return True
     if request.method == "GET":
         import re
 

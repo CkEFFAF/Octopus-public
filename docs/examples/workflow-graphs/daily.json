@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "name": "每日研究复盘",
+  "agent_id": "your_expert",
+  "nodes": [
+    {
+      "id": "start",
+      "kind": "entry",
+      "label": "开始",
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "review",
+      "kind": "agent",
+      "label": "复盘与计划",
+      "position": {
+        "x": 340,
+        "y": 100
+      },
+      "context": {
+        "before": {
+          "session": "new",
+          "history": "empty"
+        },
+        "after": {
+          "session": "restore",
+          "context": "restore"
+        }
+      },
+      "prompt": "根据可用证据复盘当前研究方向、实验进度和待验证假设。遵守专家先验与服务器规矩，提出下一步可执行计划。"
+    },
+    {
+      "id": "finish",
+      "kind": "end",
+      "label": "结束",
+      "position": {
+        "x": 680,
+        "y": 100
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "start_next_review",
+      "source": "start",
+      "target": "review",
+      "port": "next"
+    },
+    {
+      "id": "review_next_finish",
+      "source": "review",
+      "target": "finish",
+      "port": "next"
+    }
+  ],
+  "limits": {
+    "max_steps": 100,
+    "max_seconds": 86400,
+    "max_parallel": 4
+  },
+  "schedule": {
+    "cron": "0 9 * * *",
+    "timezone": "",
+    "overlap": "skip",
+    "enabled": true
+  }
+}

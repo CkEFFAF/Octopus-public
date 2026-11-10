@@ -249,12 +249,25 @@ class RunEventRepo:
         """Recover pending observations after restart; oldest checks run first."""
         with self.db.connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM run_events WHERE kind = 'job' "
-                "AND status NOT IN ('completed', 'failed', 'cancelled') AND updated_at < ? "
-                "ORDER BY updated_at, id LIMIT ?",
+                "WITH candidates AS (SELECT e.*,COALESCE(c.target_kind,'missing') AS poll_kind, "
+                "CASE WHEN c.context_id IS NULL THEN e.context_id "
+                "ELSE COALESCE(c.device_id,'local') END AS poll_target "
+                "FROM run_events e LEFT JOIN execution_contexts c ON c.context_id=e.context_id "
+                "AND c.owner_user_id=e.owner_user_id WHERE e.kind='job' "
+                "AND e.status NOT IN ('completed','failed','cancelled') AND e.updated_at<?), "
+                "due AS (SELECT *,ROW_NUMBER() OVER (PARTITION BY owner_user_id,poll_kind,poll_target "
+                "ORDER BY updated_at,id) AS poll_rank FROM candidates) "
+                "SELECT * FROM due ORDER BY poll_rank,updated_at,id LIMIT ?",
                 (before, limit),
             ).fetchall()
-        return [{**self._public(row), "owner_user_id": row["owner_user_id"]} for row in rows]
+        return [
+            {
+                **self._public(row),
+                "owner_user_id": row["owner_user_id"],
+                "_poll_target": (int(row["owner_user_id"]), row["poll_kind"], row["poll_target"]),
+            }
+            for row in rows
+        ]
 
     def wakeup_hook(self, event_id: str) -> dict[str, Any] | None:
         with self.db.connect() as conn:
@@ -275,12 +288,14 @@ class RunEventRepo:
         if self.db.dialect == "postgresql":
             job = "h.payload_json::jsonb->>'job_event_id'"
             expiry = "(h.payload_json::jsonb->>'expires_at')::double precision"
+            mode = "h.payload_json::jsonb->>'delivery_mode'"
         else:
             job = "json_extract(h.payload_json,'$.job_event_id')"
             expiry = "json_extract(h.payload_json,'$.expires_at')"
+            mode = "json_extract(h.payload_json,'$.delivery_mode')"
         with self.db.connect() as conn:
             rows = conn.execute(
-                f"SELECT h.* FROM run_events h WHERE h.kind='hook' AND (h.status='queued' OR (h.status='waiting' AND ({expiry}<=? OR EXISTS(SELECT 1 FROM run_events j WHERE j.owner_user_id=h.owner_user_id AND j.event_id=({job}) AND j.kind='job' AND j.status IN ('completed','failed','cancelled'))))) ORDER BY CASE WHEN h.status='queued' THEN 0 ELSE 1 END,h.updated_at,h.id LIMIT ?",
+                f"SELECT h.* FROM run_events h WHERE h.kind='hook' AND COALESCE(({mode}),'wake') <> 'signal' AND (h.status='queued' OR (h.status='waiting' AND ({expiry}<=? OR EXISTS(SELECT 1 FROM run_events j WHERE j.owner_user_id=h.owner_user_id AND j.event_id=({job}) AND j.kind='job' AND j.status IN ('completed','failed','cancelled'))))) ORDER BY CASE WHEN h.status='queued' THEN 0 ELSE 1 END,h.updated_at,h.id LIMIT ?",
                 (time.time(), limit),
             ).fetchall()
         return [{**self._public(row), "owner_user_id": row["owner_user_id"]} for row in rows]

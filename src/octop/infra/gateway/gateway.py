@@ -672,6 +672,28 @@ class Gateway:
             lock_key = session_key or thread_id
         await manager.run_in_session(channel_id, lock_key, operation)
 
+    async def try_run_locked_on_session(
+        self, session: SessionRow, operation: Callable[[], Awaitable[None]]
+    ) -> bool:
+        """Admit background work only when the canonical conversation is free.
+
+        The gateway dependency exposes this shared lock to its host adapter.
+        Do not add a second lock that normal inbound turns would bypass.
+        """
+        manager = self._require_channel_manager()
+        channel_id = self._channel_id_for_session(session)
+        key = (
+            f"thread:{session.thread_id}"
+            if session.channel_type == ThreadRegistry.CHANNEL_DASHBOARD
+            else session.session_key
+        )
+        lock = manager._session_lock(channel_id, key)
+        if lock.locked() or getattr(lock, "_waiters", None):
+            return False
+        async with lock:
+            await operation()
+        return True
+
     async def push_text_from_session(
         self,
         agent_id: str,

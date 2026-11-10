@@ -52,6 +52,67 @@ async def no_anchor(_anchor):
     raise AssertionError("Unexpected legacy checkpoint read")
 
 
+def test_appending_long_text_reuses_block_hashes_without_assuming_rows_exist(archive, monkeypatch):
+    import hashlib
+    from unittest.mock import Mock
+
+    turn = archive.begin("a", "t")
+    text = "".join(f"{i:04d}" + "x" * 1020 for i in range(40))
+    digest = Mock(wraps=hashlib.sha256)
+    monkeypatch.setattr("octop.infra.history.store.hashlib.sha256", digest)
+    archive.save_messages(turn, [message_to_dict(AIMessage(content=text, id="long"))])
+    first_count = digest.call_count
+    digest.reset_mock()
+    archive.save_messages(turn, [message_to_dict(AIMessage(content=text + "tail", id="long"))])
+    assert digest.call_count < first_count / 4
+    # A different document still needs its own references even when hashes are cached.
+    archive.save_message_updates(turn, [(1, message_to_dict(AIMessage(content=text, id="copy")))])
+    rows = archive.store.message_page("t", turn["segment_id"], None, 20)
+    assert {row["value"]["data"]["id"]: row["value"]["data"]["content"] for row in rows} == {
+        "long": text + "tail",
+        "copy": text,
+    }
+    archive.save_messages(turn, [message_to_dict(AIMessage(content="replacement", id="long"))])
+    rows = archive.store.message_page("t", turn["segment_id"], None, 20)
+    assert {row["value"]["data"]["id"]: row["value"]["data"]["content"] for row in rows} == {
+        "long": "replacement",
+        "copy": text,
+    }
+
+
+def test_history_page_fetches_shared_bodies_in_one_query(archive):
+    turn = archive.begin("a", "t")
+    text = "shared prefix " * 400
+    archive.save_messages(
+        turn, [message_to_dict(AIMessage(content=text, id=f"m{i}")) for i in range(20)]
+    )
+    queries = []
+    with archive.store.db.connect() as conn:
+        conn.set_trace_callback(queries.append)
+    try:
+        rows = archive.store.message_page("t", turn["segment_id"], None, 20)
+    finally:
+        with archive.store.db.connect() as conn:
+            conn.set_trace_callback(None)
+    assert len(rows) == 20
+    assert all(row["value"]["data"]["content"] == text for row in rows)
+    assert len([q for q in queries if "FROM bodies" in q]) == 1
+
+
+def test_bulk_body_decode_preserves_independent_objects_and_missing_body_errors(archive):
+    value = {"shared": [1, 2]}
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    with archive.store.transaction() as conn:
+        conn.execute("INSERT INTO bodies(digest,value) VALUES (?,?)", ("test-body", encoded))
+        first, second = archive.store._decode_many(
+            conn, [["body", "test-body"], ["body", "test-body"]]
+        )
+        first["shared"].append(3)
+        assert second == value
+        with pytest.raises(ValueError, match="reference is missing"):
+            archive.store._decode_many(conn, [["text", ["test-body", "missing"]]])
+
+
 @pytest.mark.asyncio
 async def test_no_migration_single_write_and_cross_boundary_cursor(archive):
     old = [HumanMessage(content="old question", id="u0"), AIMessage(content="old answer", id="a0")]

@@ -73,12 +73,22 @@ class ConversationBriefMiddleware(AgentMiddleware[Any, Any]):
         )
 
     def before_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
+        from octop.infra.workflow_graphs.middleware import graph_config
+
+        cfg = graph_config()
+        if cfg and cfg.get("recipe", {}).get("history") != "full":
+            return None
         return capture_context(state, self._SNAPSHOT_KEY, self._context)
 
     async def abefore_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
         return await asyncio.to_thread(self.before_model, state, runtime)
 
     def _prepare(self, request: ModelRequest[Any]) -> ModelRequest[Any]:
+        from octop.infra.workflow_graphs.middleware import graph_config
+
+        cfg = graph_config()
+        if cfg and cfg.get("recipe", {}).get("history") != "full":
+            return request
         return request.override(
             system_message=append_system_hint(request, self._POLICY),
             messages=replay_context(request, self._SNAPSHOT_KEY),

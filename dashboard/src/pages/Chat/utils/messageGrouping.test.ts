@@ -8,6 +8,7 @@ import {
   speakerTurnWasInterrupted,
 } from "./messageGrouping";
 import { splitAssistantTurn } from "./messageContent";
+import { recordMessageChange } from "./messageChanges";
 
 function msg(
   role: ChatMessage["role"],
@@ -23,6 +24,57 @@ function msg(
     ...extra,
   };
 }
+
+it("groups only the affected suffix of an immutable streaming update", () => {
+  let reads = 0;
+  const messages = Array.from({ length: 1000 }, (_, index) => {
+    const message = msg(index % 2 ? "assistant" : "user", String(index));
+    const role = message.role;
+    Object.defineProperty(message, "role", {
+      get: () => {
+        reads++;
+        return role;
+      },
+    });
+    return message;
+  });
+  const previous = groupConsecutiveAssistantMessages(messages);
+  const updated = messages.slice();
+  updated[999] = msg("assistant", "999", { content: "new token" });
+  recordMessageChange(updated, messages, 999);
+  reads = 0;
+  const grouped = groupConsecutiveAssistantMessages(
+    updated,
+    undefined,
+    previous,
+  );
+  expect(reads).toBeLessThan(10);
+  expect(grouped[0]).toBe(previous[0]);
+  expect(grouped.at(-1)?.messages[0].content).toBe("new token");
+  expect(previous.at(-1)?.messages[0].content).toBe("");
+});
+
+it("regroups the preceding boundary and falls back for prepended history", () => {
+  const messages = [
+    msg("assistant", "a"),
+    msg("user", "u"),
+    msg("assistant", "b"),
+  ];
+  const previous = groupConsecutiveAssistantMessages(messages);
+  const updated = [messages[0], msg("assistant", "u"), messages[2]];
+  recordMessageChange(updated, messages, 1);
+  const grouped = groupConsecutiveAssistantMessages(
+    updated,
+    undefined,
+    previous,
+  );
+  expect(grouped).toEqual(groupConsecutiveAssistantMessages(updated));
+  expect(grouped).toHaveLength(1);
+  const prepended = [msg("user", "older"), ...updated];
+  expect(
+    groupConsecutiveAssistantMessages(prepended, undefined, grouped),
+  ).toEqual(groupConsecutiveAssistantMessages(prepended));
+});
 
 describe("sameStreamingSpeaker", () => {
   it("keeps unlabeled host tokens together and splits a member", () => {

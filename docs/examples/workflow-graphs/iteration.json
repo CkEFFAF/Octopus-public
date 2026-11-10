@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "name": "评估与改进迭代",
+  "agent_id": "your_expert",
+  "nodes": [
+    {
+      "id": "start",
+      "kind": "entry",
+      "label": "开始",
+      "position": {
+        "x": 0,
+        "y": 100
+      }
+    },
+    {
+      "id": "evaluate",
+      "kind": "script",
+      "label": "运行评估",
+      "position": {
+        "x": 340,
+        "y": 100
+      },
+      "argv": [
+        "python",
+        "evaluate.py"
+      ],
+      "output_mode": "json"
+    },
+    {
+      "id": "analyze",
+      "kind": "agent",
+      "label": "分析并改进",
+      "position": {
+        "x": 680,
+        "y": 100
+      },
+      "prompt": "根据评估证据分析并实施有依据的改进。遵守研究先验及服务器规则。返回 JSON 对象，包含 continue 布尔值与 explanation 字段。",
+      "inputs": {
+        "evaluation": {
+          "path": "$.outputs.evaluate.result"
+        }
+      },
+      "output_mode": "json"
+    },
+    {
+      "id": "again",
+      "kind": "condition",
+      "label": "继续迭代？",
+      "position": {
+        "x": 1020,
+        "y": 100
+      },
+      "left": {
+        "path": "$.outputs.analyze.result.continue"
+      },
+      "operator": "truthy"
+    },
+    {
+      "id": "finish",
+      "kind": "end",
+      "label": "结束",
+      "position": {
+        "x": 1360,
+        "y": 100
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "start_next_evaluate",
+      "source": "start",
+      "target": "evaluate",
+      "port": "next"
+    },
+    {
+      "id": "evaluate_next_analyze",
+      "source": "evaluate",
+      "target": "analyze",
+      "port": "next"
+    },
+    {
+      "id": "analyze_next_again",
+      "source": "analyze",
+      "target": "again",
+      "port": "next"
+    },
+    {
+      "id": "again_true_evaluate",
+      "source": "again",
+      "target": "evaluate",
+      "port": "true"
+    },
+    {
+      "id": "again_false_finish",
+      "source": "again",
+      "target": "finish",
+      "port": "false"
+    }
+  ],
+  "limits": {
+    "max_steps": 100,
+    "max_seconds": 86400,
+    "max_parallel": 4
+  },
+  "execution_context_id": "your_execution_context"
+}

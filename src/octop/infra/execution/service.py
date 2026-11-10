@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from octop.i18n import tr
@@ -497,6 +498,8 @@ class ExecutionService:
             raise OctopError(
                 ErrorCode.FORBIDDEN, "local execution policy changed; start a new context"
             )
+        if row is not None:
+            self.devices.check_job_environment(row.device_id, action, params)
         prepared = dict(params)
         prepared["execution_context_id"] = context.context_id
         prepared["policy_revision"] = context.policy_revision
@@ -571,6 +574,7 @@ class ExecutionService:
         params: dict[str, Any],
         *,
         actor_agent_id: str | None = None,
+        on_dispatch: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
         context, prepared = self._prepare(
             owner, context_id, action, params, actor_agent_id=actor_agent_id
@@ -588,6 +592,8 @@ class ExecutionService:
                 if context.target_kind == "local"
                 else DeviceExecutionBackend(self.devices)
             )
+            if on_dispatch is not None:
+                on_dispatch()
             result = await backend.call(context, operation_id, action, prepared)
         except asyncio.CancelledError:
             if trace:

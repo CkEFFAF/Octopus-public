@@ -222,6 +222,7 @@ class AppRuntime:
     history_archive: Any | None = None
     bridge_manager: Any | None = None
     task_board: Any | None = None
+    workflow_graphs: Any | None = None
     work_items: Any | None = None
     devices: Any | None = None
     execution: Any | None = None
@@ -239,6 +240,8 @@ class AppRuntime:
         self.cron_manager.replace_repos(services.repos)
         if self.task_board is not None:
             self.task_board.replace_repos(services.repos)
+        if self.workflow_graphs is not None:
+            self.workflow_graphs.replace_repos(services.repos)
         if self.work_items is not None:
             self.work_items.replace_repos(services.repos)
         if self.devices is not None:
@@ -531,6 +534,18 @@ class OctopServer:
         task_board.set_device_service(devices)
         task_board.set_peer_service(gateway.processor.teams)
         registry.set_task_board(task_board)
+        from octop.infra.workflow_graphs.service import WorkflowGraphService
+
+        workflow_graphs = WorkflowGraphService(
+            repos=self.services.repos,
+            registry=registry,
+            gateway=gateway,
+            delivery=cron_delivery,
+            execution=execution,
+            timezone=config.default_timezone,
+        )
+        registry.set_workflow_graphs(workflow_graphs)
+        workflow_graphs.recover()
         from octop.infra.work_items.service import WorkItemsService
 
         work_items = WorkItemsService(
@@ -593,7 +608,18 @@ class OctopServer:
         )
         cron_mgr.schedule_system_job("task-board-tick", trigger="interval:15", func=task_board.tick)
         cron_mgr.schedule_system_job(
+            "workflow-graphs", trigger="interval:2", func=workflow_graphs.tick
+        )
+        cron_mgr.schedule_system_job(
             "execution-reconcile", trigger="interval:15", func=execution_reconciler.tick
+        )
+        cron_mgr.schedule_system_job(
+            "execution-wakeups", trigger="interval:15", func=execution_reconciler.tick_wakeups
+        )
+        from octop.infra.metrics import sample_event_loop_lag
+
+        cron_mgr.schedule_system_job(
+            "performance-probe", trigger="interval:5", func=sample_event_loop_lag
         )
         await gateway.refresh_media_backends()
 
@@ -631,6 +657,7 @@ class OctopServer:
             history_archive=history_archive,
             bridge_manager=bridge_mgr,
             task_board=task_board,
+            workflow_graphs=workflow_graphs,
             work_items=work_items,
             devices=devices,
             execution=execution,
@@ -685,6 +712,8 @@ class OctopServer:
             await agently_auth.close()
             if self.app_runtime is not None:
                 rt = self.app_runtime
+                if rt.workflow_graphs is not None:
+                    await rt.workflow_graphs.shutdown()
                 if rt.devices is not None:
                     await rt.devices.shutdown()
                 if rt.task_board is not None:

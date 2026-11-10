@@ -134,6 +134,10 @@ ACTION_PERMISSION = {
 CHUNK_SIZE = 1024 * 1024
 JOB_READ_ACTIONS = frozenset({"jobs.status", "jobs.list", "jobs.logs"})
 MAX_FRAME = 4 * 1024 * 1024
+JOB_ENVIRONMENT_UNSUPPORTED = (
+    "CLIENT_OUTDATED: execution client does not support Job environment variables; "
+    "upgrade the execution client to 1.0.2b27 or newer"
+)
 
 
 def device_error(key: str, *, status: int = 400) -> OctopError:
@@ -141,6 +145,17 @@ def device_error(key: str, *, status: int = 400) -> OctopError:
     from octop.infra.errors import ErrorCode, OctopError
 
     return OctopError(ErrorCode.DEVICE_INVALID, key, status=status)
+
+
+def validate_job_environment(
+    action: str, params: dict[str, Any], runtime_metadata: dict[str, Any] | None
+) -> None:
+    if (
+        action == "jobs.start"
+        and params.get("env")
+        and (runtime_metadata or {}).get("job_environment_protocol_version") != 1
+    ):
+        raise device_error(JOB_ENVIRONMENT_UNSUPPORTED, status=409)
 
 
 def validate_action(action: str, params: dict[str, Any]) -> str:

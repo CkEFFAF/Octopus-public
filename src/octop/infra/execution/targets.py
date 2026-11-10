@@ -92,6 +92,7 @@ class LocalExecutionBackend:
                 "os_user": getpass.getuser(),
                 "working_dir": str(runtime.working_dir),
                 "job_protocol_version": 1,
+                "job_environment_protocol_version": 1,
                 "transfer_protocol_version": 1,
                 "desktop_protocol_version": 1,
             },

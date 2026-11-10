@@ -20,6 +20,7 @@ from octop.infra.db.services import RepoBundle
 from octop.infra.devices.client import DeviceClient
 from octop.infra.devices.executor import DeviceExecutionError, DeviceExecutor, save_private_json
 from octop.infra.devices.filesystem import NativeFileSystem
+from octop.infra.devices.protocol import JOB_ENVIRONMENT_UNSUPPORTED
 from octop.infra.devices.service import DeviceService
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.execution.backend import RequestExecutionBackend
@@ -1136,6 +1137,188 @@ async def test_existing_job_observation_reauthorizes_current_grants_after_direct
         await executor.close()
 
 
+@pytest.mark.parametrize("support", [None, 0, "1"])
+async def test_job_environment_rejects_old_clients_before_dispatch(
+    fleet: Any, support: Any
+) -> None:
+    from unittest.mock import Mock
+
+    service, owner, _, tmp = fleet
+    enrolled, executor, connection, frames = await attach(service, owner, tmp / "old-client")
+    device_id = enrolled["device"]["device_id"]
+    metadata = {"job_protocol_version": 1}
+    if support is not None:
+        metadata["job_environment_protocol_version"] = support
+    await service.receive(
+        connection,
+        {
+            "type": "policy_applied",
+            "policy_revision": service.owned(owner, device_id).policy_revision,
+            "trust_mode": "owner",
+            "runtime": metadata,
+        },
+    )
+    executions = ExecutionService(service)
+    context = executions.resolve(owner, device_id=device_id)
+    sent = Mock()
+    params = {
+        "argv": [sys.executable, "-c", "pass"],
+        "env": {"OCTOPUS_WAKEUP_TOKEN": "private-test-token"},
+        "idempotency_key": "must-not-dispatch",
+    }
+    try:
+        with pytest.raises(OctopError, match="CLIENT_OUTDATED") as rejected:
+            await executions.call(owner, context.context_id, "jobs.start", params, on_dispatch=sent)
+        assert rejected.value.message == JOB_ENVIRONMENT_UNSUPPORTED
+        assert "private-test-token" not in rejected.value.message
+        sent.assert_not_called()
+        assert not any(frame.get("type") == "request" for frame in frames)
+        with pytest.raises(OctopError, match="CLIENT_OUTDATED"):
+            service.authorize(owner, device_id, "jobs.start", params)
+        # Unchanged Jobs without environment remain supported on old clients.
+        assert (
+            service.authorize(
+                owner, device_id, "jobs.start", {"argv": [sys.executable, "-c", "pass"]}
+            ).device_id
+            == device_id
+        )
+    finally:
+        service.disconnect(connection)
+        await executor.close()
+
+
+async def test_supported_device_receives_the_complete_job_environment(fleet: Any) -> None:
+    import time
+
+    service, owner, _, tmp = fleet
+    directory = tmp / "new-client"
+    enrolled, executor, connection, frames = await attach(service, owner, directory)
+    device_id = enrolled["device"]["device_id"]
+    await service.receive(
+        connection,
+        {
+            "type": "policy_applied",
+            "policy_revision": service.owned(owner, device_id).policy_revision,
+            "trust_mode": "owner",
+            "runtime": {"job_protocol_version": 1, "job_environment_protocol_version": 1},
+        },
+    )
+    executions = ExecutionService(service)
+    context = executions.resolve(owner, device_id=device_id)
+    environment = {
+        "OCTOPUS_WORKFLOW_INPUT": '{"score":9}',
+        "CUSTOM": "configured",
+        "OCTOPUS_WAKEUP_URL": "https://controller.test/callback",
+        "OCTOPUS_WAKEUP_TOKEN": "private-test-token",
+    }
+    proof = directory / "environment.json"
+    code = "import json,os,pathlib; pathlib.Path('environment.json').write_text(json.dumps({k:os.environ.get(k) for k in ['OCTOPUS_WORKFLOW_INPUT','CUSTOM','OCTOPUS_WAKEUP_URL','OCTOPUS_WAKEUP_TOKEN']}))"
+    try:
+        result = (
+            await executions.call(
+                owner,
+                context.context_id,
+                "jobs.start",
+                {
+                    "argv": [sys.executable, "-c", code],
+                    "env": environment,
+                    "idempotency_key": "supported-env",
+                },
+            )
+        )["result"]
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            status = (
+                await executions.call(
+                    owner, context.context_id, "jobs.status", {"job_id": result["job_id"]}
+                )
+            )["result"]
+            if status["status"] in {"completed", "failed", "cancelled"}:
+                break
+            await asyncio.sleep(0.03)
+        assert status["status"] == "completed"
+        assert proof.is_file()
+        assert json.loads(proof.read_text()) == environment
+        assert (
+            next(frame for frame in frames if frame.get("action") == "jobs.start")["params"]["env"]
+            == environment
+        )
+        assert (
+            service.owned(owner, device_id).runtime_metadata["job_environment_protocol_version"]
+            == 1
+        )
+    finally:
+        executor.stop_jobs()
+        service.disconnect(connection)
+        await executor.close()
+
+
+async def test_job_environment_requires_the_current_connection_ack(fleet: Any) -> None:
+    from unittest.mock import Mock
+
+    service, owner, _, tmp = fleet
+    enrolled, executor, connection, _ = await attach(service, owner, tmp / "reconnect")
+    device_id = enrolled["device"]["device_id"]
+    revision = service.owned(owner, device_id).policy_revision
+    await service.receive(
+        connection,
+        {
+            "type": "policy_applied",
+            "policy_revision": revision,
+            "trust_mode": "owner",
+            "runtime": {"job_protocol_version": 1, "job_environment_protocol_version": 1},
+        },
+    )
+    executions = ExecutionService(service)
+    context = executions.resolve(owner, device_id=device_id)
+    service.disconnect(connection)
+    frames = []
+
+    async def send(frame):
+        frames.append(frame)
+
+    async def close():
+        pass
+
+    replacement = await service.connect(
+        device_id,
+        enrolled["device_token"],
+        send,
+        close,
+        client_protocol_version=3,
+        software_version="1.0.2b16",
+    )
+    params = {"argv": [sys.executable, "-c", "pass"], "env": {"INPUT": "must-not-be-ignored"}}
+    submitted = Mock()
+    try:
+        assert (
+            service.owned(owner, device_id).runtime_metadata["job_environment_protocol_version"]
+            == 1
+        )
+        with pytest.raises(OctopError, match="CLIENT_OUTDATED"):
+            await executions.call(
+                owner, context.context_id, "jobs.start", params, on_dispatch=submitted
+            )
+        with pytest.raises(OctopError, match="CLIENT_OUTDATED"):
+            service.authorize(owner, device_id, "jobs.start", params)
+        submitted.assert_not_called()
+        assert not any(frame.get("type") == "request" for frame in frames)
+        await service.receive(
+            replacement,
+            {
+                "type": "policy_applied",
+                "policy_revision": revision,
+                "trust_mode": "owner",
+                "runtime": {"job_protocol_version": 1},
+            },
+        )
+        with pytest.raises(OctopError, match="CLIENT_OUTDATED"):
+            service.authorize(owner, device_id, "jobs.start", params)
+    finally:
+        service.disconnect(replacement)
+        await executor.close()
+
+
 async def test_invalid_working_directory_reports_error_without_stopping_client(
     tmp_path: Path,
 ) -> None:
@@ -1191,6 +1374,30 @@ async def test_invalid_working_directory_reports_error_without_stopping_client(
     )
     assert frames[-1]["type"] == "policy_applied"
     assert client.load_state()["policy"]["policy_revision"] == 2
+    # Unchanged heartbeats do not reapply policy or rewrite private state.
+    import json
+
+    heartbeat = {
+        "type": "heartbeat_ack",
+        "policy_revision": 2,
+        "controller_id": "controller-one",
+        "trust_mode": "owner",
+        "permissions": ["files_read"],
+        "working_dir": str(tmp_path),
+    }
+    saved = client.state_path.read_bytes()
+    modified = client.state_path.stat().st_mtime_ns
+    count = len(frames)
+    for _ in range(10):
+        await client.apply_policy_frame(Socket(), executor, heartbeat)
+    assert len(frames) == count
+    assert client.state_path.read_bytes() == saved
+    assert client.state_path.stat().st_mtime_ns == modified
+    # A new connection still confirms its complete grants, even at the same revision.
+    await client.apply_policy_frame(Socket(), executor, {**heartbeat, "type": "grants"})
+    assert frames[-1]["type"] == "policy_applied"
+    assert len(frames) == count + 1
+    assert json.loads(client.state_path.read_bytes())["policy"]["policy_revision"] == 2
     await executor.close()
 
 
