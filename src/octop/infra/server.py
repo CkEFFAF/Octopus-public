@@ -595,6 +595,14 @@ class OctopServer:
         cron_mgr.schedule_system_job(
             "execution-reconcile", trigger="interval:15", func=execution_reconciler.tick
         )
+        cron_mgr.schedule_system_job(
+            "execution-wakeups", trigger="interval:15", func=execution_reconciler.tick_wakeups
+        )
+        from octop.infra.metrics import sample_event_loop_lag
+
+        cron_mgr.schedule_system_job(
+            "performance-probe", trigger="interval:5", func=sample_event_loop_lag
+        )
         await gateway.refresh_media_backends()
 
         user_mgr = UserManager(self.services)

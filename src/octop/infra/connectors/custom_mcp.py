@@ -17,7 +17,9 @@ CUSTOM_MCP_KIND = "custom-mcp"
 CUSTOM_MCP_DISPLAY_NAME = "自定义 MCP"
 
 _SERVER_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-_META_KEYS = frozenset({"enabled", "display_name", "description", "default_open", "shared"})
+_META_KEYS = frozenset(
+    {"enabled", "display_name", "description", "default_open", "shared", "max_concurrent_calls"}
+)
 _OAUTH_KEY = "oauth"
 _SECRET_KEYS = frozenset({_OAUTH_KEY})
 _HARNESS_STRIP_KEYS = _META_KEYS | _SECRET_KEYS
@@ -177,6 +179,13 @@ def normalize_server_spec(name: str, raw: Any) -> dict[str, Any]:
 
     enabled = raw.get("enabled", True) is not False
     spec: dict[str, Any] = {"transport": transport, "enabled": enabled}
+    if "max_concurrent_calls" in raw:
+        limit = raw["max_concurrent_calls"]
+        if type(limit) is not int or not 1 <= limit <= 8:
+            raise ValueError("max_concurrent_calls must be an integer from 1 to 8")
+        if limit > 1 and transport != "streamable_http":
+            raise ValueError("parallel calls require an explicitly configured HTTP MCP server")
+        spec["max_concurrent_calls"] = limit
     if raw.get("default_open") is True:
         spec["default_open"] = True
     if raw.get("shared") is True:

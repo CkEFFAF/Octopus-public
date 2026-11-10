@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 
 from octop.api.deps import get_server, require_permission
 from octop.infra.users.invites import public_invite_audit_target
@@ -89,3 +90,35 @@ async def metrics(
         len(server.app_runtime.agent_registry.list_rows()),
     )
     return METRICS.snapshot()
+
+
+class DurationMetrics(BaseModel):
+    count: int
+    sample_count: int
+    mean_seconds: float | None
+    p50_seconds: float | None
+    p95_seconds: float | None
+    max_seconds: float | None
+
+
+class CacheMetrics(BaseModel):
+    hits: int
+    misses: int
+    hit_rate: float | None
+
+
+class PerformanceResponse(BaseModel):
+    scope: Literal["process"]
+    window_size: int
+    durations: dict[str, DurationMetrics]
+    caches: dict[str, CacheMetrics]
+
+
+@router.get("/performance")
+async def performance(
+    _: Any = Depends(require_permission("admin_console")),
+) -> PerformanceResponse:
+    """Recent process-local duration samples and cache counters (reset on restart)."""
+    from octop.infra.metrics import PERFORMANCE
+
+    return PerformanceResponse.model_validate(PERFORMANCE.snapshot())

@@ -5,10 +5,38 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from collections.abc import Callable
+import time
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from typing import Any
+from weakref import WeakKeyDictionary
 
 from langchain_core.tools import StructuredTool
+
+from octop.infra.metrics import PERFORMANCE
+
+
+@dataclass
+class _InvocationGate:
+    limit: int
+    active: int = 0
+    condition: asyncio.Condition = field(default_factory=asyncio.Condition)
+
+    @asynccontextmanager
+    async def lease(self) -> AsyncIterator[None]:
+        async with self.condition:
+            await self.condition.wait_for(lambda: self.active < self.limit)
+            self.active += 1
+        try:
+            yield
+        finally:
+            async with self.condition:
+                self.active -= 1
+                self.condition.notify_all()
+
+
+_GATES: WeakKeyDictionary[asyncio.Lock, _InvocationGate] = WeakKeyDictionary()
 
 # Connection fields that affect the live MCP session (exclude Octop meta like enabled).
 _FINGERPRINT_KEYS = (
@@ -39,7 +67,11 @@ def fingerprint_mcp_spec(spec: dict[str, Any]) -> str:
 
 
 def wrap_tools_for_shared_use(
-    tools: list[Any], lock: asyncio.Lock, *, check_access: Callable[[], None] | None = None
+    tools: list[Any],
+    lock: asyncio.Lock,
+    *,
+    check_access: Callable[[], None] | None = None,
+    max_concurrent_calls: int = 1,
 ) -> list[Any]:
     """Return LangChain ``StructuredTool`` wrappers that serialize invoke/ainvoke.
 
@@ -47,6 +79,13 @@ def wrap_tools_for_shared_use(
     LangGraph ``ToolNode`` accept them (plain proxies raise ValueError).
     """
     from pydantic import BaseModel, create_model
+
+    if type(max_concurrent_calls) is not int or not 1 <= max_concurrent_calls <= 8:
+        raise ValueError("max_concurrent_calls must be 1..8")
+    gate = _GATES.setdefault(lock, _InvocationGate(max_concurrent_calls))
+    # All fingerprints share admission state. A policy reduction also governs
+    # queued calls from older wrappers; accepted calls can finish normally.
+    gate.limit = max_concurrent_calls
 
     wrapped: list[Any] = []
     for tool in tools:
@@ -63,34 +102,33 @@ def wrap_tools_for_shared_use(
 
         async def _acall(
             _tool: Any = tool,
-            _lock: asyncio.Lock = lock,
+            _gate: _InvocationGate = gate,
             _check_access: Callable[[], None] | None = check_access,
             **kwargs: Any,
         ) -> Any:
-            async with _lock:
+            started = time.perf_counter()
+            async with _gate.lease():
+                PERFORMANCE.observe("mcp_wait", time.perf_counter() - started)
                 if _check_access is not None:
                     await asyncio.to_thread(_check_access)
-                return await _tool.ainvoke(kwargs)
-
-        def _call(
-            _tool: Any = tool,
-            _lock: asyncio.Lock = lock,
-            _check_access: Callable[[], None] | None = check_access,
-            **kwargs: Any,
-        ) -> Any:
-            async def _run() -> Any:
-                async with _lock:
-                    if _check_access is not None:
-                        await asyncio.to_thread(_check_access)
+                with PERFORMANCE.measure("mcp_call"):
                     return await _tool.ainvoke(kwargs)
 
+        def _call(
+            _invoke: Callable[..., Awaitable[Any]] = _acall,
+            **kwargs: Any,
+        ) -> Any:
             try:
                 asyncio.get_running_loop()
             except RuntimeError:
-                return asyncio.run(_run())
-            if _check_access is not None:
-                _check_access()
-            return _tool.invoke(kwargs)
+
+                async def run() -> Any:
+                    return await _invoke(**kwargs)
+
+                return asyncio.run(run())
+            raise RuntimeError(
+                "Use tool.ainvoke inside an active event loop to preserve admission limits"
+            )
 
         st_kwargs: dict[str, Any] = {
             "name": name,

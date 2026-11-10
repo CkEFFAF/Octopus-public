@@ -436,7 +436,7 @@ class DeviceService:
         if frame.get("type") == "heartbeat":
             self.repos.device_repo.touch_seen(row.device_id)
             sw = frame.get("software_version")
-            if isinstance(sw, str) and sw.strip():
+            if isinstance(sw, str) and sw.strip() and sw.strip() != row.software_version:
                 self.repos.device_repo.set_software_version(row.device_id, sw.strip())
                 row = self.repos.device_repo.get(row.device_id) or row
             await connection.send(self.grants(row, kind="heartbeat_ack"))

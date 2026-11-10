@@ -21,6 +21,7 @@ from octop.infra.gateway.media.tool_media import (
 from octop.infra.gateway.process.agent_resolve import harness_workspace_for_agent
 from octop.infra.gateway.process.usage_record import UsageTracker
 from octop.infra.history.projection import TurnHistoryTracker
+from octop.infra.history.stream_buffer import archive_stream
 from octop.infra.utils.locale import DEFAULT_LOCALE, Locale, normalize_locale
 
 if TYPE_CHECKING:
@@ -144,7 +145,7 @@ async def _project_chunks(
             tool_hint_text=channel_tool_hint_end(label, loc),
         )
 
-    async for chunk in chunks:
+    async for chunk in archive_stream(chunks, history_tracker):
         if usage_tracker is not None:
             usage_tracker.observe(chunk)
         if history_tracker is not None:

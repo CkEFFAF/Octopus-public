@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from deepagents.backends.filesystem import FilesystemBackend
@@ -35,6 +36,96 @@ class RecordingModel(FakeMessagesListChatModel):
     def bind_tools(self, tools: list, **kwargs: object) -> RecordingModel:
         self.seen.append([item.name for item in tools])
         return self
+
+
+async def test_gateway_schemas_are_reused_but_rotations_and_revocations_are_live(live, monkeypatch):
+    builder = Mock(wraps=build_gateway_langchain_tools)
+    monkeypatch.setattr(
+        "octop.infra.agents.middleware.live_configuration.build_gateway_langchain_tools", builder
+    )
+    cfg = {**live.cfg, "mcp_servers": [live.instance.mcp_server_name]}
+    assert await live.middleware._tools(cfg)
+    assert await live.middleware._tools(cfg)
+    assert builder.call_count == 1
+    live.manager._connector_svc.ensure_fresh_credentials.return_value = {"password": "rotated"}
+    assert await live.middleware._tools(cfg)
+    assert builder.call_count == 2
+    live.instance.status = "disabled"
+    assert not await live.middleware._tools(cfg)
+
+
+async def test_skill_reads_are_bounded_parallel_and_see_external_edits(live):
+    workspace = live.agent.workspace
+    workspace.skill_catalog_roots = lambda **kwargs: [("first", "workspace"), ("last", "workspace")]
+    workspace.als = AsyncMock(
+        return_value=SimpleNamespace(entries=[{"path": str(i), "is_dir": True} for i in range(6)])
+    )
+    ready, release = asyncio.Event(), asyncio.Event()
+    active, peak = 0, 0
+    revision = "one"
+
+    async def read(path):
+        nonlocal active, peak
+        active += 1
+        peak = max(active, peak)
+        if active == 4:
+            ready.set()
+        try:
+            await release.wait()
+            slug = path.split("/")[1]
+            return f"---\nname: skill-{slug}\ndescription: {path}-{revision}\n---\nbody"
+        finally:
+            active -= 1
+
+    workspace.aread_text = read
+    loading = asyncio.create_task(live.middleware._skills(live.cfg))
+    try:
+        await asyncio.wait_for(ready.wait(), 5)
+        assert not loading.done()
+    finally:
+        release.set()
+    skills = await loading
+    assert peak == 4
+    assert len(skills) == 6
+    assert all(item["description"].startswith("last/") for item in skills)
+    revision = "two"
+    assert all(
+        item["description"].endswith("two") for item in await live.middleware._skills(live.cfg)
+    )
+
+
+async def test_local_manifest_versions_reuse_metadata_and_invalidate_on_edits(live, tmp_path):
+    import os
+
+    from octop_harness.backends.workspace import BackendWorkspace
+
+    root = tmp_path / "skills" / "sample"
+    root.mkdir(parents=True)
+    path = root / "SKILL.md"
+    path.write_text("---\nname: sample\ndescription: first\n---\nbody", encoding="utf-8")
+    workspace = BackendWorkspace(FilesystemBackend(root_dir=tmp_path), tmp_path)
+    workspace.skill_catalog_roots = lambda **kwargs: [(str(tmp_path / "skills"), "workspace")]
+    original = workspace.aread_text
+    workspace.aread_text = AsyncMock(wraps=original)
+    live.agent.workspace = workspace
+    assert (await live.middleware._skills(live.cfg))[0]["description"] == "first"
+    assert (await live.middleware._skills(live.cfg))[0]["description"] == "first"
+    assert workspace.aread_text.await_count == 1
+    before = path.stat()
+    path.write_text("---\nname: sample\ndescription: other\n---\nbody", encoding="utf-8")
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    assert (await live.middleware._skills(live.cfg))[0]["description"] == "other"
+    assert workspace.aread_text.await_count == 2
+    path.write_text("---\nname: sample\ndescription: changed\n---\nbody", encoding="utf-8")
+    assert (await live.middleware._skills(live.cfg))[0]["description"] == "changed"
+    assert workspace.aread_text.await_count == 3
+    path.unlink()
+    assert not await live.middleware._skills(live.cfg)
+    assert workspace.aread_text.await_count == 4
+    path.write_text("---\nname: sample\ndescription: restored\n---\nbody", encoding="utf-8")
+    assert (await live.middleware._skills(live.cfg))[0]["description"] == "restored"
+    live.manager.get_config = lambda _: {"skills_disabled": ["sample"]}
+    assert not await live.middleware._skills(live.cfg)
 
 
 @pytest.fixture

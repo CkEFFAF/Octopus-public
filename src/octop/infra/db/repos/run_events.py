@@ -249,12 +249,25 @@ class RunEventRepo:
         """Recover pending observations after restart; oldest checks run first."""
         with self.db.connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM run_events WHERE kind = 'job' "
-                "AND status NOT IN ('completed', 'failed', 'cancelled') AND updated_at < ? "
-                "ORDER BY updated_at, id LIMIT ?",
+                "WITH candidates AS (SELECT e.*,COALESCE(c.target_kind,'missing') AS poll_kind, "
+                "CASE WHEN c.context_id IS NULL THEN e.context_id "
+                "ELSE COALESCE(c.device_id,'local') END AS poll_target "
+                "FROM run_events e LEFT JOIN execution_contexts c ON c.context_id=e.context_id "
+                "AND c.owner_user_id=e.owner_user_id WHERE e.kind='job' "
+                "AND e.status NOT IN ('completed','failed','cancelled') AND e.updated_at<?), "
+                "due AS (SELECT *,ROW_NUMBER() OVER (PARTITION BY owner_user_id,poll_kind,poll_target "
+                "ORDER BY updated_at,id) AS poll_rank FROM candidates) "
+                "SELECT * FROM due ORDER BY poll_rank,updated_at,id LIMIT ?",
                 (before, limit),
             ).fetchall()
-        return [{**self._public(row), "owner_user_id": row["owner_user_id"]} for row in rows]
+        return [
+            {
+                **self._public(row),
+                "owner_user_id": row["owner_user_id"],
+                "_poll_target": (int(row["owner_user_id"]), row["poll_kind"], row["poll_target"]),
+            }
+            for row in rows
+        ]
 
     def wakeup_hook(self, event_id: str) -> dict[str, Any] | None:
         with self.db.connect() as conn:

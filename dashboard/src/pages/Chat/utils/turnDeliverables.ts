@@ -56,6 +56,7 @@ export function turnDeliverables(
   threadId: string,
 ) {
   const result = new Map<string, CollaborationResource[]>();
+  if (page.artifacts.length === 0) return result;
   const turns: {
     key: string;
     speaker: string;
@@ -91,8 +92,30 @@ export function turnDeliverables(
     turns.push(turn);
     round.push(turn);
   }
+  const explicitTargets = new Map<string, typeof turns>();
+  const bySpeaker = new Map<string, typeof turns>();
+  for (const turn of turns) {
+    for (const id of turn.refs) {
+      const targets = explicitTargets.get(id) ?? [];
+      targets.push(turn);
+      explicitTargets.set(id, targets);
+    }
+    const speakerTurns = bySpeaker.get(turn.speaker) ?? [];
+    speakerTurns.push(turn);
+    bySpeaker.set(turn.speaker, speakerTurns);
+  }
+  const invocations = new Map<
+    string,
+    CollaborationPage["invocations"][number]
+  >();
+  for (const invocation of page.invocations) {
+    for (const ref of invocation.task_result?.resources ?? []) {
+      const key = JSON.stringify([ref.resource_id, ref.version]);
+      if (!invocations.has(key)) invocations.set(key, invocation);
+    }
+  }
   const place = (speaker: string, time: number) => {
-    const candidates = turns.filter(
+    const candidates = (bySpeaker.get(speaker) ?? []).filter(
       (turn) =>
         turn.speaker === speaker && turn.start <= time && time < turn.end,
     );
@@ -104,15 +127,10 @@ export function turnDeliverables(
       resource.publication_state !== "published"
     )
       continue;
-    let targets = turns.filter((turn) => turn.refs.has(resource.resource_id));
+    let targets = explicitTargets.get(resource.resource_id) ?? [];
     if (targets.length === 0) {
-      const invocation = page.invocations.find(
-        (item) =>
-          item.task_result?.resources.some(
-            (ref) =>
-              ref.resource_id === resource.resource_id &&
-              ref.version === resource.version,
-          ),
+      const invocation = invocations.get(
+        JSON.stringify([resource.resource_id, resource.version]),
       );
       const turn = invocation
         ? place(invocation.source_agent_id, invocation.created_at * 1000)

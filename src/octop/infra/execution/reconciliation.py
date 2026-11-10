@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
 from octop.infra.db.repos.run_events import RunEventRepo
 from octop.infra.devices.service import DeviceService
-from octop.infra.errors import OctopError
+from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.execution.service import ExecutionService
+from octop.infra.metrics import PERFORMANCE
 
 if TYPE_CHECKING:
     from octop.infra.cron.manager import CronManager
@@ -20,6 +22,20 @@ class ExecutionReconciler:
         self.devices = devices
         self.cron_manager = cron_manager
         self._running = False
+        self._waking = False
+        self._backoff: OrderedDict[tuple[int, str, str], tuple[int, float]] = OrderedDict()
+
+    async def tick_wakeups(self) -> None:
+        """Dispatch ready events independently of slow/offline Job observations."""
+        if self.cron_manager is None or self._waking:
+            return
+        from octop.infra.execution.wakeup_hooks import WakeupHookService
+
+        self._waking = True
+        try:
+            await WakeupHookService(ExecutionService(self.devices)).tick(self.cron_manager)
+        finally:
+            self._waking = False
 
     async def tick(self) -> None:
         if self._running:
@@ -35,20 +51,38 @@ class ExecutionReconciler:
             events = RunEventRepo(self.devices.repos.db)
             due = events.due_jobs(time.time() - 15)
             capacity = asyncio.Semaphore(4)
+            groups: dict[tuple[int, str, str], list[dict[str, Any]]] = {}
+            for row in due:
+                key = row["_poll_target"]
+                groups.setdefault(key, []).append(row)
 
-            async def observe(row: dict[str, Any]) -> None:
-                async with capacity:
-                    await self._observe(events, row)
+            async def observe(key: tuple[int, str, str], rows: list[dict[str, Any]]) -> None:
+                failures, retry_at = self._backoff.get(key, (0, 0.0))
+                if retry_at > time.monotonic():
+                    return
+                # One in-flight observation per target leaves capacity for other
+                # devices even if one server has many unreachable Jobs.
+                for row in rows:
+                    async with capacity:
+                        with PERFORMANCE.measure("job_observation"):
+                            reachable = await self._observe(events, row)
+                    if not reachable:
+                        failures = min(failures + 1, 5)
+                        delay = min(30 * 2 ** (failures - 1), 300)
+                        self._backoff[key] = (failures, time.monotonic() + delay)
+                        self._backoff.move_to_end(key)
+                        while len(self._backoff) > 512:
+                            self._backoff.popitem(last=False)
+                        return
+                    self._backoff.pop(key, None)
+                    failures = 0
 
-            await asyncio.gather(*(observe(row) for row in due))
-            if self.cron_manager is not None:
-                from octop.infra.execution.wakeup_hooks import WakeupHookService
-
-                await WakeupHookService(ExecutionService(self.devices)).tick(self.cron_manager)
+            await asyncio.gather(*(observe(key, rows) for key, rows in groups.items()))
+            await self.tick_wakeups()
         finally:
             self._running = False
 
-    async def _observe(self, events: RunEventRepo, row: dict[str, Any]) -> None:
+    async def _observe(self, events: RunEventRepo, row: dict[str, Any]) -> bool:
         owner, payload = int(row["owner_user_id"]), row["payload"]
         try:
             # Reauthorize the original frozen target. Never resubmit a command,
@@ -74,3 +108,9 @@ class ExecutionReconciler:
                 },
                 row["status"],
             )
+            return not (
+                isinstance(exc, (OSError, TimeoutError))
+                or isinstance(exc, OctopError)
+                and exc.code == ErrorCode.DEVICE_OFFLINE
+            )
+        return True

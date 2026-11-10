@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
+import os
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
+from functools import lru_cache
 from typing import Any, cast
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
@@ -17,9 +21,73 @@ from octop.infra.agents.teams.collaboration import runtime_config
 from octop.infra.connectors.builder import build_http_mcp_spec
 from octop.infra.connectors.catalog import get_catalog_entry, is_inprocess_gateway
 from octop.infra.connectors.gateway.langchain import build_gateway_langchain_tools
+from octop.infra.metrics import PERFORMANCE
 from octop.infra.utils.frontmatter import parse_frontmatter
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=256)
+def _manifest_meta(text: str) -> dict[str, Any]:
+    return parse_frontmatter(text)[0]
+
+
+def _change_time(fd: int, info: os.stat_result) -> int | None:
+    if os.name != "nt":
+        return info.st_ctime_ns
+    # Windows st_ctime is creation time. FileBasicInfo supplies ChangeTime,
+    # including edits whose writer restores the previous LastWriteTime.
+    # https://learn.microsoft.com/windows/win32/api/winbase/ns-winbase-file_basic_info
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    class BasicInfo(ctypes.Structure):
+        _fields_ = [
+            ("created", ctypes.c_int64),
+            ("accessed", ctypes.c_int64),
+            ("written", ctypes.c_int64),
+            ("changed", ctypes.c_int64),
+            ("attributes", wintypes.DWORD),
+        ]
+
+    query = ctypes.WinDLL("kernel32", use_last_error=True).GetFileInformationByHandleEx
+    query.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    query.restype = wintypes.BOOL
+    basic = BasicInfo()
+    if not query(msvcrt.get_osfhandle(fd), 0, ctypes.byref(basic), ctypes.sizeof(basic)):
+        return None
+    return int(basic.changed) or None
+
+
+def _local_manifest_version(workspace: Any, path: str) -> tuple[Any, ...] | None:
+    """Only authoritative local files have a version; remote materializations do not."""
+    from deepagents.backends.filesystem import FilesystemBackend
+    from octop_harness.backends.workspace import BackendWorkspace
+
+    if type(workspace) is not BackendWorkspace or type(workspace.backend) is not FilesystemBackend:
+        return None
+    try:
+        local = workspace.materialize_local(path)
+        if local is None:
+            return None
+        # Opening also rechecks current OS read access without rereading the body.
+        with local.open("rb") as source:
+            info = os.fstat(source.fileno())
+            changed = _change_time(source.fileno(), info)
+        if changed is None:
+            return None
+        return (
+            str(local),
+            info.st_dev,
+            info.st_ino,
+            info.st_size,
+            info.st_mtime_ns,
+            changed,
+            info.st_mode,
+        )
+    except OSError:
+        return None
 
 
 def _tool_name(tool: Any) -> str:
@@ -61,6 +129,9 @@ class LiveConfigurationMiddleware(AgentMiddleware[Any, Any]):
         self.manager = manager
         self.agent_id = agent_id
         self._known_names: set[str] = set()
+        self._gateway_tools: OrderedDict[tuple[str, str, str, str], list[Any]] = OrderedDict()
+        self._manifest_workspace: Any = None
+        self._manifests: OrderedDict[str, tuple[tuple[Any, ...], dict[str, Any]]] = OrderedDict()
 
     def _selection(self, cfg: dict[str, Any]) -> list[str]:
         return self.resolve_selection(cfg)
@@ -133,12 +204,23 @@ class LiveConfigurationMiddleware(AgentMiddleware[Any, Any]):
                     if not creds:
                         continue
                     if is_inprocess_gateway(entry):
-                        loaded = build_gateway_langchain_tools(
-                            entry=entry,
-                            instance_id=item.instance_id,
-                            mcp_server_name=name,
-                            creds=creds,
-                        )
+                        fingerprint = hashlib.sha256(
+                            json.dumps(creds, sort_keys=True, default=str).encode()
+                        ).hexdigest()
+                        key = (item.instance_id, name, item.kind, fingerprint)
+                        loaded = self._gateway_tools.get(key)
+                        PERFORMANCE.cache("gateway_schema", hit=loaded is not None)
+                        if loaded is None:
+                            loaded = build_gateway_langchain_tools(
+                                entry=entry,
+                                instance_id=item.instance_id,
+                                mcp_server_name=name,
+                                creds=creds,
+                            )
+                            self._gateway_tools[key] = loaded
+                        self._gateway_tools.move_to_end(key)
+                        while len(self._gateway_tools) > 32:
+                            self._gateway_tools.popitem(last=False)
                     else:
                         spec = build_http_mcp_spec(
                             entry=entry,
@@ -173,9 +255,12 @@ class LiveConfigurationMiddleware(AgentMiddleware[Any, Any]):
         self.manager.sync_skill_package_dirs(self.agent_id, refresh_graph=False)
         agent = self.manager.get_agent(self.agent_id)
         workspace = agent.workspace
+        if workspace is not self._manifest_workspace:
+            self._manifests.clear()
+            self._manifest_workspace = workspace
         disabled = set(self.manager.get_config(self.agent_id).get("skills_disabled") or [])
         selected = cfg.get("skills")
-        merged: dict[str, dict[str, Any]] = {}
+        manifests: list[tuple[str, str, str]] = []
         for root, _ in workspace.skill_catalog_roots(extra=agent.config.skills_dir):
             listing = await workspace.als(root)
             for item in getattr(listing, "entries", ()) or ():
@@ -187,48 +272,78 @@ class LiveConfigurationMiddleware(AgentMiddleware[Any, Any]):
                 if not is_dir or not slug or slug.startswith("."):
                     continue
                 manifest_path = f"{str(root).rstrip('/')}/{slug}/SKILL.md"
-                text = await workspace.aread_text(manifest_path)
-                if not text or not text.startswith(("---\n", "---\r\n")):
-                    continue
-                meta, _ = parse_frontmatter(text)
-                name, description = meta.get("name"), meta.get("description")
-                if not isinstance(name, str) or not isinstance(description, str):
-                    continue
-                if not name.strip() or not description.strip() or meta.get("removed"):
-                    continue
-                storage_backend = getattr(agent.config, "execution_backend", None) is not None
-                allowed = meta.get("allowed-tools")
-                allowed_tools = (
-                    allowed.split()
-                    if isinstance(allowed, str)
-                    else [value for value in allowed if isinstance(value, str)]
-                    if isinstance(allowed, list)
-                    else []
-                )
-                metadata = meta.get("metadata")
-                merged[name] = {
-                    "name": name,
-                    "description": description[:1024],
-                    "allowed_tools": allowed_tools,
-                    "license": str(meta.get("license") or "").strip() or None,
-                    "compatibility": str(meta.get("compatibility") or "").strip()[:500] or None,
-                    "metadata": (
-                        {str(key): str(value) for key, value in metadata.items()}
-                        if isinstance(metadata, dict)
-                        else {}
-                    ),
-                    "path": (
-                        StorageExecutionBackend.storage_path(manifest_path)
-                        if storage_backend
-                        else manifest_path
-                    ),
-                    "source": (
-                        StorageExecutionBackend.storage_path(str(root))
-                        if storage_backend
-                        else str(root)
-                    ),
-                    "slug": slug,
-                }
+                manifests.append((str(root), manifest_path, slug))
+        capacity = asyncio.Semaphore(4)
+
+        async def read_manifest(manifest: tuple[str, str, str]) -> dict[str, Any] | None:
+            root, manifest_path, slug = manifest
+            async with capacity:
+                version = await asyncio.to_thread(_local_manifest_version, workspace, manifest_path)
+                cached = self._manifests.get(manifest_path)
+                hit = version is not None and cached is not None and cached[0] == version
+                PERFORMANCE.cache("skill_manifest", hit=hit)
+                if hit and cached is not None:
+                    meta = cached[1]
+                    self._manifests.move_to_end(manifest_path)
+                else:
+                    self._manifests.pop(manifest_path, None)
+                    text = await workspace.aread_text(manifest_path)
+                    if not text or not text.startswith(("---\n", "---\r\n")):
+                        return None
+                    fence = text.find("\n---", 3)
+                    header = text[: fence + 4] if fence >= 0 else text
+                    meta = (
+                        _manifest_meta(header)
+                        if len(header) <= 32_768
+                        else parse_frontmatter(text)[0]
+                    )
+                    if version is not None and len(header) <= 32_768:
+                        self._manifests[manifest_path] = (version, meta)
+                        while len(self._manifests) > 256:
+                            self._manifests.popitem(last=False)
+            name, description = meta.get("name"), meta.get("description")
+            if not isinstance(name, str) or not isinstance(description, str):
+                return None
+            if not name.strip() or not description.strip() or meta.get("removed"):
+                return None
+            storage_backend = getattr(agent.config, "execution_backend", None) is not None
+            allowed = meta.get("allowed-tools")
+            allowed_tools = (
+                allowed.split()
+                if isinstance(allowed, str)
+                else [value for value in allowed if isinstance(value, str)]
+                if isinstance(allowed, list)
+                else []
+            )
+            metadata = meta.get("metadata")
+            return {
+                "name": name,
+                "description": description[:1024],
+                "allowed_tools": allowed_tools,
+                "license": str(meta.get("license") or "").strip() or None,
+                "compatibility": str(meta.get("compatibility") or "").strip()[:500] or None,
+                "metadata": (
+                    {str(key): str(value) for key, value in metadata.items()}
+                    if isinstance(metadata, dict)
+                    else {}
+                ),
+                "path": (
+                    StorageExecutionBackend.storage_path(manifest_path)
+                    if storage_backend
+                    else manifest_path
+                ),
+                "source": (
+                    StorageExecutionBackend.storage_path(str(root))
+                    if storage_backend
+                    else str(root)
+                ),
+                "slug": slug,
+            }
+
+        merged: dict[str, dict[str, Any]] = {}
+        for metadata in await asyncio.gather(*(read_manifest(item) for item in manifests)):
+            if metadata is not None:
+                merged[metadata["name"]] = metadata
         return [
             item
             for name, item in merged.items()
@@ -245,7 +360,9 @@ class LiveConfigurationMiddleware(AgentMiddleware[Any, Any]):
         tools = await self._tools(cfg)
         names = {tool.name for tool in tools}
         retained = [tool for tool in request.tools if _tool_name(tool) not in old_names | names]
-        state = cast(AgentState[Any], {**request.state, "skills_metadata": await self._skills(cfg)})
+        with PERFORMANCE.measure("skill_refresh"):
+            skills = await self._skills(cfg)
+        state = cast(AgentState[Any], {**request.state, "skills_metadata": skills})
         return request.override(tools=[*retained, *tools], state=state)
 
     def wrap_model_call(

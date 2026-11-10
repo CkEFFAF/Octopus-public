@@ -1191,6 +1191,30 @@ async def test_invalid_working_directory_reports_error_without_stopping_client(
     )
     assert frames[-1]["type"] == "policy_applied"
     assert client.load_state()["policy"]["policy_revision"] == 2
+    # Unchanged heartbeats do not reapply policy or rewrite private state.
+    import json
+
+    heartbeat = {
+        "type": "heartbeat_ack",
+        "policy_revision": 2,
+        "controller_id": "controller-one",
+        "trust_mode": "owner",
+        "permissions": ["files_read"],
+        "working_dir": str(tmp_path),
+    }
+    saved = client.state_path.read_bytes()
+    modified = client.state_path.stat().st_mtime_ns
+    count = len(frames)
+    for _ in range(10):
+        await client.apply_policy_frame(Socket(), executor, heartbeat)
+    assert len(frames) == count
+    assert client.state_path.read_bytes() == saved
+    assert client.state_path.stat().st_mtime_ns == modified
+    # A new connection still confirms its complete grants, even at the same revision.
+    await client.apply_policy_frame(Socket(), executor, {**heartbeat, "type": "grants"})
+    assert frames[-1]["type"] == "policy_applied"
+    assert len(frames) == count + 1
+    assert json.loads(client.state_path.read_bytes())["policy"]["policy_revision"] == 2
     await executor.close()
 
 

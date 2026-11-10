@@ -705,6 +705,21 @@ class DeviceExecutor:
             return dict(existing["result"])
         current = asyncio.current_task()
         assert current is not None
+        if action in {"jobs.status", "jobs.list", "jobs.logs"}:
+            # Job manifests are authoritative. Polls must not rewrite the entire
+            # durable mutation journal or replay an obsolete observation.
+            self._active[operation_id] = current
+            try:
+                return await self._execute(action, params)
+            except Exception as exc:
+                message = (
+                    str(exc)
+                    if isinstance(exc, DeviceExecutionError)
+                    else "local device operation failed"
+                )
+                raise DeviceExecutionError(message) from exc
+            finally:
+                self._active.pop(operation_id, None)
         if action == "jobs.start":
             params = {**params, "idempotency_key": params.get("idempotency_key") or operation_id}
         self._active[operation_id] = current

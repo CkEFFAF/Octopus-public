@@ -80,8 +80,10 @@ from octop.infra.history.projection import (
     TurnHistoryTracker,
     message_inputs,
 )
+from octop.infra.history.stream_buffer import archive_stream
 from octop.infra.history.trajectory.settings import agent_trajectory_enabled
 from octop.infra.knowledge.default_open import stamp_turn_knowledge_config
+from octop.infra.metrics import PERFORMANCE
 from octop.infra.users.preferences import (
     get_model_reasoning_from_json,
     get_preferred_model_from_json,
@@ -1195,7 +1197,9 @@ class GlobalProcessor:
         emitted_attachment_keys: set[str] = set()
 
         try:
-            async for chunk in self._agent_manager.stream(agent_id, request):
+            async for chunk in archive_stream(
+                self._agent_manager.stream(agent_id, request), history_tracker
+            ):
                 usage_tracker.observe(chunk)
                 history_tracker.observe(chunk)
                 from octop.infra.history.recorder import flush_tracker  # noqa: PLC0415
@@ -1311,10 +1315,8 @@ class GlobalProcessor:
         traj_on = self._agent_trajectory_enabled(agent_id)
         team_host = is_team_agent(self._agent_manager.get_row(agent_id))
         try:
-            async for chunk in self._agent_manager.resume_hitl(
-                agent_id,
-                thread_id,
-                decisions,
+            async for chunk in archive_stream(
+                self._agent_manager.resume_hitl(agent_id, thread_id, decisions), history_tracker
             ):
                 usage_tracker.observe(chunk)
                 history_tracker.observe(chunk)
@@ -1793,11 +1795,12 @@ class GlobalProcessor:
         )
         if not merged:
             return None
-        failed = await self._agent_manager.prepare_chat_mcp(
-            agent_id,
-            merged,
-            connector_user_id=user_id,
-        )
+        with PERFORMANCE.measure("mcp_prepare"):
+            failed = await self._agent_manager.prepare_chat_mcp(
+                agent_id,
+                merged,
+                connector_user_id=user_id,
+            )
         if failed:
             detail = f"mcp load failed: {', '.join(failed)}"
             if raise_on_failure:

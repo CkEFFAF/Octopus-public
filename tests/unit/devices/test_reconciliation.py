@@ -58,6 +58,33 @@ def age(events: RunEventRepo) -> None:
         conn.execute("UPDATE run_events SET updated_at = ? WHERE kind = 'job'", (time.time() - 30,))
 
 
+async def test_wakeups_can_dispatch_while_an_observation_tick_is_busy(hub, monkeypatch):
+    service, context, events, _ = hub
+    RunInspectionService(service.devices.repos).job_observation(
+        context, {"job_id": "slow", "status": "running", "observed_at": 123}
+    )
+    age(events)
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def slow(*args):
+        started.set()
+        await release.wait()
+
+    dispatch = AsyncMock()
+    monkeypatch.setattr(ExecutionService, "call", slow)
+    monkeypatch.setattr("octop.infra.execution.wakeup_hooks.WakeupHookService.tick", dispatch)
+    reconciler = ExecutionReconciler(service.devices, cron_manager=object())
+    observing = asyncio.create_task(reconciler.tick())
+    try:
+        await asyncio.wait_for(started.wait(), 5)
+        await reconciler.tick_wakeups()
+        dispatch.assert_awaited_once()
+        assert not observing.done()
+    finally:
+        release.set()
+        await observing
+
+
 async def test_refreshes_real_completed_job_without_browser_and_recovers_index(hub: Any) -> None:
     service, context, events, root = hub
     accepted = (
@@ -119,6 +146,77 @@ async def test_failed_observation_preserves_last_receipt_and_never_falls_back(hu
     assert row["payload"]["observation"]["status"] == "unavailable"
     assert row["payload"]["observation"]["error_code"] == ErrorCode.DEVICE_OFFLINE.value
     assert not events.due_jobs(time.time() - 15)
+
+
+async def test_offline_jobs_do_not_hide_another_device_or_repeat_during_backoff(hub, monkeypatch):
+    from types import SimpleNamespace
+
+    service, base, events, _ = hub
+    contexts = []
+    for device in ("offline", "healthy"):
+        enrolled = service.devices.enroll(
+            owner_user_id=base.owner_user_id,
+            name=device,
+            platform="linux",
+            capabilities=["files_read"],
+            permissions=["files_read"],
+            roots=[],
+            trust_mode="owner",
+        )
+        values = base.public()
+        for key in ("context_id", "created_at"):
+            values.pop(key)
+        contexts.append(
+            service.contexts.create(
+                **{**values, "target_kind": "device", "device_id": enrolled["device"]["device_id"]}
+            )
+        )
+    offline, healthy = contexts
+    for i in range(80):
+        RunInspectionService(service.devices.repos).job_observation(
+            offline, {"job_id": f"offline-{i}", "status": "running"}
+        )
+    RunInspectionService(service.devices.repos).job_observation(
+        healthy, {"job_id": "healthy", "status": "running"}
+    )
+    age(events)
+    release, observed = asyncio.Event(), asyncio.Event()
+    calls = []
+
+    async def call(self, owner, context_id, action, params):
+        calls.append(context_id)
+        if context_id == offline.context_id:
+            await release.wait()
+            raise OctopError(ErrorCode.DEVICE_OFFLINE, "offline")
+        observed.set()
+        RunInspectionService(service.devices.repos).job_observation(
+            healthy, {"job_id": "healthy", "status": "completed"}
+        )
+
+    now = [1000.0]
+    monkeypatch.setattr(
+        "octop.infra.execution.reconciliation.time",
+        SimpleNamespace(time=time.time, monotonic=lambda: now[0]),
+    )
+    monkeypatch.setattr(ExecutionService, "call", call)
+    reconciler = ExecutionReconciler(service.devices)
+    running = asyncio.create_task(reconciler.tick())
+    try:
+        await asyncio.wait_for(observed.wait(), 1)
+        assert calls.count(offline.context_id) == 1
+    finally:
+        release.set()
+        await running
+    age(events)
+    await reconciler.tick()
+    assert calls.count(offline.context_id) == 1
+    now[0] += 31
+    await reconciler.tick()
+    assert calls.count(offline.context_id) == 2
+    age(events)
+    now[0] += 31
+    await reconciler.tick()
+    assert calls.count(offline.context_id) == 2  # Second failure backs off for 60 seconds.
 
 
 async def test_role_revocation_stops_host_job_without_another_user_request(hub: Any) -> None:

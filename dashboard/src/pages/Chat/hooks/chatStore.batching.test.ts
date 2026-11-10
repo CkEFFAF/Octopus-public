@@ -64,6 +64,39 @@ afterEach(() => {
 });
 
 describe("chat stream notification batching", () => {
+  it("copies long history once per unread burst and keeps published snapshots immutable", () => {
+    const unsubscribe = subscribe(SESSION, () => {});
+    setHistoryPage(
+      SESSION,
+      Array.from({ length: 400 }, (_, i) => ({
+        id: `old-${i}`,
+        role: "user" as const,
+        content: "history",
+        timestamp: i,
+      })),
+      { hasMore: false, nextOffset: 0 },
+    );
+    ingestHarnessChunk(SESSION, { type: "token", content: "first" });
+    const published = getSnapshot(SESSION);
+    const copying = vi.spyOn(Array.prototype, "slice");
+    try {
+      for (let i = 0; i < 300; i++)
+        ingestHarnessChunk(SESSION, { type: "token", content: "." });
+      const historyCopies = copying.mock.contexts.filter(
+        (array) => array.length >= 400,
+      ).length;
+      expect(historyCopies).toBeLessThanOrEqual(2);
+    } finally {
+      copying.mockRestore();
+    }
+    expect(published.messages.at(-1)?.content).toBe("first");
+    expect(getSnapshot(SESSION).messages.at(-1)?.content).toBe(
+      "first" + ".".repeat(300),
+    );
+    expect(getSnapshot(SESSION)).toBe(getSnapshot(SESSION));
+    unsubscribe();
+  });
+
   it("coalesces a 300-frame WS burst while preserving every text fragment", async () => {
     const turn = sendTurn(SESSION, "start", "host", "session-key");
     const socket = Socket.instances[0];
