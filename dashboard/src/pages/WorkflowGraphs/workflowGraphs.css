@@ -492,7 +492,7 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  width: 344px;
+  width: 388px;
   height: 100%;
   min-height: 0;
   border-left: 1px solid var(--fn-border-primary);
@@ -519,9 +519,9 @@
   margin: 0 0 8px;
   font-size: 15px;
 }
-.wg-inspector > small {
+.wg-inspector-identity > small {
   display: block;
-  margin-bottom: 18px;
+  margin-bottom: 10px;
   color: var(--fn-text-tertiary);
   font-family: var(--fn-font-mono);
   font-size: 10px;
@@ -545,16 +545,19 @@
   border-radius: 8px;
 }
 .wg-settings-drawer .wg-inspector {
-  padding: 20px 0;
+  padding: 16px 0;
   overflow: visible;
 }
 .wg-settings-actions {
-  position: sticky;
-  top: -24px;
-  z-index: 2;
-  padding: 0 0 18px;
-  background: var(--fn-bg-container);
+  flex-shrink: 0;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--fn-border-primary);
+}
+.wg-settings-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 .wg-settings-actions h3,
 .wg-settings-utilities h3 {
@@ -562,16 +565,81 @@
   margin: 0 0 12px;
   color: var(--fn-text-secondary);
 }
-.wg-settings-actions .ant-space,
-.wg-settings-actions .octop-space {
+.wg-settings-actions button {
+  font-size: 12px;
+}
+.wg-settings-scroll > .wg-inspector > h3 {
+  display: none;
+}
+.wg-field-heading,
+.wg-mapping-key,
+.wg-argument {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.wg-field-heading {
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.wg-field-heading strong {
+  font-weight: 500;
+}
+.wg-field-hint {
+  color: var(--fn-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+.wg-field-error {
+  color: var(--fn-color-error);
+}
+.wg-mapping-editor,
+.wg-arguments {
+  margin-bottom: 20px;
+}
+.wg-mapping-row {
+  padding: 10px 0;
+  border-top: 1px solid var(--fn-border-secondary);
+}
+.wg-mapping-key {
+  margin-bottom: 6px;
+}
+.wg-mapping-key > input,
+.wg-argument > input {
+  min-width: 0;
+  flex: 1;
+}
+.wg-binding-value {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.wg-binding-value > .ant-select,
+.wg-binding-value > .octop-select,
+.wg-binding-value > .ant-input-number,
+.wg-binding-value > .octop-input-number {
   width: 100%;
 }
-.wg-settings-actions .ant-space-item > button,
-.wg-settings-actions .octop-space-item > button {
-  width: 100%;
-  justify-content: flex-start;
+.wg-binding-value > .ant-select:first-child,
+.wg-binding-value > .octop-select:first-child {
+  max-width: 160px;
+}
+.wg-binding-value > .ant-select.ant-select-auto-complete,
+.wg-binding-value > .octop-select.octop-select-auto-complete {
+  max-width: none;
+}
+.wg-binding-value .ant-form-item,
+.wg-binding-value .octop-form-item {
+  margin-bottom: 0;
+}
+.wg-argument {
+  margin-bottom: 7px;
+}
+.wg-argument > span {
+  width: 16px;
+  color: var(--fn-text-tertiary);
+  font-size: 11px;
 }
 .wg-settings-utilities {
   border-top: 1px solid var(--fn-border-primary);

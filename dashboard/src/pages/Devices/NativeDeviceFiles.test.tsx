@@ -47,6 +47,65 @@ const device = {
   grant_version: 1,
 } as ExecutionTarget;
 describe("native directory request states", () => {
+  it("opens an encoded local Markdown link in the same execution context", async () => {
+    const indexPath = "D:/samples/REPORTS.md";
+    const reportPath = "D:/samples/result (v1).md";
+    const contents: Record<string, string> = {
+      [indexPath]:
+        "# Index\n\n[Result](D:/samples/result%20%28v1%29.md)\n\n[URI](file:///D:/samples/result%20%28v1%29.md)\n\n[Web](https://example.com/)",
+      [reportPath]: "# Experiment result",
+    };
+    vi.mocked(executionApi.call).mockImplementation(
+      async (_ctx, action, params) => {
+        if (action === "fs.list")
+          return {
+            path: "D:/samples",
+            entries: [{ name: "REPORTS.md", path: indexPath, is_dir: false }],
+            next_offset: null,
+          };
+        const path = params.path as string;
+        const bytes = new TextEncoder().encode(contents[path]);
+        if (action === "fs.stat")
+          return { sha256: await sha256(bytes), size: bytes.length };
+        if (action === "fs.read")
+          return {
+            path,
+            data_b64: btoa(String.fromCharCode(...bytes)),
+            size: bytes.length,
+            eof: true,
+          };
+        throw new Error(`Unexpected ${action}`);
+      },
+    );
+    render(
+      <NativeDeviceFiles
+        device={device}
+        executionContext={context}
+        onError={vi.fn()}
+      />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^REPORTS\.md/ }),
+    );
+    await vi.dynamicImportSettled();
+    const link = await screen.findByRole("link", { name: "Result" });
+    const web = screen.getByRole("link", { name: "Web" });
+    expect(web).toHaveAttribute("href", "https://example.com/");
+    expect(web).toHaveAttribute("target", "_blank");
+    fireEvent.click(link);
+    expect(
+      await screen.findByRole("heading", { name: "Experiment result" }),
+    ).toBeInTheDocument();
+    expect(executionApi.call).toHaveBeenCalledWith("ctx", "fs.read", {
+      path: reportPath,
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^REPORTS\.md/ }));
+    fireEvent.click(await screen.findByRole("link", { name: "URI" }));
+    expect(
+      await screen.findByRole("heading", { name: "Experiment result" }),
+    ).toBeInTheDocument();
+  });
+
   it("renders verified Markdown first and keeps drafts when toggling the source", async () => {
     const text = "# 设备报告\n\n- 已核对";
     const bytes = new TextEncoder().encode(text);

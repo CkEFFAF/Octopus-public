@@ -1,4 +1,37 @@
 {
+  "pinnedFiles": {
+    "title": "置顶文件",
+    "hint": "跨会话保留实验手册、记忆笔记、现象记录和报告入口。",
+    "empty": "置顶关键文件后，可在这里直接阅读和编辑。",
+    "add": "置顶文件",
+    "edit": "编辑入口：{{title}}",
+    "remove": "取消置顶：{{title}}",
+    "removeConfirm": "仅移除选中的置顶入口，不删除源文件或文件内容。",
+    "manageTitle": "置顶关键文件",
+    "label": "名称",
+    "source": "文件位置",
+    "expert": "专家文件",
+    "project": "项目文件",
+    "path": "文件路径",
+    "target": "服务器或设备",
+    "local": "Octop 服务器",
+    "workingDir": "项目工作目录",
+    "expertPathHint": "填写专家工作区的相对路径，例如 .octop/notes/experiment-playbook.md。",
+    "projectPathHint": "每次都会在下方指定的服务器上打开文件。",
+    "refresh": "刷新",
+    "loadFailed": "无法加载置顶文件。",
+    "saveFailed": "保存失败，请检查文件路径和执行目标后重试。",
+    "openFailed": "无法打开文件，请检查服务器连接和访问权限。",
+    "conflict": "置顶列表已在其他位置更新。已刷新列表，请检查修改后重新保存。",
+    "delete": "删除",
+    "deleteSelected": "删除（{{count}}）",
+    "cancelSelection": "取消",
+    "selectAll": "全选",
+    "selectFile": "选择 {{title}}",
+    "selectedCount": "已选 {{count}} 项",
+    "selectionHint": "选择要移除的置顶入口，源文件会保留。",
+    "deleteConfirmTitle": "删除这 {{count}} 个置顶入口？"
+  },
   "modelRouting": {
     "title": "任务模型路由",
     "enable": "启用任务模型路由",
@@ -61,7 +94,8 @@
     "empty": "此分类暂无任务",
     "activeHint": "仅显示运行中、已计划或等待触发的任务。已完成记录请切换分类查看。",
     "detailHint": "点击卡片查看任务内容与执行记录。",
-    "summary": "{{count}} 个会话 · {{jobs}} 个后台任务"
+    "summary": "{{count}} 个会话 · {{jobs}} 个后台任务",
+    "archived": "已归档"
   },
   "organizationHistory": {
     "title": "会话整理记录",
@@ -592,7 +626,8 @@
     "continueSession": "继续上次任务会话",
     "retryReview": "重试独立验收",
     "groupChats": "项目群聊",
-    "privateChats": "私聊"
+    "privateChats": "私聊",
+    "taskCenter": "任务总览"
   },
   "app": {
     "pageTitle": "Octop - 懂你、帮你、陪你成长的智能伙伴"
@@ -678,7 +713,8 @@
     "failureDetailsTitle": "错误详情",
     "failureDetailsHint": "以下是用于排查的诊断信息，可复制反馈。",
     "failureBudget": "输入估算（含预留）：{{input}} tokens，本次上限：{{limit}} tokens。",
-    "failureSamplesHint": "共 {{count}} 个会话失败，以下展示已保留的 {{shown}} 个诊断示例。"
+    "failureSamplesHint": "共 {{count}} 个会话失败，以下展示已保留的 {{shown}} 个诊断示例。",
+    "collapse": "收起"
   },
   "apiErrors": {
     "AUTH_FAILED": "认证失败。",
@@ -2814,6 +2850,10 @@
       "runProgram": "运行 {{program}} 命令"
     },
     "fileReview": {
+      "summary": "{{count}} 个文件，本轮 {{current}} 个",
+      "explanation": "变更说明",
+      "view": "文件查看方式",
+      "details": "文件信息",
       "scope": "全部 {{count}} 个文件，所选轮次 {{current}} 个。差异取自工具记录，完整内容按文件来源实时读取。",
       "currentTurn": "本轮修改",
       "turnDiff": "本轮差异",
@@ -2955,7 +2995,8 @@
     "read_attachment": "读取附件",
     "publish_artifact": "发布成果",
     "deliver_resource": "交付资源",
-    "report_task_result": "报告任务结果"
+    "report_task_result": "报告任务结果",
+    "list_expert_tasks": "查询专家跨会话任务"
   },
   "toolSettings": {
     "title": "工具设置",
@@ -7861,6 +7902,13 @@
     }
   },
   "collaboration": {
+    "conversationCategory": "会话分类",
+    "userConversations": "用户会话",
+    "agentConversations": "Agent 协作",
+    "acpConversation": "ACP 会话",
+    "sourceDevice": "执行端：{{name}}",
+    "parentConversation": "返回父会话",
+    "viewConversation": "查看协作会话",
     "title": "专家协作",
     "artifacts": "份产物",
     "device": "实际设备",
@@ -8247,7 +8295,8 @@
       "gpu": "检查 GPU 状态"
     },
     "reportedProgress": "脚本上报进度",
-    "backgroundExplanation": "任务在后台独立执行，可查看实际状态和日志。"
+    "backgroundExplanation": "任务在后台独立执行，可查看实际状态和日志。",
+    "expertTasks": "专家全部任务"
   },
   "conversationMetadata": {
     "settingsTitle": "会话整理",
@@ -8406,7 +8455,14 @@
     "copyOutline": "复制所选格式",
     "languageMismatch": "这份历史概览使用了其他语言，可按当前账号语言重新生成。",
     "refreshLanguage": "按当前语言更新",
-    "failureCount": "{{count}} 个会话"
+    "failureCount": "{{count}} 个会话",
+    "sourcesCount": "{{count}} 条来源",
+    "moreSources": "更多来源",
+    "moreActions": "更多操作",
+    "relatedEvents": "{{count}} 条执行记录",
+    "viewAllSources": "查看全部来源",
+    "artifactCount": "{{count}} 个成果文件",
+    "showArtifacts": "展开成果"
   },
   "uiFeedback": {
     "enabledHint": "已启用表示可参与路由，不代表连接已验证。测试只在你点击后发起，可能产生模型费用。",
@@ -8530,6 +8586,43 @@
     }
   },
   "workflowGraph": {
+    "modelAuto": "使用自动路由",
+    "modelHelp": "为当前步骤选择已配置模型。自动路由遵循专家的模型策略。",
+    "modelUnavailable": "当前不可用",
+    "modelLoadError": "无法加载已配置模型，请关闭后重新打开此节点重试。",
+    "valueType": "数值来源与类型",
+    "mappingKey": "名称",
+    "mappingValue": "值",
+    "addMapping": "添加值",
+    "removeMapping": "移除值",
+    "uniqueKey": "名称不能为空，也不能重复。",
+    "noMappings": "尚未配置值。",
+    "nullValue": "空值（null）",
+    "booleanTrue": "真",
+    "booleanFalse": "假",
+    "addArgument": "添加参数",
+    "removeArgument": "移除参数",
+    "argument": "参数",
+    "executable": "可执行程序，例如 python",
+    "argvHelp": "第一项是可执行程序，后面逐项添加参数。每项内部的空格会保留，不经过 shell 解析。",
+    "valueTypes": {
+      "path": "变量路径",
+      "text": "文本",
+      "number": "数值",
+      "boolean": "布尔值",
+      "json": "JSON 对象或数组",
+      "null": "空值（null）"
+    },
+    "operators": {
+      "truthy": "值为真",
+      "eq": "等于",
+      "ne": "不等于",
+      "gt": "大于",
+      "gte": "大于或等于",
+      "lt": "小于",
+      "lte": "小于或等于",
+      "contains": "包含"
+    },
     "nodeSettings": "节点配置",
     "closeInspector": "收起节点配置",
     "workflowActions": "编辑与运行",
@@ -8586,7 +8679,7 @@
     "originHelp": "留空时，每次运行创建独立会话。",
     "execution_context_id": "执行上下文 ID",
     "sourceHelp": "复用已有会话的执行上下文，目标和权限保持冻结。留空时 Agent 仅进行分析，脚本必须单独指定来源。",
-    "initial_variables": "初始变量 JSON",
+    "initial_variables": "初始变量",
     "limits": "运行预算",
     "max_steps": "最大节点执行次数",
     "max_seconds": "最大运行秒数",
@@ -8603,7 +8696,7 @@
     "eventStartHelp": "发布后启用事件入口，脚本凭专用令牌启动新实例。",
     "label": "节点名称",
     "prompt": "任务指令",
-    "model": "模型引用（留空继承）",
+    "model": "模型",
     "incomingExpert": "继承传入专家",
     "before": "执行前",
     "after": "执行后",
@@ -8624,14 +8717,14 @@
     "after_context_restore": "恢复传入上下文配置",
     "after_context_keep": "保留本次上下文配置",
     "contextHelp": "会话与上下文配置独立传递。完整聊天历史始终保留，新会话的聊天记录不会自动合并到父会话。",
-    "argv": "命令参数数组 JSON",
+    "argv": "命令与参数",
     "cwd": "工作目录",
-    "env": "环境变量 JSON",
+    "env": "环境变量",
     "callback_node": "回调事件节点 ID",
     "output_mode": "结果格式",
     "text": "文本预览",
-    "left": "左侧绑定 JSON",
-    "right": "右侧绑定 JSON",
+    "left": "待判断的值",
+    "right": "比较值",
     "operator": "比较操作",
     "event_type": "事件类型",
     "purpose": "事件用途",
@@ -8643,10 +8736,10 @@
     "context_branch": "采用哪一分支的上下文",
     "merge": "按分支连线 ID 合并变量",
     "bindings": "输入与输出映射",
-    "bindingHelp": "绑定使用 {\"path\":\"$.vars.x\"} 或 {\"value\":固定值}。输出为 $.outputs.节点ID.result。",
-    "inputs": "输入映射 JSON",
-    "assign": "写入变量映射 JSON",
-    "advanced": "完整节点定义",
+    "bindingHelp": "选择变量路径或直接填写值。解析后的结果位于 $.outputs.节点ID.result。",
+    "inputs": "输入值",
+    "assign": "保存到变量",
+    "advanced": "高级 JSON",
     "nodeDefinition": "节点 JSON",
     "invalidNode": "节点 JSON 必须保留原始 ID、位置和名称。",
     "runs": "运行记录",
@@ -8740,5 +8833,51 @@
       "skipped": "已跳过",
       "superseded": "已由新尝试替代"
     }
+  },
+  "taskCenter": {
+    "title": "任务总览",
+    "subtitle": "查看所有专家和会话的任务，追踪进展与来源。",
+    "expert": "专家",
+    "conversation": "来源会话",
+    "allExperts": "全部专家",
+    "allConversations": "全部会话",
+    "search": "搜索任务、专家或会话",
+    "retentionHint": "完成或取消满 7 天、失败满 30 天的任务自动归档。归档记录按需查看，原始证据保留。",
+    "empty": "此范围内没有任务",
+    "stale": "状态待确认",
+    "declared": "Agent 声明",
+    "noConversation": "尚未关联会话",
+    "openTask": "查看任务",
+    "openConversation": "来源会话",
+    "expertScope": "该专家的全部会话",
+    "sources": {
+      "work_item": "后台工作项",
+      "board": "任务账本",
+      "job": "后台进程",
+      "subagent": "子任务",
+      "plan": "任务清单"
+    },
+    "status": {
+      "queued": "排队中",
+      "running": "运行中",
+      "waiting_input": "等待输入",
+      "waiting_review": "等待评审",
+      "blocked": "受阻",
+      "failed": "失败",
+      "completed": "已完成",
+      "cancelled": "已取消",
+      "unknown": "状态待确认",
+      "planning": "规划中",
+      "todo": "待执行",
+      "done": "已完成",
+      "pending": "待执行",
+      "started": "运行中",
+      "accepted": "已接收",
+      "waiting": "等待中",
+      "succeeded": "已完成",
+      "interrupted": "已中断"
+    },
+    "boardSync": "实际执行任务会自动同步到看板。卡片保留来源会话，执行状态随回执更新。",
+    "executions": "执行任务"
   }
 }

@@ -25,6 +25,7 @@ export interface ToolRenderContext {
 }
 
 export interface ToolRenderProps {
+  artifact?: unknown;
   pluginId: string;
   toolName: string;
   displayName?: string;

@@ -16,3 +16,7 @@
 !octop_harness-1.0.2.post4.dev5+media.1-py3-none-any.whl
 !media-source-manifest.json
 !media-steering.patch
+!octop_harness-1.0.2.post4.dev7+transport.1-py3-none-any.whl
+!transport-source.zip
+!transport-source-manifest.json
+!transport-timeout.patch

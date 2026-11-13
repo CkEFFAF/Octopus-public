@@ -9,6 +9,8 @@ import { App } from "antd";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OctopAgent } from "../context/AgentContext";
 
+vi.mock("./PinnedFilesPanel", () => ({ default: () => null }));
+
 vi.mock("react-i18next", () => {
   const t = (key: string) => key;
   return { useTranslation: () => ({ t }) };

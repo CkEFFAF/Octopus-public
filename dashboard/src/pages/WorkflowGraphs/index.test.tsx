@@ -191,6 +191,13 @@ describe("workflow editor orchestration", () => {
         await screen.findByRole("button", { name: `workflowGraph.${action}` }),
       ).toBeVisible();
     }
+    const scroll = document.querySelector(".wg-settings-scroll") as HTMLElement;
+    expect(
+      within(scroll).getByRole("textbox", { name: "workflowGraph.name" }),
+    ).toBeVisible();
+    expect(
+      within(scroll).queryByRole("button", { name: "workflowGraph.save" }),
+    ).not.toBeInTheDocument();
   });
 
   it("publishes the revision returned by save", async () => {

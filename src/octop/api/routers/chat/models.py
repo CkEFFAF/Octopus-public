@@ -21,6 +21,9 @@ class SidebarWorkingThread(BaseModel):
     created_at: float
     pinned: bool
     metadata: dict[str, Any] | None = None
+    category: Literal["user", "agent_collaboration"] = "user"
+    actor: dict[str, str] | None = None
+    collaboration_source: dict[str, str] | None = None
 
 
 class SidebarSchedule(BaseModel):

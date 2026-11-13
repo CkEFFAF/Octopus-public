@@ -153,6 +153,37 @@ class HistoryArchive:
         """Save a complete seed, such as an explicitly created fork."""
         self.save_message_updates(turn, list(enumerate(wires)))
 
+    def append_external_message(
+        self, agent_id: str, thread_id: str, message_id: str, wire: dict[str, Any]
+    ) -> bool:
+        """Append an authenticated work input without finishing or replaying its turn."""
+        with self._turn_lock:
+            turn = self.store.turn(thread_id)
+            if turn is None or turn["format"] != "v2":
+                return False
+            if turn["agent_id"] != agent_id:
+                raise ValueError("History belongs to another agent")
+            with self.store.transaction() as conn:
+                doc_id = f"external-message:{thread_id}:{message_id}"
+                if conn.execute("SELECT 1 FROM documents WHERE id=?", (doc_id,)).fetchone():
+                    return True
+                seq = int(
+                    conn.execute(
+                        "SELECT COALESCE(MAX(seq),0)+1 FROM documents WHERE thread_id=? AND kind='message'",
+                        (thread_id,),
+                    ).fetchone()[0]
+                )
+                self.store.put_document(
+                    conn,
+                    doc_id=doc_id,
+                    thread_id=thread_id,
+                    turn_id=turn["id"],
+                    kind="message",
+                    seq=seq,
+                    value=wire,
+                )
+            return True
+
     def save_message_updates(
         self, turn: dict[str, Any], updates: list[tuple[int, dict[str, Any]]]
     ) -> None:

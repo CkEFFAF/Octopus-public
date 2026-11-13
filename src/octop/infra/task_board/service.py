@@ -82,6 +82,7 @@ class TaskBoardService:
         self._jobs: dict[str, asyncio.Task[None]] = {}
         self._devices: Any | None = None
         self._peers: Any | None = None
+        self._last_archive_at = 0.0
 
     def set_device_service(self, service: Any) -> None:
         self._devices = service
@@ -742,7 +743,50 @@ class TaskBoardService:
             if changed:
                 self._save(user_id, board)
 
+    def archive_completed(self) -> None:
+        from octop.infra.db.repos.task_archives import (
+            COMPLETED_RETENTION_SECONDS,
+            FAILED_RETENTION_SECONDS,
+        )
+
+        now = self._now().timestamp()
+        for user_id in self._repos.task_board_repo.user_ids():
+            board = self.snapshot(user_id)
+            changed = False
+            for task in board.tasks:
+                if (
+                    task.archived
+                    or self._busy(task)
+                    or task.status not in {"done", "failed"}
+                    or (task.schedule and task.schedule.enabled)
+                ):
+                    continue
+                retention = (
+                    FAILED_RETENTION_SECONDS
+                    if task.status == "failed"
+                    else COMPLETED_RETENTION_SECONDS
+                )
+                if datetime.fromisoformat(task.updated_at).timestamp() >= now - retention:
+                    continue
+                if any(
+                    child.parent_id == task.id and child.status not in {"done", "failed"}
+                    for child in board.tasks
+                ):
+                    continue
+                task.archived = True
+                changed = True
+            if changed:
+                try:
+                    self._save(user_id, board)
+                except OctopError as exc:
+                    if exc.code != ErrorCode.TASK_BOARD_CONFLICT:
+                        raise
+
     async def tick(self) -> None:
+        now = self._now().timestamp()
+        if now - self._last_archive_at >= 3600:
+            await asyncio.to_thread(self.archive_completed)
+            self._last_archive_at = now
         for user_id in self._repos.task_board_repo.user_ids():
             board = self.snapshot(user_id)
             for task_id in [item.id for item in board.tasks]:

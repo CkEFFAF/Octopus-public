@@ -11,6 +11,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Pagination,
   Select,
   Space,
   Spin,
@@ -50,6 +51,12 @@ import { formatServerIsoDateTime } from "../../utils/formatMessageTime";
 import { apiErrorMessage } from "../../utils/apiError";
 import PageShell from "../../layouts/PageShell";
 import "./taskBoard.css";
+import {
+  taskCenterApi,
+  type TaskOverviewItem,
+  type TaskOverviewPage,
+} from "../../api/modules/taskCenter";
+import { formatServerDateTime } from "../../utils/formatMessageTime";
 
 const states: TaskStatus[] = ["planning", "todo", "running", "done", "failed"];
 const colors = {
@@ -64,6 +71,14 @@ export function tagColor(name: string) {
   for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
   return `hsl(${hash % 360} 42% 44%)`;
 }
+function liveColumn(item: TaskOverviewItem): TaskStatus {
+  if (item.lifecycle === "completed") return "done";
+  if (item.lifecycle === "failed") return "failed";
+  if (item.lifecycle === "inactive" || item.status === "blocked")
+    return "planning";
+  if (["running", "started"].includes(item.status)) return "running";
+  return "todo";
+}
 
 export default function TaskBoardPage() {
   const { t } = useTranslation();
@@ -73,6 +88,13 @@ export default function TaskBoardPage() {
   const { agents } = useAgent();
   const timezone = useServerTimezone();
   const [board, setBoard] = useState<BoardSnapshot | null>(null);
+  const [livePage, setLivePage] = useState<{
+    key: string;
+    value: TaskOverviewPage;
+  } | null>(null);
+  const [liveError, setLiveError] = useState("");
+  const [liveOffset, setLiveOffset] = useState(0);
+  const [liveRefresh, setLiveRefresh] = useState(0);
   const [teams, setTeams] = useState<TeamRecord[]>([]);
   const [query, setQuery] = useState("");
   const [tags, setTags] = useState<string[]>([]);
@@ -100,6 +122,78 @@ export default function TaskBoardPage() {
   useUnsavedChangesWarning(Boolean(editor) && (editorDirty || busy));
   const project = search.get("project") || "";
   const memberFilter = search.get("agent") || "";
+  const threadFilter = search.get("thread") || "";
+  const liveKey = JSON.stringify([
+    memberFilter,
+    threadFilter,
+    archived,
+    query,
+    liveOffset,
+  ]);
+  const live = livePage?.key === liveKey ? livePage.value : null;
+  useEffect(() => {
+    let active = true;
+    let sequence = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    setLiveError("");
+    async function load() {
+      const request = ++sequence;
+      try {
+        const value = await taskCenterApi.page({
+          agent_id: memberFilter,
+          thread_id: threadFilter,
+          lifecycle: archived ? "archived" : "all",
+          query,
+          offset: liveOffset,
+          limit: 100,
+          include_board: false,
+        });
+        if (active && request === sequence) {
+          setLivePage({ key: liveKey, value });
+          setLiveError("");
+        }
+      } catch (err) {
+        if (active && request === sequence)
+          setLiveError(apiErrorMessage(err, t("octopus.loadFailed"), t));
+      } finally {
+        if (active && request === sequence && !archived)
+          timer = setTimeout(() => {
+            if (!document.hidden) void load();
+          }, 5000);
+      }
+    }
+    const visibility = () => {
+      if (!document.hidden) {
+        clearTimeout(timer);
+        void load();
+      }
+    };
+    void load();
+    document.addEventListener("visibilitychange", visibility);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", visibility);
+    };
+  }, [
+    liveKey,
+    memberFilter,
+    threadFilter,
+    archived,
+    query,
+    liveOffset,
+    liveRefresh,
+    t,
+  ]);
+  const liveItems = (live?.items || []).filter(
+    (item) =>
+      !tags.length &&
+      (!project ||
+        item.agent_id === project ||
+        teams
+          .find((team) => team.team_id === project)
+          ?.member_ids.includes(item.agent_id)),
+  );
   const executors = agents.filter((agent) => agent.is_owner !== false);
   const formProject = Form.useWatch("project_id", form) as string | undefined;
   const scopeProject = editor === "create" ? formProject || "" : taskProject();
@@ -147,12 +241,17 @@ export default function TaskBoardPage() {
       );
   }, [reload, t]);
   useEffect(() => {
+    if (archived) return;
     const timer = window.setInterval(() => {
       if (!document.hidden) void reload();
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [reload]);
+  }, [reload, archived]);
   const task = board?.tasks.find((item) => item.id === selected);
+  useEffect(() => {
+    const id = search.get("task");
+    if (id && board?.tasks.some((item) => item.id === id)) setSelected(id);
+  }, [search, board]);
   const activeRun = task?.runs.at(-1)?.state === "running";
   const childTasks =
     board?.tasks.filter((item) => item.parent_id === selected) || [];
@@ -162,6 +261,8 @@ export default function TaskBoardPage() {
         item.archived === archived &&
         (!project || item.project_id === project) &&
         (!memberFilter || item.agent_id === memberFilter) &&
+        (!threadFilter ||
+          item.runs.some((run) => run.thread_id === threadFilter)) &&
         (archived ||
           showChildren ||
           !item.parent_id ||
@@ -324,7 +425,16 @@ export default function TaskBoardPage() {
       subtitle={t("uiFeedback.boardHelp")}
       actions={
         <Space>
-          <Button icon={<RefreshCw size={15} />} onClick={() => void reload()}>
+          <Button onClick={() => navigate("/task-center")}>
+            {t("taskCenter.title")}
+          </Button>
+          <Button
+            icon={<RefreshCw size={15} />}
+            onClick={() => {
+              void reload();
+              setLiveRefresh((value) => value + 1);
+            }}
+          >
             {tr("refresh")}
           </Button>
           <Button
@@ -359,7 +469,49 @@ export default function TaskBoardPage() {
           style={{ marginBottom: 16 }}
         />
       )}
+      {liveError && <Alert type="warning" showIcon message={liveError} />}
+      <p className="octopus-board-sync-hint">{t("taskCenter.boardSync")}</p>
       <div className="octopus-board-filters">
+        <Select
+          aria-label={t("taskCenter.expert")}
+          value={memberFilter}
+          showSearch
+          optionFilterProp="label"
+          style={{ minWidth: 170 }}
+          options={[
+            { value: "", label: t("taskCenter.allExperts") },
+            ...agents.map((agent) => ({
+              value: agent.agent_id,
+              label: agent.name,
+            })),
+          ]}
+          onChange={(value) => {
+            const next = new URLSearchParams(search);
+            if (value) next.set("agent", value);
+            else next.delete("agent");
+            next.delete("thread");
+            setSearch(next);
+            setLiveOffset(0);
+          }}
+        />
+        <Select
+          aria-label={t("taskCenter.conversation")}
+          value={threadFilter}
+          showSearch
+          optionFilterProp="label"
+          style={{ minWidth: 190 }}
+          options={[
+            { value: "", label: t("taskCenter.allConversations") },
+            ...(live?.threads || []),
+          ]}
+          onChange={(value) => {
+            const next = new URLSearchParams(search);
+            if (value) next.set("thread", value);
+            else next.delete("thread");
+            setSearch(next);
+            setLiveOffset(0);
+          }}
+        />
         <Select
           aria-label={tr("project")}
           value={project}
@@ -446,7 +598,7 @@ export default function TaskBoardPage() {
           <Spin /> {t("uiFeedback.taskLoad")}
         </div>
       )}
-      {!loading && board && visible.length === 0 && (
+      {!loading && board && visible.length === 0 && liveItems.length === 0 && (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
           description={
@@ -491,9 +643,52 @@ export default function TaskBoardPage() {
                 <span style={{ background: colors[status] }} />{" "}
                 <strong>{tr(status)}</strong>
                 <small>
-                  {visible.filter((item) => item.status === status).length}
+                  {visible.filter((item) => item.status === status).length +
+                    liveItems.filter((item) => liveColumn(item) === status)
+                      .length}
                 </small>
               </header>
+              {liveItems
+                .filter((item) => liveColumn(item) === status)
+                .map((item) => (
+                  <article key={item.id} className={`octopus-task ${status}`}>
+                    <button
+                      className="octopus-task-open"
+                      onClick={() =>
+                        navigate(
+                          item.thread_id
+                            ? `/chat/${encodeURIComponent(
+                                item.agent_id,
+                              )}/${encodeURIComponent(item.thread_id)}`
+                            : `/task-center?agent=${encodeURIComponent(
+                                item.agent_id,
+                              )}`,
+                        )
+                      }
+                    >
+                      <strong>{item.title}</strong>
+                      <div className="octopus-task-tags">
+                        <Tag>{t(`taskCenter.sources.${item.source}`)}</Tag>
+                        <Tag>
+                          {item.stale
+                            ? t("taskCenter.stale")
+                            : t(`taskCenter.status.${item.status}`, {
+                                defaultValue: item.status,
+                              })}
+                        </Tag>
+                        {item.declared && <Tag>{t("taskCenter.declared")}</Tag>}
+                      </div>
+                      {item.summary && <p>{item.summary}</p>}
+                    </button>
+                    <footer>
+                      <span>{item.agent_name}</span>
+                      <span>{item.thread_title}</span>
+                    </footer>
+                    <small>
+                      {formatServerDateTime(item.updated_at, timezone)}
+                    </small>
+                  </article>
+                ))}
               {visible
                 .filter((item) => item.status === status)
                 .map((item) => (
@@ -601,13 +796,22 @@ export default function TaskBoardPage() {
                     {!item.pin && <small>{tr("needsConfirmation")}</small>}
                   </article>
                 ))}
-              {visible.filter((item) => item.status === status).length ===
-                0 && (
-                <div className="octopus-column-empty">{tr("noTasks")}</div>
-              )}
+              {visible.filter((item) => item.status === status).length === 0 &&
+                !liveItems.some((item) => liveColumn(item) === status) && (
+                  <div className="octopus-column-empty">{tr("noTasks")}</div>
+                )}
             </section>
           ))}
         </div>
+      )}
+      {live && live.total > 100 && !tags.length && (
+        <Pagination
+          pageSize={100}
+          showSizeChanger={false}
+          current={Math.floor(liveOffset / 100) + 1}
+          total={live.total}
+          onChange={(page) => setLiveOffset((page - 1) * 100)}
+        />
       )}
       <Drawer
         width="min(620px, 100vw)"

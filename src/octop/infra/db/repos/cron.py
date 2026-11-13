@@ -207,6 +207,7 @@ class CronJobRepo:
         *,
         include_disabled: bool = True,
         user_id: int | None = None,
+        archived: bool = False,
     ) -> list[CronJobRow]:
         sql = "SELECT * FROM cron_jobs WHERE agent_id = ?"
         params: list[object] = [agent_id]
@@ -215,9 +216,29 @@ class CronJobRepo:
             params.append(user_id)
         if not include_disabled:
             sql += " AND enabled = 1"
+        sql += (
+            " AND "
+            + ("" if archived else "NOT ")
+            + "EXISTS (SELECT 1 FROM task_history_archives a WHERE a.owner_user_id=cron_jobs.user_id "
+            "AND a.source='schedule' AND a.source_id=cron_jobs.cron_id "
+            "AND a.source_updated_at=cron_jobs.updated_at)"
+        )
         sql += " ORDER BY created_at DESC"
         with self._db.connect() as conn:
             rows = conn.execute(sql, params).fetchall()
+        return map_rows(rows, CronJobRow)
+
+    def archive_candidates(self, cutoff: float) -> list[CronJobRow]:
+        with self._db.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM cron_jobs r WHERE last_run_at<? AND updated_at<? "
+                "AND last_status IN ('ok','error') AND (kind='self_reminder' OR schedule_spec LIKE 'date:%') "
+                "AND NOT EXISTS (SELECT 1 FROM task_history_archives a WHERE a.owner_user_id=r.user_id "
+                "AND a.source='schedule' AND a.source_id=r.cron_id AND a.source_updated_at=r.updated_at) "
+                "AND NOT EXISTS (SELECT 1 FROM cron_attempts c WHERE c.owner_user_id=r.user_id "
+                "AND c.cron_id=r.cron_id AND c.status IN ('waiting_session','queued','running'))",
+                (cutoff, cutoff),
+            ).fetchall()
         return map_rows(rows, CronJobRow)
 
     def list_all(self, *, include_disabled: bool = True) -> list[CronJobRow]:

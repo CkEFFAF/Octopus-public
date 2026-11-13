@@ -1,5 +1,8 @@
 .notice {
-  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
   font-size: 12px;
   color: #7e8794;
 }
@@ -16,7 +19,7 @@
     min-height: 0;
   }
   .files {
-    width: 165px;
+    width: 190px;
   }
   .details {
     display: flex;
@@ -77,9 +80,13 @@
   }
 }
 .turnBadge {
-  font-size: 10px;
-  font-style: normal;
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
   color: #b83f5a;
+  margin-left: auto;
 }
 .paneActions {
   display: flex;
@@ -90,10 +97,33 @@
   padding: 12px;
   overflow-wrap: anywhere;
 }
-.liveHint {
-  padding: 0 12px;
-  font-size: 11px;
-  color: var(--fn-text-secondary, #7e8794);
+.info {
+  display: inline-flex;
+  border: 0;
+  padding: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.paneTabs {
+  display: none;
+  margin-left: auto;
+  align-items: center;
+  gap: 2px;
+  button {
+    border: 0;
+    border-radius: 5px;
+    padding: 5px 8px;
+    color: var(--fn-text-secondary, #7e8794);
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+    &[aria-selected="true"] {
+      color: var(--fn-text-primary, #1a1d23);
+      background: var(--fn-bg-secondary, #f3f4f6);
+      font-weight: 600;
+    }
+  }
 }
 .fullContent {
   margin: 0;
@@ -104,14 +134,18 @@
     12px/1.65 Consolas,
     monospace;
 }
-@container (max-width: 750px) {
+@container (max-width: 950px) {
+  .paneTabs {
+    display: flex;
+  }
   .comparison {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    > [data-active="false"] {
+      display: none;
+    }
   }
   .currentPane {
     border-left: 0;
-    border-top: 1px solid #e7eaf0;
   }
 }
 .review {
@@ -187,7 +221,7 @@
   }
 }
 .path {
-  padding: 12px 16px;
+  padding: 8px 12px;
   border-bottom: 1px solid #edf0f4;
   font-size: 12px;
   overflow-wrap: anywhere;
@@ -195,6 +229,38 @@
     display: block;
     margin-top: 3px;
     color: #7e8794;
+  }
+}
+.fileName {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  gap: 8px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  svg {
+    flex-shrink: 0;
+    color: var(--fn-text-secondary, #7e8794);
+  }
+}
+.fileInfo {
+  max-width: min(480px, 80vw);
+  overflow-wrap: anywhere;
+  small {
+    display: block;
+    margin-top: 6px;
+    color: var(--fn-text-secondary, #7e8794);
   }
 }
 .edit {

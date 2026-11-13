@@ -6,6 +6,10 @@ import { ChatFilePreviewProvider } from "../ChatFilePreviewContext";
 import ChatDockFileList from "./ChatDockFileList";
 import { MessageFileCard } from "./MessageFileCard";
 
+vi.mock("../../../components/PinnedFilesPanel", () => ({
+  default: () => null,
+}));
+
 vi.mock("../../../components/AuthFileDownloadLink", () => ({
   downloadAuthFile: vi.fn().mockResolvedValue(undefined),
 }));

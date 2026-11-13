@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   Alert,
   Button,
@@ -48,6 +48,7 @@ import TaskActivityGraph from "./TaskActivityGraph";
 import styles from "./TaskActivity.module.less";
 import { activityLabel } from "../utils/activityLabel";
 import JobProgress from "./JobProgress";
+import TaskOverview from "../../../components/TaskOverview";
 
 export const OPEN_TASK_ACTIVITY_EVENT = "octop:open-task-activity";
 
@@ -76,6 +77,7 @@ export function ActivityStatus({
     <span className={styles.status}>
       <Icon size={15} className={running ? styles.running : ""} />
       {t(`workspace0034.status.${outdated ? "stale" : node.status}`)}
+      {node.declared && <small>{t("taskCenter.declared")}</small>}
     </span>
   );
 }
@@ -316,8 +318,10 @@ export default function TaskActivity({
   const schedules = useSchedules(agentId, threadId);
   const navSchedules = useSchedules(
     agentId,
-    scheduleScope === "agent" ? undefined : threadId,
+    undefined,
+    scheduleScope === "agent",
   );
+  const visibleSchedules = scheduleScope === "agent" ? navSchedules : schedules;
   const [snapshot, setSnapshot] = useState<ActivitySnapshot | null>(null);
   const [error, setError] = useState("");
   const [summary, setSummary] = useState(false);
@@ -691,6 +695,7 @@ export default function TaskActivity({
       </Popover>
       <Modal
         open={open}
+        destroyOnHidden
         title={null}
         footer={null}
         closable={false}
@@ -713,7 +718,13 @@ export default function TaskActivity({
           <header className={styles.header}>
             <div>
               <h2>{t("workspace0034.workbench")}</h2>
-              <span>{t("workspace0034.scopeCurrent")}</span>
+              <span>
+                {t(
+                  section === "expert"
+                    ? "taskCenter.expertScope"
+                    : "workspace0034.scopeCurrent",
+                )}
+              </span>
             </div>
             <div className={styles.observation}>
               <span className={stale ? styles.staleDot : styles.currentDot} />
@@ -731,6 +742,12 @@ export default function TaskActivity({
                   })
                 : t("workspace0034.loading")}
             </div>
+            <Link
+              to={`/task-center?agent=${encodeURIComponent(agentId)}`}
+              onClick={close}
+            >
+              {t("taskCenter.title")}
+            </Link>
             <Button
               type="text"
               aria-label={t("common.close")}
@@ -744,6 +761,7 @@ export default function TaskActivity({
               aria-label={t("workspace0034.workbench")}
             >
               {[
+                { key: "expert", label: "expertTasks", icon: Bot, count: "" },
                 {
                   key: "live",
                   label: "liveScene",
@@ -755,18 +773,18 @@ export default function TaskActivity({
                   label: "schedules",
                   icon: CalendarClock,
                   count:
-                    navSchedules.loading || navSchedules.error
+                    visibleSchedules.loading || visibleSchedules.error
                       ? "?"
-                      : navSchedules.counts.schedules,
+                      : visibleSchedules.counts.schedules,
                 },
                 {
                   key: "reminders",
                   label: "reminders",
                   icon: Bell,
                   count:
-                    navSchedules.loading || navSchedules.error
+                    visibleSchedules.loading || visibleSchedules.error
                       ? "?"
-                      : navSchedules.counts.reminders,
+                      : visibleSchedules.counts.reminders,
                 },
               ].map((item) => (
                 <button
@@ -786,7 +804,9 @@ export default function TaskActivity({
               ))}
             </nav>
             <main className={styles.main}>
-              {section !== "live" ? (
+              {section === "expert" ? (
+                <TaskOverview agentId={agentId} fixedAgent />
+              ) : section !== "live" ? (
                 <ScheduleBrowser
                   key={section}
                   agentId={agentId}

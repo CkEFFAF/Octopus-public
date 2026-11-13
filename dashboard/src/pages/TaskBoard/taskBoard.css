@@ -6,6 +6,11 @@
   align-items: center;
   margin-bottom: 18px;
 }
+.octopus-board-sync-hint {
+  color: var(--fn-text-secondary, #737780);
+  font-size: 12px;
+  margin: 0 0 14px;
+}
 .octopus-board-tags {
   gap: 7px;
   min-height: 28px;

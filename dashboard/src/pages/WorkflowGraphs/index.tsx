@@ -510,6 +510,7 @@ export default function WorkflowGraphs() {
                       </aside>
                     ) : (
                       <Inspector
+                        key={selectedNode?.id}
                         graph={draft}
                         node={selectedNode}
                         onChange={changed}
@@ -730,7 +731,7 @@ export default function WorkflowGraphs() {
         title={tr("library")}
         open={libraryOpen}
         onClose={() => setLibraryOpen(false)}
-        width={300}
+        width="min(300px, 100vw)"
         className="wg-library-drawer"
         extra={
           <Button type="text" icon={<Plus size={16} />} onClick={create}>
@@ -775,37 +776,45 @@ export default function WorkflowGraphs() {
           title={tr("settings")}
           open={settingsOpen}
           onClose={() => setSettingsOpen(false)}
-          width={440}
+          width="min(480px, 100vw)"
           className="wg-settings-drawer"
+          styles={{
+            body: {
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              padding: "16px 20px",
+            },
+          }}
         >
           <div className="wg-settings-actions">
-            <h3>{tr("workflowActions")}</h3>
-            <Space wrap>
+            <Space wrap size={4} aria-label={tr("workflowActions")}>
               <Button
                 aria-label={tr("undo")}
                 icon={<Undo2 size={16} />}
                 disabled={readonly || !past.length}
                 onClick={undo}
-              >
-                {tr("undo")}
-              </Button>
+                title={tr("undo")}
+              />
               <Button
                 aria-label={tr("redo")}
                 icon={<Redo2 size={16} />}
                 disabled={readonly || !future.length}
                 onClick={redo}
-              >
-                {tr("redo")}
-              </Button>
+                title={tr("redo")}
+              />
               <Button
                 icon={<Upload size={15} />}
                 onClick={() => file.current?.click()}
-              >
-                {tr("import")}
-              </Button>
-              <Button icon={<Download size={15} />} onClick={exportGraph}>
-                {tr("export")}
-              </Button>
+                aria-label={tr("import")}
+                title={tr("import")}
+              />
+              <Button
+                aria-label={tr("export")}
+                title={tr("export")}
+                icon={<Download size={15} />}
+                onClick={exportGraph}
+              />
               <Button
                 disabled={busy}
                 icon={<Save size={15} />}
@@ -841,64 +850,71 @@ export default function WorkflowGraphs() {
               </Button>
             </Space>
           </div>
-          <Inspector graph={draft} onChange={changed} agents={agents} tr={tr} />
-          <div className="wg-settings-utilities">
-            <h3>{tr("management")}</h3>{" "}
-            <div className="wg-statusbar">
-              <span>
-                {draft.nodes.length} {tr("nodes")} / {draft.edges.length}{" "}
-                {tr("connections")}
-              </span>
-              <Space>
-                <Button
-                  size="small"
-                  onClick={() =>
-                    void attempt(async () =>
-                      setIssues(await api.validate(draft)),
-                    )
-                  }
-                >
-                  {tr("validate")}
-                </Button>
-                <Button
-                  size="small"
-                  danger
-                  icon={<Trash2 size={14} />}
-                  disabled={readonly || !selected}
-                  onClick={remove}
-                >
-                  {tr("delete")}
-                </Button>
-                <Button
-                  size="small"
-                  onClick={() =>
-                    void attempt(async () =>
-                      setCapability(await api.capability(view.graph_id)),
-                    )
-                  }
-                >
-                  {tr("callback")}
-                </Button>
-                <Button
-                  size="small"
-                  danger
-                  icon={<Archive size={14} />}
-                  onClick={() =>
-                    Modal.confirm({
-                      title: tr("archive"),
-                      onOk: async () => {
-                        await api.archive(view.graph_id, view.revision);
-                        setView(null);
-                        setDraft(null);
-                        setRun(null);
-                        await reloadList();
-                      },
-                    })
-                  }
-                >
-                  {tr("archive")}
-                </Button>
-              </Space>
+          <div className="wg-settings-scroll">
+            <Inspector
+              graph={draft}
+              onChange={changed}
+              agents={agents}
+              tr={tr}
+            />
+            <div className="wg-settings-utilities">
+              <h3>{tr("management")}</h3>{" "}
+              <div className="wg-statusbar">
+                <span>
+                  {draft.nodes.length} {tr("nodes")} / {draft.edges.length}{" "}
+                  {tr("connections")}
+                </span>
+                <Space>
+                  <Button
+                    size="small"
+                    onClick={() =>
+                      void attempt(async () =>
+                        setIssues(await api.validate(draft)),
+                      )
+                    }
+                  >
+                    {tr("validate")}
+                  </Button>
+                  <Button
+                    size="small"
+                    danger
+                    icon={<Trash2 size={14} />}
+                    disabled={readonly || !selected}
+                    onClick={remove}
+                  >
+                    {tr("delete")}
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={() =>
+                      void attempt(async () =>
+                        setCapability(await api.capability(view.graph_id)),
+                      )
+                    }
+                  >
+                    {tr("callback")}
+                  </Button>
+                  <Button
+                    size="small"
+                    danger
+                    icon={<Archive size={14} />}
+                    onClick={() =>
+                      Modal.confirm({
+                        title: tr("archive"),
+                        onOk: async () => {
+                          await api.archive(view.graph_id, view.revision);
+                          setView(null);
+                          setDraft(null);
+                          setRun(null);
+                          await reloadList();
+                        },
+                      })
+                    }
+                  >
+                    {tr("archive")}
+                  </Button>
+                </Space>
+              </div>
             </div>
           </div>
         </Drawer>
@@ -1025,7 +1041,7 @@ export default function WorkflowGraphs() {
         title={tr("activation")}
         open={!!detail}
         onClose={() => setDetail(null)}
-        width={600}
+        width="min(600px, 100vw)"
       >
         {detail && (
           <>

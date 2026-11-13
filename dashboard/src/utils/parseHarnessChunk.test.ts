@@ -82,3 +82,23 @@ describe("parseHarnessChunk usage", () => {
     });
   });
 });
+
+describe("trusted collaboration sender", () => {
+  it("preserves machine sender on live user echo", () => {
+    expect(
+      parseHarnessChunk(
+        'data: {"type":"user","content":"research","sender":{"kind":"machine","id":"key","name":"Codex"}}',
+      ),
+    ).toMatchObject({
+      type: "user",
+      sender: { kind: "machine", id: "key", name: "Codex" },
+    });
+  });
+  it("does not infer sender from text or source", () => {
+    expect(
+      parseHarnessChunk(
+        'data: {"type":"user","content":"Codex","source":"codex"}',
+      ),
+    ).not.toHaveProperty("sender", expect.anything());
+  });
+});

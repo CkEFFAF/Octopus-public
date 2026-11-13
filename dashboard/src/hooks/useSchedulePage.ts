@@ -13,7 +13,7 @@ const empty: SchedulePage = {
   counts: { schedules: 0, reminders: 0 },
 };
 
-export function useSchedulePage(query: ScheduleQuery) {
+export function useSchedulePage(query: ScheduleQuery, enabled = true) {
   const key = JSON.stringify(query);
   const [state, setState] = useState({
     key,
@@ -25,6 +25,7 @@ export function useSchedulePage(query: ScheduleQuery) {
   const refreshRef = useRef<() => Promise<void>>(async () => {});
   const moreRef = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
+    if (!enabled) return;
     let disposed = false;
     let epoch = 0;
     let loaded = 5;
@@ -32,6 +33,7 @@ export function useSchedulePage(query: ScheduleQuery) {
     let busy = false;
     let timer: ReturnType<typeof setTimeout>;
     const filters = JSON.parse(key) as ScheduleQuery;
+    const live = !filters.lifecycle || filters.lifecycle === "active";
     setState({ key, page: empty, loading: true, error: "" });
     setLoadingMore(false);
     async function refresh() {
@@ -47,7 +49,7 @@ export function useSchedulePage(query: ScheduleQuery) {
         if (!disposed && request === epoch)
           setState((old) => ({ ...old, loading: false, error: String(error) }));
       } finally {
-        if (!disposed && request === epoch)
+        if (!disposed && request === epoch && live)
           timer = setTimeout(
             () => void refresh(),
             document.hidden ? 30000 : 5000,
@@ -87,7 +89,7 @@ export function useSchedulePage(query: ScheduleQuery) {
         busy = false;
         if (!disposed) {
           setLoadingMore(false);
-          timer = setTimeout(() => void refresh(), 5000);
+          if (live) timer = setTimeout(() => void refresh(), 5000);
         }
       }
     };
@@ -103,7 +105,7 @@ export function useSchedulePage(query: ScheduleQuery) {
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", visible);
     };
-  }, [key]);
+  }, [key, enabled]);
   const valid = state.key === key;
   return {
     ...(valid ? state.page : empty),

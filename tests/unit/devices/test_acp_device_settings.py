@@ -19,13 +19,14 @@ from tests.unit.devices.test_service import enroll, rig  # noqa: F401, F811
 async def test_permission_response_uses_harness_session_id():
     request = RequestACPService(config=ACPConfig(), devices=None, owner=7, agent_id="expert")
     service = AsyncMock()
-    service._find_session_by_acp_id.return_value = object()
+    service.get_session.return_value = SimpleNamespace(acp_session_id="session")
     service.resume_permission.return_value = {"status": "completed"}
     request._session_targets[("thread", "opencode")] = service
     result = await request.resume_permission(
         acp_session_id="session", option_id="allow", on_message=None
     )
     assert result["status"] == "completed"
+    service.get_session.assert_awaited_once_with("thread", "opencode")
     service.resume_permission.assert_awaited_once_with(
         acp_session_id="session", option_id="allow", on_message=None
     )

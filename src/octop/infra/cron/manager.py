@@ -87,6 +87,12 @@ class CronManager:
         self._repos.cron_attempt_repo.recover()
         self._repos.run_event_repo.recover_wakeup_deliveries()
         self._scheduler.start()
+        await self.archive_task_history()
+        self.schedule_system_job(
+            "task-history-archive",
+            trigger="interval:3600",
+            func=self.archive_task_history,
+        )
         self.schedule_system_job(
             "cron-report-checkpoint-cleanup",
             trigger="interval:600",
@@ -96,6 +102,34 @@ class CronManager:
         for row in rows:
             self._schedule(row)
         logger.info("CronManager booted; scheduled %d jobs", len(rows))
+
+    async def archive_task_history(self) -> None:
+        from octop.infra.db.repos.task_archives import (
+            COMPLETED_RETENTION_SECONDS,
+            FAILED_RETENTION_SECONDS,
+            TaskArchiveRepo,
+        )
+
+        archive = TaskArchiveRepo(self._repos.db)
+        await asyncio.to_thread(archive.archive_terminal)
+        now = time.time()
+        candidates = await asyncio.to_thread(
+            self._repos.cron_repo.archive_candidates, now - COMPLETED_RETENTION_SECONDS
+        )
+        for row in candidates:
+            value = self.public_view(row)
+            # Paused repeat schedules remain current. Only exhausted reminders or
+            # successfully fired one-offs can leave the operational lists.
+            if value["scheduler_state"] not in {"exhausted", "ended"}:
+                continue
+            if (
+                row.last_status == "error"
+                and (row.last_run_at or now) > now - FAILED_RETENTION_SECONDS
+            ):
+                continue
+            await asyncio.to_thread(
+                archive.mark, row.user_id, "schedule", row.cron_id, row.updated_at
+            )
 
     async def reload_from_db(self) -> None:
         """Drop user cron schedules and re-register enabled jobs from the DB.
@@ -214,6 +248,7 @@ class CronManager:
         include_disabled: bool = True,
         user_id: int | None = None,
         include_self_reminders: bool = False,
+        archived: bool = False,
     ) -> list[CronJobRow]:
         from octop.infra.cron.self_reminder import is_self_reminder_row
 
@@ -221,6 +256,7 @@ class CronManager:
             agent_id,
             include_disabled=include_disabled,
             user_id=user_id,
+            archived=archived,
         )
         if include_self_reminders:
             return rows

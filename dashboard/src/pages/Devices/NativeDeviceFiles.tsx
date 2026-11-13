@@ -671,7 +671,16 @@ export default function NativeDeviceFiles({
                       padding: "20px 24px",
                     }}
                   >
-                    <Markdown content={file.text} />
+                    <Markdown
+                      content={file.text}
+                      onLocalFileLink={(filePath) =>
+                        void open({
+                          path: filePath,
+                          name: filePath,
+                          is_dir: false,
+                        })
+                      }
+                    />
                   </div>
                 ) : (
                   <CodeEditor

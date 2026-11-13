@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 WORK_ITEM_SCHEMA_VERSION = 1
 WORK_ITEM_STATUSES = frozenset(
@@ -57,6 +57,7 @@ class ResourceRef(BaseModel):
 
 
 class WorkItemCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     command_id: str = Field(min_length=1, max_length=128)
     agent_id: str = Field(min_length=1, max_length=128)
     origin_thread_id: str = Field(min_length=1, max_length=128)
@@ -68,6 +69,7 @@ class WorkItemCreate(BaseModel):
 
 
 class WorkItemInputCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     command_id: str = Field(min_length=1, max_length=128)
     text: str = Field(min_length=1, max_length=50_000)
     target_run_id: str | None = None

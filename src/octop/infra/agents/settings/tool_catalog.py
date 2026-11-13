@@ -118,6 +118,7 @@ BUILTIN_TOOL_CATALOG: tuple[BuiltinToolEntry, ...] = (
     BuiltinToolEntry("grep", "filesystem"),
     BuiltinToolEntry("execute", "filesystem"),
     BuiltinToolEntry("write_todos", "orchestration"),
+    BuiltinToolEntry("list_expert_tasks", "orchestration"),
     BuiltinToolEntry("task", "orchestration"),
     BuiltinToolEntry("get_conversation_brief", "orchestration"),
     BuiltinToolEntry("list_conversation_events", "orchestration"),

@@ -126,14 +126,23 @@ class WorkItemRepo:
         owner: int,
         *,
         origin_thread_id: str | None = None,
+        agent_id: str | None = None,
         status_group: str = "open",
         before: float | None = None,
         limit: int = 50,
         credential_id: str | None = None,
         command_id: str | None = None,
     ) -> builtins.list[dict[str, Any]]:
-        sql = "SELECT * FROM work_items WHERE owner_user_id = ?"
+        sql = (
+            "SELECT * FROM work_items WHERE owner_user_id = ? "
+            "AND NOT EXISTS (SELECT 1 FROM task_history_archives a "
+            "WHERE a.owner_user_id=work_items.owner_user_id AND a.source='work_item' "
+            "AND a.source_id=work_items.task_id AND a.source_updated_at=work_items.updated_at)"
+        )
         values: list[Any] = [owner]
+        if agent_id:
+            sql += " AND agent_id = ?"
+            values.append(agent_id)
         if credential_id is not None:
             sql += (
                 " AND EXISTS (SELECT 1 FROM agent_access_object_grants g "

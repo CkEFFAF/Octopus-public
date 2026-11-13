@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -20,6 +21,7 @@ import {
   nodePorts,
   nodePreview,
 } from "./nodePresentation";
+import { routeEdges } from "./edgeGeometry";
 
 export function GraphCanvas({
   graph,
@@ -62,10 +64,18 @@ export function GraphCanvas({
   const latest = new Map(
     activations.map((item) => [item.node_id, item.status]),
   );
-  const nodes = graph.nodes.map((node) =>
-    moving?.id === node.id
-      ? { ...node, position: { x: moving.x, y: moving.y } }
-      : node,
+  const nodes = useMemo(
+    () =>
+      graph.nodes.map((node) =>
+        moving?.id === node.id
+          ? { ...node, position: { x: moving.x, y: moving.y } }
+          : node,
+      ),
+    [graph.nodes, moving],
+  );
+  const routes = useMemo(
+    () => routeEdges(nodes, graph.edges),
+    [nodes, graph.edges],
   );
   const connect = (target: string) => {
     if (!connecting || readOnly) return;
@@ -233,16 +243,8 @@ export function GraphCanvas({
           {graph.edges.map((edge) => {
             const source = nodes.find((n) => n.id === edge.source),
               target = nodes.find((n) => n.id === edge.target);
-            if (!source || !target) return null;
-            const x = source.position.x + NODE_WIDTH,
-              y =
-                source.position.y +
-                nodeHeaderHeight(source) +
-                PORT_HEIGHT * (nodePorts(source).indexOf(edge.port) + 0.5),
-              tx = target.position.x,
-              ty = target.position.y + 54;
-            const bend = Math.max(65, Math.abs(tx - x) / 2),
-              d = `M${x},${y} C${x + bend},${y} ${tx - bend},${ty} ${tx},${ty}`;
+            const route = routes.get(edge.id);
+            if (!source || !target || !route) return null;
             return (
               <g
                 key={edge.id}
@@ -258,9 +260,18 @@ export function GraphCanvas({
                   }
                 }}
               >
-                <path className="wg-edge-hit" d={d} />
-                <path className="wg-edge" d={d} markerEnd="url(#wg-arrow)" />
-                <text x={(x + tx) / 2} y={(y + ty) / 2 - 10}>
+                <path className="wg-edge-hit" d={route.path} />
+                <path
+                  className="wg-edge"
+                  d={route.path}
+                  markerEnd="url(#wg-arrow)"
+                />
+                <text
+                  x={route.label.x}
+                  y={route.label.y}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                >
                   {edge.label ||
                     (edge.port === "next" ? "" : tr(`port.${edge.port}`))}
                 </text>

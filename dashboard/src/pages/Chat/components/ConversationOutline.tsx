@@ -69,7 +69,7 @@ export default function ConversationOutline({
   references: (refs: ConversationSourceRef[]) => ReactNode;
 }) {
   const { t } = useTranslation();
-  const [mode, setMode] = useState("standard");
+  const [mode, setMode] = useState("compact");
   const [format, setFormat] = useState<"markdown" | "mermaid" | "todo">(
     "markdown",
   );
@@ -155,12 +155,17 @@ export default function ConversationOutline({
       />
       <Tree
         showLine
-        defaultExpandAll
+        defaultExpandedKeys={[
+          "objective",
+          "decisions",
+          "nextActions",
+          "blockers",
+        ]}
         key={mode}
         style={{ overflowWrap: "anywhere", minWidth: 0 }}
         treeData={groups.map((group) => ({
           key: group.key,
-          title: group.label,
+          title: `${group.label} (${group.items.length})`,
           children: group.items.map((item, i) => ({
             key: group.key + i,
             title: (

@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from octop.infra.db.pool import DatabasePool
-from octop.infra.db.repos._base import DbRow, bool_int, map_rows, now_ts
+from octop.infra.db.repos._base import DbRow, bool_int, map_rows, now_ts, sql_in_placeholders
 from octop.infra.db.repos.conversation_metadata import mark_metadata_dirty
 from octop.infra.utils.thread_artifact import (
     MAX_THREAD_ARTIFACTS,
@@ -158,6 +158,18 @@ def repair_all_legacy_thread_titles(db: DatabasePool) -> int:
 class ThreadRepo:
     def __init__(self, db: DatabasePool) -> None:
         self._db = db
+
+    def get_many(self, thread_ids: list[str]) -> list[ThreadRow]:
+        result: list[ThreadRow] = []
+        with self._db.connect() as conn:
+            for offset in range(0, len(thread_ids), 500):
+                batch = thread_ids[offset : offset + 500]
+                rows = conn.execute(
+                    f"SELECT * FROM threads WHERE thread_id IN ({sql_in_placeholders(len(batch))})",
+                    tuple(batch),
+                ).fetchall()
+                result.extend(ThreadRow.from_row(row) for row in rows)
+        return result
 
     def insert(
         self,

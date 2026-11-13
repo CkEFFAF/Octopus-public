@@ -1,0 +1,153 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  max-height: min(220px, 30vh);
+  overflow: hidden;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--fn-border-color);
+}
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fn-text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  &:focus-visible {
+    outline: 2px solid var(--fn-border-focus);
+    outline-offset: 2px;
+  }
+}
+.headingActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.count {
+  color: var(--fn-text-tertiary);
+  font-size: 12px;
+  font-weight: 400;
+}
+.hint {
+  margin: 6px 0;
+  color: var(--fn-text-tertiary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  border-radius: 7px;
+  &:hover {
+    background: var(--fn-bg-hover);
+  }
+  &:hover .edit,
+  &:focus-within .edit {
+    opacity: 1;
+  }
+}
+.selected {
+  background: var(--fn-bg-selected);
+}
+.list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 2px 12px;
+  min-height: 0;
+  overflow: auto;
+  margin: 4px -6px 0;
+  &[hidden] {
+    display: none;
+  }
+}
+.selectionBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  color: var(--fn-text-secondary);
+  font-size: 12px;
+}
+.file {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--fn-text-primary);
+  cursor: pointer;
+  text-align: left;
+  &:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+  &:focus-visible {
+    outline: 2px solid var(--fn-border-focus);
+    outline-offset: 2px;
+  }
+}
+.fileIcon {
+  flex-shrink: 0;
+  color: var(--fn-text-secondary);
+}
+.fileCopy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 18px;
+  }
+}
+.edit {
+  flex-shrink: 0;
+  color: var(--fn-text-secondary);
+  opacity: 0;
+}
+@media (hover: none) {
+  .edit {
+    opacity: 1;
+  }
+}
+.removalList {
+  max-height: 180px;
+  overflow: auto;
+  padding-left: 20px;
+  margin: 12px 0;
+  color: var(--fn-text-secondary);
+  li {
+    padding: 3px 0;
+    overflow-wrap: anywhere;
+  }
+}
+.actions {
+  margin-bottom: 8px;
+}

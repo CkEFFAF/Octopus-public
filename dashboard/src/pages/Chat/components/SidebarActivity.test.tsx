@@ -408,3 +408,41 @@ it("discards a late observation from the previous signed-in account", async () =
   expect(screen.queryByText("Older background chat")).toBeNull();
   expect(screen.queryByLabelText("chat.sessionSchedules")).toBeNull();
 });
+
+it.each(["classic", "minimal"])(
+  "keeps %s working shortcuts and previews in the selected category",
+  async (layout) => {
+    const machine = {
+      ...status.working_threads[0],
+      thread_id: "codex",
+      title: "Codex research",
+      category: "agent_collaboration" as const,
+    };
+    vi.mocked(octopThreadsApi.sidebarStatus).mockResolvedValue({
+      ...status,
+      working_threads: [machine],
+    });
+    render(
+      layout === "classic" ? (
+        classic()
+      ) : (
+        <MemoryRouter>
+          <MinimalAgentSessionNav
+            {...common}
+            activeSessions={[idle]}
+            onDeleteActive={vi.fn()}
+            onRenameActive={vi.fn()}
+            onPinActive={vi.fn()}
+          />
+        </MemoryRouter>
+      ),
+    );
+    await waitFor(() =>
+      expect(octopThreadsApi.sidebarStatus).toHaveBeenCalled(),
+    );
+    expect(screen.queryByText("Codex research")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("collaboration.agentConversations"));
+    expect(await screen.findByText("Codex research")).toBeInTheDocument();
+    expect(screen.queryByText("Selected idle chat")).not.toBeInTheDocument();
+  },
+);

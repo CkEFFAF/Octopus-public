@@ -20,6 +20,7 @@ from octop_harness.acp.models import ACPConfig, ACPRunnerConfig, ACPSessionError
 from octop_harness.acp.permissions import BLOCKED_COMMAND_PATTERNS, ACPPermissionAdapter
 from octop_harness.acp.service import ACPService, _Conversation
 
+from octop.infra.conversations.acp_transcript import ACPTranscript
 from octop.infra.devices.service import DeviceService
 
 
@@ -344,12 +345,20 @@ class RequestACPService(ACPService):
     """Select ACP transport per authenticated request, retaining session targets."""
 
     def __init__(
-        self, *, config: ACPConfig, devices: DeviceService, owner: int, agent_id: str
+        self,
+        *,
+        config: ACPConfig,
+        devices: DeviceService,
+        owner: int,
+        agent_id: str,
+        transcript: ACPTranscript | None = None,
     ) -> None:
         super().__init__(config=config)
         self.devices, self.owner, self.agent_id = devices, owner, agent_id
         self._targets: dict[tuple[Any, ...], RemoteACPService] = {}
         self._session_targets: dict[tuple[str, str], RemoteACPService] = {}
+        self.transcript = transcript
+        self.collaboration_threads: dict[tuple[str, str], str] = {}
 
     def resolve_cwd(self, cwd: str, workspace_dir: Any) -> str:
         # Remote native paths must never be expanded with the controller OS.
@@ -412,7 +421,124 @@ class RequestACPService(ACPService):
         # Each service retains the device/default cwd that created its sessions.
         if kwargs.get("cwd"):
             kwargs["cwd"] = str(kwargs["cwd"])
-        return await service.run_turn(**kwargs)
+        self.collaboration_threads.pop(key, None)
+        return await self._record_turn(service, key, kwargs)
+
+    async def _record_turn(
+        self,
+        service: RemoteACPService,
+        key: tuple[str, str],
+        kwargs: dict[str, Any],
+        *,
+        resume: bool = False,
+    ) -> dict[str, Any]:
+        if self.transcript is None:
+            return await (
+                service.resume_permission(**kwargs) if resume else service.run_turn(**kwargs)
+            )
+        from octop_harness.acp.tool_adapter import format_permission_required, render_event_text
+
+        from octop.i18n import tr
+
+        transcript = self.transcript
+        record: dict[str, Any] | None = None
+        response = ""
+        received_text: set[str] = set()
+        callback = kwargs["on_message"]
+        runner_config = service.config.runners.get(key[1])
+        private_values = list((runner_config.env or {}).values()) if runner_config else []
+        prompt = (
+            tr("agentCollaboration.permission_response", "en", option=kwargs["option_id"])
+            if resume
+            else "\n".join(
+                str(block.get("text") or "")
+                for block in kwargs.get("prompt_blocks", [])
+                if block.get("type") == "text"
+            )
+        )
+
+        async def ensure_record() -> None:
+            nonlocal record
+            if record is None:
+                conversation = await service.get_session(*key)
+                if conversation is not None:
+                    record = await transcript.begin(
+                        owner=self.owner,
+                        agent_id=self.agent_id,
+                        parent=key[0],
+                        runner=key[1],
+                        acp_session_id=conversation.acp_session_id,
+                        device_id=service.device_id,
+                        prompt=prompt,
+                        private_values=private_values,
+                    )
+                    self.collaboration_threads[key] = record["thread_id"]
+
+        async def observe(payload: dict[str, Any], is_last: bool) -> None:
+            nonlocal response
+            await ensure_record()
+            rendered = render_event_text(payload) or ""
+            if payload.get("type") == "text" and rendered:
+                received_text.add(rendered)
+            response = (response + rendered)[:128000]
+            if record is not None:
+                await transcript.update(record, response, "running")
+            await callback(payload, is_last)
+
+        kwargs = {**kwargs, "on_message": observe}
+        try:
+            result = await (
+                service.resume_permission(**kwargs) if resume else service.run_turn(**kwargs)
+            )
+            await ensure_record()
+            if isinstance(result.get("event"), dict):
+                final = (render_event_text(result["event"]) or "")[:128000]
+                if final and (final not in received_text or final not in response):
+                    # Retain the final answer even when tool previews filled the bound.
+                    prefix = response[: max(0, 128000 - len(final) - 2)]
+                    response = prefix + ("\n\n" if prefix else "") + final
+            state = str(result.get("status") or "failed")
+            if state not in {"completed", "permission_required", "failed", "cancelled"}:
+                state = "failed"
+            if state == "permission_required" and result.get("suspended_permission") is not None:
+                response += "\n" + format_permission_required(result["suspended_permission"])
+            if record is not None:
+                await transcript.finish(record, response, state)
+                result = {**result, "collaboration_thread_id": record["thread_id"]}
+            return result
+        except BaseException as exc:
+            await ensure_record()
+            if record is None:
+                await self.record_failed_attempt(key[0], key[1], prompt, service=service)
+            if record is not None:
+                state = "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed"
+                error = tr("agentCollaboration.acp_state", "en", state=state)
+                await transcript.finish(record, response + "\n" + error, state)
+            raise
+
+    async def record_failed_attempt(
+        self, parent: str, runner: str, prompt: str, *, service: RemoteACPService | None = None
+    ) -> None:
+        """Record a configured invocation failure without inventing a protocol session."""
+        from octop.i18n import tr
+
+        configured = (service.config if service is not None else self.config).runners.get(runner)
+        if self.transcript is None or not configured or not configured.enabled:
+            return
+        record = await self.transcript.begin(
+            owner=self.owner,
+            agent_id=self.agent_id,
+            parent=parent,
+            runner=runner,
+            acp_session_id="",
+            device_id=service.device_id if service is not None else None,
+            prompt=prompt,
+            private_values=list((configured.env or {}).values()),
+        )
+        self.collaboration_threads[(parent, runner)] = record["thread_id"]
+        await self.transcript.finish(
+            record, tr("agentCollaboration.acp_state", "en", state="failed"), "failed"
+        )
 
     async def get_session(self, thread_id: str, runner: str) -> _Conversation | None:
         service = self._session_targets.get((thread_id, runner))
@@ -437,9 +563,10 @@ class RequestACPService(ACPService):
 
     async def resume_permission(self, **kwargs: Any) -> dict[str, Any]:
         # Harness resumes by the ACP session id, without thread or runner keys.
-        for service in set(self._session_targets.values()):
-            if await service._find_session_by_acp_id(str(kwargs["acp_session_id"])) is not None:
-                return await service.resume_permission(**kwargs)
+        for key, service in list(self._session_targets.items()):
+            conversation = await service.get_session(*key)
+            if conversation and conversation.acp_session_id == str(kwargs["acp_session_id"]):
+                return await self._record_turn(service, key, kwargs, resume=True)
         raise ACPSessionError("ACP session unavailable")
 
     async def close_all_sessions(self) -> None:
@@ -465,16 +592,20 @@ def build_request_acp_tool(service_key: str, config: ACPConfig, workspace_dir: P
     from octop.i18n import tr
     from octop.infra.errors import OctopError
 
-    @tool
+    @tool(response_format="content_and_artifact")
     async def acp_runner(
         action: str,
         runner: str = "",
         message: str = "",
         cwd: str = "",
         max_runtime: float | None = 300,
-    ) -> str:
+    ) -> tuple[str, dict[str, Any]]:
         """Use an ACP agent on the selected execution device. Actions: list, status, start, message, respond, close. Credentials stay on the device. List checks configuration, not authentication. Close a session before switching its device."""
         service = get_acp_service(service_key)
+        parent = str((get_config().get("configurable") or {}).get("thread_id") or "")
+        if isinstance(service, RequestACPService) and action in {"start", "message", "respond"}:
+            service.collaboration_threads.pop((parent, runner), None)
+        selected: RemoteACPService | None = None
         try:
             effective = config
             if not isinstance(service, RequestACPService):
@@ -493,7 +624,7 @@ def build_request_acp_tool(service_key: str, config: ACPConfig, workspace_dir: P
             delegate = build_acp_runner_tool(
                 service_key=service_key, config=effective, workspace_dir=workspace_dir
             )
-            return str(
+            output = str(
                 await delegate.ainvoke(
                     {
                         "action": action,
@@ -504,6 +635,16 @@ def build_request_acp_tool(service_key: str, config: ACPConfig, workspace_dir: P
                     }
                 )
             )
+            selected_runner = effective.runners.get(runner)
+            output = ACPTranscript.clean(
+                output, list((selected_runner.env or {}).values()) if selected_runner else []
+            )
+            parent = str((get_config().get("configurable") or {}).get("thread_id") or "")
+            child = service.collaboration_threads.get((parent, runner))
+            artifact = (
+                {"collaboration_thread_id": child, "parent_thread_id": parent} if child else {}
+            )
+            return output, artifact
         except Exception as exc:
             text = str(exc).lower()
             kind = (
@@ -520,6 +661,15 @@ def build_request_acp_tool(service_key: str, config: ACPConfig, workspace_dir: P
                 else "failed"
             )
             cfg = get_config().get("configurable") or {}
-            return tr("acp_runtime." + kind, cfg.get("locale") or "zh")
+            parent = str(cfg.get("thread_id") or "")
+            artifact = {}
+            if isinstance(service, RequestACPService):
+                child = service.collaboration_threads.get((parent, runner))
+                if not child and action in {"start", "message", "respond"}:
+                    await service.record_failed_attempt(parent, runner, message, service=selected)
+                    child = service.collaboration_threads.get((parent, runner))
+                if child:
+                    artifact = {"collaboration_thread_id": child, "parent_thread_id": parent}
+            return tr("acp_runtime." + kind, cfg.get("locale") or "zh"), artifact
 
     return acp_runner

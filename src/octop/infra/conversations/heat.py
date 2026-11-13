@@ -7,6 +7,7 @@ import time
 from collections import Counter
 from typing import Any
 
+from octop.infra.conversations.collaboration import Category, thread_metadata
 from octop.infra.db.repos.threads import ThreadRow
 from octop.infra.db.services import RepoBundle
 
@@ -98,10 +99,13 @@ class ThreadHeatService:
         self.repos = repos
 
     def list(
-        self, owner: int, agent: str, limit: int = 50
+        self, owner: int, agent: str, limit: int = 50, *, category: Category | None = None
     ) -> list[tuple[ThreadRow, dict[str, Any]]]:
         now = time.time()
         rows = self.repos.thread_repo.list_by_agent_user(agent_id=agent, user_id=owner, limit=None)
+        if category is not None:
+            metadata = thread_metadata(self.repos, rows)
+            rows = [row for row in rows if metadata[row.thread_id]["category"] == category]
         signals = self.repos.thread_activity_repo.signals(owner, agent, now)
         ranked = [(row, heat_for(row, signals.get(row.thread_id, {}), now)) for row in rows]
         ranked.sort(

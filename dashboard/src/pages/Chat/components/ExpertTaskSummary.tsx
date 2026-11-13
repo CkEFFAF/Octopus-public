@@ -82,9 +82,11 @@ export default function ExpertTaskSummary({
       }
     }
     void refresh();
-    const timer = window.setInterval(() => {
-      if (!document.hidden) void refresh();
-    }, 5000);
+    const timer = ["active", "all"].includes(lifecycle)
+      ? window.setInterval(() => {
+          if (!document.hidden) void refresh();
+        }, 5000)
+      : undefined;
     return () => {
       alive = false;
       window.clearInterval(timer);
@@ -188,14 +190,19 @@ export default function ExpertTaskSummary({
           setLifecycle(String(value));
           setOffset(0);
         }}
-        options={["active", "completed", "failed", "inactive", "all"].map(
-          (value) => ({
-            value,
-            label: `${t(`taskFilters.${value}`)}${
-              page?.counts[value] !== undefined ? ` ${page.counts[value]}` : ""
-            }`,
-          }),
-        )}
+        options={[
+          "active",
+          "completed",
+          "failed",
+          "inactive",
+          "all",
+          "archived",
+        ].map((value) => ({
+          value,
+          label: `${t(`taskFilters.${value}`)}${
+            page?.counts[value] !== undefined ? ` ${page.counts[value]}` : ""
+          }`,
+        }))}
       />
       <p className={styles.summaryCount}>
         {t(

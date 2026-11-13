@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import ScheduleBrowser from "../../../components/ScheduleBrowser";
 import ExpertTaskSummary from "./ExpertTaskSummary";
 import styles from "./ExpertTaskSummary.module.less";
+import TaskOverview from "../../../components/TaskOverview";
 
 /** Keep sidebar inspection in place, without selecting another conversation. */
 export default function SidebarTaskDialog({
@@ -35,8 +36,14 @@ export default function SidebarTaskDialog({
       >
         {open && (
           <Tabs
+            destroyOnHidden
             defaultActiveKey={threadId ? initialTab : "background"}
             items={[
+              {
+                key: "overview",
+                label: t("workspace0034.expertTasks"),
+                children: <TaskOverview agentId={agentId} fixedAgent />,
+              },
               {
                 key: "background",
                 label: t("workspace0034.backgroundSummary"),

@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  syncSessionCollaboration,
   resetSessionStoreForTests,
   sortSessions,
   toSession,
@@ -90,6 +91,72 @@ describe("useSessions agent switch", () => {
   afterEach(() => {
     resetSessionStoreForTests();
     vi.restoreAllMocks();
+  });
+
+  it("loads and paginates only the selected category, retaining open thread metadata", async () => {
+    listMock.mockImplementation(async (_id, _limit, category) =>
+      category === "agent_collaboration"
+        ? Array.from({ length: 12 }, (_, i) => ({
+            ...threadRow(`agent-${i}`),
+            category,
+          }))
+        : [threadRow("human")],
+    );
+    const { result } = renderHook(() => useSessions("expert", "human"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(listMock).toHaveBeenCalledWith("expert", 11, "user");
+    act(() => result.current.setCategory("agent_collaboration"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.category).toBe("agent_collaboration");
+    expect(result.current.sessions.some((s) => s.id === "human")).toBe(true);
+    await act(async () => {
+      await result.current.loadMoreSessions("human");
+    });
+    expect(listMock).toHaveBeenLastCalledWith(
+      "expert",
+      21,
+      "agent_collaboration",
+    );
+  });
+
+  it("uses deep linked history category and does not reset a manually switched tab on refresh", async () => {
+    listMock.mockResolvedValue([]);
+    const { result } = renderHook(() => useSessions("expert", "codex-thread"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const origin = {
+      category: "agent_collaboration" as const,
+      actor: { kind: "machine", id: "key", name: "Codex" },
+    };
+    act(() => syncSessionCollaboration("codex-thread", origin, "expert"));
+    await waitFor(() =>
+      expect(result.current.category).toBe("agent_collaboration"),
+    );
+    expect(
+      result.current.sessions.find((s) => s.id === "codex-thread")?.actor?.name,
+    ).toBe("Codex");
+    await act(async () => {
+      result.current.setCategory("user");
+    });
+    await act(async () => {
+      syncSessionCollaboration("codex-thread", origin, "expert");
+    });
+    expect(result.current.category).toBe("user");
+  });
+
+  it("ignores an old category response after switching tabs", async () => {
+    let resolveOld!: (rows: unknown[]) => void;
+    listMock.mockImplementation((_id, _limit, category) =>
+      category === "user"
+        ? new Promise((resolve) => {
+            resolveOld = resolve;
+          })
+        : Promise.resolve([{ ...threadRow("codex"), category }]),
+    );
+    const { result } = renderHook(() => useSessions("expert"));
+    act(() => result.current.setCategory("agent_collaboration"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => resolveOld([threadRow("old-human")]));
+    expect(result.current.sessions.map((s) => s.id)).toEqual(["codex"]);
   });
 
   it("retains the open older thread on periodic and visibility refresh", async () => {

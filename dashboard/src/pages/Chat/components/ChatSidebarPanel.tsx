@@ -1,3 +1,4 @@
+import type { ConversationCategoryProps } from "./ConversationCategoryTabs";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import type { RefObject } from "react";
@@ -12,7 +13,7 @@ import styles from "../index.module.less";
 /** Dispatched when the chat history rail expand control is clicked. */
 export const EXPAND_CHAT_RAIL_EVENT = "octop:expand-chat-rail";
 
-interface ChatSidebarPanelProps {
+interface ChatSidebarPanelProps extends ConversationCategoryProps {
   isMobile: boolean;
   sidebarOpen: boolean;
   sidebarWidth: number;
@@ -51,6 +52,8 @@ interface ChatSidebarPanelProps {
 }
 
 export default function ChatSidebarPanel({
+  category,
+  onCategoryChange,
   isMobile,
   sidebarOpen,
   sidebarWidth,
@@ -95,6 +98,8 @@ export default function ChatSidebarPanel({
 
   const sessionList = navEmbedded ? (
     <MinimalAgentSessionNav
+      category={category}
+      onCategoryChange={onCategoryChange}
       agents={agents}
       activePhase={activePhase}
       activeId={activeThreadId}
@@ -113,6 +118,8 @@ export default function ChatSidebarPanel({
     />
   ) : (
     <SessionList
+      category={category}
+      onCategoryChange={onCategoryChange}
       agents={agents}
       activePhase={activePhase}
       sessions={sessions}

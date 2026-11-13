@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Empty, Spin } from "antd";
-import { FilePen, RefreshCw, Download, ExternalLink } from "lucide-react";
+import { Empty, Popover, Spin, Tooltip } from "antd";
+import { FilePen, RefreshCw, Download, ExternalLink, Info } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import Markdown from "../../../components/Markdown/LazyMarkdown";
 import { isMarkdownFile } from "../../../utils/textFile";
@@ -35,6 +35,7 @@ export default function FileChangesReview({
   const [selected, setSelected] = useState(first);
   const [refresh, setRefresh] = useState(0);
   const [sourceFile, setSourceFile] = useState<string | null>(null);
+  const [narrowPane, setNarrowPane] = useState<"diff" | "current">("diff");
   const [live, setLive] = useState<{
     key: string;
     content?: string;
@@ -162,12 +163,55 @@ export default function FileChangesReview({
     );
   return (
     <div className={styles.review}>
-      <p className={styles.notice}>
-        {t("chat.fileReview.scope", {
-          count: files.length,
-          current: current.length,
-        })}
-      </p>
+      <div className={styles.notice}>
+        <span>
+          {t("chat.fileReview.summary", {
+            count: files.length,
+            current: current.length,
+          })}
+        </span>
+        <Tooltip
+          title={
+            <>
+              {t("chat.fileReview.scope", {
+                count: files.length,
+                current: current.length,
+              })}{" "}
+              {t("chat.fileReview.liveHint")}
+            </>
+          }
+        >
+          <button
+            type="button"
+            className={styles.info}
+            aria-label={t("chat.fileReview.explanation")}
+          >
+            <Info size={14} />
+          </button>
+        </Tooltip>
+        <div
+          className={styles.paneTabs}
+          role="tablist"
+          aria-label={t("chat.fileReview.view")}
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={narrowPane === "diff"}
+            onClick={() => setNarrowPane("diff")}
+          >
+            {t("chat.turnChanges.diff")}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={narrowPane === "current"}
+            onClick={() => setNarrowPane("current")}
+          >
+            {t("chat.fileReview.fullContent")}
+          </button>
+        </div>
+      </div>
       <div className={styles.layout}>
         <nav className={styles.files} aria-label={t("chat.turnChanges.files")}>
           {files.map((item) => (
@@ -182,21 +226,38 @@ export default function FileChangesReview({
               <FilePen size={15} />
               <div className={styles.fileLabel}>
                 <span>{dockFileBasename(item.path)}</span>
-                <small>{source(item)}</small>
-                {currentKeys.has(item.key) && (
-                  <em className={styles.turnBadge}>
-                    {t("chat.fileReview.currentTurn")}
-                  </em>
-                )}
               </div>
+              {currentKeys.has(item.key) && (
+                <span
+                  className={styles.turnBadge}
+                  aria-label={t("chat.fileReview.currentTurn")}
+                  title={t("chat.fileReview.currentTurn")}
+                />
+              )}
             </button>
           ))}
         </nav>
         {file && (
           <section className={styles.details}>
             <div className={styles.path}>
-              {file.path}
-              <small>{source(file)}</small>
+              <Popover
+                trigger="click"
+                content={
+                  <div className={styles.fileInfo}>
+                    <div>{file.path}</div>
+                    <small>{source(file)}</small>
+                  </div>
+                }
+              >
+                <button
+                  type="button"
+                  className={styles.fileName}
+                  aria-label={t("chat.fileReview.details")}
+                >
+                  <span>{dockFileBasename(file.path)}</span>
+                  <Info size={14} />
+                </button>
+              </Popover>
               {!file.deviceId && (
                 <div className={styles.fileActions}>
                   {onOpenFile && (
@@ -224,6 +285,7 @@ export default function FileChangesReview({
               <section
                 className={styles.diffPane}
                 aria-label={t("chat.turnChanges.diff")}
+                data-active={narrowPane === "diff"}
               >
                 <div className={styles.paneTitle}>
                   {t(
@@ -281,6 +343,7 @@ export default function FileChangesReview({
               <section
                 className={styles.currentPane}
                 aria-label={t("chat.fileReview.fullContent")}
+                data-active={narrowPane === "current"}
               >
                 <div className={styles.paneTitle}>
                   {t("chat.fileReview.fullContent")}
@@ -311,9 +374,6 @@ export default function FileChangesReview({
                     </button>
                   </div>
                 </div>
-                <p className={styles.liveHint}>
-                  {t("chat.fileReview.liveHint")}
-                </p>
                 {live.key !== file.key ||
                 (live.content === undefined && !live.error) ? (
                   <Spin />

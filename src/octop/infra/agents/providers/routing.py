@@ -47,13 +47,25 @@ MODEL_TASKS: tuple[ModelTask, ...] = (
 )
 ModelRef = Annotated[str, StringConstraints(strip_whitespace=True, max_length=300)]
 _CODING = re.compile(
-    r"```|代码|编程|脚本|报错|调试|重构|代码库|单元测试|(?:\b(?:bug|debug|traceback|python|typescript|javascript|golang|sql|refactor)\b)",
+    r"```|代码|编程|脚本|报错|调试|重构|代码库|单元测试|(?:\b(?:code|coding|implement|script|bug|debug|traceback|python|typescript|javascript|golang|sql|refactor)\b)",
     re.I,
 )
 _RESEARCH = re.compile(
     r"搜索|检索|调研|查找资料|查证|文献|资料来源|\b(?:research|citation|search)\b", re.I
 )
 _REASONING = re.compile(r"推理|证明|数学|推导|演算|\b(?:prove|reasoning|calculate)\b", re.I)
+_DELIBERATION = re.compile(
+    r"架构(?:设计|决策|分析|评审)?|核心(?:部分)?设计|技术选型|方案(?:设计|权衡|评估|分析)"
+    r"|(?:实验|研究)(?:设计|方案|规划|优先级|潜力|假设|结果分析)"
+    r"|(?:分析|评估|解释|判读)(?:[^\n]{0,24})(?:实验|结果|指标|现象|基线|创新|假设)"
+    r"|实验[^\n]{0,40}(?:失败|分析|评估|优化方案)"
+    r"|(?:重要|关键|核心)(?:的)?决策|创新(?:方向|潜力|分析)|前置(?:依赖)?图"
+    r"|\b(?:architect(?:ure|ural)?|design\s+(?:decision|tradeoff|experiment)"
+    r"|design\s+(?:a\s+)?core\s+(?:component|system)"
+    r"|experiment(?:al)?\s+(?:design|analysis|planning|results?)"
+    r"|(?:analy[sz]e|evaluat\w*)\s+(?:the\s+)?(?:experiment|hypothesis|results?))\b",
+    re.I,
+)
 
 
 class ModelRoutingConfig(BaseModel):
@@ -128,12 +140,16 @@ def classify_model_task(
         return "vision"
     if work_mode == "deep_research":
         return "research"
+    if (
+        work_mode in {"plan", "multitask", "team"}
+        or _DELIBERATION.search(text)
+        or _REASONING.search(text)
+    ):
+        return "reasoning"
     if work_mode == "debug" or _CODING.search(text):
         return "coding"
     if _RESEARCH.search(text):
         return "research"
-    if work_mode in {"plan", "multitask", "team"} or _REASONING.search(text):
-        return "reasoning"
     if context_tokens >= 32768:
         return "long_context"
     return "chat"

@@ -200,13 +200,15 @@ def _purge_stale_logs(log_dir: Path, retention_days: int) -> None:
                 entry.unlink()
 
 
-def _attach_log_handler(target: logging.Logger, handler: TimedRotatingFileHandler) -> None:
+def _attach_log_handler(target: logging.Logger, handler: TimedRotatingFileHandler) -> bool:
     """Add ``handler`` to ``target`` only if an equivalent one is not present yet."""
     if not any(
         isinstance(h, TimedRotatingFileHandler) and h.baseFilename == handler.baseFilename
         for h in target.handlers
     ):
         target.addHandler(handler)
+        return True
+    return False
 
 
 @dataclass
@@ -270,6 +272,7 @@ class OctopServer:
         self.wizard_tokens = WizardTokenStore(ttl_seconds=300)
         self._started = False
         self._started_at: int | None = None
+        self._log_handlers: dict[TimedRotatingFileHandler, list[logging.Logger]] = {}
         self._sso_service: SsoService | None = None
         self._ldap_service: LdapAuthService | None = None
         self._ldap_bind_throttle: LdapBindThrottle | None = None
@@ -555,6 +558,7 @@ class OctopServer:
             delivery=cron_delivery,
             devices=devices,
             execution=execution,
+            history_archive=history_archive,
         )
         work_items.recover()
         registry.set_cron_manager(cron_mgr)
@@ -591,6 +595,7 @@ class OctopServer:
             turn_active=gateway.ws_hub.is_turn_active,
             execution=execution,
             sharing=ThreadSharingService(self.services.repos, config, registry, history_archive),
+            collaboration_notify=gateway.emit_thread_changed,
         )
         await registry.boot()
         from octop.infra.agents.providers.live_catalog import refresh_catalog
@@ -705,6 +710,7 @@ class OctopServer:
 
     async def stop(self) -> None:
         if not self._started:
+            self._close_log_handlers()
             return
         try:
             from octop.infra.connectors.gateway import agently_auth
@@ -731,14 +737,26 @@ class OctopServer:
 
             dispose_all_browse_sessions()
         finally:
-            if self.services is not None:
-                self.services.db.close()
-            self.services = None
-            self.app_runtime = None
-            self._started = False
-            logger.info("octop server stopped")
+            try:
+                if self.services is not None:
+                    self.services.db.close()
+            finally:
+                self.services = None
+                self.app_runtime = None
+                self._started = False
+                try:
+                    logger.info("octop server stopped")
+                finally:
+                    self._close_log_handlers()
 
     # ----- helpers -----
+
+    def _close_log_handlers(self) -> None:
+        handlers, self._log_handlers = self._log_handlers, {}
+        for handler, targets in handlers.items():
+            for target in targets:
+                target.removeHandler(handler)
+            handler.close()
 
     def _setup_logging(self) -> None:
         log_dir = self.paths.logs_dir
@@ -765,10 +783,16 @@ class OctopServer:
         delaycompress_rotated_logs(log_dir, enabled=compress_rotated)
 
         root = logging.getLogger()
-        _attach_log_handler(root, handler)
         # Persist framework (uvicorn) request/error logs into the same file too.
-        for name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
-            _attach_log_handler(logging.getLogger(name), handler)
+        targets = [
+            root,
+            *(logging.getLogger(name) for name in ("uvicorn", "uvicorn.access", "uvicorn.error")),
+        ]
+        attached = [target for target in targets if _attach_log_handler(target, handler)]
+        if attached:
+            self._log_handlers[handler] = attached
+        else:
+            handler.close()
 
         level = os.environ.get("OCTOP_LOG_LEVEL", "info").upper()
         root.setLevel(getattr(logging, level, logging.INFO))

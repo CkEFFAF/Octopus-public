@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Button,
@@ -51,12 +51,22 @@ export default function BackgroundWork({
   const [actionError, setActionError] = useState("");
   const commandIds = useRef(new Map<string, string>());
   const scope = executionScope(agentId, threadId);
+  const currentScope = useRef(scope);
+  currentScope.current = scope;
+  useEffect(() => {
+    setSelected(null);
+    setOpen(false);
+    setCreating(false);
+    setInput("");
+    setActionError("");
+  }, [scope]);
   const execution = useExecutionSelection(scope);
   const selectionStatus = useExecutionSelectionStatus(scope);
   const { items, detail, error, hasMore, refresh } = useWorkItems(
     threadId,
     all,
     open && !creating ? selected : null,
+    agentId,
   );
   const active = items.filter(
     (item) => item.origin_thread_id === threadId && !terminal.has(item.status),
@@ -91,6 +101,7 @@ export default function BackgroundWork({
     try {
       await operation(id);
       commandIds.current.delete(key);
+      if (currentScope.current !== scope) return;
       success();
       changed();
     } catch (err) {
@@ -122,7 +133,7 @@ export default function BackgroundWork({
       JSON.stringify(body),
       async (id) => {
         const result = await workItemsApi.create(body, id);
-        setSelected(result.task_id);
+        if (currentScope.current === scope) setSelected(result.task_id);
       },
       () => {
         setCreating(false);
@@ -195,7 +206,7 @@ export default function BackgroundWork({
             value={all ? "all" : "thread"}
             options={[
               { label: t("chat.workItems.thisChat"), value: "thread" },
-              { label: t("chat.workItems.allChats"), value: "all" },
+              { label: t("taskCenter.expertScope"), value: "all" },
             ]}
             onChange={(value) => {
               setAll(value === "all");

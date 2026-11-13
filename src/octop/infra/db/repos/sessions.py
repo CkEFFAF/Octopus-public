@@ -119,6 +119,27 @@ class SessionRepo:
             ).fetchone()
         return SessionRow.from_row(r) if r else None
 
+    def metadata_for_threads(self, thread_ids: list[str]) -> dict[str, dict[str, Any]]:
+        if not thread_ids:
+            return {}
+        result: dict[str, dict[str, Any]] = {}
+        with self._db.connect() as conn:
+            for offset in range(0, len(thread_ids), 500):
+                batch = thread_ids[offset : offset + 500]
+                rows = conn.execute(
+                    "SELECT t.thread_id,s.channel_metadata FROM threads t "
+                    "JOIN sessions s ON s.session_key=t.session_key "
+                    f"WHERE t.thread_id IN ({sql_in_placeholders(len(batch))})",
+                    tuple(batch),
+                ).fetchall()
+                result.update(
+                    {
+                        str(row["thread_id"]): _decode_metadata(row["channel_metadata"]) or {}
+                        for row in rows
+                    }
+                )
+        return result
+
     def upsert(
         self,
         *,

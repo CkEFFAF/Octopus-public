@@ -9,64 +9,26 @@ import {
   Switch,
 } from "antd";
 import type {
+  Binding,
   ContextPolicy,
   GraphDefinition,
   GraphNode,
 } from "../../api/modules/workflowGraphs";
 import { workflowGraphsApi } from "../../api/modules/workflowGraphs";
 
-export function JsonField({
-  label,
-  value,
-  onChange,
-  normalize,
-}: {
-  label: string;
-  value: unknown;
-  onChange: (value: unknown) => void;
-  normalize?: (value: unknown) => Promise<unknown>;
-}) {
-  const serialized = JSON.stringify(value ?? {}, null, 2);
-  const [text, setText] = useState(serialized),
-    [error, setError] = useState("");
-  const request = useRef(0);
-  useEffect(() => {
-    request.current += 1;
-    setText(serialized);
-    setError("");
-    return () => {
-      request.current += 1;
-    };
-  }, [serialized]);
-  return (
-    <Form.Item label={label} validateStatus={error ? "error" : ""} help={error}>
-      <Input.TextArea
-        aria-label={label}
-        value={text}
-        rows={4}
-        spellCheck={false}
-        className="wg-json"
-        onChange={(event) => {
-          request.current += 1;
-          setText(event.target.value);
-          setError("");
-        }}
-        onBlur={async () => {
-          const sequence = ++request.current;
-          try {
-            const parsed: unknown = JSON.parse(text);
-            const result = normalize ? await normalize(parsed) : parsed;
-            if (sequence !== request.current) return;
-            onChange(result);
-            setError("");
-          } catch (e) {
-            if (sequence === request.current) setError(String(e));
-          }
-        }}
-      />
-    </Form.Item>
-  );
-}
+import { providerApi } from "../../api/modules/provider";
+import {
+  buildModelSelectOptions,
+  type ModelPickerOption,
+} from "../../utils/modelOptions";
+import {
+  ArgumentsEditor,
+  BindingEditor,
+  JsonField,
+  MappingEditor,
+  bindingPaths,
+} from "./ValueEditors";
+export { JsonField } from "./ValueEditors";
 
 export function Inspector({
   graph,
@@ -81,6 +43,43 @@ export function Inspector({
   agents: { agent_id: string; name: string }[];
   tr: (key: string) => string;
 }) {
+  const [models, setModels] = useState<ModelPickerOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelError, setModelError] = useState(false);
+  const effectiveAgent = String(node?.agent_id || graph.agent_id || "");
+  const agentNode = node?.kind === "agent";
+  useEffect(() => {
+    if (!agentNode) return;
+    let stopped = false;
+    setModels([]);
+    setModelError(false);
+    setModelsLoading(true);
+    void providerApi
+      .listResolvedModels(effectiveAgent || undefined)
+      .then((items) => {
+        if (!stopped) setModels(items);
+      })
+      .catch(() => {
+        if (!stopped) setModelError(true);
+      })
+      .finally(() => {
+        if (!stopped) setModelsLoading(false);
+      });
+    return () => {
+      stopped = true;
+    };
+  }, [effectiveAgent, agentNode]);
+  const paths = bindingPaths(graph);
+  const modelOptions = buildModelSelectOptions(models, tr("modelAuto"));
+  const selectedModel = String(node?.model || "");
+  if (
+    selectedModel &&
+    !modelOptions.some((item) => item.value === selectedModel)
+  )
+    modelOptions.push({
+      value: selectedModel,
+      label: `${selectedModel} (${tr("modelUnavailable")})`,
+    });
   const current = useRef({ graph, node, onChange });
   current.current = { graph, node, onChange };
   const mounted = useRef(false);
@@ -186,13 +185,25 @@ export function Inspector({
               }
             />
           </Form.Item>
-          <JsonField
+          <MappingEditor
             label={tr("initial_variables")}
-            value={graph.initial_variables}
+            value={Object.fromEntries(
+              Object.entries(graph.initial_variables ?? {}).map(
+                ([key, value]) => [key, { value }],
+              ),
+            )}
+            paths={paths}
+            tr={tr}
+            literalOnly
             onChange={(value) =>
               onChange({
                 ...graph,
-                initial_variables: value as Record<string, unknown>,
+                initial_variables: Object.fromEntries(
+                  Object.entries(value).map(([key, binding]) => [
+                    key,
+                    "value" in binding ? binding.value : null,
+                  ]),
+                ),
               })
             }
           />
@@ -340,8 +351,11 @@ export function Inspector({
     );
   return (
     <div className="wg-inspector">
-      <h3>{tr(`kind.${node.kind}`)}</h3>
-      <small>{node.id}</small>
+      <div className="wg-inspector-identity">
+        <h3>{tr(`kind.${node.kind}`)}</h3>
+        <small>{node.id}</small>
+      </div>
+      <p className="wg-field-hint">{tr(`nodeHint.${node.kind}`)}</p>
       <Form layout="vertical" size="small">
         {field("label")}
         {node.kind === "agent" && (
@@ -360,9 +374,22 @@ export function Inspector({
                 onChange={(value) => patch({ agent_id: value || "" })}
               />
             </Form.Item>
-            {field("model")}
+            <Form.Item label={tr("model")} extra={tr("modelHelp")}>
+              <Select
+                aria-label={tr("model")}
+                showSearch
+                optionFilterProp="label"
+                value={selectedModel}
+                loading={modelsLoading}
+                options={modelOptions}
+                onChange={(model) => patch({ model })}
+              />
+            </Form.Item>
+            {modelError && (
+              <Alert type="warning" showIcon message={tr("modelLoadError")} />
+            )}
             <Collapse
-              defaultActiveKey={["before", "after"]}
+              ghost
               items={[
                 {
                   key: "before",
@@ -470,10 +497,36 @@ export function Inspector({
         )}
         {node.kind === "script" && (
           <>
-            {json("argv", [])}
+            <ArgumentsEditor
+              value={(node.argv as string[]) ?? []}
+              onChange={(argv) => patch({ argv })}
+              tr={tr}
+            />
             {field("cwd")}
             {field("execution_context_id")}
-            {json("env")}
+            <MappingEditor
+              label={tr("env")}
+              value={Object.fromEntries(
+                Object.entries((node.env as Record<string, string>) ?? {}).map(
+                  ([key, value]) => [key, { value }],
+                ),
+              )}
+              paths={[]}
+              tr={tr}
+              literalOnly
+              textOnly
+              limit={64}
+              onChange={(value) =>
+                patch({
+                  env: Object.fromEntries(
+                    Object.entries(value).map(([key, binding]) => [
+                      key,
+                      "value" in binding ? String(binding.value) : "",
+                    ]),
+                  ),
+                })
+              }
+            />
             {field("callback_node")}
           </>
         )}
@@ -492,7 +545,15 @@ export function Inspector({
         )}
         {node.kind === "condition" && (
           <>
-            {json("left", { value: true })}
+            <Form.Item label={tr("left")}>
+              <BindingEditor
+                label={tr("left")}
+                value={(node.left as Binding) ?? { value: true }}
+                onChange={(left) => patch({ left })}
+                paths={paths}
+                tr={tr}
+              />
+            </Form.Item>
             <Form.Item label={tr("operator")}>
               <Select
                 aria-label={tr("operator")}
@@ -506,11 +567,21 @@ export function Inspector({
                   "lt",
                   "lte",
                   "contains",
-                ].map((value) => ({ value, label: value }))}
+                ].map((value) => ({ value, label: tr(`operators.${value}`) }))}
                 onChange={(operator) => patch({ operator })}
               />
             </Form.Item>
-            {json("right", { value: true })}
+            {(node.operator || "truthy") !== "truthy" && (
+              <Form.Item label={tr("right")}>
+                <BindingEditor
+                  label={tr("right")}
+                  value={(node.right as Binding) ?? { value: true }}
+                  onChange={(right) => patch({ right })}
+                  paths={paths}
+                  tr={tr}
+                />
+              </Form.Item>
+            )}
           </>
         )}
         {node.kind === "event" && (
@@ -549,15 +620,33 @@ export function Inspector({
         )}
         <Collapse
           ghost
+          defaultActiveKey={
+            Object.keys(node.inputs ?? {}).length ||
+            Object.keys(node.assign ?? {}).length
+              ? ["bindings"]
+              : []
+          }
           items={[
             {
               key: "bindings",
               label: tr("bindings"),
               children: (
                 <>
-                  <Alert type="info" message={tr("bindingHelp")} />
-                  {json("inputs")}
-                  {json("assign")}
+                  <p className="wg-field-hint">{tr("bindingHelp")}</p>
+                  <MappingEditor
+                    label={tr("inputs")}
+                    value={node.inputs ?? {}}
+                    onChange={(inputs) => patch({ inputs })}
+                    paths={paths}
+                    tr={tr}
+                  />
+                  <MappingEditor
+                    label={tr("assign")}
+                    value={node.assign ?? {}}
+                    onChange={(assign) => patch({ assign })}
+                    paths={paths}
+                    tr={tr}
+                  />
                 </>
               ),
             },

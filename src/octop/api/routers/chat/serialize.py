@@ -17,6 +17,7 @@ from langchain_core.runnables import RunnableConfig
 from octop.api.common.agent_workspace import resolve_agent_workspace_dir
 from octop.i18n.domains.attachment import attachment_empty_image
 from octop.infra.agents.threads.context_breakdown import usage_dict_from_message
+from octop.infra.conversations.collaboration import SENDER_KEY, actor_snapshot
 from octop.infra.gateway.process.message_keys import (
     CHECKPOINT_TS_KEY,
     COMPOSER_CTX_KEY,
@@ -1005,6 +1006,12 @@ def _serialize_history_message(
         return None
 
     entry = {"role": role, "content": blocks}
+    sender = actor_snapshot(additional_kwargs.get(SENDER_KEY))
+    if sender is not None:
+        entry["sender"] = sender
+    state = additional_kwargs.get("octop_collaboration_state")
+    if state in {"running", "permission_required", "failed", "cancelled"}:
+        entry["status"] = "error" if state == "failed" else state
     if mid:
         entry["id"] = mid
     if isinstance(usage, dict) and usage:

@@ -199,7 +199,7 @@ async def test_boot_schedules_enabled_jobs(tmp_path: Path) -> None:
 
     await mgr.boot()
 
-    assert mgr._scheduler.add_job.call_count == 3
+    assert mgr._scheduler.add_job.call_count == 4
 
 
 @pytest.mark.asyncio
@@ -221,7 +221,7 @@ async def test_boot_skips_disabled_jobs(tmp_path: Path) -> None:
     mgr = _make_manager(services)
     await mgr.boot()
 
-    mgr._scheduler.add_job.assert_called_once()
+    assert mgr._scheduler.add_job.call_count == 2
     assert mgr._scheduler.add_job.call_args.kwargs["id"] == "cron-report-checkpoint-cleanup"
 
 

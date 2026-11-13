@@ -346,12 +346,19 @@ class RunInspectionService:
         before: int | None = None,
         run_id: str | None = None,
         limit: int = 100,
+        include_archived: bool = True,
     ) -> dict[str, Any]:
         thread = self.repos.thread_repo.get(thread_id)
         if thread is None or thread.user_id != owner or thread.agent_id != agent_id:
             raise OctopError(ErrorCode.NOT_FOUND, "run history unavailable")
         rows = self.events.list(
-            owner, agent_id, thread_id, before=before, run_id=run_id, limit=limit + 1
+            owner,
+            agent_id,
+            thread_id,
+            before=before,
+            run_id=run_id,
+            limit=limit + 1,
+            include_archived=include_archived,
         )
         page = rows[:limit]
         return {

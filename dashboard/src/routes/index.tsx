@@ -4,6 +4,7 @@ import { Navigate, useLocation } from "react-router-dom";
 // Lazy-loaded pages — Common
 const ProjectsPage = lazy(() => import("../pages/Projects"));
 const TaskBoardPage = lazy(() => import("../pages/TaskBoard"));
+const TaskCenterPage = lazy(() => import("../pages/TaskCenter"));
 const WorkflowGraphsPage = lazy(() => import("../pages/WorkflowGraphs"));
 const DevicesPage = lazy(() => import("../pages/Devices"));
 const ExpertsPage = lazy(() => import("../pages/Experts"));
@@ -59,6 +60,7 @@ export interface RouteConfig {
 export const pathToKey: Record<string, string> = {
   "/projects": "projects",
   "/task-board": "task-board",
+  "/task-center": "task-center",
   "/workflow-graphs": "workflow-graphs",
   "/devices": "devices",
   "/chat": "chat",
@@ -170,6 +172,7 @@ export const routeConfigs: RouteConfig[] = [
   // Common
   { path: "/projects", element: <ProjectsPage /> },
   { path: "/task-board", element: <TaskBoardPage /> },
+  { path: "/task-center", element: <TaskCenterPage /> },
   { path: "/workflow-graphs", element: <WorkflowGraphsPage /> },
   { path: "/devices", element: <DevicesPage /> },
   { path: "/experts", element: <ExpertsPage /> },

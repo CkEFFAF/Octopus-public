@@ -43,7 +43,7 @@ it("opens only the clicked answer's changes and keeps later edits live in its mo
   );
   const modal = await screen.findByRole("dialog");
   expect(
-    within(modal).getByText("shared.py", { selector: "span" }),
+    within(within(modal).getByRole("navigation")).getByText("shared.py"),
   ).toBeInTheDocument();
   expect(within(modal).queryByText("earlier.py")).not.toBeInTheDocument();
   expect(within(modal).getByText("old current")).toBeInTheDocument();

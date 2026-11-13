@@ -1,3 +1,6 @@
+import ConversationCategoryTabs, {
+  type ConversationCategoryProps,
+} from "./ConversationCategoryTabs";
 import SessionRowContent from "./SessionRowContent";
 import ExpertScheduleBadge from "./ExpertScheduleBadge";
 import {
@@ -72,7 +75,7 @@ function saveCollapsedFolders(collapsed: Set<string>) {
   }
 }
 
-interface MinimalAgentSessionNavProps {
+interface MinimalAgentSessionNavProps extends ConversationCategoryProps {
   agents: OctopAgent[];
   activePhase?: ExpertPhase;
   activeId: string | null;
@@ -293,6 +296,8 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
 });
 
 function MinimalAgentSessionNavContent({
+  category = "user",
+  onCategoryChange,
   agents: initialAgents,
   activePhase,
   activeId,
@@ -310,6 +315,8 @@ function MinimalAgentSessionNavContent({
   activeForkDisabledHint,
 }: MinimalAgentSessionNavProps) {
   const { t } = useTranslation();
+  const categoryRef = useRef(category);
+  categoryRef.current = category;
   const sidebarActivity = useSidebarActivity();
   const agents = initialAgents.map((agent) => ({
     ...agent,
@@ -386,22 +393,27 @@ function MinimalAgentSessionNavContent({
     [onAgentSelect],
   );
 
-  const refreshAgentPreview = useCallback(async (agentId: string) => {
-    if (!agentId) return;
-    try {
-      const rows = await octopThreadsApi.list(
-        agentId,
-        MINIMAL_AGENT_SESSION_PREVIEW,
-      );
-      const list = sortSessions(rows.map(toSession)).slice(
-        0,
-        MINIMAL_AGENT_SESSION_PREVIEW,
-      );
-      setByAgent((prev) => ({ ...prev, [agentId]: list }));
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  const refreshAgentPreview = useCallback(
+    async (agentId: string) => {
+      if (!agentId) return;
+      try {
+        const rows = await octopThreadsApi.list(
+          agentId,
+          MINIMAL_AGENT_SESSION_PREVIEW,
+          category,
+        );
+        if (categoryRef.current !== category) return;
+        const list = sortSessions(rows.map(toSession)).slice(
+          0,
+          MINIMAL_AGENT_SESSION_PREVIEW,
+        );
+        setByAgent((prev) => ({ ...prev, [agentId]: list }));
+      } catch {
+        /* ignore */
+      }
+    },
+    [category],
+  );
 
   // Fetch preview threads for every expert (independent of classic session store).
   useEffect(() => {
@@ -411,6 +423,7 @@ function MinimalAgentSessionNavContent({
     }
     let cancelled = false;
     setLoading(true);
+    setByAgent({});
     void (async () => {
       const entries = await Promise.all(
         agentKey.split(",").map(async (id) => {
@@ -419,6 +432,7 @@ function MinimalAgentSessionNavContent({
             const rows = await octopThreadsApi.list(
               id,
               MINIMAL_AGENT_SESSION_PREVIEW,
+              category,
             );
             return [
               id,
@@ -440,7 +454,7 @@ function MinimalAgentSessionNavContent({
     return () => {
       cancelled = true;
     };
-  }, [agentKey]);
+  }, [agentKey, category]);
 
   // Keep the active agent's preview aligned with live chat session store.
   // Skip empty lists — standalone host passes [] and must not wipe fetched previews
@@ -449,12 +463,11 @@ function MinimalAgentSessionNavContent({
     if (!activeAgentId || activeSessions.length === 0) return;
     setByAgent((prev) => ({
       ...prev,
-      [activeAgentId]: sortSessions(activeSessions).slice(
-        0,
-        MINIMAL_AGENT_SESSION_PREVIEW,
-      ),
+      [activeAgentId]: sortSessions(
+        activeSessions.filter((s) => (s.category ?? "user") === category),
+      ).slice(0, MINIMAL_AGENT_SESSION_PREVIEW),
     }));
-  }, [activeAgentId, activeSessions]);
+  }, [activeAgentId, activeSessions, category]);
 
   useEffect(() => {
     return onSessionEvent((event) => {
@@ -560,6 +573,10 @@ function MinimalAgentSessionNavContent({
         data-sidebar-zone="main"
         data-sidebar-scroll
       >
+        <ConversationCategoryTabs
+          category={category}
+          onCategoryChange={onCategoryChange}
+        />
         <PinnedExperts
           agents={pinnedIds.flatMap((id) =>
             agents.filter((agent) => agent.agent_id === id),
@@ -573,6 +590,7 @@ function MinimalAgentSessionNavContent({
           const list = withWorkingSessions(
             byAgent[agent.agent_id] ?? [],
             sidebarActivity[agent.agent_id],
+            category,
           );
           const ready = isAgentChatReady(agent.state);
           const expanded = !collapsedFolders.has(agent.agent_id);
@@ -726,9 +744,16 @@ function MinimalAgentSessionNavContent({
 export default function MinimalAgentSessionNav(
   props: MinimalAgentSessionNavProps,
 ) {
+  const [localCategory, setLocalCategory] =
+    useState<NonNullable<ConversationCategoryProps["category"]>>("user");
+  const category = props.category ?? localCategory;
   return (
-    <SidebarActivityProvider agents={props.agents}>
-      <MinimalAgentSessionNavContent {...props} />
+    <SidebarActivityProvider agents={props.agents} category={category}>
+      <MinimalAgentSessionNavContent
+        {...props}
+        category={category}
+        onCategoryChange={props.onCategoryChange ?? setLocalCategory}
+      />
     </SidebarActivityProvider>
   );
 }

@@ -11,6 +11,7 @@ import {
   Form,
   Input,
   Modal,
+  Popover,
   Segmented,
   Select,
   Space,
@@ -19,7 +20,7 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { FileText, RefreshCw } from "lucide-react";
+import { FileText, RefreshCw, MoreHorizontal } from "lucide-react";
 import { fileTreeIcon } from "../../../utils/fileTreeIcon";
 import { useTranslation } from "react-i18next";
 import { useServerTimezone } from "../../../hooks/useServerTimezone";
@@ -41,6 +42,8 @@ import {
 import { emitSessionEvent, onSessionEvent } from "../hooks/chatStore";
 import styles from "./ConversationOverview.module.less";
 import { OPEN_TASK_ACTIVITY_EVENT } from "./TaskActivity";
+import ConversationReferences from "./ConversationReferences";
+import { groupOverviewEvents, overviewTitle } from "../utils/overviewEvents";
 
 export default function ConversationOverview({
   agentId,
@@ -66,6 +69,7 @@ export default function ConversationOverview({
     !/[\u3400-\u9fff]/.test(brief.overview.objective);
   const [error, setError] = useState("");
   const [tab, setTab] = useState("overview");
+  const [showArtifacts, setShowArtifacts] = useState(false);
   const [events, setEvents] = useState<ConversationEventPage | null>(null);
   const [period, setPeriod] = useState("today");
   const today = formatServerYmd(Date.now(), timezone);
@@ -127,6 +131,7 @@ export default function ConversationOverview({
   useEffect(() => {
     setOpen(false);
     setBrief(null);
+    setShowArtifacts(false);
     setEvents(null);
     setDigest(null);
     setJob(null);
@@ -320,19 +325,12 @@ export default function ConversationOverview({
         setSourceLoading(false);
     }
   };
-  const references = (refs: ConversationSourceRef[]) =>
-    refs.map((ref, index) => (
-      <Button
-        type="default"
-        size="small"
-        className={styles.sourceChip}
-        key={`${ref.kind}:${ref.id}`}
-        onClick={() => void readSource(ref)}
-      >
-        {t("conversationMetadata.source")}
-        {refs.length > 1 ? ` ${index + 1}` : ""}
-      </Button>
-    ));
+  const references = (refs: ConversationSourceRef[]) => (
+    <ConversationReferences
+      refs={refs}
+      onRead={(ref) => void readSource(ref)}
+    />
+  );
   const items = (label: string, values: BriefItem[]) =>
     values.length > 0 && (
       <section className={styles.section}>
@@ -340,7 +338,7 @@ export default function ConversationOverview({
         <ul className={styles.list}>
           {values.map((item, index) => (
             <li key={index}>
-              {item.text}
+              <span>{item.text}</span>
               {references(item.source_refs)}
             </li>
           ))}
@@ -378,7 +376,8 @@ export default function ConversationOverview({
         open={open}
         onClose={() => setOpen(false)}
         title={t("conversationMetadata.overviewTitle")}
-        width="min(600px, 100vw)"
+        width="min(780px, 100vw)"
+        className={styles.drawer}
         destroyOnClose
       >
         {error && (
@@ -394,9 +393,11 @@ export default function ConversationOverview({
         {!brief && !error && <Spin />}
         {brief && (
           <div className={styles.content}>
-            <Space wrap>
+            <div className={styles.heading}>
               <Typography.Title level={4} className={styles.title}>
-                {brief.title || t("conversationMetadata.untitled")}
+                {overviewTitle(
+                  brief.title || t("conversationMetadata.untitled"),
+                )}
               </Typography.Title>
               <Tag>
                 {t(
@@ -404,15 +405,18 @@ export default function ConversationOverview({
                   brief.progress.display_state,
                 )}
               </Tag>
-              <Tag>
-                {t("conversationMetadata.executionState", {
-                  state: t(
-                    `conversationMetadata.states.${brief.progress.execution_state}`,
-                    brief.progress.execution_state,
-                  ),
-                })}
-              </Tag>
-            </Space>
+              {brief.progress.execution_state !==
+                brief.progress.display_state && (
+                <Tag>
+                  {t("conversationMetadata.executionState", {
+                    state: t(
+                      `conversationMetadata.states.${brief.progress.execution_state}`,
+                      brief.progress.execution_state,
+                    ),
+                  })}
+                </Tag>
+              )}
+            </div>
             <div className={styles.secondary}>
               {t(
                 `conversationMetadata.titleSources.${brief.title_source}`,
@@ -425,6 +429,7 @@ export default function ConversationOverview({
             <Space wrap className={styles.actions}>
               <Button
                 size="small"
+                type="primary"
                 onClick={() => {
                   setOpen(false);
                   window.dispatchEvent(
@@ -445,43 +450,61 @@ export default function ConversationOverview({
               >
                 {t("conversationMetadata.regenerate")}
               </Button>
-              <Button
-                size="small"
-                disabled={busy || generating}
-                onClick={() => void generate("title")}
+              <Popover
+                trigger="click"
+                placement="bottomRight"
+                content={
+                  <Space direction="vertical" align="start">
+                    <Button
+                      size="small"
+                      disabled={busy || generating}
+                      onClick={() => void generate("title")}
+                    >
+                      {t("conversationMetadata.regenerateTitle")}
+                    </Button>
+                    {brief.title_source !== "fallback" && (
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setBusy(true);
+                          void api
+                            .titleAction(agentId, threadId, {
+                              action: "restore",
+                              expected_revision: brief.title_revision,
+                            })
+                            .then((value) => {
+                              if (identityRef.current === identity)
+                                setBrief(value);
+                            })
+                            .catch((err) =>
+                              message.error(
+                                apiErrorMessage(
+                                  err,
+                                  t("conversationMetadata.generationFailed"),
+                                ),
+                              ),
+                            )
+                            .finally(() => {
+                              if (identityRef.current === identity)
+                                setBusy(false);
+                            });
+                        }}
+                        disabled={busy || generating}
+                      >
+                        {t("conversationMetadata.restoreTitle")}
+                      </Button>
+                    )}
+                  </Space>
+                }
               >
-                {t("conversationMetadata.regenerateTitle")}
-              </Button>
-              {brief.title_source !== "fallback" && (
                 <Button
                   size="small"
-                  onClick={() => {
-                    setBusy(true);
-                    void api
-                      .titleAction(agentId, threadId, {
-                        action: "restore",
-                        expected_revision: brief.title_revision,
-                      })
-                      .then((value) => {
-                        if (identityRef.current === identity) setBrief(value);
-                      })
-                      .catch((err) =>
-                        message.error(
-                          apiErrorMessage(
-                            err,
-                            t("conversationMetadata.generationFailed"),
-                          ),
-                        ),
-                      )
-                      .finally(() => {
-                        if (identityRef.current === identity) setBusy(false);
-                      });
-                  }}
-                  disabled={busy || generating}
+                  type="text"
+                  icon={<MoreHorizontal size={16} />}
                 >
-                  {t("conversationMetadata.restoreTitle")}
+                  {t("conversationMetadata.moreActions")}
                 </Button>
-              )}
+              </Popover>
             </Space>
             {brief.suggested_title && brief.suggested_title !== brief.title && (
               <Alert
@@ -806,26 +829,16 @@ export default function ConversationOverview({
                         />
                       ) : (
                         <div className={styles.events}>
-                          {events.events.map((event) => (
-                            <article
-                              key={event.event_id}
-                              className={styles.event}
-                            >
-                              <div className={styles.secondary}>
-                                {stamp(event.occurred_at)} ·{" "}
-                                {t(
-                                  `conversationMetadata.eventKinds.${event.kind}`,
-                                  {
-                                    defaultValue: event.kind,
-                                    title:
-                                      event.details.source_title ||
-                                      t("conversationMetadata.untitled"),
-                                  },
-                                )}
-                              </div>
-                              <p>
-                                {event.text ||
-                                  t(
+                          {groupOverviewEvents(events.events).map((group) => {
+                            const event = group[0];
+                            return (
+                              <article
+                                key={event.event_id}
+                                className={styles.event}
+                              >
+                                <div className={styles.secondary}>
+                                  {stamp(event.occurred_at)} ·{" "}
+                                  {t(
                                     `conversationMetadata.eventKinds.${event.kind}`,
                                     {
                                       defaultValue: event.kind,
@@ -834,14 +847,44 @@ export default function ConversationOverview({
                                         t("conversationMetadata.untitled"),
                                     },
                                   )}
-                              </p>
-                              {references(
-                                event.source_refs.length
-                                  ? event.source_refs
-                                  : [{ kind: "event", id: event.event_id }],
-                              )}
-                            </article>
-                          ))}
+                                </div>
+                                {event.text && <p>{event.text}</p>}
+                                {group.length > 1 && (
+                                  <details className={styles.eventGroup}>
+                                    <summary>
+                                      {t("conversationMetadata.relatedEvents", {
+                                        count: group.length,
+                                      })}
+                                    </summary>
+                                    {group.map((entry) => (
+                                      <div
+                                        key={entry.event_id}
+                                        className={styles.groupEntry}
+                                      >
+                                        <time>{stamp(entry.occurred_at)}</time>
+                                        {references(
+                                          entry.source_refs.length
+                                            ? entry.source_refs
+                                            : [
+                                                {
+                                                  kind: "event",
+                                                  id: entry.event_id,
+                                                },
+                                              ],
+                                        )}
+                                      </div>
+                                    ))}
+                                  </details>
+                                )}
+                                {group.length === 1 &&
+                                  references(
+                                    event.source_refs.length
+                                      ? event.source_refs
+                                      : [{ kind: "event", id: event.event_id }],
+                                  )}
+                              </article>
+                            );
+                          })}
                           {events.next_cursor && (
                             <Button
                               onClick={() =>
@@ -878,7 +921,10 @@ export default function ConversationOverview({
                         <h3>{t("conversationMetadata.artifacts")}</h3>
                         {brief.artifact_refs.length ? (
                           <ul className={styles.artifactGrid}>
-                            {brief.artifact_refs.map((a) => (
+                            {(showArtifacts
+                              ? brief.artifact_refs
+                              : brief.artifact_refs.slice(0, 8)
+                            ).map((a) => (
                               <li
                                 key={`${a.agent_id}:${a.path}`}
                                 className={styles.path}
@@ -901,13 +947,13 @@ export default function ConversationOverview({
                                       name.split(".").pop()?.toLowerCase() ||
                                       "";
                                     return (
-                                      <>
+                                      <span className={styles.artifactBody}>
                                         {fileTreeIcon(a.path, 30)}
                                         <strong>{name}</strong>
                                         <small>
                                           {ext.toUpperCase() || "FILE"}
                                         </small>
-                                      </>
+                                      </span>
                                     );
                                   })()}
                                 </Button>
@@ -918,6 +964,18 @@ export default function ConversationOverview({
                           <Empty
                             description={t("conversationMetadata.noArtifacts")}
                           />
+                        )}
+                        {brief.artifact_refs.length > 8 && (
+                          <Button
+                            type="link"
+                            onClick={() => setShowArtifacts(!showArtifacts)}
+                          >
+                            {showArtifacts
+                              ? t("common.collapse")
+                              : t("conversationMetadata.artifactCount", {
+                                  count: brief.artifact_refs.length,
+                                })}
+                          </Button>
                         )}
                       </section>
                     </>
