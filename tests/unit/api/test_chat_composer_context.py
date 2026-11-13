@@ -16,6 +16,9 @@ class _ThreadRegistry:
         self.row = row
         self.rebound = False
 
+    def get_session(self, session_key: str) -> None:
+        return None
+
     def get_thread(self, thread_id: str) -> object:
         assert thread_id == "owner-thread"
         return self.row
@@ -38,6 +41,35 @@ async def test_resolve_thread_id_rejects_another_users_thread() -> None:
 
     assert exc_info.value.code == ErrorCode.FORBIDDEN
     assert registry.rebound is False
+
+
+@pytest.mark.parametrize("channel_type", ["dashboard", "cli"])
+async def test_virtual_turn_rejects_foreign_session_or_thread(channel_type):
+    from unittest.mock import AsyncMock, Mock
+
+    from octop.infra.gateway.cli.turn import prepare_cli_turn
+
+    resolver = resolve_thread_id if channel_type == "dashboard" else prepare_cli_turn
+    registry = Mock()
+    registry.rebind = AsyncMock()
+    registry.get_session.return_value = SimpleNamespace(user_id=2, agent_id="agent")
+    args = {
+        "thread_registry": registry,
+        "agent_id": "agent",
+        "user_id": 1,
+        "session_key": "session",
+    }
+    with pytest.raises(OctopError) as foreign_session:
+        await resolver(**args, thread_id="own-thread")
+    assert foreign_session.value.code == ErrorCode.FORBIDDEN
+    registry.get_session.return_value = SimpleNamespace(user_id=1, agent_id="agent")
+    registry.get_bound_thread_id.return_value = "another-thread"
+    registry.get_thread.return_value = SimpleNamespace(user_id=2, agent_id="agent")
+    for thread in (None, "another-thread"):
+        with pytest.raises(OctopError) as foreign_thread:
+            await resolver(**args, thread_id=thread)
+        assert foreign_thread.value.code == ErrorCode.FORBIDDEN
+    registry.rebind.assert_not_awaited()
 
 
 def test_build_composer_context_omits_default_model() -> None:

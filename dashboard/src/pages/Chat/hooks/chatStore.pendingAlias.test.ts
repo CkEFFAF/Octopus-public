@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   appendUserMessage,
+  appendPushMessage,
   detachSessionKey,
   getSnapshot,
   removeSession,
@@ -65,5 +66,30 @@ describe("renameSessionKey pending alias", () => {
     expect(getSnapshot(PENDING_THREAD_ID).messages[0]?.content).toBe(
       "fresh pending",
     );
+  });
+
+  it("keeps delayed assistant notices in their originating conversation", async () => {
+    setMessages(tid1, [makeMessage("u1", "first chat")]);
+    setMessages(tid2, [makeMessage("u2", "second chat")]);
+    let release!: () => void;
+    const delayed = new Promise<void>((resolve) => {
+      release = resolve;
+    }).then(() => appendPushMessage(tid1, "first task completed"));
+    appendPushMessage(tid2, "second task completed");
+    const secondSnapshot = getSnapshot(tid2);
+    release();
+    await delayed;
+    expect(getSnapshot(tid1).messages.map((m) => m.content)).toEqual([
+      "first chat",
+      "first task completed",
+    ]);
+    expect(getSnapshot(tid2)).toBe(secondSnapshot);
+    expect(secondSnapshot.messages.map((m) => m.content)).toEqual([
+      "second chat",
+      "second task completed",
+    ]);
+    appendPushMessage(null, "unaddressed notice");
+    expect(getSnapshot(tid2)).toBe(secondSnapshot);
+    expect(getSnapshot(tid1).messages).toHaveLength(2);
   });
 });

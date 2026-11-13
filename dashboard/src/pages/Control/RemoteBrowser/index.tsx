@@ -51,7 +51,6 @@ import BrowserViewer, {
 } from "../../../components/BrowserViewer";
 import { useAgent } from "../../../context/AgentContext";
 import { browserApi } from "../../../api/modules/browser";
-import * as chatStore from "../../Chat/hooks/chatStore";
 import { request } from "../../../api/request";
 import { normalizeUrl } from "../../../utils/normalizeUrl";
 import { clearCanvas } from "../../../utils/browserCanvas";
@@ -938,6 +937,8 @@ export default function RemoteBrowserPage({
   // Skill name (task objective) — set later by user in AI chat panel
   const [skillName, setSkillName] = useState<string>("");
 
+  const announcedRecording = useRef<string | null>(null);
+
   const handleStartRecording = useCallback(async () => {
     setSkillGuideOpen(false);
 
@@ -960,11 +961,6 @@ export default function RemoteBrowserPage({
         if (rid) setBrowserLastRecordingId(rid);
         antMessage.success(
           t("browser.recordReplay.started", "已开始浏览器录制"),
-        );
-
-        // Push a prompt asking the user to input their task objective
-        chatStore.appendPushMessage(
-          '🎬 录制已开始！\n\n请输入你的 **任务目标**（这将成为技能名称和触发关键词），例如："登录OA系统"、"查询天气"等。',
         );
       } else {
         antMessage.error(
@@ -1583,6 +1579,7 @@ export default function RemoteBrowserPage({
                 layout={isMobile ? "bottom" : "right"}
                 onClose={handleAiPanelClose}
                 browserRecording={browserRecording}
+                announcedRecording={announcedRecording}
                 browserRecordingId={browserRecordingId}
                 browserLastRecordingId={browserLastRecordingId}
                 setBrowserRecording={setBrowserRecording}

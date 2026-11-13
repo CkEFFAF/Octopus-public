@@ -70,7 +70,7 @@ async def cmd_compact(
     ``/new``, it does **not** create a fresh thread.
     """
     lang = lang_of(ctx)
-    tid = ctx.thread_registry.get_bound_thread_id(ctx.session_key)
+    tid = ctx.current_thread_id()
     if not tid:
         await sink.text(tr("compact.no_thread", lang))
         return

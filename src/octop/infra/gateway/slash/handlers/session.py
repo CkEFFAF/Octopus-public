@@ -92,7 +92,7 @@ async def cmd_resume(d: SlashDispatcher, cmd: SlashCommand, ctx: SlashCtx, sink:
             await sink.action("rebind_thread", thread_id=target.thread_id)
         await sink.text(tr("resume.done", lang, short=target.thread_id[-6:]))
         return
-    current = ctx.thread_registry.get_bound_thread_id(ctx.session_key)
+    current = ctx.current_thread_id()
     rows = ctx.thread_registry.list_threads_for_session(session_key=ctx.session_key, limit=50)
     if len(rows) < 2:
         await sink.text(tr("resume.empty", lang))
@@ -126,7 +126,7 @@ async def cmd_delete(d: SlashDispatcher, cmd: SlashCommand, ctx: SlashCtx, sink:
     if not short:
         await sink.text(tr("delete.usage", lang))
         return
-    active = ctx.thread_registry.get_bound_thread_id(ctx.session_key)
+    active = ctx.current_thread_id()
     target = find_thread_by_short(ctx.thread_registry, ctx.agent_id, ctx.user_id, short)
     if target is None:
         await sink.text(tr("delete.not_found", lang, short=short))

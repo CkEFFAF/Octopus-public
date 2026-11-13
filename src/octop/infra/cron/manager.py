@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from octop.infra.db.repos.connectors import ConnectorRow
     from octop.infra.db.repos.cron import CronJobRow
     from octop.infra.db.services import RepoBundle
+    from octop.infra.execution.service import ExecutionService
     from octop.infra.gateway.gateway import Gateway
 
 from octop.infra.cron.task_type import normalize_cron_task_type, require_cron_name
@@ -241,6 +242,36 @@ class CronManager:
             row.user_id,
             row.agent_id,
         )
+        thread_id = session.thread_id if associated and session else None
+        origin = meta.get("origin_thread_id") if reminder else None
+        if origin:
+            thread = self._repos.thread_repo.get(origin)
+            thread_id = (
+                origin
+                if thread and (thread.user_id, thread.agent_id) == (row.user_id, row.agent_id)
+                else None
+            )
+        hook_id = meta.get("wakeup_hook_id") if reminder else None
+        hook = self._repos.run_event_repo.wakeup_hook(hook_id) if hook_id else None
+        if hook and (hook["owner_user_id"], hook["agent_id"], hook["thread_id"]) != (
+            row.user_id,
+            row.agent_id,
+            thread_id,
+        ):
+            hook = None
+        resume_mode = (
+            (hook["payload"] if hook else meta).get("resume_mode", "observe") if reminder else None
+        )
+        can_set_mode = bool(
+            reminder
+            and origin
+            and thread_id
+            and not exhausted
+            and (
+                not hook_id
+                or (hook and hook["context_id"] and hook["status"] in {"queued", "scheduled"})
+            )
+        )
         job = self._scheduler.get_job(row.cron_id)
         next_run = getattr(job, "next_run_time", None) if job else None
         event = row.trigger.startswith("agently:")
@@ -272,14 +303,15 @@ class CronManager:
             next_run_at=next_run.timestamp() if next_run else None,
             observed_at=time.time(),
             scheduler_state=state,
-            thread_id=session.thread_id if associated and session else None,
-            association="current_session" if associated else "missing",
+            thread_id=thread_id,
+            association="current_session" if thread_id else "missing",
+            resume_mode=resume_mode,
             fires=fires,
             max_fires=maximum,
             remaining=max(0, maximum - fires)
             if maximum is not None and fires is not None
             else None,
-            capabilities={"view": True, "manage": not reminder},
+            capabilities={"view": True, "manage": not reminder, "set_resume_mode": can_set_mode},
             last_error="Scheduled delivery failed; inspect its attempt" if row.last_error else None,
         )
         return value
@@ -316,6 +348,66 @@ class CronManager:
             offset=offset,
             limit=limit,
         )
+
+    async def set_resume_mode(
+        self, cron_id: str, *, owner: int, mode: str, execution: ExecutionService
+    ) -> CronJobRow:
+        """Set the next wake-up's mode without restarting or rescheduling its timer."""
+        async with self._lock:
+            row = self.get(cron_id)
+            if row is None or row.user_id != owner:
+                raise OctopError(ErrorCode.NOT_FOUND, "reminder unavailable")
+            view = self.public_view(row)
+            if mode not in ("observe", "continue") or not view["capabilities"]["set_resume_mode"]:
+                raise OctopError(ErrorCode.WORKFLOW_CONFLICT, "reminder mode unavailable")
+            meta = dict(row.meta or {})
+            origin = view["thread_id"]
+            hook_id = meta.get("wakeup_hook_id")
+            if hook_id:
+                hook = self._repos.run_event_repo.wakeup_hook(hook_id)
+                if not hook or hook["status"] not in {"queued", "scheduled"}:
+                    raise OctopError(ErrorCode.WORKFLOW_CONFLICT, "reminder already dispatched")
+                context_id = hook["context_id"]
+            else:
+                context_id = meta.get("wakeup_context_id")
+            if mode == "continue" and context_id:
+                context = execution.get(owner, context_id)
+                if (context.agent_id, context.thread_id) != (row.agent_id, origin):
+                    raise OctopError(ErrorCode.FORBIDDEN, "reminder execution source unavailable")
+            elif mode == "continue" and not meta.get("origin_work_mode") and not hook_id:
+                # Older timers have no snapshot. Only the authenticated owner's
+                # explicit choice on this thread may bind their first target.
+                selected = execution.selection(owner, origin)
+                if not execution.has_target(selected):
+                    raise OctopError.localized(ErrorCode.EXECUTION_TARGET_REQUIRED, status=409)
+                context = execution.resolve(
+                    owner,
+                    agent_id=row.agent_id,
+                    thread_id=origin,
+                    device_id=selected.get("device_id"),
+                    target_kind=selected.get("target_kind"),
+                    working_dir=selected.get("working_dir"),
+                    work_mode=selected["work_mode"],
+                    binding={},
+                )
+                meta.update(
+                    wakeup_context_id=context.context_id, origin_work_mode=context.work_mode
+                )
+            if hook_id and hook:
+                if not self._repos.run_event_repo.compare_payload(
+                    owner,
+                    hook_id,
+                    hook["payload"],
+                    {**hook["payload"], "resume_mode": mode},
+                    hook["status"],
+                    expected_status=hook["status"],
+                ):
+                    raise OctopError(ErrorCode.WORKFLOW_CONFLICT, "reminder already dispatched")
+            else:
+                self._repos.cron_repo.set_meta(cron_id, {**meta, "resume_mode": mode})
+            updated = self.get(cron_id)
+            assert updated is not None
+            return updated
 
     async def update(
         self,

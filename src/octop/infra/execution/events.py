@@ -235,6 +235,7 @@ class RunInspectionService:
                 "job_kind",
                 "subject",
                 "notify_on_exit",
+                "resume_mode",
                 "progress_hook_id",
             }
         }
@@ -244,6 +245,8 @@ class RunInspectionService:
         title = result.get("title")
         if isinstance(title, str) and title.strip():
             labels["title"] = title.strip()[:120]
+        if "resume_mode" not in labels and result.get("resume_mode") in ("observe", "continue"):
+            labels["resume_mode"] = result["resume_mode"]
         if isinstance(result.get("notify_on_exit"), bool):
             labels["notify_on_exit"] = result["notify_on_exit"]
         if isinstance(result.get("progress_hook_id"), str):

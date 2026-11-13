@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -161,8 +161,10 @@ def test_write_text_privileged_falls_back_to_sudo_tee(
 
 @pytest.mark.asyncio
 async def test_probe_tencent_mirror_unreachable() -> None:
-    # 127.0.0.1:1 → connection refused → probe returns False quickly.
-    with patch.object(docker_install, "_TENCENT_MIRROR_HOST", "127.0.0.1"):
+    # A local HTTPS listener must not turn this failure-path test into a success.
+    with patch.object(
+        docker_install.asyncio, "open_connection", AsyncMock(side_effect=OSError("unreachable"))
+    ):
         assert await _probe_tencent_mirror() is False
 
 

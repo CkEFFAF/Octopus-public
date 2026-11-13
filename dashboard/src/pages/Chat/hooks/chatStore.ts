@@ -852,22 +852,21 @@ export function truncateAndReplaceUserMessage(
   return true;
 }
 
-/** Append a push (proactive/cron) assistant message to all active sessions. */
-export function appendPushMessage(text: string) {
+/** Append a local assistant notice only to its originating conversation. */
+export function appendPushMessage(
+  sessionId: string | null | undefined,
+  text: string,
+) {
+  if (!sessionId) return;
   const msg: ChatMessage = {
     id: generateId(),
     role: "assistant",
     content: text,
     timestamp: Date.now(),
   };
-  // renameSessionKey may briefly alias two keys to one state — dedupe.
-  const seen = new Set<SessionStreamState>();
-  for (const state of sessionStates.values()) {
-    if (seen.has(state)) continue;
-    seen.add(state);
-    state.messages = [...state.messages, msg];
-    notify(state);
-  }
+  const state = getOrCreate(sessionId);
+  state.messages = [...state.messages, msg];
+  notify(state);
 }
 
 /** Clear all messages for a session, unless a turn is still in flight. */

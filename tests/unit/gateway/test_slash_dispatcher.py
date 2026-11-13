@@ -56,6 +56,20 @@ def dispatcher() -> SlashDispatcher:
     return build_default_dispatcher()
 
 
+async def test_stop_targets_origin_after_sibling_rebinds(dispatcher, ctx):
+    ctx.thread_id = await ctx.thread_registry.get_or_create_by_key(
+        session_key=ctx.session_key,
+        agent_id=ctx.agent_id,
+        user_id=ctx.user_id,
+        channel_type=ctx.channel_type,
+    )
+    sibling = await ctx.thread_registry.reset_by_session_key(ctx.session_key)
+    assert sibling != ctx.thread_id
+    ctx.agent_manager.cancel_stream = MagicMock()
+    await dispatcher.handle(SlashCommand("stop", ""), ctx, BufferSink())
+    ctx.agent_manager.cancel_stream.assert_called_once_with(ctx.agent_id, ctx.thread_id)
+
+
 async def test_unknown_is_not_handled(dispatcher, ctx):
     sink = BufferSink()
     handled = await dispatcher.handle(SlashCommand("zzz", ""), ctx, sink)

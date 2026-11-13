@@ -1,5 +1,6 @@
 # Shell scripts must stay LF for Linux CI / bash
 *.sh text eol=lf
+.githooks/* text eol=lf
 
 # Match the frontend formatter on Windows without converting binary assets.
 dashboard/**/*.ts text eol=lf

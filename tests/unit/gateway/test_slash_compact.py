@@ -59,7 +59,8 @@ def dispatcher():
 
 
 @pytest.mark.asyncio
-async def test_cmd_compact_calls_harness_without_reset(ctx, dispatcher) -> None:
+@pytest.mark.parametrize("rebound", [False, True])
+async def test_cmd_compact_calls_harness_without_reset(ctx, dispatcher, rebound) -> None:
     await ctx.thread_registry.get_or_create_by_key(
         session_key=ctx.session_key,
         agent_id=ctx.agent_id,
@@ -68,6 +69,11 @@ async def test_cmd_compact_calls_harness_without_reset(ctx, dispatcher) -> None:
     )
     tid = ctx.thread_registry.get_bound_thread_id(ctx.session_key)
     assert tid
+    bound = tid
+    if rebound:
+        ctx.thread_id = tid
+        bound = await ctx.thread_registry.reset_by_session_key(ctx.session_key)
+        assert bound != tid
 
     harness = MagicMock()
     harness.acompact_conversation = AsyncMock(
@@ -90,7 +96,7 @@ async def test_cmd_compact_calls_harness_without_reset(ctx, dispatcher) -> None:
     assert (
         len(ctx.thread_registry.list_threads(agent_id=ctx.agent_id, user_id=ctx.user_id)) == before
     )
-    assert ctx.thread_registry.get_bound_thread_id(ctx.session_key) == tid
+    assert ctx.thread_registry.get_bound_thread_id(ctx.session_key) == bound
     text = "\n".join(sink.lines)
     assert "12" in text
     assert "conversation_history" in text

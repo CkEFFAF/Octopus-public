@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from langchain_core.tools import ToolException, tool
 from langgraph.config import get_config
@@ -28,6 +28,7 @@ def build_job_tools(backend: RequestExecutionBackend) -> list[Any]:
         cwd: str | None = None,
         notify_on_exit: bool = True,
         progress_hook_id: str | None = None,
+        resume_mode: Literal["observe", "continue"] = "observe",
     ) -> str:
         """Start a persistent Job on the selected device, independent of chat and connection lifetime.
 
@@ -38,7 +39,8 @@ def build_job_tools(backend: RequestExecutionBackend) -> list[Any]:
         "CPS validation probes"), never a shell name such as bash. Return to the user
         after acceptance. By default one read-only follow-up is scheduled in this
         original conversation when a real terminal receipt arrives; do not sleep
-        or repeatedly poll. Set notify_on_exit=False only when no follow-up is wanted.
+        or repeatedly poll. Use resume_mode="continue" for follow-up work already authorized
+        in the original work mode. Set notify_on_exit=False only when no follow-up is wanted.
         To show real progress, first register_wakeup_hook(delivery_mode="progress"),
         instrument the script with its callback, and pass its hook_id as progress_hook_id.
         Ordinary stdout does not imply a percentage. Do not invent progress estimates.
@@ -63,6 +65,7 @@ def build_job_tools(backend: RequestExecutionBackend) -> list[Any]:
                     "idempotency_key": idempotency_key,
                     "title": title,
                     "notify_on_exit": notify_on_exit,
+                    "resume_mode": resume_mode,
                     "progress_hook_id": progress_hook_id,
                 },
             ),

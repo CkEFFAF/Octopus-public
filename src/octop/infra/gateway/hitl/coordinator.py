@@ -172,13 +172,16 @@ class HitlChannelCoordinator:
         *,
         agent_id: str,
         user_id: int,
+        thread_id: str | None = None,
     ) -> HitlPendingRecord | None:
         """Return the open ``ask_user_question`` pause this user may answer.
 
         Returns ``None`` for approval pauses (those keep using ``/approve``) and
         for questions addressed to a different user in the same group chat.
         """
-        record = self._store.resolve_for_session(session_key, agent_id=agent_id)
+        record = self._store.resolve_for_session(
+            session_key, agent_id=agent_id, thread_id=thread_id
+        )
         if record is None or record.status != "pending":
             return None
         if record.user_id != user_id:
@@ -449,20 +452,20 @@ class HitlChannelCoordinator:
         lang: Locale,
     ) -> HitlPendingRecord | MessageEvent | None:
         if approve and arg:
-            record = self._store.get_pending(
+            record = self._store.resolve_for_session(
+                ctx.session_key,
                 arg,
-                session_key=ctx.session_key,
                 agent_id=ctx.agent_id,
+                thread_id=ctx.thread_id,
             )
             if record is None:
                 return MessageEvent.text(tr("hitl.invalid_pending_id", lang, pending_id=arg))
-            return record
-
-        record = self._store.resolve_for_session(
-            ctx.session_key,
-            None,
-            agent_id=ctx.agent_id,
-        )
+        else:
+            record = self._store.resolve_for_session(
+                ctx.session_key,
+                agent_id=ctx.agent_id,
+                thread_id=ctx.thread_id,
+            )
         if record is not None and record.user_id != ctx.user_id:
             return MessageEvent.text(tr("hitl.not_owner", lang))
         if record is not None and record.status == "expired":
@@ -470,7 +473,9 @@ class HitlChannelCoordinator:
         return record
 
     async def _iter_pending_list(self, ctx: SlashCtx, lang: Locale) -> AsyncIterator[MessageEvent]:
-        rows = self._store.list_pending_for_session(ctx.session_key, agent_id=ctx.agent_id)
+        rows = self._store.list_pending_for_session(
+            ctx.session_key, agent_id=ctx.agent_id, thread_id=ctx.thread_id
+        )
         if not rows:
             yield MessageEvent.text(tr("hitl.pending_empty", lang))
             return

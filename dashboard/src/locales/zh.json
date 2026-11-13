@@ -8007,6 +8007,12 @@
     "timezone": "快照时区"
   },
   "workspace0034": {
+    "reminderResumeMode": "唤醒模式",
+    "reminderMode": {
+      "observe": "只读检查",
+      "continue": "继续原任务"
+    },
+    "reminderModeSaveFailed": "唤醒模式保存失败，请重试。",
     "allExperts": "全部专家 · 统一管理",
     "scheduleCenter": "定时任务总管理",
     "expertTaskPanel": "专家任务面板",

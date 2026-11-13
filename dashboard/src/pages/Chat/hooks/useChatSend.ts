@@ -91,6 +91,7 @@ export type ChatSendOverrides = {
   workMode?: WorkMode;
   workingDir?: string;
   executionSelection?: ExecutionSelectionSnapshot;
+  onThreadResolved?: (threadId: string) => void;
 };
 
 const EMPTY_TARGET_AGENTS: string[] = [];
@@ -239,6 +240,7 @@ export function useChatSend({
             ? messagesLength > 0
             : chatStore.getSnapshot(targetThreadId).messages.length > 0;
         runSend(targetThreadId, hadMessages);
+        overrides?.onThreadResolved?.(targetThreadId);
         return true;
       }
 
@@ -296,6 +298,7 @@ export function useChatSend({
           workingDir,
         );
         navigate(`/chat/${agent}/${tid}`, { replace: true });
+        overrides?.onThreadResolved?.(tid);
       });
       return true;
     },
@@ -341,43 +344,30 @@ export function useChatSend({
         // Not JSON — treat as plain text (legacy format)
       }
 
-      setTimeout(() => handleSend(textToSend), 500);
-
-      // If autoRecord flag is set, start browser recording after sending the message
-      if (autoRecord) {
-        setTimeout(async () => {
-          try {
-            const { browserApi } = await import("../../../api/modules/browser");
-            const data = await browserApi.startRecording({
-              name: activeThreadId
-                ? `chat-${activeThreadId}`
-                : "skill-recording",
-            });
-            if (data.ok) {
-              // Notify the chat page that recording has started (update UI state)
-              if (data.recordingId && onAutoRecordingStarted) {
-                onAutoRecordingStarted(data.recordingId);
-              }
-              // Push a system message into the chat about recording started
-              const { generateId } = await import(
-                "../../../utils/messageParser"
-              );
-              const pushMsg = {
-                id: generateId(),
-                role: "assistant" as const,
-                content: `🎬 录制已开始！请在浏览器中进行你想要自动化的操作。\n\n操作完成后，输入"结束"即可结束录制，系统将自动生成技能脚本。`,
-                timestamp: Date.now(),
-                status: "done" as const,
-              };
-              // Append directly to chat store
-              const { appendPushMessage } = await import("./chatStore");
-              appendPushMessage(pushMsg.content);
-            }
-          } catch {
-            // Silently ignore recording start failure; the user can manually start
+      const startRecording = async (threadId: string) => {
+        try {
+          const { browserApi } = await import("../../../api/modules/browser");
+          const data = await browserApi.startRecording({
+            name: `chat-${threadId}`,
+          });
+          if (data.ok) {
+            if (data.recordingId) onAutoRecordingStarted?.(data.recordingId);
+            chatStore.appendPushMessage(
+              threadId,
+              `🎬 录制已开始！请在浏览器中进行你想要自动化的操作。\n\n操作完成后，输入"结束"即可结束录制，系统将自动生成技能脚本。`,
+            );
           }
-        }, 1500);
-      }
+        } catch {
+          // The user can still start recording manually.
+        }
+      };
+      setTimeout(
+        () =>
+          handleSend(textToSend, undefined, {
+            onThreadResolved: autoRecord ? startRecording : undefined,
+          }),
+        500,
+      );
     };
 
     consumePending();
@@ -386,7 +376,7 @@ export function useChatSend({
     window.addEventListener("octop:pending-chat-message", handler);
     return () =>
       window.removeEventListener("octop:pending-chat-message", handler);
-  }, [handleSend, activeThreadId, onAutoRecordingStarted]);
+  }, [handleSend, onAutoRecordingStarted]);
 
   return { handleSend };
 }

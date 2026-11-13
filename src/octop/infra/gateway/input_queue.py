@@ -403,9 +403,8 @@ class ChatInputQueue:
                 self.assert_scope(owner, agent_id, thread_id)
                 inbound = InboundMessage.model_validate(item["payload"]["inbound"])
                 meta = dict(inbound.metadata or {})
-                session_key = str(meta.get("session_key") or "")
-                if self.gateway.processor.hitl_coordinator.store.resolve_for_session(
-                    session_key, agent_id=agent_id
+                if self.gateway.processor.hitl_coordinator.store.resolve_pending_for_thread(
+                    thread_id, agent_id=agent_id, user_id=owner
                 ):
                     return
                 agent = self.agents.get_agent(agent_id)

@@ -386,6 +386,7 @@ class WakeupHookService:
                     purpose=tr("execution.jobCompletionPurpose", locale),
                     idempotency_key=job["event_id"],
                     job_event_id=job["event_id"],
+                    resume_mode=job["payload"].get("resume_mode", "observe"),
                     include_token=False,
                 )
             except (OctopError, ValueError):
@@ -449,6 +450,23 @@ class WakeupHookService:
                         expected_status=current["status"],
                     )
 
+    @staticmethod
+    def delivery_prompt(repos: Any, row: dict[str, Any]) -> str:
+        locale = resolve_user_locale(user_repo=repos.user_repo, user_id=row["owner_user_id"])
+        facts = {key: row["payload"].get(key) for key in ("title", "event_type", "data")}
+        return tr(
+            "execution.wakeupPrompt",
+            locale,
+            purpose=row["payload"]["purpose"],
+            mode=tr(
+                "execution.wakeupContinue"
+                if row["payload"].get("resume_mode") == "continue"
+                else "execution.wakeupObserve",
+                locale,
+            ),
+            data=json.dumps(facts, ensure_ascii=False),
+        )
+
     async def schedule(self, row: dict[str, Any], cron: CronManager) -> None:
         from octop.infra.cron.manager import CronCreateSpec
         from octop.infra.cron.origin_target import ensure_pin_session
@@ -478,20 +496,7 @@ class WakeupHookService:
             )
             meta = stamp_origin_meta(meta, thread_id=row["thread_id"])
             meta.update(wakeup_hook_id=row["event_id"], wakeup_context_id=row["context_id"])
-            locale = resolve_user_locale(user_repo=self.repos.user_repo, user_id=owner)
-            facts = {key: row["payload"].get(key) for key in ("title", "event_type", "data")}
-            prompt = tr(
-                "execution.wakeupPrompt",
-                locale,
-                purpose=row["payload"]["purpose"],
-                mode=tr(
-                    "execution.wakeupContinue"
-                    if row["payload"].get("resume_mode") == "continue"
-                    else "execution.wakeupObserve",
-                    locale,
-                ),
-                data=json.dumps(facts, ensure_ascii=False),
-            )
+            prompt = self.delivery_prompt(self.repos, row)
             await cron.create(
                 CronCreateSpec(
                     cron_id=cron_id,

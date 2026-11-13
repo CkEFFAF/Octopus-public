@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from collections.abc import AsyncIterator
@@ -582,6 +583,71 @@ async def test_global_processor_iter_turn_chunks_registers_hitl() -> None:
     )
     assert pending is not None
     assert pending.action_requests[0]["name"] == "execute"
+
+
+@pytest.mark.asyncio
+async def test_dashboard_turn_does_not_answer_sibling_question() -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    from octop.infra.gateway.hitl.coordinator import HitlChannelCoordinator
+    from octop.infra.gateway.process.processor import GlobalProcessor
+    from octop.infra.gateway.slash.dispatcher import SlashDispatcher
+
+    hitl = HitlChannelCoordinator()
+    question_emitted = asyncio.Event()
+    release_sibling = asyncio.Event()
+
+    async def stream(_agent: str, request: dict[str, Any]):
+        if request["thread_id"] == "thread-b":
+            yield {
+                "type": "hitl_required",
+                "request": {
+                    "action_requests": [{"name": "ask_user_question", "args": {"questions": []}}]
+                },
+            }
+            question_emitted.set()
+            await release_sibling.wait()
+            return
+        yield {"type": "token", "content": f"reply from {request['thread_id']}"}
+
+    manager = MagicMock()
+    manager.stream = stream
+    manager.prepare_chat_mcp = AsyncMock(return_value=[])
+    processor = GlobalProcessor(
+        agent_manager=manager,
+        thread_registry=MagicMock(),
+        audit_repo=MagicMock(),
+        agent_repo=MagicMock(),
+        user_repo=MagicMock(),
+        connector_repo=MagicMock(),
+        dispatcher=SlashDispatcher(),
+        hitl=hitl,
+    )
+    msg = InboundMessage(
+        channel_id=WS_CHANNEL_ID,
+        channel_type="dashboard",
+        tenant_id="agent-1",
+        channel_subject=ChannelSubject(subject_id="1"),
+        content=[TextContent(text="continue A")],
+        metadata={"session_key": "shared", "thread_id": "thread-a"},
+    )
+
+    async def run_sibling():
+        sibling = msg.model_copy(
+            update={"metadata": {"session_key": "shared", "thread_id": "thread-b"}}
+        )
+        return [chunk async for chunk in processor.iter_turn_chunks(sibling)]
+
+    sibling_turn = asyncio.create_task(run_sibling())
+    try:
+        await asyncio.wait_for(question_emitted.wait(), timeout=5)
+        chunks = [chunk async for chunk in processor.iter_turn_chunks(msg)]
+    finally:
+        release_sibling.set()
+        await sibling_turn
+    assert [c["content"] for c in chunks if c["type"] == "token"] == ["reply from thread-a"]
+    manager.resume_hitl.assert_not_called()
+    assert hitl.store.resolve_pending_for_thread("thread-b", agent_id="agent-1", user_id=1)
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from octop.infra.gateway.threads import ThreadRegistry
+
 HitlPendingStatus = Literal["pending", "approved", "rejected", "expired"]
 
 _DEFAULT_TTL_SECONDS = 30 * 60
@@ -26,6 +28,13 @@ class HitlPendingRecord:
     status: HitlPendingStatus = "pending"
     ask_question_index: int = 0
     ask_answers: list[str] = field(default_factory=list)
+
+    def matches_conversation(self, session_key: str, thread_id: str | None) -> bool:
+        # Dashboard and CLI callers pin a validated thread. Background tasks
+        # can register its pause under a separate, origin-pinned session key.
+        if thread_id is not None:
+            return self.thread_id == thread_id
+        return self.session_key == session_key
 
 
 @dataclass
@@ -47,8 +56,10 @@ class HitlPendingStore:
         review_configs: list[dict[str, Any]] | None,
     ) -> HitlPendingRecord:
         self._gc()
-        for existing in list(self._records.values()):
-            if existing.session_key == session_key and existing.status == "pending":
+        if ThreadRegistry.is_virtual_channel(channel_type):
+            self.expire_pending_for_thread(thread_id, agent_id=agent_id, user_id=user_id)
+        else:
+            for existing in self.list_pending_for_session(session_key, agent_id=agent_id):
                 existing.status = "expired"
         pending_id = secrets.token_hex(2)
         while pending_id in self._records:
@@ -99,18 +110,22 @@ class HitlPendingStore:
         pending_id: str | None = None,
         *,
         agent_id: str | None = None,
+        thread_id: str | None = None,
     ) -> HitlPendingRecord | None:
         self._gc()
         if pending_id:
             record = self.get(pending_id)
-            if record is None or record.session_key != session_key:
+            if record is None or not record.matches_conversation(session_key, thread_id):
                 return None
             if agent_id is not None and record.agent_id != agent_id:
                 return None
             return record if record.status == "pending" else None
         latest: HitlPendingRecord | None = None
         for record in self._records.values():
-            if record.session_key != session_key or record.status != "pending":
+            if (
+                not record.matches_conversation(session_key, thread_id)
+                or record.status != "pending"
+            ):
                 continue
             if agent_id is not None and record.agent_id != agent_id:
                 continue
@@ -150,12 +165,13 @@ class HitlPendingStore:
         session_key: str,
         *,
         agent_id: str | None = None,
+        thread_id: str | None = None,
     ) -> list[HitlPendingRecord]:
         self._gc()
         rows = [
             r
             for r in self._records.values()
-            if r.session_key == session_key
+            if r.matches_conversation(session_key, thread_id)
             and r.status == "pending"
             and (agent_id is None or r.agent_id == agent_id)
         ]

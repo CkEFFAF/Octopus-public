@@ -41,6 +41,10 @@ class SlashCtx:
     """Dashboard composer / turn ``metadata.model`` (``provider/model``), if any."""
     model_ref: str | None = None
     default_timezone: str = "Asia/Shanghai"
+    thread_id: str | None = None
+
+    def current_thread_id(self) -> str | None:
+        return self.thread_id or self.thread_registry.get_bound_thread_id(self.session_key)
 
 
 def lang_of(ctx: SlashCtx) -> Locale:
@@ -72,7 +76,7 @@ def resolve_user_agent(ctx: SlashCtx, query: str) -> AgentRow | None:
 
 
 async def ensure_thread_id(ctx: SlashCtx) -> str:
-    tid = ctx.thread_registry.get_bound_thread_id(ctx.session_key)
+    tid = ctx.current_thread_id()
     if tid is not None:
         return tid
     return await ctx.thread_registry.get_or_create_by_key(
@@ -105,6 +109,7 @@ def build_slash_ctx(
     user_locale: str | None = None,
     channel_metadata: dict[str, object] | None = None,
     default_timezone: str | None = None,
+    thread_id: str | None = None,
 ) -> SlashCtx:
     """Build SlashCtx for GlobalProcessor or other gateway entry points."""
     meta = getattr(gateway, "slash_meta", None) if gateway is not None else None
@@ -148,6 +153,7 @@ def build_slash_ctx(
         user_id=user_id,
         channel_type=channel_type,
         session_key=session_key,
+        thread_id=thread_id,
         locale=resolve_locale(
             user_locale=user_loc,
             channel_type=channel_type,

@@ -24,7 +24,7 @@ async def build_runtime_ctx(cmd: SlashCommand, ctx: SlashCtx) -> RuntimeSlashCtx
             default_model = row.default_model
 
     if cmd.name in ("stop", "cancel"):
-        thread_id = ctx.thread_registry.get_bound_thread_id(ctx.session_key)
+        thread_id = ctx.current_thread_id()
     else:
         thread_id = await ensure_thread_id(ctx)
     cancel_stream = None

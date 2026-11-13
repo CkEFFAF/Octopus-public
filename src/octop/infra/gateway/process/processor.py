@@ -489,6 +489,7 @@ class GlobalProcessor:
         channel_type: str,
         session_key: str,
         metadata: dict[str, Any] | None = None,
+        thread_id: str | None = None,
     ) -> SlashCtx:
         return build_slash_ctx(
             gateway=self._gateway,
@@ -503,6 +504,7 @@ class GlobalProcessor:
             channel_type=channel_type,
             session_key=session_key,
             metadata=metadata,
+            thread_id=thread_id,
             paths=self._agent_manager.paths,
             default_timezone=self._agent_manager.octop_config.default_timezone,
         )
@@ -997,6 +999,8 @@ class GlobalProcessor:
             channel_type=channel_type,
             metadata=meta,
         )
+        raw_thread = meta.get("thread_id")
+        turn_thread = (raw_thread.strip() or None) if isinstance(raw_thread, str) else None
         cmd = parse_slash(msg.text)
         if cmd is not None and cmd.name in HITL_APPROVAL_COMMANDS:
             usage_tracker = UsageTracker()
@@ -1009,6 +1013,7 @@ class GlobalProcessor:
                     channel_type=channel_type,
                     session_key=session_key,
                     metadata=meta,
+                    thread_id=turn_thread,
                 ),
                 agent_manager=self._agent_manager,
                 locale=locale,
@@ -1019,7 +1024,7 @@ class GlobalProcessor:
             ):
                 for frame in message_event_to_cli_chunks(ev):
                     yield _maybe_stamp_team_host(frame, agent_id, team_host)
-            thread_id = self._thread_registry.get_bound_thread_id(session_key)
+            thread_id = turn_thread or self._thread_registry.get_bound_thread_id(session_key)
             if thread_id is None:
                 thread_id = await self._thread_registry.get_or_create_by_key(
                     session_key=session_key,
@@ -1050,6 +1055,7 @@ class GlobalProcessor:
                 session_key,
                 agent_id=agent_id,
                 user_id=user_id,
+                thread_id=turn_thread,
             )
             if ask_record is not None:
                 usage_tracker = UsageTracker()
@@ -1106,11 +1112,12 @@ class GlobalProcessor:
                 channel_type=channel_type,
                 session_key=session_key,
                 metadata=meta,
+                thread_id=turn_thread,
             ),
         )
         if handled:
-            thread_id = meta.get("thread_id")
-            if not isinstance(thread_id, str) or not thread_id.strip():
+            thread_id = turn_thread
+            if not thread_id:
                 thread_id = await self._thread_registry.get_or_create_by_key(
                     session_key=session_key,
                     agent_id=agent_id,
@@ -1142,8 +1149,8 @@ class GlobalProcessor:
             yield _maybe_stamp_team_host({"type": "done"}, agent_id, team_host)
             return
 
-        thread_id = meta.get("thread_id")
-        if not isinstance(thread_id, str) or not thread_id.strip():
+        thread_id = turn_thread
+        if not thread_id:
             thread_id = await self._thread_registry.get_or_create_by_key(
                 session_key=session_key,
                 agent_id=agent_id,

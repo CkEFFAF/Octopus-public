@@ -68,6 +68,8 @@ class CronDeliveryCommand:
     source_kind: str | None = None
     wakeup_hook_id: str = ""
     wakeup_context_id: str = ""
+    reminder_resume_mode: str = ""
+    reminder_origin_mode: str = ""
     allow_interaction: bool = False
     on_chunk: Callable[[dict[str, Any]], None] | None = None
     workflow_context: dict[str, Any] | None = None
@@ -472,6 +474,8 @@ class CronDeliveryService:
             return outbound
 
         request = await self._build_agent_request(command, session)
+        prepared_mode = request.pop("_wakeup_resume_mode", None)
+        wakeup_prompt = request.pop("_wakeup_prompt", command.prompt)
         execution_thread = ""
         if command.report is not None:
             execution_thread = f"cron-report-execution-{attempt}"
@@ -545,6 +549,11 @@ class CronDeliveryService:
                         )
                     ):
                         raise ValueError("wakeup hook cancelled or already dispatched")
+                    if hook["payload"].get("resume_mode", "observe") != prepared_mode:
+                        request = await self._build_agent_request(command, session, claimed=True)
+                        request.pop("_wakeup_resume_mode", None)
+                        wakeup_prompt = request.pop("_wakeup_prompt", command.prompt)
+                        tracker = TurnHistoryTracker.from_request(request)
                 async for chunk in self._agent_manager.stream(command.agent_id, request):
                     if command.on_chunk is not None:
                         command.on_chunk(chunk)
@@ -677,7 +686,7 @@ class CronDeliveryService:
             ):
                 harness = self._agent_manager.get_agent(command.agent_id)
                 canonical = [
-                    HumanMessage(content=command.prompt, id=f"cron:{delivery_id}:human"),
+                    HumanMessage(content=wakeup_prompt, id=f"cron:{delivery_id}:human"),
                     AIMessage(content=outbound, id=assistant_id),
                 ]
                 try:
@@ -755,9 +764,12 @@ class CronDeliveryService:
         self,
         command: CronDeliveryCommand,
         session: SessionRow,
+        *,
+        claimed: bool = False,
     ) -> dict[str, Any]:
         from octop.infra.agents.teams import is_team_agent
 
+        hook = None
         if command.wakeup_hook_id:
             hook = self._repos.run_event_repo.wakeup_hook(command.wakeup_hook_id)
             if (
@@ -765,12 +777,23 @@ class CronDeliveryService:
                 or (hook["owner_user_id"], hook["agent_id"], hook["thread_id"])
                 != (session.user_id, command.agent_id, session.thread_id)
                 or str(hook.get("context_id") or "") != command.wakeup_context_id
-                or hook["status"] not in {"queued", "scheduled"}
+                or hook["status"] not in ({"running"} if claimed else {"queued", "scheduled"})
             ):
                 raise ValueError(
                     "wakeup hook is cancelled or its original conversation is unavailable"
                 )
 
+        frozen_context = command.workflow_execution_context_id or command.wakeup_context_id
+        origin = None
+        if frozen_context:
+            from octop.infra.db.repos.execution import ExecutionContextRepo
+
+            origin = ExecutionContextRepo(self._repos.db).get(session.user_id, frozen_context)
+            if origin is None or (
+                (command.reminder_resume_mode or hook)
+                and (origin.agent_id, origin.thread_id) != (command.agent_id, session.thread_id)
+            ):
+                raise ValueError("wakeup execution source unavailable")
         if (
             (command.workflow_context is not None and not command.workflow_execution_context_id)
             or (command.wakeup_hook_id and not command.wakeup_context_id)
@@ -781,17 +804,10 @@ class CronDeliveryService:
             servers = [name.strip() for name in command.mcp_servers if name.strip()]
             extra_defaults = self._agent_manager.default_mcp_servers(command.agent_id)
             pack_scope = {"agent_id": command.agent_id}
-            frozen_context = command.workflow_execution_context_id or (
-                command.wakeup_context_id if command.wakeup_hook_id else ""
-            )
-            if frozen_context:
-                from octop.infra.db.repos.execution import ExecutionContextRepo
-
-                origin = ExecutionContextRepo(self._repos.db).get(session.user_id, frozen_context)
-                if origin is None:
-                    raise ValueError("wakeup execution source unavailable")
+            if origin is not None or command.reminder_resume_mode:
                 pack_scope.update(
-                    thread_id=session.thread_id, resolved_device_id=origin.device_id or ""
+                    thread_id=session.thread_id,
+                    resolved_device_id=(origin.device_id if origin else "") or "",
                 )
             pack = self._agent_manager.device_mcp_pack_for_turn(session.user_id, **pack_scope)
             device_defaults: list[str] = []
@@ -843,13 +859,21 @@ class CronDeliveryService:
             default_model=default_model,
         )
         message_kwargs = {COMPOSER_CTX_KEY: composer} if composer else None
+        prompt = command.prompt
+        if hook:
+            from octop.infra.execution.wakeup_hooks import WakeupHookService
+
+            prompt = WakeupHookService.delivery_prompt(self._repos, hook)
+        elif command.reminder_resume_mode == "observe":
+            locale = resolve_user_locale(user_repo=self._repos.user_repo, user_id=session.user_id)
+            prompt += "\n" + tr("execution.wakeupObserve", locale)
         request = build_harness_request(
             thread_id=session.thread_id,
             user_id=session.user_id,
             agent_id=command.agent_id,
-            session_key=command.session_key,
+            session_key=session.session_key if command.origin_thread_id else command.session_key,
             source=session.channel_type,
-            text=command.prompt,
+            text=prompt,
             model=command.model,
             message_kwargs=message_kwargs,
         )
@@ -873,18 +897,25 @@ class CronDeliveryService:
                 }
             else:
                 cfg["octop_wakeup_event_only"] = True
-        if command.wakeup_hook_id:
-            request["conversation_mode"] = "ask"
+        if hook or command.reminder_resume_mode:
+            request["_wakeup_prompt"] = prompt
+            resume = hook["payload"].get("resume_mode") if hook else command.reminder_resume_mode
+            if hook:
+                request["_wakeup_resume_mode"] = resume or "observe"
+            origin_mode = origin.work_mode if origin else command.reminder_origin_mode
+            # A turn can explicitly restrict a writable execution context to Ask/Plan.
+            if command.reminder_origin_mode in {"ask", "plan"}:
+                origin_mode = command.reminder_origin_mode
+            mode = origin_mode if resume == "continue" and origin_mode else "ask"
             cfg = request.setdefault("configurable", {})
-            cfg["work_mode"] = "ask"
-            if command.wakeup_context_id:
-                cfg["octop_execution_context"] = {"context_id": command.wakeup_context_id}
-                if hook and hook["payload"].get("resume_mode") == "continue":
-                    mode = str(hook["payload"]["origin_work_mode"])
-                    cfg["work_mode"] = mode
-                    request["conversation_mode"] = mode if mode in {"ask", "plan"} else "craft"
-            else:
+            cfg["work_mode"] = mode
+            request["conversation_mode"] = mode if mode in {"ask", "plan"} else "craft"
+            if origin:
+                cfg["octop_execution_context"] = {"context_id": origin.context_id}
+            elif hook:
                 cfg["octop_wakeup_event_only"] = True
+            else:
+                cfg["octop_reminder_without_target"] = True
         self._attach_turn_knowledge_config(request, command, session)
         return request
 
@@ -1029,6 +1060,10 @@ def command_from_row(row: Any) -> CronDeliveryCommand:
         source_kind=source_kind,
         wakeup_hook_id=str(meta.get("wakeup_hook_id") or ""),
         wakeup_context_id=str(meta.get("wakeup_context_id") or ""),
+        reminder_resume_mode=str(meta.get("resume_mode") or "observe")
+        if source_kind == "self_reminder" and not meta.get("wakeup_hook_id")
+        else "",
+        reminder_origin_mode=str(meta.get("origin_work_mode") or ""),
         delivery_id=f"wakeup-{meta['wakeup_hook_id']}" if meta.get("wakeup_hook_id") else None,
     )
 

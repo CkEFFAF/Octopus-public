@@ -7,6 +7,8 @@ import {
   setExecutionSelection,
   setExecutionSelectionStatus,
 } from "./deviceTarget";
+import * as chatStore from "./chatStore";
+import { browserApi } from "../../../api/modules/browser";
 import { useChatSend } from "./useChatSend";
 
 vi.mock("react-router-dom", () => ({ useNavigate: () => vi.fn() }));
@@ -33,6 +35,49 @@ const props = () => ({
 });
 
 describe("chat execution selection hydration", () => {
+  it("starts automatic recording in the thread created by the original send", async () => {
+    let finish!: (id: string) => void;
+    const resolvedId = new Promise<string>((resolve) => {
+      finish = resolve;
+    });
+    const options = { ...props(), activeThreadId: null as string | null };
+    options.createSession.mockReturnValue({ resolvedId });
+    const send = vi
+      .spyOn(chatStore, "sendTurn")
+      .mockImplementation(async () => {});
+    const start = vi
+      .spyOn(browserApi, "startRecording")
+      .mockResolvedValue({ ok: true, recordingId: "rec" });
+    localStorage.setItem(
+      "octop.pendingChatMessage",
+      JSON.stringify({ text: "record task", autoRecord: true }),
+    );
+    try {
+      const { rerender } = renderHook((value) => useChatSend(value), {
+        initialProps: options,
+      });
+      await vi.waitFor(() => expect(options.createSession).toHaveBeenCalled(), {
+        timeout: 3000,
+      });
+      rerender({ ...options, activeThreadId: "another-thread" });
+      expect(start).not.toHaveBeenCalled();
+      await act(async () => finish("created-recording-thread"));
+      await vi.waitFor(() =>
+        expect(start).toHaveBeenCalledWith({
+          name: "chat-created-recording-thread",
+        }),
+      );
+      expect(
+        chatStore.getSnapshot("created-recording-thread").messages.at(-1)
+          ?.content,
+      ).toContain("录制已开始");
+      expect(chatStore.getSnapshot("another-thread").messages).toHaveLength(0);
+    } finally {
+      send.mockRestore();
+      start.mockRestore();
+    }
+  });
+
   it.each(["unknown", "loading", "error"] as const)(
     "blocks sending with a %s persisted target",
     (status) => {

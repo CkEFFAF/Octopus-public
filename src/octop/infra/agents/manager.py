@@ -3523,7 +3523,9 @@ class AgentManager:
         req["configurable"] = request_cfg
         if shared_text is not None:
             return req
-        if request_cfg.get("octop_wakeup_event_only"):
+        if request_cfg.get("octop_wakeup_event_only") or request_cfg.get(
+            "octop_reminder_without_target"
+        ):
             return req
         if self._device_service is not None:
             from octop.infra.execution.service import ExecutionService

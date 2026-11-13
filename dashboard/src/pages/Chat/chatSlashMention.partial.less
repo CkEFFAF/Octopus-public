@@ -74,7 +74,11 @@
 
 /* ---------- Slash command inline menu ---------- */
 .slashMenu {
-  margin: 6px 0 4px;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 100;
   padding: 4px 6px 2px;
   background: var(--fn-bg-primary);
   border: 1px solid var(--fn-border-secondary);
@@ -83,6 +87,7 @@
   animation: shortcutFadeIn 0.12s ease;
   max-height: min(280px, 38vh);
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .slashMenuGrid {
