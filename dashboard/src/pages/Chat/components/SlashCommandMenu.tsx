@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import type { SlashMenuGroup } from "../../../utils/slashCategories";
 
@@ -49,6 +49,12 @@ export default function SlashCommandMenu<T extends SlashPickerRow>({
   onHover,
   footer,
 }: SlashCommandMenuProps<T>) {
+  const activeRowRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (variant === "inline") {
+      activeRowRef.current?.scrollIntoView?.({ block: "nearest" });
+    }
+  }, [activeIndex, flatItems, variant]);
   let index = 0;
 
   const renderRow = (item: T) => {
@@ -83,11 +89,12 @@ export default function SlashCommandMenu<T extends SlashPickerRow>({
     return (
       <button
         key={`${item.command}-${idx}`}
+        ref={active ? activeRowRef : undefined}
         className={`${itemClassName} ${active ? activeClassName : ""}`}
         onMouseDown={(e) => {
           e.preventDefault();
-          onSelect(item.command);
         }}
+        onClick={() => onSelect(item.command)}
         onMouseEnter={() => onHover(idx)}
         disabled={disabled}
         type="button"

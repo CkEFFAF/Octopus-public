@@ -67,6 +67,29 @@ const shortcut = {
 };
 
 describe("ChatInputActionsRow responsive toolbar", () => {
+  it.each([false, true])(
+    "keeps shortcuts selectable while streaming and respects disabled=%s",
+    async (disabled) => {
+      render(
+        <MemoryRouter>
+          <ChatInputActionsRow
+            {...baseProps}
+            isStreaming
+            disabled={disabled}
+            slashMenuItems={[shortcut]}
+          />
+        </MemoryRouter>,
+      );
+      fireEvent.click(screen.getByTestId("composer-shortcut"));
+      const command = await screen.findByRole("button", { name: /List/ });
+      if (disabled) expect(command).toBeDisabled();
+      else expect(command).toBeEnabled();
+      fireEvent.click(command);
+      expect(baseProps.onSlashShortcutSelect).toHaveBeenCalledTimes(
+        disabled ? 0 : 1,
+      );
+    },
+  );
   it("changes the running send intent without sending or stopping the task", async () => {
     const onBusyIntentChange = vi.fn();
     render(

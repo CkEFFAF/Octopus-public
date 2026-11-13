@@ -54,7 +54,7 @@ def setup_queue(tmp_path):
         dispatch_dashboard_input=AsyncMock(),
         processor=SimpleNamespace(
             hitl_coordinator=SimpleNamespace(
-                store=SimpleNamespace(resolve_for_session=lambda *a, **k: pending.value)
+                store=SimpleNamespace(resolve_pending_for_thread=lambda *a, **k: pending.value)
             )
         ),
     )
@@ -557,6 +557,28 @@ async def test_withdraw_wins_while_dispatch_waits_for_active_turn(setup_queue):
     lock.release()
     await task
     gateway.dispatch_dashboard_input.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_sibling_pause_does_not_defer_queued_input(setup_queue):
+    from octop.infra.gateway.hitl.store import HitlPendingStore
+
+    queue, repos, owner, _, gateway, *_ = setup_queue
+    store = HitlPendingStore()
+    gateway.processor.hitl_coordinator.store = store
+    store.register(
+        session_key="session",
+        thread_id="other-thread",
+        agent_id="agent",
+        user_id=owner,
+        channel_type="dashboard",
+        action_requests=[],
+        review_configs=None,
+    )
+    enqueue(setup_queue)
+    await queue._dispatch(repos.chat_input_repo.ready()[0])
+    gateway.dispatch_dashboard_input.assert_awaited_once()
+    assert repos.chat_input_repo.get(owner, "one")["status"] == "applied"
 
 
 @pytest.mark.asyncio

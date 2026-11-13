@@ -85,7 +85,7 @@ export function useSlashMentionInput({
   onSend,
   onNewChat,
   onCancel,
-  isStreaming: _isStreaming,
+  isStreaming,
   onSubmitRef,
   enterToSend = true,
 }: UseSlashMentionInputParams) {
@@ -267,15 +267,15 @@ export function useSlashMentionInput({
       } else if (item.spec.client_action === "cancel_stream") {
         onCancel();
         setText("");
-      } else if (slashCommandNeedsInput(item.spec)) {
+      } else if (isStreaming || slashCommandNeedsInput(item.spec)) {
         setText(slashCommandPrefillText(item.spec));
         focusTextareaEnd();
       } else {
-        onSend(item.command);
+        onSend(item.spec.command);
         setText("");
       }
     },
-    [onSend, onNewChat, onCancel, setText, focusTextareaEnd],
+    [onSend, onNewChat, onCancel, setText, focusTextareaEnd, isStreaming],
   );
 
   const matchSlashCommand = useCallback(

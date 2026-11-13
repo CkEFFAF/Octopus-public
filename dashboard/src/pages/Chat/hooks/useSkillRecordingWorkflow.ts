@@ -9,11 +9,12 @@
  * keywords, performs the workflow actions instead of (or in addition to)
  * sending the message to the agent.
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import { browserApi } from "../../../api/modules/browser";
 import { request } from "../../../api/request";
+import { usePendingRecordingSkill } from "./usePendingRecordingSkill";
 import * as chatStore from "../hooks/chatStore";
 
 import { message as antMessage } from "@/utils/antdMessage";
@@ -44,13 +45,10 @@ export function useSkillRecordingWorkflow({
   setBrowserLastRecordingId,
 }: UseSkillRecordingWorkflowParams) {
   const { t } = useTranslation();
-  const [pendingSkillContent, setPendingSkillContent] = useState<string | null>(
-    null,
-  );
-  const [pendingSkillName, setPendingSkillName] = useState<string | null>(null);
-  const [pendingSkillRecordingId, setPendingSkillRecordingId] = useState<
-    string | null
-  >(null);
+  const [pending, setPending] = usePendingRecordingSkill(agentId, threadId);
+  const pendingSkillContent = pending?.content ?? null;
+  const pendingSkillName = pending?.name ?? null;
+  const pendingSkillRecordingId = pending?.recordingId ?? null;
   const workflowBusyRef = useRef(false);
 
   /** Check if user text matches an end keyword while recording is active. */
@@ -99,9 +97,11 @@ export function useSkillRecordingWorkflow({
 
       if (data.skillContent) {
         // Store the skill content for later confirmation
-        setPendingSkillContent(data.skillContent);
-        setPendingSkillName(data.skillName ?? recordingId ?? "browser-skill");
-        setPendingSkillRecordingId(recordingId ?? null);
+        setPending({
+          content: data.skillContent,
+          name: data.skillName ?? recordingId ?? "browser-skill",
+          recordingId,
+        });
 
         // Push a preview message to chat
         const previewLines = data.skillContent.split("\n").slice(0, 20);
@@ -114,12 +114,14 @@ export function useSkillRecordingWorkflow({
             : "";
 
         chatStore.appendPushMessage(
+          threadId,
           `✅ 录制完成！已生成 ${data.steps ?? 0} 个回放步骤。\n\n` +
             `📝 **技能脚本预览：**\n\n${previewText}${truncationNotice}\n\n` +
             `回复"确认"即可应用此技能，之后可以一键回放相同操作流程。`,
         );
       } else {
         chatStore.appendPushMessage(
+          threadId,
           `✅ 录制完成！已生成 ${data.steps ?? 0} 个回放步骤。\n\n` +
             `⚠️ 技能脚本生成失败，请稍后重试或手动生成。`,
         );
@@ -140,6 +142,7 @@ export function useSkillRecordingWorkflow({
   }, [
     browserRecordingId,
     threadId,
+    setPending,
     setBrowserRecording,
     setBrowserRecordingId,
     setBrowserLastRecordingId,
@@ -172,12 +175,11 @@ export function useSkillRecordingWorkflow({
       });
 
       // Clear pending state
-      setPendingSkillContent(null);
-      setPendingSkillName(null);
-      setPendingSkillRecordingId(null);
+      setPending(null);
 
       // Push confirmation message to chat
       chatStore.appendPushMessage(
+        threadId,
         `🎉 技能 **${result.name || pendingSkillName}** 已成功应用！\n\n` +
           `之后可以通过聊天输入相关指令，一键回放相同的浏览器操作流程。`,
       );
@@ -196,7 +198,7 @@ export function useSkillRecordingWorkflow({
     } finally {
       workflowBusyRef.current = false;
     }
-  }, [pendingSkillContent, pendingSkillName, agentId, t]);
+  }, [pendingSkillContent, pendingSkillName, agentId, t, threadId, setPending]);
 
   /**
    * Intercepts outgoing user messages. If the message matches a workflow

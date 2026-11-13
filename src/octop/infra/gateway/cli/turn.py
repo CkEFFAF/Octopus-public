@@ -6,9 +6,8 @@ from typing import Any
 
 from octop_gateway.models import ChannelSubject, InboundMessage, TextContent
 
-from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.cli.cli_channel import CLI_CHANNEL_ID, CLI_CONNECTION_META
-from octop.infra.gateway.threads import ThreadRegistry
+from octop.infra.gateway.threads import ThreadRegistry, resolve_virtual_turn_thread
 
 __all__ = ["build_cli_inbound", "prepare_cli_turn"]
 
@@ -23,21 +22,14 @@ async def prepare_cli_turn(
 ) -> tuple[str, str]:
     """Resolve session_key and thread_id for a CLI turn."""
     sk = session_key or ThreadRegistry.cli_key(agent_id=agent_id, user_id=user_id)
-    if thread_id:
-        row = thread_registry.get_thread(thread_id)
-        if row is None or row.agent_id != agent_id:
-            raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"thread {thread_id!r} not found")
-        await thread_registry.rebind(session_key=sk, thread_id=thread_id, agent_id=agent_id)
-        return thread_id, sk
-    bound = thread_registry.get_bound_thread_id(sk)
-    if bound:
-        return bound, sk
-    tid = await thread_registry.get_or_create_by_key(
-        session_key=sk,
+    tid = await resolve_virtual_turn_thread(
+        thread_registry,
         agent_id=agent_id,
         user_id=user_id,
+        session_key=sk,
+        thread_id=thread_id,
         channel_type=ThreadRegistry.CHANNEL_CLI,
-        channel_channel_id=CLI_CHANNEL_ID,
+        channel_id=CLI_CHANNEL_ID,
     )
     return tid, sk
 

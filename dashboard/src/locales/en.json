@@ -8007,6 +8007,12 @@
     "timezone": "Snapshot timezone"
   },
   "workspace0034": {
+    "reminderResumeMode": "Wake-up mode",
+    "reminderMode": {
+      "observe": "Read-only check",
+      "continue": "Continue original task"
+    },
+    "reminderModeSaveFailed": "Could not save the wake-up mode. Please try again.",
     "allExperts": "All experts · Schedule center",
     "scheduleCenter": "Schedule center",
     "expertTaskPanel": "Expert task panel",

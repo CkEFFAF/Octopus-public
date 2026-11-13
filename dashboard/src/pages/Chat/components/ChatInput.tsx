@@ -690,7 +690,6 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       const slashItem = matchSlashCommand(rawText);
       if (slashItem && slashItem.spec.client_action !== "none") {
         // Slash actions are never queued — run immediately or leave input alone.
-        if (isStreaming) return;
         runSlashCommand(slashItem);
         return;
       }
@@ -1093,7 +1092,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
                 groups={slashMenuGroups}
                 flatItems={slashMenuFlat}
                 activeIndex={slashMenuIndex}
-                disabled={isStreaming || disabled}
+                disabled={composerDisabled}
                 variant="inline"
                 itemsGridClassName={styles.slashMenuGrid}
                 itemClassName={styles.slashMenuItem}

@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { octopCronApi, type CronAttemptPage } from "../api/modules/cronjob";
@@ -14,7 +21,7 @@ import {
   scheduleState,
 } from "./ScheduleBrowser";
 vi.mock("../api/modules/cronjob", () => ({
-  octopCronApi: { attempts: vi.fn(), page: vi.fn() },
+  octopCronApi: { attempts: vi.fn(), page: vi.fn(), patch: vi.fn() },
 }));
 const empty: CronAttemptPage = {
   items: [],
@@ -33,6 +40,125 @@ const row = (id: string) =>
   }) as OctopCronRow;
 
 describe("bounded schedule browsing", () => {
+  it("does not apply a delayed mode-save response to another reminder", async () => {
+    vi.mocked(octopCronApi.attempts).mockResolvedValue(empty);
+    let finish!: (item: OctopCronRow) => void;
+    vi.mocked(octopCronApi.patch).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const reminder = (id: string): OctopCronRow => ({
+      ...row(id),
+      self_reminder: true,
+      resume_mode: "observe",
+      capabilities: { view: true, manage: false, set_resume_mode: true },
+    });
+    const view = (id: string) => (
+      <MemoryRouter>
+        <ScheduleDetail agentId="expert-A" item={reminder(id)} />
+      </MemoryRouter>
+    );
+    const { rerender } = render(view("A"));
+    fireEvent.mouseDown(
+      screen.getByRole("combobox", {
+        name: "workspace0034.reminderResumeMode",
+      }),
+    );
+    fireEvent.click(
+      await screen.findByText("workspace0034.reminderMode.continue"),
+    );
+    await waitFor(() =>
+      expect(octopCronApi.patch).toHaveBeenLastCalledWith("expert-A", "A", {
+        resume_mode: "continue",
+      }),
+    );
+    rerender(view("B"));
+    await act(async () =>
+      finish({ ...reminder("A"), resume_mode: "continue" }),
+    );
+    expect(
+      within(screen.getByRole("combobox").closest("section")!).getByText(
+        "workspace0034.reminderMode.observe",
+      ),
+    ).toBeVisible();
+  });
+  it("saves the selected reminder mode for its own expert and reminder", async () => {
+    vi.mocked(octopCronApi.attempts).mockResolvedValue(empty);
+    const item: OctopCronRow = {
+      ...row("reminder-mode"),
+      self_reminder: true,
+      resume_mode: "observe",
+      capabilities: { view: true, manage: false, set_resume_mode: true },
+    };
+    vi.mocked(octopCronApi.patch).mockResolvedValue({
+      ...item,
+      resume_mode: "continue",
+    });
+    render(
+      <MemoryRouter>
+        <ScheduleDetail agentId="expert-A" item={item} />
+      </MemoryRouter>,
+    );
+    fireEvent.mouseDown(
+      screen.getByRole("combobox", {
+        name: "workspace0034.reminderResumeMode",
+      }),
+    );
+    fireEvent.click(
+      await screen.findByText("workspace0034.reminderMode.continue"),
+    );
+    await waitFor(() =>
+      expect(octopCronApi.patch).toHaveBeenLastCalledWith(
+        "expert-A",
+        "reminder-mode",
+        { resume_mode: "continue" },
+      ),
+    );
+    expect(
+      await within(screen.getByRole("combobox").closest("section")!).findByText(
+        "workspace0034.reminderMode.continue",
+      ),
+    ).toBeVisible();
+  });
+  it("keeps the saved mode when a mode change fails and explains why", async () => {
+    vi.mocked(octopCronApi.attempts).mockResolvedValue(empty);
+    vi.mocked(octopCronApi.patch).mockRejectedValue(
+      new Error(
+        '409 {"detail":"Original conversation has no execution target"}',
+      ),
+    );
+    render(
+      <MemoryRouter>
+        <ScheduleDetail
+          agentId="expert-A"
+          item={{
+            ...row("reminder-error"),
+            self_reminder: true,
+            resume_mode: "observe",
+            capabilities: { view: true, manage: false, set_resume_mode: true },
+          }}
+        />
+      </MemoryRouter>,
+    );
+    fireEvent.mouseDown(
+      screen.getByRole("combobox", {
+        name: "workspace0034.reminderResumeMode",
+      }),
+    );
+    fireEvent.click(
+      await screen.findByText("workspace0034.reminderMode.continue"),
+    );
+    expect(
+      await screen.findByText("Original conversation has no execution target"),
+    ).toBeVisible();
+    expect(
+      within(screen.getByRole("combobox").closest("section")!).getByText(
+        "workspace0034.reminderMode.observe",
+      ),
+    ).toBeVisible();
+  });
   it("shows scheduled report settings in the schedule detail", () => {
     vi.mocked(octopCronApi.attempts).mockResolvedValue(empty);
     render(

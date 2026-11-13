@@ -500,6 +500,11 @@ class ExecutionService:
             )
         if row is not None:
             self.devices.check_job_environment(row.device_id, action, params)
+        if action == "jobs.start" and params.get("resume_mode", "observe") not in (
+            "observe",
+            "continue",
+        ):
+            raise ValueError("resume_mode must be observe or continue")
         prepared = dict(params)
         prepared["execution_context_id"] = context.context_id
         prepared["policy_revision"] = context.policy_revision
@@ -630,7 +635,11 @@ class ExecutionService:
                         ErrorCode.FORBIDDEN, "job receipt belongs to another execution origin"
                     )
             if action == "jobs.start" and isinstance(prepared.get("notify_on_exit"), bool):
-                result = {**result, "notify_on_exit": prepared["notify_on_exit"]}
+                result = {
+                    **result,
+                    "notify_on_exit": prepared["notify_on_exit"],
+                    "resume_mode": prepared.get("resume_mode", "observe"),
+                }
             if action == "jobs.start" and isinstance(prepared.get("title"), str):
                 result = {**result, "title": prepared["title"].strip()[:120]}
             if action == "jobs.start" and isinstance(prepared.get("progress_hook_id"), str):
@@ -640,6 +649,7 @@ class ExecutionService:
                     owner, f"job:{origin.context_id}:{result.get('job_id')}"
                 )
                 if previous:
+                    result["resume_mode"] = previous["payload"].get("resume_mode", "observe")
                     for key in ("title", "notify_on_exit", "progress_hook_id"):
                         if key in previous["payload"]:
                             result[key] = previous["payload"][key]
@@ -665,6 +675,7 @@ class ExecutionService:
                         purpose=tr("execution.jobCompletionPurpose", locale),
                         idempotency_key=job_event,
                         job_event_id=job_event,
+                        resume_mode=result.get("resume_mode", "observe"),
                         include_token=False,
                     )
                 except Exception:

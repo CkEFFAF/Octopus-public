@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from langchain_core.tools import StructuredTool
 from langgraph.config import get_config
@@ -358,6 +358,12 @@ def build_self_reminder_tools(cron_manager: CronManager) -> list[StructuredTool]
             int | None,
             Field(description="Optional interval seconds for limited repeats."),
         ] = None,
+        resume_mode: Annotated[
+            Literal["observe", "continue"],
+            Field(
+                description="Observe only reports progress; continue resumes the authorized task in its original work mode."
+            ),
+        ] = "continue",
     ) -> str:
         try:
             from octop.infra.cron.self_reminder import (
@@ -384,6 +390,15 @@ def build_self_reminder_tools(cron_manager: CronManager) -> list[StructuredTool]
             if not origin:
                 raise ValueError("cannot bind self-reminder: no origin_thread_id")
             meta = stamp_origin_meta(meta, thread_id=origin)
+            context = cfg.get("octop_execution_context") or {}
+            mode = cfg.get("conversation_mode")
+            if mode not in {"ask", "plan"}:
+                mode = cfg.get("work_mode") or context.get("work_mode") or "agentic"
+            meta.update(
+                resume_mode=resume_mode,
+                origin_work_mode=mode,
+                wakeup_context_id=context.get("context_id"),
+            )
             purpose_clean = (purpose or "").strip()[:200]
             prompt = build_wakeup_prompt(purpose=purpose_clean)
             cron_id = new_cron_id()
@@ -407,6 +422,7 @@ def build_self_reminder_tools(cron_manager: CronManager) -> list[StructuredTool]
                 {
                     "reminder_id": row.cron_id,
                     "fire_at": fire_at.isoformat(),
+                    "resume_mode": resume_mode,
                     "purpose": purpose_clean,
                     "session_key": session_key,
                     "origin_thread_id": origin,
@@ -424,7 +440,15 @@ def build_self_reminder_tools(cron_manager: CronManager) -> list[StructuredTool]
             row = _get_owned(mgr, reminder_id, agent_id, user_id)
             if not is_self_reminder_row(row):
                 raise ValueError("not a self-reminder job")
-            if row.session_key != session_key:
+            current_thread = (get_config().get("configurable") or {}).get("thread_id")
+            origin = (row.meta or {}).get("origin_thread_id")
+            if origin:
+                current_thread = current_thread or mgr._gateway.thread_registry.get_bound_thread_id(
+                    session_key
+                )
+            if (origin and origin != current_thread) or (
+                not origin and row.session_key != session_key
+            ):
                 raise ValueError("self-reminder belongs to a different session")
             await mgr.delete(reminder_id)
             return _ok({"cancelled": reminder_id})

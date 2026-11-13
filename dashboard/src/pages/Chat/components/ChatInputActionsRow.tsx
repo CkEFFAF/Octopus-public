@@ -647,7 +647,7 @@ export default function ChatInputActionsRow({
           groups={slashPickerGroups}
           flatItems={slashMenuItems}
           activeIndex={-1}
-          disabled={isStreaming || disabled}
+          disabled={disabled}
           variant="popover"
           itemsGridClassName={styles.slashMenuGrid}
           itemClassName={styles.slashPickerItem}

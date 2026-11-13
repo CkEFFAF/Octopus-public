@@ -83,6 +83,7 @@ export interface OctopCronRow {
   kind?: string;
   report_options?: DailyReportOptions | null;
   self_reminder?: boolean;
+  resume_mode?: "observe" | "continue" | null;
   meta?: Record<string, unknown>;
   timezone?: string;
   next_run_at?: number | null;
@@ -93,7 +94,7 @@ export interface OctopCronRow {
   fires?: number | null;
   max_fires?: number | null;
   remaining?: number | null;
-  capabilities?: { view: boolean; manage: boolean };
+  capabilities?: { view: boolean; manage: boolean; set_resume_mode?: boolean };
   category?: "once" | "repeat" | "ended";
   agent_name?: string;
   thread_title?: string | null;
@@ -121,6 +122,7 @@ export interface OctopCronCreateBody {
 
 /** Body sent to PATCH /api/agents/:id/cron/:cron_id */
 export interface OctopCronPatchBody {
+  resume_mode?: "observe" | "continue";
   name?: string | null;
   trigger?: string;
   prompt?: string;

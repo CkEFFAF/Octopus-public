@@ -35,9 +35,77 @@ import {
 import { useSchedulePage } from "../hooks/useSchedulePage";
 import { useIsMobile } from "../hooks/useIsMobile";
 import type { OctopCronRow } from "../api/types";
+import { apiErrorMessage } from "../utils/apiError";
 
 export function useSchedules(agentId: string, threadId?: string) {
   return useSchedulePage({ agent_id: agentId, thread_id: threadId });
+}
+
+function ReminderResumeMode({
+  item,
+  agentId,
+}: {
+  item: OctopCronRow;
+  agentId: string;
+}) {
+  const { t } = useTranslation();
+  const id = useId();
+  const [mode, setMode] = useState(item.resume_mode ?? "observe");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    setMode(item.resume_mode ?? "observe");
+  }, [item.resume_mode]);
+  async function save(value: "observe" | "continue") {
+    setSaving(true);
+    setError("");
+    try {
+      const updated = await octopCronApi.patch(agentId, item.id, {
+        resume_mode: value,
+      });
+      if (mounted.current) setMode(updated.resume_mode ?? value);
+    } catch (error) {
+      if (mounted.current)
+        setError(
+          apiErrorMessage(error, t("workspace0034.reminderModeSaveFailed"), t),
+        );
+    } finally {
+      if (mounted.current) setSaving(false);
+    }
+  }
+  return (
+    <div>
+      <div className={styles.statusRow}>
+        <label htmlFor={id}>{t("workspace0034.reminderResumeMode")}</label>
+        {item.capabilities?.set_resume_mode ? (
+          <Select
+            id={id}
+            aria-label={t("workspace0034.reminderResumeMode")}
+            size="small"
+            style={{ minWidth: 180 }}
+            value={mode}
+            loading={saving}
+            disabled={saving}
+            options={(["observe", "continue"] as const).map((value) => ({
+              value,
+              label: t(`workspace0034.reminderMode.${value}`),
+            }))}
+            onChange={(value) => void save(value)}
+          />
+        ) : (
+          <span>{t(`workspace0034.reminderMode.${mode}`)}</span>
+        )}
+      </div>
+      {error && <Alert type="error" message={error} />}
+    </div>
+  );
 }
 
 function time(value: number | null | undefined, timezone?: string) {
@@ -248,6 +316,13 @@ export function ScheduleDetail({
             {item.timezone}
           </span>
         </p>
+        {item.self_reminder && (
+          <ReminderResumeMode
+            key={`${agentId}/${item.id}`}
+            item={item}
+            agentId={agentId}
+          />
+        )}
         {item.kind === "daily_report" && item.report_options && (
           <div className={styles.muted}>
             <div>

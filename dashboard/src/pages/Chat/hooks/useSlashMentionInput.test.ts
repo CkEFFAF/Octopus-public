@@ -32,6 +32,60 @@ function skill(over: Partial<SkillSpec> = {}): SkillSpec {
 }
 
 describe("useSlashMentionInput skills", () => {
+  it.each([
+    [false, "/status"],
+    [true, "/status"],
+    [false, "/status [detail]"],
+    [true, "/status [detail]"],
+  ] as const)(
+    "runs client controls immediately and prefills commands (streaming=%s, usage=%s)",
+    (isStreaming, usage) => {
+      const setText = vi.fn();
+      const onSend = vi.fn();
+      const onCancel = vi.fn();
+      const onNewChat = vi.fn();
+      const status = {
+        ...stopCommand,
+        name: "status",
+        command: "/status",
+        usage,
+        client_action: "none",
+      };
+      const newChat = {
+        ...stopCommand,
+        name: "new",
+        command: "/new",
+        usage: "/new",
+        client_action: "new_chat",
+      };
+      const { result } = renderHook(() =>
+        useSlashMentionInput({
+          text: "/",
+          setText,
+          textareaRef: { current: null },
+          slashCommands: [stopCommand, status, newChat],
+          labelFor: (spec) => spec.label_en,
+          locale: "en",
+          availableExperts: [],
+          selectedConnectors: [],
+          onSend,
+          onCancel,
+          onNewChat,
+          isStreaming,
+          onSubmitRef: { current: vi.fn() },
+        }),
+      );
+      act(() => result.current.handleSlashSelect(usage));
+      if (isStreaming) {
+        expect(onSend).not.toHaveBeenCalled();
+        expect(setText).toHaveBeenCalledWith("/status ");
+      } else expect(onSend).toHaveBeenCalledWith("/status");
+      act(() => result.current.handleSlashSelect("/stop"));
+      expect(onCancel).toHaveBeenCalledOnce();
+      act(() => result.current.handleSlashSelect("/new"));
+      expect(onNewChat).toHaveBeenCalledOnce();
+    },
+  );
   it("lists enabled skills with friendly labels and skips reserved slash names", () => {
     const { result } = renderHook(() =>
       useSlashMentionInput({

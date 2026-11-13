@@ -7,6 +7,7 @@ from typing import Any
 
 from octop.infra.db.repos.sessions import SessionRepo, SessionRow
 from octop.infra.db.repos.threads import ThreadRepo, ThreadRow
+from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.utils.ulid import new_ulid
 
 
@@ -503,3 +504,40 @@ def thread_row_has_messages(row: ThreadRow) -> bool:
     if row.title:
         return True
     return row.last_active > 0
+
+
+async def resolve_virtual_turn_thread(
+    registry: ThreadRegistry,
+    *,
+    agent_id: str,
+    user_id: int,
+    session_key: str,
+    thread_id: str | None,
+    channel_type: str,
+    channel_id: str | None = None,
+) -> str:
+    """Bind a dashboard or CLI turn to a conversation owned by its acting user."""
+    session = registry.get_session(session_key)
+    if session is not None and (session.agent_id != agent_id or session.user_id != user_id):
+        raise OctopError(ErrorCode.FORBIDDEN, "session not owned by user")
+    parts = session_key.split(":", 3)
+    if session is None and len(parts) == 4 and (parts[0] != agent_id or parts[2] != str(user_id)):
+        raise OctopError(ErrorCode.FORBIDDEN, "session not owned by user")
+
+    tid = thread_id or registry.get_bound_thread_id(session_key)
+    if not tid:
+        tid = await registry.get_or_create_by_key(
+            session_key=session_key,
+            agent_id=agent_id,
+            user_id=user_id,
+            channel_type=channel_type,
+            channel_channel_id=channel_id,
+        )
+    row = registry.get_thread(tid)
+    if row is None or row.agent_id != agent_id:
+        raise OctopError(ErrorCode.AGENT_NOT_FOUND, f"thread {tid!r} not found")
+    if row.user_id != user_id:
+        raise OctopError(ErrorCode.FORBIDDEN, "thread not owned by user")
+    if thread_id:
+        await registry.rebind(session_key=session_key, thread_id=tid, agent_id=agent_id)
+    return tid

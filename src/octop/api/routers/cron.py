@@ -54,6 +54,10 @@ class CronCreateBody(BaseModel):
 
 
 class CronPatchBody(BaseModel):
+    resume_mode: Literal["observe", "continue"] | None = Field(
+        default=None,
+        description="Set a self-reminder to report only or continue in its original authorized work mode. Send this field on its own.",
+    )
     name: str | None = None
     trigger: str | None = Field(
         default=None,
@@ -273,6 +277,13 @@ async def patch_cron(
     if existing is None:
         raise OctopError(ErrorCode.NOT_FOUND, "cron job not found")
     _assert_cron_manage(agent_id=agent_id, agent_row=agent_row, user=user, row=existing)
+    if "resume_mode" in body.model_fields_set:
+        if body.model_fields_set != {"resume_mode"} or body.resume_mode is None:
+            raise OctopError(ErrorCode.SLASH_BAD_ARGS, "send the reminder mode on its own")
+        row = await mgr.set_resume_mode(
+            cron_id, owner=user.id, mode=body.resume_mode, execution=server.app_runtime.execution
+        )
+        return cast(dict[str, Any], mgr.public_view(row))
     if body.trigger is not None:
         build_trigger(body.trigger)
     patch_fields = body.model_dump(exclude_unset=True)

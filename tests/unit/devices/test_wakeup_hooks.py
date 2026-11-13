@@ -333,14 +333,25 @@ async def test_completion_intent_recovers_from_persisted_job_after_restart(hooks
     inspection = RunInspectionService(service.repos)
     inspection.job_observation(
         context,
-        {"job_id": "accepted", "status": "running", "notify_on_exit": True, "title": "生成报告"},
+        {
+            "job_id": "accepted",
+            "status": "running",
+            "notify_on_exit": True,
+            "resume_mode": "continue",
+            "title": "生成报告",
+        },
     )
     inspection.job_observation(context, {"job_id": "accepted", "status": "completed"})
     cron = fake_cron()
     await WakeupHookService(service.execution).tick(cron)
     await WakeupHookService(service.execution).tick(cron)
     cron.create.assert_awaited_once()
-    assert next(iter(cron.rows.values())).name == "生成报告"
+    spec = next(iter(cron.rows.values()))
+    assert spec.name == "生成报告"
+    assert (
+        service.events.wakeup_hook(spec.meta["wakeup_hook_id"])["payload"]["resume_mode"]
+        == "continue"
+    )
 
 
 async def test_progress_is_persisted_sequenced_and_never_schedules_a_model(hooks: Any) -> None:
@@ -777,3 +788,220 @@ async def test_contextless_and_progress_callbacks_cannot_request_continuation(ho
     assert hook["resume_mode"] == "observe"
     with pytest.raises(ValueError, match="different event settings"):
         register(service, owner, context_id=context.context_id, resume_mode="continue")
+
+
+@pytest.mark.parametrize(
+    ("source_mode", "resume", "expected"),
+    [
+        ("agentic", "continue", "agentic"),
+        ("agentic", "observe", "ask"),
+        ("ask", "continue", "ask"),
+        ("plan", "continue", "plan"),
+    ],
+)
+async def test_timer_mode_freezes_authorized_target_and_write_access(
+    hooks: Any,
+    monkeypatch: Any,
+    source_mode: str,
+    resume: str,
+    expected: str,
+) -> None:
+    from octop.infra.agents.manager import AgentManager
+    from octop.infra.cron.delivery import CronDeliveryService, command_from_row
+    from octop.infra.cron.manager import CronManager
+    from octop.infra.cron.tools import build_self_reminder_tools
+    from octop.infra.gateway.threads import ThreadRegistry
+
+    service, owner, _, root = hooks
+    frozen = service.execution.resolve(
+        owner,
+        target_kind="local",
+        agent_id="expert",
+        thread_id="origin",
+        working_dir=str(root),
+        work_mode=source_mode,
+    )
+    registry = ThreadRegistry(
+        session_repo=service.repos.session_repo, thread_repo=service.repos.thread_repo
+    )
+    manager = MagicMock()
+    manager.get_row.return_value = service.repos.agent_repo.get("expert")
+    manager.merge_turn_mcp_servers.return_value = []
+    manager.default_knowledge_base_ids.return_value = []
+    gateway = MagicMock(thread_registry=registry)
+    delivery = CronDeliveryService(gateway=gateway, agent_manager=manager, repos=service.repos)
+    cron = CronManager(
+        gateway=gateway, delivery_service=delivery, repos=service.repos, timezone="UTC"
+    )
+    key = ThreadRegistry.dashboard_key(agent_id="expert", user_id=owner)
+    service.repos.session_repo.upsert(
+        session_key=key,
+        agent_id="expert",
+        user_id=owner,
+        channel_type="dashboard",
+        chat_type="dm",
+        thread_id="origin",
+    )
+    token = var_child_runnable_config.set(
+        {
+            "configurable": {
+                "agent_id": "expert",
+                "user": owner,
+                "thread_id": "origin",
+                "session_key": key,
+                "octop_execution_context": frozen.public(),
+                "work_mode": source_mode,
+            }
+        }
+    )
+    try:
+        scheduled = await build_self_reminder_tools(cron)[0].ainvoke(
+            {"in_minutes": 10, "purpose": "follow up", "resume_mode": resume}
+        )
+    finally:
+        var_child_runnable_config.reset(token)
+    row = cron.get(json.loads(scheduled)["reminder_id"])
+    service.repos.session_repo.set_thread(key, "later")
+    service.execution.save_selection(
+        owner,
+        "origin",
+        {
+            "work_mode": "ask" if source_mode == "agentic" else "agentic",
+            "working_dir": str(root / "later"),
+            "target_kind": "local",
+        },
+    )
+    view = cron.public_view(row)
+    assert (view["thread_id"], view["resume_mode"]) == ("origin", resume)
+    from octop.infra.cron.origin_target import resolve_delivery_session
+
+    command = command_from_row(row)
+    session = resolve_delivery_session(
+        command=command,
+        session_repo=service.repos.session_repo,
+        thread_repo=service.repos.thread_repo,
+        gateway=gateway,
+    )
+    request = await delivery._build_agent_request(command, session)
+    assert request["configurable"]["session_key"] == session.session_key != key
+    actual = AgentManager.__new__(AgentManager)
+    actual._device_service = service.execution.devices
+    monkeypatch.setattr(actual, "get_config", lambda _: {})
+    prepared = actual._prepare_stream_request("expert", request)
+    bound = service.execution.get(
+        owner, prepared["configurable"]["octop_execution_context"]["context_id"]
+    )
+    assert (bound.thread_id, bound.working_dir, bound.work_mode) == ("origin", str(root), expected)
+    operation = service.execution.call(
+        owner,
+        bound.context_id,
+        "fs.write",
+        {"path": "followup.txt", "data_b64": "b2s=", "create_only": True},
+        actor_agent_id="expert",
+    )
+    if expected == "agentic":
+        await operation
+        assert (root / "followup.txt").read_bytes() == b"ok"
+    else:
+        with pytest.raises(OctopError, match="only permits observation"):
+            await operation
+        assert not (root / "followup.txt").exists()
+
+
+async def test_legacy_timer_mode_patch_requires_its_owners_explicit_thread_target(
+    hooks: Any,
+) -> None:
+    from octop.api.routers.cron import CronPatchBody, patch_cron
+    from octop.infra.cron.manager import CronManager
+
+    service, owner, other, root = hooks
+    cron = CronManager(
+        gateway=MagicMock(), delivery_service=MagicMock(), repos=service.repos, timezone="UTC"
+    )
+    service.repos.cron_repo.create(
+        cron_id="timer",
+        name="check",
+        agent_id="expert",
+        user_id=owner,
+        session_key="later",
+        trigger="interval:60",
+        prompt="check",
+        kind="self_reminder",
+        meta={"origin_thread_id": "origin", "max_fires": 3, "fires": 1},
+    )
+    server = SimpleNamespace(
+        services=SimpleNamespace(agent_repo=service.repos.agent_repo),
+        app_runtime=SimpleNamespace(
+            cron_manager=cron,
+            execution=service.execution,
+            agent_registry=SimpleNamespace(get_row=service.repos.agent_repo.get),
+        ),
+    )
+
+    async def patch(user, mode):
+        return await patch_cron(
+            "expert",
+            "timer",
+            CronPatchBody(resume_mode=mode),
+            SimpleNamespace(id=user, is_admin=user == owner),
+            server,
+        )
+
+    assert cron.public_view(cron.get("timer"))["resume_mode"] == "observe"
+    with pytest.raises(OctopError):
+        await patch(other, "continue")
+    service.execution.save_selection(
+        owner, "later", {"target_kind": "local", "working_dir": str(root)}
+    )
+    with pytest.raises(OctopError) as missing:
+        await patch(owner, "continue")
+    assert missing.value.status == 409
+    service.execution.save_selection(
+        owner, "origin", {"target_kind": "local", "working_dir": str(root), "work_mode": "plan"}
+    )
+    view = await patch(owner, "continue")
+    assert (view["resume_mode"], view["remaining"], view["thread_id"]) == ("continue", 2, "origin")
+    saved = service.execution.get(owner, view["meta"]["wakeup_context_id"])
+    assert (saved.thread_id, saved.work_mode) == ("origin", "plan")
+    assert (await patch(owner, "observe"))["resume_mode"] == "observe"
+
+
+async def test_scheduled_completion_mode_can_change_before_dispatch(hooks: Any) -> None:
+    from octop.infra.cron.delivery import CronDeliveryService, command_from_row
+    from octop.infra.cron.manager import CronManager
+
+    service, owner, _, root = hooks
+    context = service.execution.resolve(
+        owner, target_kind="local", agent_id="expert", thread_id="origin", working_dir=str(root)
+    )
+    hook = register(service, owner, context_id=context.context_id)
+    service.fire(hook["hook_id"], hook["token"], hook["event_type"], {})
+    manager = MagicMock()
+    manager.get_row.return_value = service.repos.agent_repo.get("expert")
+    manager.merge_turn_mcp_servers.return_value = []
+    manager.default_knowledge_base_ids.return_value = []
+    from octop.infra.gateway.threads import ThreadRegistry
+
+    gateway = MagicMock(
+        thread_registry=ThreadRegistry(
+            session_repo=service.repos.session_repo, thread_repo=service.repos.thread_repo
+        )
+    )
+    delivery = CronDeliveryService(gateway=gateway, agent_manager=manager, repos=service.repos)
+    cron = CronManager(
+        gateway=gateway, delivery_service=delivery, repos=service.repos, timezone="UTC"
+    )
+    await service.tick(cron)
+    row = cron.get("event-" + hook["hook_id"])
+    assert cron.public_view(row)["resume_mode"] == "observe"
+    updated = await cron.set_resume_mode(
+        row.cron_id, owner=owner, mode="continue", execution=service.execution
+    )
+    assert cron.public_view(updated)["resume_mode"] == "continue"
+    session = service.repos.session_repo.get(updated.session_key)
+    request = await delivery._build_agent_request(command_from_row(updated), session)
+    assert request["conversation_mode"] == "craft"
+    assert request["configurable"]["octop_execution_context"]["context_id"] == context.context_id
+    assert "Continue the follow-up" in str(request["messages"]) or "继续" in str(
+        request["messages"]
+    )

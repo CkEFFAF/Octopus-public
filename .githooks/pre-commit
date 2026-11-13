@@ -23,7 +23,14 @@ while IFS= read -r line; do
 done < <(git diff --cached --name-only --diff-filter=ACMR || true)
 
 echo "[pre-commit] make precommit  (format-all + lint + typecheck + testmon-scoped test)"
-make precommit
+(
+  # Temporary repositories in tests must not inherit the outer Git context.
+  # Keep the hook's own context for re-staging, including partial commits.
+  while IFS= read -r git_env; do
+    unset "$git_env"
+  done < <(git rev-parse --local-env-vars)
+  make precommit
+)
 
 # If format rewrote files that were already staged, refresh the index so the
 # commit includes the formatted content (worktree vs index drift).

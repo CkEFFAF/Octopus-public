@@ -863,7 +863,7 @@ class Gateway:
             raise RuntimeError("gateway not booted")
         return self._channel_manager
 
-    async def _preempt_cancel_on_stop(self, _channel_id: str, message: Any) -> None:
+    async def _preempt_cancel_on_stop(self, channel_id: str, message: Any) -> None:
         """Signal harness cancel for ``/stop`` / ``/cancel`` before the session lock.
 
         Same-session IM turns are serialized by ChannelManager. Without this hook,
@@ -881,8 +881,14 @@ class Gateway:
         if not isinstance(agent_id, str) or not agent_id.strip():
             return
 
-        session_key = session_key_from_message(message, agent_id=agent_id.strip())
-        thread_id = self._thread_registry.get_bound_thread_id(session_key)
+        thread_id = None
+        if channel_id in {WS_CHANNEL_ID, CLI_CHANNEL_ID}:
+            raw_thread = (message.metadata or {}).get("thread_id")
+            if isinstance(raw_thread, str):
+                thread_id = raw_thread.strip()
+        if not thread_id:
+            session_key = session_key_from_message(message, agent_id=agent_id.strip())
+            thread_id = self._thread_registry.get_bound_thread_id(session_key)
         if not thread_id:
             return
 

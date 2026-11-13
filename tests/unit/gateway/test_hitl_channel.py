@@ -148,6 +148,7 @@ async def test_coordinator_slash_approve_resumes() -> None:
     agent_manager.resume_hitl = _resume
 
     ctx = MagicMock()
+    ctx.thread_id = None
     ctx.session_key = "sk1"
     ctx.agent_id = "agent1"
     ctx.user_id = 1
@@ -192,6 +193,7 @@ async def test_coordinator_slash_approve_invalid_pending_id() -> None:
     from octop_harness.slash import SlashCommand
 
     ctx = MagicMock()
+    ctx.thread_id = None
     ctx.session_key = "sk1"
     ctx.agent_id = "agent1"
     ctx.user_id = 1
@@ -236,6 +238,7 @@ async def test_coordinator_resume_failure_keeps_pending() -> None:
     agent_manager.resume_hitl = _fail
 
     ctx = MagicMock()
+    ctx.thread_id = None
     ctx.session_key = "sk1"
     ctx.agent_id = "agent1"
     ctx.user_id = 1
@@ -330,7 +333,7 @@ def test_hitl_store_resolve_pending_for_thread() -> None:
         thread_id="thr-b",
         agent_id="agent1",
         user_id=1,
-        session_key="sk2",
+        session_key="sk1",
         channel_type="dashboard",
         action_requests=[{"name": "write_file", "args": {"path": "x"}}],
         review_configs=None,
@@ -338,6 +341,12 @@ def test_hitl_store_resolve_pending_for_thread() -> None:
     pending = store.resolve_pending_for_thread("thr-a", agent_id="agent1", user_id=1)
     assert pending is not None
     assert pending.action_requests[0]["name"] == "execute"
+    assert (
+        store.resolve_for_session("sk1", pending.pending_id, agent_id="agent1", thread_id="thr-b")
+        is None
+    )
+    assert store.list_pending_for_session("sk1", agent_id="agent1", thread_id="thr-a") == [pending]
+    assert store.resolve_for_session("origin-pin", agent_id="agent1", thread_id="thr-a") is pending
     assert store.resolve_pending_for_thread("thr-a", agent_id="agent1", user_id=2) is None
 
 
@@ -418,6 +427,7 @@ async def test_slash_outcome_completed_turn() -> None:
     agent_manager.resume_hitl = _resume
 
     ctx = MagicMock()
+    ctx.thread_id = None
     ctx.session_key = "sk1"
     ctx.agent_id = "agent1"
     ctx.user_id = 1

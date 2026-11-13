@@ -59,6 +59,26 @@ async def test_preempt_cancel_on_stop_calls_cancel_stream(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_preempt_dashboard_stop_uses_origin_before_session_lock():
+    from octop.infra.gateway.ws import WS_CHANNEL_ID
+
+    manager = MagicMock()
+    gateway = Gateway(agent_manager=manager, repos=MagicMock())
+    gateway._thread_registry = MagicMock()
+    gateway._thread_registry.get_bound_thread_id.return_value = "sibling"
+    msg = InboundMessage(
+        channel_id=WS_CHANNEL_ID,
+        channel_type="dashboard",
+        tenant_id="expert",
+        channel_subject=ChannelSubject(subject_id="1"),
+        content=[TextContent(text="/stop")],
+        metadata={"thread_id": "origin", "session_key": "shared"},
+    )
+    await gateway._preempt_cancel_on_stop(WS_CHANNEL_ID, msg)
+    manager.cancel_stream.assert_called_once_with("expert", "origin")
+
+
+@pytest.mark.asyncio
 async def test_preempt_cancel_ignores_non_stop() -> None:
     agent_manager = MagicMock()
     gw = Gateway(agent_manager=agent_manager, repos=MagicMock())
