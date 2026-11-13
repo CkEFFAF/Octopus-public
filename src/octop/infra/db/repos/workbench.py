@@ -32,11 +32,19 @@ class WorkbenchRepo:
         resource: str | None = None,
         after: int = 0,
         limit: int = 100,
+        include_archived: bool = True,
     ) -> list[dict[str, Any]]:
         with self.db.connect() as conn:
             rows = conn.execute(
                 "SELECT id,payload_json FROM workbench_records WHERE owner_user_id=? AND agent_id=? AND thread_id=? AND kind=? AND id>? "
                 + ("AND resource_id=? " if resource else "")
+                + (
+                    "AND NOT EXISTS (SELECT 1 FROM task_history_archives a WHERE "
+                    "a.owner_user_id=workbench_records.owner_user_id AND a.source='plan' "
+                    "AND a.source_id=workbench_records.record_id AND a.source_updated_at=workbench_records.updated_at) "
+                    if kind == "plan" and not include_archived
+                    else ""
+                )
                 + "ORDER BY id LIMIT ?",
                 [owner, agent, thread, kind, after, *([resource] if resource else []), limit],
             ).fetchall()

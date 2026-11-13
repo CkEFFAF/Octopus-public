@@ -8,10 +8,12 @@ import logging
 import time
 from typing import Any
 
+from octop.infra.conversations.collaboration import SENDER_KEY, actor_snapshot, machine_actor
 from octop.infra.cron.delivery import WorkItemInteractionRequired
 from octop.infra.db.repos.work_items import WorkItemRepo
 from octop.infra.db.services import RepoBundle
 from octop.infra.errors import ErrorCode, OctopError
+from octop.infra.history.service import HistoryArchive
 from octop.infra.utils.ulid import new_ulid
 from octop.infra.work_items.models import (
     WORK_ITEM_SCHEMA_VERSION,
@@ -40,6 +42,7 @@ class WorkItemsService:
         delivery: Any | None = None,
         devices: Any | None = None,
         execution: Any | None = None,
+        history_archive: HistoryArchive | None = None,
     ) -> None:
         self._repos = repos
         self._gateway = gateway
@@ -47,6 +50,7 @@ class WorkItemsService:
         self._delivery = delivery
         self._devices = devices
         self._execution = execution
+        self._history_archive = history_archive
         self._jobs: dict[str, asyncio.Task[None]] = {}
         self._bg_slots = asyncio.Semaphore(_MAX_BACKGROUND)
         self._repo = WorkItemRepo(repos.db)
@@ -157,6 +161,7 @@ class WorkItemsService:
                 raise OctopError(ErrorCode.WORK_ITEM_FORBIDDEN, "device not authorized") from exc
 
         task_id = new_ulid()
+        sender = machine_actor(self._repos, owner, credential_id) if credential_id else None
         artifacts = [r.model_dump() for r in body.resources]
         row = self._repo.insert(
             {
@@ -182,7 +187,7 @@ class WorkItemsService:
             task=row,
             kind="work_item",
             status="queued",
-            payload={"phase": "created", "fingerprint": fingerprint},
+            payload={"phase": "created", "fingerprint": fingerprint, "sender": sender},
             event_id=f"work:{task_id}:created",
         )
         await self._emit_task(row, reason="created")
@@ -254,13 +259,29 @@ class WorkItemsService:
         if user is not None and getattr(user, "disabled", False):
             return
         try:
+            sender = self._creation_sender(row)
             session_key = f"{row['agent_id']}:dashboard:{owner}:work-item-{task_id}"
             worker_thread_id = await self._gateway.thread_registry.get_or_create_by_key(
                 session_key=session_key,
                 agent_id=row["agent_id"],
                 user_id=owner,
                 channel_type="dashboard",
-                channel_metadata={"work_item_id": task_id, "kind": "work_item"},
+                channel_metadata={
+                    "work_item_id": task_id,
+                    "kind": "work_item",
+                    **(
+                        {
+                            "category": "agent_collaboration",
+                            "actor": sender,
+                            "collaboration_source": {
+                                "kind": "agent_access_key",
+                                "parent_thread_id": row["origin_thread_id"],
+                            },
+                        }
+                        if sender
+                        else {}
+                    ),
+                },
             )
             run_id = new_ulid()
             self._repos.agent_access_key_repo.grant_worker_thread(task_id, worker_thread_id)
@@ -411,6 +432,7 @@ class WorkItemsService:
                 task_run_id=row["current_run_id"],
                 allow_interaction=True,
                 on_chunk=lambda chunk: self._observe_output(row["task_id"], chunk),
+                sender=self._creation_sender(row),
                 device_grant_version=(
                     self._devices.owned(int(row["owner_user_id"]), row["device_id"]).grant_version
                     if row["device_id"] and self._devices is not None
@@ -555,6 +577,7 @@ class WorkItemsService:
         owner: int,
         *,
         origin_thread_id: str | None = None,
+        agent_id: str | None = None,
         status_group: str = "open",
         before: float | None = None,
         limit: int = 50,
@@ -565,6 +588,7 @@ class WorkItemsService:
         rows = self._repo.list(
             owner,
             origin_thread_id=origin_thread_id,
+            agent_id=agent_id,
             status_group=status_group,
             before=before,
             limit=fetch,
@@ -907,9 +931,18 @@ class WorkItemsService:
     # ── inputs / cancel ─────────────────────────────────────────────────
 
     async def add_input(
-        self, owner: int, task_id: str, body: WorkItemInputCreate
+        self,
+        owner: int,
+        task_id: str,
+        body: WorkItemInputCreate,
+        *,
+        credential_id: str | None = None,
     ) -> dict[str, Any]:
         row = self._require(owner, task_id)
+        sender = machine_actor(self._repos, owner, credential_id) if credential_id else None
+        payload: dict[str, Any] = {"text": body.text}
+        if sender is not None:
+            payload["sender"] = sender
         existing = self._repo.get_input_by_command(owner, body.command_id.strip())
         if existing:
             if (
@@ -917,7 +950,7 @@ class WorkItemsService:
                 existing["payload"],
                 existing["target_run_id"],
                 existing["target_attempt_id"],
-            ) != (task_id, {"text": body.text}, body.target_run_id, body.target_attempt_id):
+            ) != (task_id, payload, body.target_run_id, body.target_attempt_id):
                 raise OctopError.localized(ErrorCode.WORK_ITEM_COMMAND_CONFLICT)
             return {
                 "input_id": existing["input_id"],
@@ -941,7 +974,7 @@ class WorkItemsService:
                     "target_run_id": body.target_run_id,
                     "target_attempt_id": body.target_attempt_id,
                     "status": "accepted",
-                    "payload": {"text": body.text},
+                    "payload": payload,
                 }
             )
         except ValueError as exc:
@@ -969,6 +1002,19 @@ class WorkItemsService:
         # Inputs bind to the worker — never 0033 steer / origin queue (DEC-0043-05).
         await self._emit_task(row, reason="waiting")
         await self._inject_worker_input(row, saved)
+        if row.get("worker_thread_id") and hasattr(self._gateway, "observe_dashboard_resume"):
+            await self._gateway.observe_dashboard_resume(
+                owner,
+                row["agent_id"],
+                row["worker_thread_id"],
+                {
+                    "type": "user",
+                    "content": body.text,
+                    "command_id": body.command_id,
+                    "source": "work_item",
+                    **({"sender": sender} if sender else {}),
+                },
+            )
         return {
             "input_id": saved["input_id"],
             "task_id": task_id,
@@ -1077,6 +1123,12 @@ class WorkItemsService:
 
     # ── helpers ─────────────────────────────────────────────────────────
 
+    def _creation_sender(self, row: dict[str, Any]) -> dict[str, str] | None:
+        event = self._repos.run_event_repo.get(
+            int(row["owner_user_id"]), f"work:{row['task_id']}:created"
+        )
+        return actor_snapshot((event.get("payload") or {}).get("sender")) if event else None
+
     def _has_open_external_jobs(self, owner: int, task_id: str) -> bool:
         """True when Jobs reconciler still has non-terminal job events for this item."""
         events = self._repos.run_event_repo.list_for_work_item(
@@ -1120,35 +1172,36 @@ class WorkItemsService:
             return
         text = str((saved.get("payload") or {}).get("text") or "")
         try:
+            import json
+
+            from langchain_core.messages import HumanMessage
+
+            from octop.infra.history.projection import live_message_inputs
+
+            sender = actor_snapshot((saved.get("payload") or {}).get("sender"))
+            msg = HumanMessage(
+                content=text,
+                id=message_id,
+                additional_kwargs={SENDER_KEY: sender} if sender else {},
+            )
             harness = None
             if self._registry is not None:
                 with contextlib.suppress(Exception):
                     harness = self._registry.get_agent(row["agent_id"])
             if harness is not None and hasattr(harness, "aappend_messages"):
-                from langchain_core.messages import HumanMessage
-
-                msg = HumanMessage(content=text)
-                msg.id = message_id
                 await harness.aappend_messages(worker_id, [msg])
-            else:
-                import json as _json
-
-                from octop.infra.db.repos.thread_messages import ThreadMessageInput
-
-                self._repos.thread_message_repo.append_legacy_interval(
+            projected = live_message_inputs([msg])
+            if self._history_archive and projected:
+                await asyncio.to_thread(
+                    self._history_archive.append_external_message,
+                    row["agent_id"],
                     worker_id,
-                    [
-                        ThreadMessageInput(
-                            message_id=message_id,
-                            role="user",
-                            message_json=_json.dumps(
-                                {"type": "human", "content": text, "id": message_id},
-                                ensure_ascii=False,
-                            ),
-                            created_at=int(time.time()),
-                        )
-                    ],
+                    message_id,
+                    json.loads(projected[0].message_json),
                 )
+            await asyncio.to_thread(
+                self._repos.thread_message_repo.append_legacy_interval, worker_id, projected
+            )
         except Exception:
             logger.exception(
                 "work item input inject failed task=%s worker=%s",

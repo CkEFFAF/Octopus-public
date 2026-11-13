@@ -132,6 +132,7 @@ async def create_work_item(
 async def list_work_items(
     request: Request,
     origin_thread_id: str | None = None,
+    agent_id: str | None = None,
     status_group: Literal["open", "all"] = "open",
     limit: int = Query(default=50, ge=1, le=200),
     before: float | None = None,
@@ -145,6 +146,7 @@ async def list_work_items(
     payload = service.list_items(
         int(user.id),
         origin_thread_id=origin_thread_id,
+        agent_id=agent_id,
         status_group=status_group,
         before=before,
         limit=limit,
@@ -241,7 +243,12 @@ async def post_work_item_input(
         principal, "work_item", task_id
     ):
         raise OctopError(ErrorCode.FORBIDDEN, "work item not granted to this credential")
-    result = await service.add_input(int(user.id), task_id, body)
+    result = await service.add_input(
+        int(user.id),
+        task_id,
+        body,
+        credential_id=principal.credential_id if principal else None,
+    )
     await asyncio.to_thread(
         record_task_activity,
         getattr(server.services, "repos", None),

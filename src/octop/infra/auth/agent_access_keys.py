@@ -280,6 +280,9 @@ class AgentAccessKeyService:
     ) -> dict[str, str]:
         self.require_scope(principal, "tasks.create")
         self.require_expert(principal, agent_id)
+        from octop.infra.conversations.collaboration import machine_actor
+
+        actor = machine_actor(self.repos, principal.owner_user_id, principal.credential_id)
         # A machine session never rebinds the human dashboard's current thread.
         session_key = f"{agent_id}:dashboard:{principal.owner_user_id}:acp-{new_ulid()}"
         thread_id = await registry.get_or_create_by_key(
@@ -287,7 +290,13 @@ class AgentAccessKeyService:
             agent_id=agent_id,
             user_id=principal.owner_user_id,
             channel_type="dashboard",
-            channel_metadata={"source": "acp-remote", "credential_id": principal.credential_id},
+            channel_metadata={
+                "source": "acp-remote",
+                "credential_id": principal.credential_id,
+                "category": "agent_collaboration",
+                "actor": actor,
+                "collaboration_source": {"kind": "agent_access_key"},
+            },
         )
         self.grant_object(principal, "thread", thread_id)
         return {"thread_id": thread_id, "session_key": session_key}

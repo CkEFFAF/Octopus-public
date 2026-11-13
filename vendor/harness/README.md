@@ -1,3 +1,7 @@
+## Current model transport artifact
+
+The application pins `1.0.2.post4.dev7+transport.1`. `transport-source-manifest.json` records the wheel and matching `transport-source.zip`, based on the retained cache.1 wheel and `harness-source.zip`. Only `llm/factory.py` and `llm/session_header.py` change at runtime. `transport-timeout.patch` records the complete source and regression changes. OpenAI compatible requests use connect/pool waits of 30 seconds and read/write waits of 300 seconds; Anthropic accepts a scalar 300 second timeout. Both use one SDK retry. These are transport idle limits, not a total stream or experiment duration. No Job cancellation behavior changes.
+
 ## Current cache context artifact
 
 The application pins `1.0.2.post4.dev6+cache.1`. `cache-source-manifest.json` records the wheel and its complete matching `harness-source.zip`. `cache-context.patch` shows the changes from media.1. Host context snapshots remain reference only checkpoint metadata, are replayed on model request copies, and are included alongside memory recall in compaction token counts and request source attribution. The previous media source is retained as `media-source.zip` and identified by its existing manifest.

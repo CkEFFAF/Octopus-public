@@ -1,4 +1,37 @@
 {
+  "pinnedFiles": {
+    "title": "Pinned files",
+    "hint": "Keep manuals, memory notes, observations and reports available across conversations.",
+    "empty": "Pin a key file to read or edit it here.",
+    "add": "Pin file",
+    "edit": "Edit bookmark: {{title}}",
+    "remove": "Unpin: {{title}}",
+    "removeConfirm": "Only the selected pinned entries will be removed. Source files and their contents will be kept.",
+    "manageTitle": "Pin a key file",
+    "label": "Title",
+    "source": "File location",
+    "expert": "Expert files",
+    "project": "Project files",
+    "path": "File path",
+    "target": "Server or device",
+    "local": "Octop server",
+    "workingDir": "Project working directory",
+    "expertPathHint": "Relative to the expert workspace, for example .octop/notes/experiment-playbook.md.",
+    "projectPathHint": "The file will always open on the server selected below.",
+    "refresh": "Refresh",
+    "loadFailed": "Unable to load pinned files.",
+    "saveFailed": "Unable to save. Check the file path and target, then try again.",
+    "openFailed": "Unable to open this file. Check server availability and your access.",
+    "conflict": "Pinned files changed elsewhere. The list has been refreshed; review your changes and save again.",
+    "delete": "Delete",
+    "deleteSelected": "Delete ({{count}})",
+    "cancelSelection": "Cancel",
+    "selectAll": "Select all",
+    "selectFile": "Select {{title}}",
+    "selectedCount": "{{count}} selected",
+    "selectionHint": "Select the pinned entries to remove. Source files will be kept.",
+    "deleteConfirmTitle": "Remove {{count}} pinned entries?"
+  },
   "modelRouting": {
     "title": "Task model routing",
     "enable": "Enable task model routing",
@@ -61,7 +94,8 @@
     "empty": "No tasks in this category",
     "activeHint": "Shows running, scheduled or waiting tasks. Select Completed to inspect finished work.",
     "detailHint": "Select a card to inspect task content and execution records.",
-    "summary": "{{count}} conversations · {{jobs}} background tasks"
+    "summary": "{{count}} conversations · {{jobs}} background tasks",
+    "archived": "Archived"
   },
   "organizationHistory": {
     "title": "Conversation organization history",
@@ -592,7 +626,8 @@
     "continueSession": "Continue previous task session",
     "retryReview": "Retry independent review",
     "groupChats": "Project group chats",
-    "privateChats": "Private chats"
+    "privateChats": "Private chats",
+    "taskCenter": "Task overview"
   },
   "app": {
     "pageTitle": "Octop - An intelligent partner that understands you, helps you, and grows with you"
@@ -678,7 +713,8 @@
     "failureDetailsTitle": "Error details",
     "failureDetailsHint": "Copy these diagnostic details when reporting the issue.",
     "failureBudget": "Estimated input (with reserve): {{input}} tokens. Request limit: {{limit}} tokens.",
-    "failureSamplesHint": "{{count}} conversations failed. The {{shown}} retained diagnostic samples are shown below."
+    "failureSamplesHint": "{{count}} conversations failed. The {{shown}} retained diagnostic samples are shown below.",
+    "collapse": "Collapse"
   },
   "apiErrors": {
     "AUTH_FAILED": "Authentication failed.",
@@ -2814,6 +2850,10 @@
       "runProgram": "Run {{program}}"
     },
     "fileReview": {
+      "summary": "{{count}} files, {{current}} this turn",
+      "explanation": "About these changes",
+      "view": "File view",
+      "details": "File information",
       "scope": "{{count}} files in total, {{current}} in the selected turn. Diffs come from tool records; full content is read from the original source.",
       "currentTurn": "This turn",
       "turnDiff": "Turn changes",
@@ -2955,7 +2995,8 @@
     "read_attachment": "Read attachment",
     "publish_artifact": "Publish artifact",
     "deliver_resource": "Deliver resource",
-    "report_task_result": "Report task result"
+    "report_task_result": "Report task result",
+    "list_expert_tasks": "Read expert tasks across conversations"
   },
   "toolSettings": {
     "title": "Tool settings",
@@ -7861,6 +7902,13 @@
     }
   },
   "collaboration": {
+    "conversationCategory": "Conversation category",
+    "userConversations": "User conversations",
+    "agentConversations": "Agent collaboration",
+    "acpConversation": "ACP conversation",
+    "sourceDevice": "Device: {{name}}",
+    "parentConversation": "Parent conversation",
+    "viewConversation": "View collaboration conversation",
     "title": "Collaboration",
     "artifacts": "artifacts",
     "device": "Actual device",
@@ -8247,7 +8295,8 @@
       "gpu": "Inspect GPU status"
     },
     "reportedProgress": "Script reported progress",
-    "backgroundExplanation": "This task runs independently in the background. Inspect its actual status and logs."
+    "backgroundExplanation": "This task runs independently in the background. Inspect its actual status and logs.",
+    "expertTasks": "All expert tasks"
   },
   "conversationMetadata": {
     "settingsTitle": "Conversation organization",
@@ -8406,7 +8455,14 @@
     "copyOutline": "Copy selected format",
     "languageMismatch": "This older overview uses another language. Regenerate it in your account language.",
     "refreshLanguage": "Update language",
-    "failureCount": "{{count}} conversations"
+    "failureCount": "{{count}} conversations",
+    "sourcesCount": "{{count}} sources",
+    "moreSources": "More sources",
+    "moreActions": "More actions",
+    "relatedEvents": "{{count}} execution records",
+    "viewAllSources": "View all sources",
+    "artifactCount": "{{count}} artifact files",
+    "showArtifacts": "Show artifacts"
   },
   "uiFeedback": {
     "enabledHint": "Enabled models can be routed to; connection is not verified. Tests only run when clicked and may incur model charges.",
@@ -8530,6 +8586,43 @@
     }
   },
   "workflowGraph": {
+    "modelAuto": "Use automatic routing",
+    "modelHelp": "Choose a configured model for this step. Automatic routing uses the expert’s model policy.",
+    "modelUnavailable": "not currently available",
+    "modelLoadError": "Could not load configured models. Close and reopen this node to retry.",
+    "valueType": "Value source and type",
+    "mappingKey": "Name",
+    "mappingValue": "Value",
+    "addMapping": "Add value",
+    "removeMapping": "Remove value",
+    "uniqueKey": "Use a nonempty, unique name.",
+    "noMappings": "No values configured.",
+    "nullValue": "Empty value (null)",
+    "booleanTrue": "True",
+    "booleanFalse": "False",
+    "addArgument": "Add argument",
+    "removeArgument": "Remove argument",
+    "argument": "Argument",
+    "executable": "Executable, for example python",
+    "argvHelp": "The first item is the executable. Add each argument separately. Spaces stay inside the argument; no shell parsing is applied.",
+    "valueTypes": {
+      "path": "Variable path",
+      "text": "Text",
+      "number": "Number",
+      "boolean": "Boolean",
+      "json": "JSON object or array",
+      "null": "Empty (null)"
+    },
+    "operators": {
+      "truthy": "Has a true value",
+      "eq": "Equals",
+      "ne": "Does not equal",
+      "gt": "Greater than",
+      "gte": "Greater than or equal",
+      "lt": "Less than",
+      "lte": "Less than or equal",
+      "contains": "Contains"
+    },
     "nodeSettings": "Node settings",
     "closeInspector": "Close node settings",
     "workflowActions": "Editing and execution",
@@ -8586,7 +8679,7 @@
     "originHelp": "Leave blank to create an independent conversation for each run.",
     "execution_context_id": "Execution context ID",
     "sourceHelp": "Reuse an existing execution context with its frozen target and policy. Without a source, Agents analyze only; scripts need an explicit source.",
-    "initial_variables": "Initial variables JSON",
+    "initial_variables": "Initial variables",
     "limits": "Run budget",
     "max_steps": "Maximum activations",
     "max_seconds": "Maximum wall seconds",
@@ -8603,7 +8696,7 @@
     "eventStartHelp": "After publishing, scripts can start a run with a scoped event credential.",
     "label": "Label",
     "prompt": "Task prompt",
-    "model": "Model reference (blank inherits)",
+    "model": "Model",
     "incomingExpert": "Inherit incoming expert",
     "before": "Before execution",
     "after": "After execution",
@@ -8624,14 +8717,14 @@
     "after_context_restore": "Restore incoming recipe",
     "after_context_keep": "Keep executed recipe",
     "contextHelp": "Conversation and context recipe pass independently. Full archives remain intact; child transcripts do not merge into the parent.",
-    "argv": "Command argv JSON",
+    "argv": "Command and arguments",
     "cwd": "Working directory",
-    "env": "Environment JSON",
+    "env": "Environment variables",
     "callback_node": "Callback registration node ID",
     "output_mode": "Output format",
     "text": "Text preview",
-    "left": "Left binding JSON",
-    "right": "Right binding JSON",
+    "left": "Value to check",
+    "right": "Compare with",
     "operator": "Comparison",
     "event_type": "Event type",
     "purpose": "Event purpose",
@@ -8643,10 +8736,10 @@
     "context_branch": "Context branch edge ID",
     "merge": "Merge variables by branch edge ID",
     "bindings": "Input and output mappings",
-    "bindingHelp": "Use {\"path\":\"$.vars.x\"} or {\"value\":literal}. Parsed output is $.outputs.nodeID.result.",
-    "inputs": "Input mappings JSON",
-    "assign": "Variable assignments JSON",
-    "advanced": "Full node definition",
+    "bindingHelp": "Choose a variable path or a literal value. Parsed results are available at $.outputs.nodeID.result.",
+    "inputs": "Inputs",
+    "assign": "Save to variables",
+    "advanced": "Advanced JSON",
     "nodeDefinition": "Node JSON",
     "invalidNode": "Node JSON must preserve its original ID, position and name.",
     "runs": "Runs",
@@ -8740,5 +8833,51 @@
       "skipped": "Skipped",
       "superseded": "Superseded"
     }
+  },
+  "taskCenter": {
+    "title": "Task overview",
+    "subtitle": "Track tasks across experts and conversations, with progress and source links.",
+    "expert": "Expert",
+    "conversation": "Source conversation",
+    "allExperts": "All experts",
+    "allConversations": "All conversations",
+    "search": "Search tasks, experts or conversations",
+    "retentionHint": "Completed and cancelled tasks archive after 7 days; failures after 30 days. Archives load on demand. Original evidence is retained.",
+    "empty": "No tasks in this scope",
+    "stale": "Status unconfirmed",
+    "declared": "Agent reported",
+    "noConversation": "No conversation yet",
+    "openTask": "View task",
+    "openConversation": "Source conversation",
+    "expertScope": "All conversations for this expert",
+    "sources": {
+      "work_item": "Background work",
+      "board": "Task ledger",
+      "job": "Background process",
+      "subagent": "Subtask",
+      "plan": "Task plan"
+    },
+    "status": {
+      "queued": "Queued",
+      "running": "Running",
+      "waiting_input": "Waiting for input",
+      "waiting_review": "Waiting for review",
+      "blocked": "Blocked",
+      "failed": "Failed",
+      "completed": "Completed",
+      "cancelled": "Cancelled",
+      "unknown": "Unconfirmed",
+      "planning": "Planning",
+      "todo": "To do",
+      "done": "Completed",
+      "pending": "Pending",
+      "started": "Running",
+      "accepted": "Accepted",
+      "waiting": "Waiting",
+      "succeeded": "Completed",
+      "interrupted": "Interrupted"
+    },
+    "boardSync": "Live tasks sync to this board automatically. Cards link to their source conversations and follow execution receipts.",
+    "executions": "Execution tasks"
   }
 }

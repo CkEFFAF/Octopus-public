@@ -13,6 +13,7 @@ import {
   Brain,
   Notebook,
   Waypoints,
+  PanelsTopLeft,
 } from "lucide-react";
 import { Button, Tooltip } from "antd";
 import { useCurrentUser } from "../hooks/useCurrentUser";
@@ -28,7 +29,13 @@ const groups = [
     id: "projects",
     icon: Users,
     path: "/projects",
-    keys: ["projects", "task-board", "workflow-graphs", "tasks"],
+    keys: ["projects", "workflow-graphs"],
+  },
+  {
+    id: "taskCenter",
+    icon: PanelsTopLeft,
+    path: "/task-center",
+    keys: ["task-center", "task-board", "tasks"],
   },
   {
     id: "agents",

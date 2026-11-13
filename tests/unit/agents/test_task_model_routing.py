@@ -64,6 +64,19 @@ def routing(tmp_path):
         ("看看历史", None, False, 50000, "long_context"),
         ("继续", "deep_research", False, 0, "research"),
         ("继续", "debug", False, 0, "coding"),
+        ("分析 Python 脚本的实验结果，评估创新潜力", None, False, 0, "reasoning"),
+        ("先做核心部分设计，再写代码", None, False, 0, "reasoning"),
+        ("设计实验方案并给出代码改动建议", None, False, 0, "reasoning"),
+        ("Architect the Python service and evaluate tradeoffs", None, False, 0, "reasoning"),
+        ("Analyze the experiment results from this SQL script", None, False, 0, "reasoning"),
+        ("修改 Python 脚本并运行单元测试", None, False, 0, "coding"),
+        ("修复 Python 报错", "plan", False, 0, "reasoning"),
+        ("这个实验失败了，请分析代码原因并提出优化方案", None, False, 0, "reasoning"),
+        ("需要做重要的决策，分析代码结构", None, False, 0, "reasoning"),
+        ("Design a core component in Python", None, False, 0, "reasoning"),
+        ("深入推理 Python 代码中优化器不收敛的数学原因", None, False, 0, "reasoning"),
+        ("Write a training script", None, False, 0, "coding"),
+        ("Implement this function", None, False, 0, "coding"),
         ("你好", None, False, 0, "chat"),
     ],
 )
@@ -84,6 +97,19 @@ def test_routing_is_opt_in_and_manual_selection_has_highest_priority(routing):
     assert configured.model == "Owned/large" and configured.source == "task"
     manual = router.resolve(text="写 Python 代码", explicit_model="Owned/plain")
     assert manual.model == "Owned/plain" and manual.source == "manual"
+
+
+def test_experiment_analysis_uses_reasoning_preference_without_changing_coding(routing):
+    router, *_ = routing
+    router.save(
+        ModelRoutingConfig(
+            enabled=True, tasks={"coding": "Owned/coder-lite", "reasoning": "Owned/large"}
+        )
+    )
+    analysis = router.resolve(text="分析 Python 代码产生的实验结果，评估下一步方案")
+    assert (analysis.task, analysis.model, analysis.source) == ("reasoning", "Owned/large", "task")
+    assert router.resolve(text="实现 Python 脚本并修复报错").model == "Owned/coder-lite"
+    assert router.resolve(text="分析实验结果", explicit_model="Owned/plain").model == "Owned/plain"
 
 
 def test_auto_capabilities_and_long_context_are_checked_without_external_calls(routing):

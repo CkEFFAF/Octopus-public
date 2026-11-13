@@ -29,6 +29,7 @@ from octop.infra.agents.threads.artifact import thread_artifacts_payload
 from octop.infra.agents.threads.context_breakdown import SEGMENT_KEYS, compute_context_breakdown
 from octop.infra.agents.threads.fork import fork_dashboard_thread
 from octop.infra.agents.workspace.dir import agent_facing_workspace_dir_from_config
+from octop.infra.conversations.collaboration import Category, thread_metadata
 from octop.infra.conversations.heat import ThreadHeatService
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.hitl.coordinator import pending_hitl_payload
@@ -110,6 +111,7 @@ def _require_thread(
 )
 async def get_sidebar_status(
     agent_id: str,
+    category: Category | None = None,
     user: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> SidebarStatus:
@@ -133,13 +135,24 @@ async def get_sidebar_status(
     )
     for item in status["working_threads"]:
         item["metadata"] = metadata.get(item["thread_id"])
+    thread_rows = await asyncio.to_thread(
+        server.services.repos.thread_repo.get_many,
+        [item["thread_id"] for item in status["working_threads"]],
+    )
+    provenance = await asyncio.to_thread(thread_metadata, server.services.repos, thread_rows)
+    for item in status["working_threads"]:
+        item.update(provenance.get(item["thread_id"], {"category": "user"}))
+    if category is not None:
+        status["working_threads"] = [
+            item for item in status["working_threads"] if item["category"] == category
+        ]
     return SidebarStatus.model_validate(status)
 
 
 @router.get("/agents/{agent_id}/background-jobs", summary="Browse owned background jobs by state")
 async def background_jobs(
     agent_id: str,
-    lifecycle: Literal["active", "completed", "failed", "inactive", "all"] = "active",
+    lifecycle: Literal["active", "completed", "failed", "inactive", "all", "archived"] = "active",
     thread_id: str | None = None,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
@@ -162,6 +175,7 @@ async def background_jobs(
 async def list_threads(
     agent_id: str,
     limit: int = 50,
+    category: Category | None = None,
     as_user: int | None = None,
     user: Any = Depends(current_user),
     server: Any = Depends(get_server),
@@ -171,7 +185,11 @@ async def list_threads(
     thread_registry = server.app_runtime.gateway.thread_registry
     effective_uid = as_user if as_user is not None else user.id
     ranked = await asyncio.to_thread(
-        ThreadHeatService(server.services.repos).list, effective_uid, agent_id, limit
+        ThreadHeatService(server.services.repos).list,
+        effective_uid,
+        agent_id,
+        limit,
+        category=category,
     )
     rows = [row for row, _heat in ranked]
     heat = {row.thread_id: value for row, value in ranked}
@@ -182,6 +200,7 @@ async def list_threads(
     metadata = server.services.repos.conversation_metadata_repo.list_briefs(
         effective_uid, agent_id, [r.thread_id for r in rows]
     )
+    provenance = await asyncio.to_thread(thread_metadata, server.services.repos, rows)
     return [
         {
             "thread_id": r.thread_id,
@@ -189,6 +208,7 @@ async def list_threads(
             "title_source": r.title_source,
             "title_revision": r.title_revision,
             "metadata": metadata.get(r.thread_id),
+            **provenance[r.thread_id],
             "heat": heat[r.thread_id],
             "channel_type": r.channel_type,
             "session_key": r.session_key,
@@ -498,9 +518,11 @@ async def get_thread_history(
         user_id=effective_uid,
     )
     workspace_dir = _agent_facing_workspace_dir(server, agent_id)
+    provenance = await asyncio.to_thread(thread_metadata, server.services.repos, [row])
     return {
         "thread_id": thread_id,
         "messages": messages,
+        **provenance.get(thread_id, {"category": "user"}),
         "has_more": has_more,
         "limit": page_limit,
         "offset": page_offset,

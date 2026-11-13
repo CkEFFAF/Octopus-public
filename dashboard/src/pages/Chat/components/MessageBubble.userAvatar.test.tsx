@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import MessageBubble from "./MessageBubble";
+import MessageBubble, { ToolDetailsInline } from "./MessageBubble";
 import type { ChatMessage } from "../hooks/useChat";
 import type { OctopUser } from "../../../api/modules/auth";
 
@@ -59,6 +59,31 @@ function userMessage(extra: Partial<ChatMessage> = {}): ChatMessage {
 }
 
 describe("MessageBubble user avatar", () => {
+  it("shows the authenticated machine name instead of the current account", () => {
+    render(
+      <MessageBubble
+        message={userMessage({
+          sender: { kind: "machine", id: "key-1", name: "Codex" },
+        })}
+      />,
+    );
+    expect(screen.getByLabelText("Codex")).toBeInTheDocument();
+    expect(screen.getByText("Codex")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Ada")).not.toBeInTheDocument();
+  });
+  it("shows ACP runner identity on an assistant response", () => {
+    render(
+      <MessageBubble
+        message={userMessage({
+          role: "assistant",
+          sender: { kind: "acp", id: "runner", name: "GrokBot" },
+        })}
+      />,
+    );
+    expect(screen.getByLabelText("GrokBot")).toBeInTheDocument();
+    expect(screen.getByText("GrokBot")).toBeInTheDocument();
+    expect(screen.queryByLabelText("助手")).not.toBeInTheDocument();
+  });
   it("localizes the preview mask for direct image attachments", () => {
     render(
       <MessageBubble
@@ -119,4 +144,51 @@ describe("MessageBubble user avatar", () => {
     );
     expect(sender.querySelector("svg")).toBeNull();
   });
+});
+
+it("keeps a real ACP child link accessible when the tool failed", () => {
+  render(
+    <ToolDetailsInline
+      agentId="host"
+      isStreaming={false}
+      toolData={{
+        name: "acp_runner",
+        errorCode: "execution_failed",
+        arguments: '{"runner":"codex"}',
+        output: "ACP process failed",
+        artifact: { collaboration_thread_id: "acp-child" },
+      }}
+    />,
+  );
+  expect(
+    screen.getByRole("link", { name: "collaboration.viewConversation" }),
+  ).toHaveAttribute("href", "/chat/host/acp-child");
+  fireEvent.click(screen.getByRole("button", { expanded: false }));
+  expect(screen.getByText(/ACP process failed/)).toBeInTheDocument();
+});
+
+it("keeps ACP permissions available alongside the child conversation link", () => {
+  const onSelect = vi.fn();
+  render(
+    <ToolDetailsInline
+      agentId="host"
+      isStreaming={false}
+      onAcpPermissionSelect={onSelect}
+      toolData={{
+        name: "acp_runner",
+        arguments: '{"runner":"codex"}',
+        output:
+          "[permission_required] Approve access\n- Allow once (id=allow_once)",
+        artifact: { collaboration_thread_id: "permission-child" },
+      }}
+    />,
+  );
+  expect(
+    screen.getByRole("link", { name: "collaboration.viewConversation" }),
+  ).toHaveAttribute("href", "/chat/host/permission-child");
+  fireEvent.click(screen.getByRole("button", { expanded: false }));
+  fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+  expect(onSelect).toHaveBeenCalledWith(
+    expect.stringContaining('message="allow_once"'),
+  );
 });

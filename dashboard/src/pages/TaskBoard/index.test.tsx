@@ -10,6 +10,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TaskBoardPage from "./index";
 import { taskBoardApi, type BoardSnapshot } from "../../api/modules/taskBoard";
+import { taskCenterApi } from "../../api/modules/taskCenter";
 
 vi.mock("../../layouts/PageShell", () => ({
   default: ({
@@ -33,6 +34,9 @@ vi.mock("../../hooks/useServerTimezone", () => ({
 }));
 vi.mock("../../api/modules/taskBoard", () => ({
   taskBoardApi: { get: vi.fn(), act: vi.fn(), parse: vi.fn() },
+}));
+vi.mock("../../api/modules/taskCenter", () => ({
+  taskCenterApi: { page: vi.fn() },
 }));
 vi.mock("../../api/modules/teams", () => ({
   teamsApi: {
@@ -73,9 +77,95 @@ function show(path = "/task-board") {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(taskBoardApi.get).mockResolvedValue(board);
+  vi.mocked(taskCenterApi.page).mockResolvedValue({
+    items: [],
+    total: 0,
+    counts: {},
+    offset: 0,
+    limit: 100,
+    has_more: false,
+    agents: [],
+    threads: [],
+    observed_at: 0,
+  });
 });
 
 describe("task board recovery and form protection", () => {
+  it("stops ledger polling in archives and refreshes both data sources on demand", async () => {
+    const interval = vi.spyOn(window, "setInterval");
+    const clear = vi.spyOn(window, "clearInterval");
+    try {
+      show();
+      await waitFor(() => expect(taskBoardApi.get).toHaveBeenCalled());
+      const timerIndex = interval.mock.calls.findIndex(
+        (call) => call[1] === 5000,
+      );
+      expect(timerIndex).toBeGreaterThanOrEqual(0);
+      const timer = interval.mock.results[timerIndex].value;
+      fireEvent.click(screen.getByRole("button", { name: /octopus.archive/ }));
+      await waitFor(() =>
+        expect(taskCenterApi.page).toHaveBeenLastCalledWith(
+          expect.objectContaining({ lifecycle: "archived" }),
+        ),
+      );
+      expect(clear).toHaveBeenCalledWith(timer);
+      expect(
+        interval.mock.calls.filter((call) => call[1] === 5000),
+      ).toHaveLength(1);
+      const count = vi.mocked(taskCenterApi.page).mock.calls.length;
+      const ledgerCount = vi.mocked(taskBoardApi.get).mock.calls.length;
+      fireEvent.click(screen.getByRole("button", { name: "octopus.refresh" }));
+      await waitFor(() =>
+        expect(taskCenterApi.page).toHaveBeenCalledTimes(count + 1),
+      );
+      expect(taskBoardApi.get).toHaveBeenCalledTimes(ledgerCount + 1);
+    } finally {
+      interval.mockRestore();
+      clear.mockRestore();
+    }
+  });
+
+  it("automatically places live execution tasks in the corresponding board column", async () => {
+    vi.mocked(taskCenterApi.page).mockResolvedValue({
+      items: [
+        {
+          id: "job:live",
+          source_id: "live",
+          source: "job",
+          title: "Training in another conversation",
+          status: "running",
+          lifecycle: "active",
+          agent_id: "expert",
+          agent_name: "Research",
+          thread_id: "origin",
+          thread_title: "Experiment",
+          updated_at: 1794538800,
+          summary: "",
+          stale: false,
+          declared: false,
+        },
+      ],
+      total: 1,
+      counts: { active: 1 },
+      offset: 0,
+      limit: 100,
+      has_more: false,
+      agents: [],
+      threads: [],
+      observed_at: 0,
+    });
+    show();
+    await screen.findByText("Training in another conversation");
+    expect(
+      within(screen.getByRole("region", { name: "octopus.running" })).getByText(
+        "Training in another conversation",
+      ),
+    ).toBeInTheDocument();
+    expect(taskBoardApi.act).not.toHaveBeenCalled();
+    expect(taskCenterApi.page).toHaveBeenCalledWith(
+      expect.objectContaining({ include_board: false }),
+    );
+  });
   it("distinguishes no matches and clears filters while retaining project and unrelated URL parameters", async () => {
     show("/task-board?project=project-1&agent=missing-agent&context=keep");
     await screen.findByText("uiFeedback.noMatchingTasks");

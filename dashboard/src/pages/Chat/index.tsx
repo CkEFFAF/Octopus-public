@@ -1,3 +1,4 @@
+import ConversationSource from "./components/ConversationSource";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import ExpertActivity from "./components/ExpertActivity";
 import TaskActivity from "./components/TaskActivity";
@@ -296,6 +297,8 @@ function ChatPageInner() {
   const [turnRailVisible, setTurnRailVisible] = useState(false);
   const {
     sessions,
+    category,
+    setCategory,
     loading: sessionsLoading,
     hasMore: sessionsHasMore,
     loadingMore: sessionsLoadingMore,
@@ -1370,6 +1373,8 @@ function ChatPageInner() {
 
   const chatSidebarPanel = (
     <ChatSidebarPanel
+      category={category}
+      onCategoryChange={setCategory}
       isMobile={isMobile}
       sidebarOpen={sidebarOpen}
       sidebarWidth={sidebarWidth}
@@ -1655,6 +1660,13 @@ function ChatPageInner() {
                   actions={roomActions}
                 />
               )}
+
+              {activeSession ? (
+                <ConversationSource
+                  origin={activeSession}
+                  agentId={resolvedAgentId}
+                />
+              ) : null}
 
               {memoryMaintVisible && memoryMaint && (
                 <MemoryMaintenanceBanner

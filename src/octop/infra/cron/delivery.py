@@ -13,6 +13,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from octop.i18n import tr
 from octop.i18n.domains.stream import format_stream_error
+from octop.infra.conversations.collaboration import SENDER_KEY, live_sender
 from octop.infra.cron.report import ReportOptions, report_options
 from octop.infra.cron.task_type import CronTaskType, normalize_cron_task_type
 from octop.infra.gateway.process import build_harness_request
@@ -74,6 +75,7 @@ class CronDeliveryCommand:
     workflow_execution_context_id: str = ""
     workflow_work_mode: str = "ask"
     on_admission: Callable[[], bool] | None = None
+    sender: dict[str, str] | None = None
 
 
 class CronDeliveryService:
@@ -524,6 +526,19 @@ class CronDeliveryService:
         terminal_seen = False
         fallback_phase = "failed"
         try:
+            if dashboard and command.sender is not None:
+                await self._gateway.observe_dashboard_resume(
+                    session.user_id,
+                    command.agent_id,
+                    session.thread_id,
+                    {
+                        "type": "user",
+                        "content": command.prompt,
+                        "command_id": command.cron_id,
+                        "source": "work_item",
+                        "sender": command.sender,
+                    },
+                )
             from octop.infra.connectors.gateway.adapters.agently_cli import write_scope
 
             with write_scope(allowed=False):
@@ -546,6 +561,7 @@ class CronDeliveryService:
                     ):
                         raise ValueError("wakeup hook cancelled or already dispatched")
                 async for chunk in self._agent_manager.stream(command.agent_id, request):
+                    chunk = live_sender(chunk)
                     if command.on_chunk is not None:
                         command.on_chunk(chunk)
                     tracker.observe(chunk)
@@ -842,7 +858,9 @@ class CronDeliveryService:
             model_ref=command.model,
             default_model=default_model,
         )
-        message_kwargs = {COMPOSER_CTX_KEY: composer} if composer else None
+        message_kwargs: dict[str, Any] = {COMPOSER_CTX_KEY: composer} if composer else {}
+        if command.sender is not None:
+            message_kwargs[SENDER_KEY] = command.sender
         request = build_harness_request(
             thread_id=session.thread_id,
             user_id=session.user_id,
@@ -851,7 +869,7 @@ class CronDeliveryService:
             source=session.channel_type,
             text=command.prompt,
             model=command.model,
-            message_kwargs=message_kwargs,
+            message_kwargs=message_kwargs or None,
         )
         if servers:
             request["mcp_servers"] = servers

@@ -142,7 +142,7 @@ async def schedule_page(
     thread_id: str | None = None,
     reminder: bool | None = None,
     category: Literal["once", "repeat", "ended"] | None = None,
-    lifecycle: Literal["active", "completed", "failed", "inactive"] | None = None,
+    lifecycle: Literal["active", "completed", "failed", "inactive", "archived"] | None = None,
     search: str = "",
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=5, ge=1, le=2000),

@@ -76,6 +76,10 @@ async def test_enabling_without_model_maps_prerequisite_error(
         raise ValueError("enabling knowledge bases requires an embedding model")
 
     monkeypatch.setattr(knowledge_bases, "set_feature_enabled", fail)
+    # This error-mapping test must not install optional embedding packages.
+    monkeypatch.setattr(
+        knowledge_bases, "ensure_local_embedding_deps_async", AsyncMock(return_value="ready")
+    )
 
     with pytest.raises(OctopError) as raised:
         await knowledge_bases.put_feature(

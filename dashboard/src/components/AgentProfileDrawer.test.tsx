@@ -4,6 +4,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import i18n from "../i18n";
 import type { OctopAgent } from "../context/AgentContext";
 
+vi.mock("./PinnedFilesPanel", () => ({
+  default: () => <div data-testid="pinned-files" />,
+}));
+
 vi.mock("../api/request", () => ({
   request: vi.fn(async (path: string) => {
     if (path.endsWith("/skills")) {
@@ -132,6 +136,7 @@ describe("AgentProfileDrawer sections", () => {
       expect(screen.getByText("Demo skill")).toBeInTheDocument();
       expect(screen.getByText("Demo subagent")).toBeInTheDocument();
       expect(screen.getByText("agent-1")).toBeInTheDocument();
+      expect(screen.getByTestId("pinned-files")).toBeInTheDocument();
     });
 
     expect(

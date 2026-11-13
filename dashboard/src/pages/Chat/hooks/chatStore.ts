@@ -1536,6 +1536,7 @@ function handleHarnessChunkBody(
           id,
           role: "user",
           content: user.content,
+          sender: user.sender,
           attachments: attachments.map((attachment) => {
             const agentId = sessionHostAgentId(state, sessionId);
             return !attachment.url && attachment.workspacePath && agentId

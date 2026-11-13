@@ -1,4 +1,8 @@
 import {
+  parseConversationActor,
+  type ConversationActor,
+} from "../../../api/types/conversation";
+import {
   useState,
   useCallback,
   useRef,
@@ -484,6 +488,7 @@ function convertCallEntries(entries: CallEntry[]): ChatMessage[] {
           ? "error"
           : "done",
       timestamp: resolveEntryTimestamp(entry),
+      sender: parseConversationActor(entry.sender),
       speakerAgentId:
         typeof entry.speaker_agent_id === "string" &&
         entry.speaker_agent_id.trim()
@@ -691,6 +696,7 @@ export function convertHistoryMessages(
     error_code?: string;
     error_diagnostic?: Record<string, unknown>;
     agent_id?: string;
+    sender?: ConversationActor | null;
     team_wrapup?: boolean;
     edited_files?: string[];
   }>,
@@ -716,6 +722,7 @@ export function convertHistoryMessages(
       status: message.status,
       error_code: message.error_code,
       error_diagnostic: message.error_diagnostic,
+      sender: message.sender,
       speaker_agent_id:
         typeof message.agent_id === "string" && message.agent_id.trim()
           ? message.agent_id.trim()
@@ -764,6 +771,7 @@ async function loadThreadHistory(
     syncSessionArtifacts,
     syncSessionConversationMode,
     syncSessionHitlPolicy,
+    syncSessionCollaboration,
   } = await import("./useSessions");
   const limit = params.limit ?? CHAT_HISTORY_PAGE_SIZE;
   const offset = params.offset ?? 0;
@@ -778,6 +786,7 @@ async function loadThreadHistory(
     history.artifact_refs,
   );
   if (offset === 0) {
+    syncSessionCollaboration(threadId, history, agentId);
     syncSessionArtifacts(threadId, artifacts);
     syncSessionConversationMode(
       threadId,

@@ -14,6 +14,7 @@ import {
   Volume2,
   GitFork,
   PanelRight,
+  Bot,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
@@ -386,6 +387,7 @@ export function ToolDetailsInline({
   }
 
   const props: ToolRenderProps = {
+    artifact: toolData.artifact,
     pluginId: registration?.pluginId ?? pluginId,
     toolName: toolData.name ?? "",
     displayName: toolData.displayName,
@@ -546,7 +548,7 @@ function MessageBubble({
     ? t("chat.teamHostHover", { name: activeAgent?.name || expert?.name || "" })
     : expert?.name;
   const avatarProfileId = isTeamHostSpeaker ? activeAgent?.agent_id : speakerId;
-  const userName = accountDisplayName(user);
+  const userName = message.sender?.name ?? accountDisplayName(user);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(message.content);
@@ -716,7 +718,12 @@ function MessageBubble({
   const showSender =
     (isUser || groupPosition === "first" || groupPosition === "only") &&
     (isUser || showAvatar);
-  const senderAvatar = !showSender ? null : isUser ? (
+  const senderAvatar = !showSender ? null : message.sender ? (
+    <MessageSender
+      name={message.sender.name}
+      avatar={<Bot size={isUser ? 36 : 44} aria-hidden />}
+    />
+  ) : isUser ? (
     <MessageSender
       name={userName}
       avatar={
@@ -759,6 +766,11 @@ function MessageBubble({
         />
       ) : null}
       <div className={styles.bubbleContent}>
+        {message.sender && showSender ? (
+          <div className={styles.collaborationSender}>
+            {message.sender.name}
+          </div>
+        ) : null}
         {!isUser &&
         message.metadata?.additional_kwargs?.octop_interrupted === true ? (
           <div role="status">{t("chat.steer.interrupted")}</div>

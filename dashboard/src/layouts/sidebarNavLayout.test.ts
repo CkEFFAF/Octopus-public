@@ -38,6 +38,7 @@ describe("sidebarNavLayout", () => {
       "chat",
       "experts",
       "tasks",
+      "task-center",
       "workflow-graphs",
       "token-usage",
     ]);

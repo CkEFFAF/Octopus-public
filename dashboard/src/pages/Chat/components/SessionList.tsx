@@ -1,3 +1,6 @@
+import ConversationCategoryTabs, {
+  type ConversationCategoryProps,
+} from "./ConversationCategoryTabs";
 import SessionRowContent from "./SessionRowContent";
 import ExpertScheduleBadge from "./ExpertScheduleBadge";
 import {
@@ -570,7 +573,7 @@ function InactiveAgentRow({
   );
 }
 
-interface SessionListProps {
+interface SessionListProps extends ConversationCategoryProps {
   agents: OctopAgent[];
   activePhase?: ExpertPhase;
   sessions: Session[];
@@ -593,6 +596,8 @@ interface SessionListProps {
 }
 
 function SessionListContent({
+  category = "user",
+  onCategoryChange,
   agents: initialAgents,
   activePhase,
   sessions: initialSessions,
@@ -633,6 +638,7 @@ function SessionListContent({
   const sessions = withWorkingSessions(
     initialSessions,
     sidebarActivity[activeAgentId ?? ""],
+    category,
   );
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
@@ -704,6 +710,10 @@ function SessionListContent({
             {t("octopus.newGroupChat")}
           </button>
         </div>
+        <ConversationCategoryTabs
+          category={category}
+          onCategoryChange={onCategoryChange}
+        />
         {showSessions ? (
           <div className={styles.sessionSearchWrap}>
             <Search
@@ -846,6 +856,7 @@ function SessionListContent({
                         withWorkingSessions(
                           [],
                           sidebarActivity[agent.agent_id],
+                          category,
                         ).map((session) => (
                           <div
                             key={session.id}
@@ -886,9 +897,16 @@ function SessionListContent({
 }
 
 export default function SessionList(props: SessionListProps) {
+  const [localCategory, setLocalCategory] =
+    useState<NonNullable<ConversationCategoryProps["category"]>>("user");
+  const category = props.category ?? localCategory;
   return (
-    <SidebarActivityProvider agents={props.agents}>
-      <SessionListContent {...props} />
+    <SidebarActivityProvider agents={props.agents} category={category}>
+      <SessionListContent
+        {...props}
+        category={category}
+        onCategoryChange={props.onCategoryChange ?? setLocalCategory}
+      />
     </SidebarActivityProvider>
   );
 }

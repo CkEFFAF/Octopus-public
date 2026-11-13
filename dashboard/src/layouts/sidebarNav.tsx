@@ -51,6 +51,7 @@ export interface NavSection {
 export const SIDEBAR_NAV_KEYS = [
   "chat",
   "experts",
+  "task-center",
   "tasks",
   "workflow-graphs",
   "token-usage",
@@ -164,6 +165,12 @@ export function buildNavSections(
           path: "/tasks",
           icon: <Timer size={iconSize} strokeWidth={iconStroke} />,
           labelKey: "nav.tasks",
+        },
+        {
+          key: "task-center",
+          path: "/task-center",
+          icon: <PanelsTopLeft size={iconSize} strokeWidth={iconStroke} />,
+          labelKey: "taskCenter.title",
         },
         {
           key: "workflow-graphs",

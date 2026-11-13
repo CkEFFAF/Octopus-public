@@ -98,14 +98,16 @@ class ActivityService:
         self.resources.scope(owner, agent, thread)
         inspection = RunInspectionService(self.repos)
         # A bounded current window; older immutable identities remain explicitly pageable.
-        page = inspection.list(owner, agent, thread, before=before, limit=200)
+        page = inspection.list(
+            owner, agent, thread, before=before, limit=200, include_archived=before is not None
+        )
         events = page["events"]
         active = inspection.events.active(owner, agent, thread, limit=201) if before is None else []
         events = list({event["event_id"]: event for event in [*active[:200], *events]}.values())
         job_progress = inspection.events.job_progress(
             owner, [event["event_id"] for event in events if event["kind"] == "job"]
         )
-        plans = self.repos.workbench_repo.list(owner, agent, thread, "plan")
+        plans = self.repos.workbench_repo.list(owner, agent, thread, "plan", include_archived=False)
         invocations = CollaborationService(self.manager).listing(owner, agent, thread, 0, 1)[
             "invocations"
         ]
@@ -123,7 +125,14 @@ class ActivityService:
                         "name": task["title"],
                         "task_id": task["task_id"],
                         "run_id": plan["run_id"],
-                        "status": "waiting" if task["depends_on"] else "pending",
+                        "status": (
+                            task["status"]
+                            if plan.get("source") == "write_todos"
+                            else "waiting"
+                            if task["depends_on"]
+                            else "pending"
+                        ),
+                        "declared": plan.get("source") == "write_todos",
                         "declared_status": task["status"],
                         "reason": task["reason"],
                         "depends_on": task["depends_on"],

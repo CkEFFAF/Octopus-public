@@ -10,6 +10,7 @@ import {
   octopThreadsApi,
   type SidebarStatus,
 } from "../../../api/modules/octopThreads";
+import type { ConversationCategory } from "../../../api/types/conversation";
 import type { OctopAgent } from "../../../context/AgentContext";
 import { useCurrentUser } from "../../../hooks/useCurrentUser";
 import * as chatStore from "./chatStore";
@@ -21,16 +22,18 @@ const ActivityContext = createContext<Record<string, SidebarStatus>>({});
 export function SidebarActivityProvider({
   agents,
   children,
+  category = "user",
 }: {
   agents: OctopAgent[];
   children: ReactNode;
+  category?: ConversationCategory;
 }) {
   const user = useCurrentUser();
   const ids = agents
     .map((a) => a.agent_id)
     .sort()
     .join(",");
-  const scope = `${user?.id ?? ""}:${ids}`;
+  const scope = `${user?.id ?? ""}:${ids}:${category}`;
   const [state, setState] = useState<{
     scope: string;
     values: Record<string, SidebarStatus>;
@@ -47,7 +50,10 @@ export function SidebarActivityProvider({
       const entries = await Promise.all(
         ids.split(",").map(async (id) => {
           try {
-            return [id, await octopThreadsApi.sidebarStatus(id)] as const;
+            return [
+              id,
+              await octopThreadsApi.sidebarStatus(id, category),
+            ] as const;
           } catch {
             return [id, null] as const;
           }
@@ -82,7 +88,7 @@ export function SidebarActivityProvider({
       document.removeEventListener("visibilitychange", onVisible);
       unsubscribe();
     };
-  }, [ids, scope]);
+  }, [ids, scope, category]);
   return (
     <ActivityContext.Provider value={state.scope === scope ? state.values : {}}>
       {children}
@@ -134,10 +140,12 @@ export function useSessionActivity(threadId: string) {
 export function withWorkingSessions(
   sessions: Session[],
   status?: SidebarStatus,
+  category: ConversationCategory = "user",
 ): Session[] {
+  sessions = sessions.filter((s) => (s.category ?? "user") === category);
   const ids = new Set(sessions.map((session) => session.id));
   const extra = (status?.working_threads ?? []).filter(
-    (row) => !ids.has(row.thread_id),
+    (row) => !ids.has(row.thread_id) && (row.category ?? "user") === category,
   );
   return extra.length
     ? sortSessions([...sessions, ...extra.map(toSession)])

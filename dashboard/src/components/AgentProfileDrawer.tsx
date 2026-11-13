@@ -40,6 +40,7 @@ import {
 } from "../utils/expertColor";
 import expertStyles from "../pages/Experts/index.module.less";
 import styles from "./AgentProfileDrawer.module.less";
+import PinnedFilesPanel from "./PinnedFilesPanel";
 
 interface AgentDetail {
   name: string;
@@ -511,6 +512,7 @@ export default function AgentProfileDrawer({
           </div>
         ) : null}
 
+        <PinnedFilesPanel agentId={agent.agent_id} />
         <div className={expertStyles.drawerSection}>
           <Collapse
             ghost

@@ -146,3 +146,17 @@ describe("steered turn projection", () => {
     );
   });
 });
+
+it("preserves the authenticated machine identity in the live store", () => {
+  ingestHarnessChunk(session, {
+    type: "user",
+    command_id: "codex-input",
+    content: "research",
+    sender: { kind: "machine", id: "key", name: "Codex" },
+  });
+  expect(getSnapshot(session).messages[0].sender).toEqual({
+    kind: "machine",
+    id: "key",
+    name: "Codex",
+  });
+});

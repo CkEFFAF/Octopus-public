@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import {
   normalizeThreadArtifacts,
   octopThreadsApi,
@@ -11,7 +11,12 @@ import { onSessionEvent } from "./chatStore";
 import { formatThreadTitle } from "../utils/threadTitle";
 import { parseHitlSessionPolicy } from "../utils/hitlSessionPolicy";
 
-export interface Session {
+import type {
+  ConversationCategory,
+  ConversationOrigin,
+} from "../../../api/types/conversation";
+
+export interface Session extends ConversationOrigin {
   id: string;
   name: string;
   heat?: ThreadHeat;
@@ -45,27 +50,29 @@ export interface Session {
 /** Result of probing whether a thread exists for the current agent. */
 export type ThreadProbeResult = "found" | "missing" | "unknown";
 
-export function toSession(row: {
-  thread_id: string;
-  title: string | null;
-  heat?: ThreadHeat;
-  metadata?: Session["metadata"];
-  last_active: number;
-  created_at?: number;
-  channel_type?: string;
-  is_active?: boolean;
-  has_messages?: boolean;
-  pinned?: boolean;
-  model_ref?: string | null;
-  reasoning_mode?: "auto" | "enabled" | "disabled" | null;
-  reasoning_effort?: string | null;
-  conversation_mode?: "ask" | "plan" | "craft" | null;
-  pending_plan_path?: string | null;
-  hitl_policy?: HitlSessionPolicy | null;
-  artifacts?: Array<string | ThreadArtifact> | null;
-  artifact_refs?: ThreadArtifact[] | null;
-  agent_id?: string | null;
-}): Session {
+export function toSession(
+  row: {
+    thread_id: string;
+    title: string | null;
+    heat?: ThreadHeat;
+    metadata?: Session["metadata"];
+    last_active: number;
+    created_at?: number;
+    channel_type?: string;
+    is_active?: boolean;
+    has_messages?: boolean;
+    pinned?: boolean;
+    model_ref?: string | null;
+    reasoning_mode?: "auto" | "enabled" | "disabled" | null;
+    reasoning_effort?: string | null;
+    conversation_mode?: "ask" | "plan" | "craft" | null;
+    pending_plan_path?: string | null;
+    hitl_policy?: HitlSessionPolicy | null;
+    artifacts?: Array<string | ThreadArtifact> | null;
+    artifact_refs?: ThreadArtifact[] | null;
+    agent_id?: string | null;
+  } & ConversationOrigin,
+): Session {
   const hasActivity =
     Boolean(row.has_messages) || Boolean(row.title) || row.last_active > 0;
   // Match backend list order: empty threads (last_active=0) sort by created_at.
@@ -76,6 +83,9 @@ export function toSession(row: {
       ? row.created_at
       : 0;
   return {
+    category: row.category ?? "user",
+    actor: row.actor,
+    collaboration_source: row.collaboration_source,
     id: row.thread_id,
     name: formatThreadTitle(row.title) || "New Chat",
     heat: row.heat,
@@ -133,6 +143,9 @@ let _hasMore = false;
 let _loadingMore = false;
 export const SESSION_PAGE_SIZE = 10;
 let _storeAgentId: string | null = null;
+let _category: ConversationCategory = "user";
+let _lastOriginThread = "";
+let _activeThreadId: string | null = null;
 const _loadedLimitByAgent = new Map<string, number>();
 const _listeners = new Set<() => void>();
 
@@ -145,6 +158,40 @@ export function markPendingThread(threadId: string) {
 
 export function clearPendingThread(threadId: string) {
   _pendingThreadIds.delete(threadId);
+}
+
+export function setSessionCategory(category: ConversationCategory) {
+  if (_category === category) return;
+  _category = category;
+  _hasMore = false;
+  _loadingMore = false;
+  _loading = true;
+  setModuleSessions(_sessions);
+}
+
+export function syncSessionCollaboration(
+  threadId: string,
+  origin: ConversationOrigin,
+  agentId?: string,
+) {
+  if (agentId && agentId !== _storeAgentId) return;
+  if (_activeThreadId && _activeThreadId !== threadId) return;
+  const existing = _sessions.find((s) => s.id === threadId);
+  const session = {
+    ...(existing ??
+      toSession({ thread_id: threadId, title: null, last_active: 0 })),
+    actor: origin.actor,
+    collaboration_source: origin.collaboration_source,
+    category: origin.category ?? "user",
+  };
+  const key = `${agentId ?? _storeAgentId}:${threadId}`;
+  if (_lastOriginThread !== key) setSessionCategory(session.category);
+  _lastOriginThread = key;
+  setModuleSessions((prev) =>
+    prev
+      .map((s) => (s.id === threadId ? session : s))
+      .concat(existing ? [] : [session]),
+  );
 }
 
 /** Patch HITL bypass for one thread in the module session store. */
@@ -260,6 +307,7 @@ function setModuleSessions(
 ) {
   _sessions = typeof updater === "function" ? updater(_sessions) : updater;
   _snapshot = {
+    category: _category,
     sessions: _sessions,
     loading: _loading,
     hasMore: _hasMore,
@@ -271,6 +319,7 @@ function setModuleSessions(
 function setModuleLoading(value: boolean) {
   _loading = value;
   _snapshot = {
+    category: _category,
     sessions: _sessions,
     loading: _loading,
     hasMore: _hasMore,
@@ -285,6 +334,7 @@ function subscribeSessionStore(cb: () => void) {
 }
 
 let _snapshot = {
+  category: _category as ConversationCategory,
   sessions: _sessions,
   loading: _loading,
   hasMore: _hasMore,
@@ -301,11 +351,13 @@ export function isTempSessionId(id: string): boolean {
 }
 
 function getLoadedLimit(agentId: string): number {
-  return _loadedLimitByAgent.get(agentId) ?? SESSION_PAGE_SIZE;
+  return (
+    _loadedLimitByAgent.get(`${agentId}:${_category}`) ?? SESSION_PAGE_SIZE
+  );
 }
 
 function resetSessionPagination(agentId: string) {
-  _loadedLimitByAgent.set(agentId, SESSION_PAGE_SIZE);
+  _loadedLimitByAgent.set(`${agentId}:${_category}`, SESSION_PAGE_SIZE);
   _hasMore = false;
   _loadingMore = false;
 }
@@ -316,12 +368,15 @@ function visibleSessionsForAgent(
   activeThreadId?: string,
 ): Session[] {
   const limit = getLoadedLimit(agentId);
-  let visible = sessions.slice(0, limit);
+  let visible = sessions
+    .filter((s) => (s.category ?? "user") === _category)
+    .slice(0, limit);
   if (!activeThreadId || visible.some((s) => s.id === activeThreadId)) {
     return visible;
   }
   const active = sessions.find((s) => s.id === activeThreadId);
   if (!active) return visible;
+  if ((active.category ?? "user") !== _category) return [...visible, active];
   visible = [active, ...visible.filter((s) => s.id !== activeThreadId)];
   return visible.slice(0, limit);
 }
@@ -329,8 +384,9 @@ function visibleSessionsForAgent(
 async function fetchSessionsPage(
   agentId: string,
   limit: number,
+  category: ConversationCategory = _category,
 ): Promise<{ sessions: Session[]; hasMore: boolean }> {
-  const rows = await octopThreadsApi.list(agentId, limit + 1);
+  const rows = await octopThreadsApi.list(agentId, limit + 1, category);
   const hasMore = rows.length > limit;
   const sessions = sortSessions(
     rows.slice(0, limit).map((row) => toSession({ ...row, agent_id: agentId })),
@@ -345,7 +401,7 @@ function applySessionPage(
   agentId: string,
   activeThreadId?: string,
 ) {
-  _loadedLimitByAgent.set(agentId, limit);
+  _loadedLimitByAgent.set(`${agentId}:${_category}`, limit);
   _hasMore = hasMore;
   const retained = _sessions.filter(
     (session) =>
@@ -368,6 +424,7 @@ function applySessionPage(
 function setModuleLoadingMore(value: boolean) {
   _loadingMore = value;
   _snapshot = {
+    category: _category,
     sessions: _sessions,
     loading: _loading,
     hasMore: _hasMore,
@@ -384,11 +441,15 @@ function setModuleLoadingMore(value: boolean) {
 function syncStoreToAgent(agentId: string | null) {
   if (_storeAgentId === agentId) return;
   _storeAgentId = agentId;
+  _category = "user";
+  _lastOriginThread = "";
+  _activeThreadId = null;
   _sessions = [];
   _loading = agentId != null;
   _hasMore = false;
   _loadingMore = false;
   _snapshot = {
+    category: _category,
     sessions: _sessions,
     loading: _loading,
     hasMore: _hasMore,
@@ -399,6 +460,9 @@ function syncStoreToAgent(agentId: string | null) {
 /** Reset module session store between vitest cases. */
 export function resetSessionStoreForTests() {
   _storeAgentId = null;
+  _category = "user";
+  _lastOriginThread = "";
+  _activeThreadId = null;
   _sessions = [];
   _loading = true;
   _hasMore = false;
@@ -406,6 +470,7 @@ export function resetSessionStoreForTests() {
   _loadedLimitByAgent.clear();
   _pendingThreadIds.clear();
   _snapshot = {
+    category: _category,
     sessions: _sessions,
     loading: _loading,
     hasMore: _hasMore,
@@ -418,10 +483,11 @@ export function useSessions(
   activeThreadId?: string | null,
 ) {
   syncStoreToAgent(agentId);
-  const { sessions, loading, hasMore, loadingMore } = useSyncExternalStore(
-    subscribeSessionStore,
-    getSessionSnapshot,
-  );
+  _activeThreadId = activeThreadId ?? null;
+  const activeThreadRef = useRef(activeThreadId);
+  activeThreadRef.current = activeThreadId;
+  const { sessions, loading, hasMore, loadingMore, category } =
+    useSyncExternalStore(subscribeSessionStore, getSessionSnapshot);
 
   const fetchSessions = useCallback(
     async (activeThreadId?: string) => {
@@ -435,19 +501,21 @@ export function useSessions(
         const { sessions: valid, hasMore: more } = await fetchSessionsPage(
           agentId,
           limit,
+          category,
         );
-        if (_storeAgentId !== agentId) return _sessions;
+        if (_storeAgentId !== agentId || _category !== category)
+          return _sessions;
         applySessionPage(valid, more, limit, agentId, activeThreadId);
         return _sessions;
       } catch {
         return _sessions;
       } finally {
-        if (_storeAgentId === agentId) {
+        if (_storeAgentId === agentId && _category === category) {
           setModuleLoading(false);
         }
       }
     },
-    [agentId],
+    [agentId, category],
   );
   useEffect(() => {
     if (!agentId) return;
@@ -476,16 +544,18 @@ export function useSessions(
         const { sessions: valid, hasMore: more } = await fetchSessionsPage(
           agentId,
           nextLimit,
+          category,
         );
-        if (_storeAgentId !== agentId) return;
+        if (_storeAgentId !== agentId || _category !== category) return;
         applySessionPage(valid, more, nextLimit, agentId, activeThreadId);
       } catch {
         /* ignore */
       } finally {
-        setModuleLoadingMore(false);
+        if (_storeAgentId === agentId && _category === category)
+          setModuleLoadingMore(false);
       }
     },
-    [agentId],
+    [agentId, category],
   );
 
   const fetchAllSessions = useCallback(
@@ -495,14 +565,15 @@ export function useSessions(
         const { sessions: valid, hasMore: more } = await fetchSessionsPage(
           agentId,
           50,
+          category,
         );
-        if (_storeAgentId !== agentId) return;
+        if (_storeAgentId !== agentId || _category !== category) return;
         applySessionPage(valid, more, valid.length, agentId, activeThreadId);
       } catch {
         /* ignore */
       }
     },
-    [agentId],
+    [agentId, category],
   );
 
   const ensureThreadInList = useCallback(
@@ -512,18 +583,19 @@ export function useSessions(
       try {
         const limit = getLoadedLimit(agentId);
         const probeLimit = Math.max(limit + 1, 50);
-        const { sessions: valid, hasMore: more } = await fetchSessionsPage(
-          agentId,
-          probeLimit,
-        );
+        const rows = await octopThreadsApi.list(agentId, probeLimit + 1);
+        const valid = rows.map(toSession);
+        const more = rows.length > probeLimit;
         // Agent switched while the probe was in flight — do not rewrite URL.
         if (_storeAgentId !== agentId) return "unknown";
         const found = valid.some((s) => s.id === threadId);
         // A bounded page cannot prove deletion. Keep an older chat URL rather
         // than redirecting it to an unrelated recent conversation.
         if (!found) return more ? "unknown" : "missing";
+        const target = valid.find((s) => s.id === threadId);
+        if (target) syncSessionCollaboration(threadId, target, agentId);
         applySessionPage(
-          valid,
+          valid.filter((s) => (s.category ?? "user") === _category),
           more || valid.length > limit,
           limit,
           agentId,
@@ -549,18 +621,25 @@ export function useSessions(
         const { sessions: valid, hasMore: more } = await fetchSessionsPage(
           requestedAgent,
           SESSION_PAGE_SIZE,
+          category,
         );
-        if (_storeAgentId !== requestedAgent) return;
-        applySessionPage(valid, more, SESSION_PAGE_SIZE, requestedAgent);
+        if (_storeAgentId !== requestedAgent || _category !== category) return;
+        applySessionPage(
+          valid,
+          more,
+          SESSION_PAGE_SIZE,
+          requestedAgent,
+          activeThreadRef.current ?? undefined,
+        );
       } catch {
         /* ignore */
       } finally {
-        if (_storeAgentId === requestedAgent) {
+        if (_storeAgentId === requestedAgent && _category === category) {
           setModuleLoading(false);
         }
       }
     })();
-  }, [agentId]);
+  }, [agentId, category]);
 
   useEffect(() => {
     return onSessionEvent((event) => {
@@ -584,6 +663,7 @@ export function useSessions(
       };
       return { session: empty, resolvedId: Promise.resolve("") };
     }
+    setSessionCategory("user");
     const placeholder: Session = {
       id: "__pending__",
       name: "New Chat",
@@ -672,6 +752,8 @@ export function useSessions(
   );
 
   return {
+    category,
+    setCategory: setSessionCategory,
     sessions,
     loading,
     hasMore,

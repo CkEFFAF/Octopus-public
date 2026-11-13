@@ -192,6 +192,107 @@ def test_setup_logging_falls_back_on_invalid_retention_env(tmp_path: Path, monke
     assert handler.backupCount == 14
 
 
+@pytest.mark.parametrize("started", [False, True])
+async def test_server_stop_releases_its_log_handlers_across_homes(tmp_path: Path, started: bool):
+    targets = [
+        logging.getLogger(name) for name in ("", "uvicorn", "uvicorn.access", "uvicorn.error")
+    ]
+    baseline = {target: list(target.handlers) for target in targets}
+    for index in range(3):
+        server = OctopServer(home=tmp_path / f"home-{index}")
+        server._setup_logging()
+        handler = next(h for h in targets[0].handlers if h not in baseline[targets[0]])
+        stream = handler.stream
+        server._started = started
+        await server.stop()
+        assert stream.closed
+        assert all(target.handlers == baseline[target] for target in targets)
+        if started:
+            assert "octop server stopped" in server.paths.log.read_text(encoding="utf-8")
+
+
+async def test_repeated_setup_closes_an_unattached_handler(tmp_path: Path, monkeypatch):
+    import octop.infra.server as server_module
+
+    build = server_module._build_log_handler
+    built = []
+
+    def tracked(*args, **kwargs):
+        handler = build(*args, **kwargs)
+        built.append((handler, handler.stream))
+        return handler
+
+    monkeypatch.setattr(server_module, "_build_log_handler", tracked)
+    server = OctopServer(home=tmp_path / "same-home")
+    server._setup_logging()
+    server._setup_logging()
+    assert built[1][1].closed
+    assert built[1][0] not in logging.getLogger().handlers
+    await server.stop()
+    assert built[0][1].closed
+
+
+async def test_stopping_a_same_home_instance_preserves_another_owners_handler(tmp_path: Path):
+    first = OctopServer(home=tmp_path / "shared-home")
+    first._setup_logging()
+    handler = next(
+        h
+        for h in logging.getLogger().handlers
+        if isinstance(h, SizeTimedRotatingFileHandler) and h.baseFilename == str(first.paths.log)
+    )
+    stream = handler.stream
+    second = OctopServer(home=first.paths.root)
+    second._setup_logging()
+    await second.stop()
+    assert handler in logging.getLogger().handlers
+    assert not stream.closed
+    await first.stop()
+    assert stream.closed
+
+
+async def test_stop_cleans_up_logging_after_partial_start_failure(tmp_path: Path, monkeypatch):
+    import octop.infra.server as server_module
+
+    def fail_probe(_path):
+        raise RuntimeError("probe failed")
+
+    monkeypatch.setattr(server_module, "ensure_mobile_capabilities_probed", fail_probe)
+    server = OctopServer(home=tmp_path / "partial-start")
+    with pytest.raises(RuntimeError, match="probe failed"):
+        await server.start()
+    handler = next(
+        h
+        for h in logging.getLogger().handlers
+        if isinstance(h, SizeTimedRotatingFileHandler) and h.baseFilename == str(server.paths.log)
+    )
+    stream = handler.stream
+    await server.stop()
+    assert stream.closed
+    assert handler not in logging.getLogger().handlers
+
+
+async def test_shutdown_failure_still_closes_the_servers_handler(tmp_path: Path):
+    from types import SimpleNamespace
+
+    async def fail_shutdown():
+        raise RuntimeError("shutdown failed")
+
+    server = OctopServer(home=tmp_path / "failed-stop")
+    server._setup_logging()
+    handler = next(
+        h
+        for h in logging.getLogger().handlers
+        if isinstance(h, SizeTimedRotatingFileHandler) and h.baseFilename == str(server.paths.log)
+    )
+    stream = handler.stream
+    server._started = True
+    server.app_runtime = SimpleNamespace(workflow_graphs=SimpleNamespace(shutdown=fail_shutdown))
+    with pytest.raises(RuntimeError, match="shutdown failed"):
+        await server.stop()
+    assert stream.closed
+    assert handler not in logging.getLogger().handlers
+
+
 def test_parse_log_max_bytes_defaults_and_env(monkeypatch):
     monkeypatch.delenv("OCTOP_LOG_MAX_BYTES", raising=False)
     assert _parse_log_max_bytes() == DEFAULT_LOG_MAX_BYTES

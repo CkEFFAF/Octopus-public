@@ -109,6 +109,37 @@ async def test_deliver_agent_stamps_composer_on_human_message() -> None:
 
 
 @pytest.mark.asyncio
+async def test_machine_task_live_sender_does_not_relabel_later_human_steering() -> None:
+    sender = {"kind": "machine", "id": "issued-key", "name": "Codex"}
+    from octop.infra.conversations.collaboration import SENDER_KEY
+
+    async def stream(_aid, request):
+        assert request["messages"][0].additional_kwargs[SENDER_KEY] == sender
+        yield {"type": "user", "content": "Human follow up", "command_id": "human-follow-up"}
+        yield {"type": "token", "content": "Actual response"}
+
+    manager = MagicMock()
+    manager.get_row.return_value = SimpleNamespace(default_model=None)
+    manager.merge_turn_mcp_servers.return_value = []
+    manager.stream = stream
+    gateway = MagicMock()
+    gateway.observe_dashboard_resume = AsyncMock()
+    gateway.run_in_session = _run_locked
+    gateway.require_session.return_value = _dashboard_session()
+    gateway.push_session_text = AsyncMock()
+    gateway.notify_dashboard_push = AsyncMock()
+    service = CronDeliveryService(gateway=gateway, agent_manager=manager, repos=MagicMock())
+    await service.deliver(_command(sender=sender))
+    frames = [
+        call.args[3]
+        for call in gateway.observe_dashboard_resume.await_args_list
+        if call.args[3].get("type") == "user"
+    ]
+    assert frames[0]["sender"] == sender
+    assert frames[1]["content"] == "Human follow up" and "sender" not in frames[1]
+
+
+@pytest.mark.asyncio
 async def test_deliver_agent_merges_default_open_when_empty() -> None:
     session = _dashboard_session()
     agent_row = MagicMock()

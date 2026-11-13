@@ -11,7 +11,7 @@ import {
   type TableHTMLAttributes,
   type ImgHTMLAttributes,
 } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
 import {
@@ -251,6 +251,29 @@ function useIsDark() {
   return dark;
 }
 
+/** Decode only absolute native paths; ordinary web and API links retain their normal behavior. */
+function nativeFilePath(href: string): string | null {
+  try {
+    if (/^file:\/\//i.test(href)) {
+      const url = new URL(href);
+      if (url.hostname && url.hostname !== "localhost") return null;
+      const path = decodeURIComponent(url.pathname);
+      return /^\/[A-Za-z]:\//.test(path) ? path.slice(1) : path;
+    }
+    if (
+      (href.startsWith("/") &&
+        !href.startsWith("//") &&
+        !href.startsWith("/api/")) ||
+      /^[A-Za-z]:[\\/]/.test(href)
+    ) {
+      return decodeURIComponent(href);
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 /* ---- Main Markdown component ---- */
 export interface MarkdownProps {
   content: string;
@@ -263,6 +286,8 @@ export interface MarkdownProps {
   shellCommandDisabled?: boolean;
   shellCommandDisabledTitle?: string;
   shellCommandLabel?: string;
+  /** Open an absolute native file in the caller's fixed execution context. */
+  onLocalFileLink?: (path: string) => void;
 }
 
 const Markdown = memo(function Markdown({
@@ -274,6 +299,7 @@ const Markdown = memo(function Markdown({
   shellCommandDisabled,
   shellCommandDisabledTitle,
   shellCommandLabel,
+  onLocalFileLink,
 }: MarkdownProps) {
   const isDark = useIsDark();
   const { t } = useTranslation();
@@ -297,6 +323,11 @@ const Markdown = memo(function Markdown({
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
+        urlTransform={(url, key) =>
+          key === "href" && onLocalFileLink && nativeFilePath(url)
+            ? url
+            : defaultUrlTransform(url)
+        }
         components={{
           code(
             codeProps: React.ComponentPropsWithoutRef<"code"> & {
@@ -412,6 +443,22 @@ const Markdown = memo(function Markdown({
             children?: ReactNode;
             href?: string;
           } & AnchorHTMLAttributes<HTMLAnchorElement>) {
+            const nativePath =
+              href && onLocalFileLink ? nativeFilePath(href) : null;
+            if (nativePath && onLocalFileLink) {
+              return (
+                <a
+                  href={href}
+                  {...props}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    onLocalFileLink(nativePath);
+                  }}
+                >
+                  {children}
+                </a>
+              );
+            }
             if (isAuthDownloadHref(href)) {
               return (
                 <AuthFileDownloadLink url={href!} style={{ color: "inherit" }}>

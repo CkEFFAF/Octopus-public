@@ -1,0 +1,176 @@
+{
+  "schema_version": 1,
+  "name": "GPU 实验设计与审阅",
+  "description": "当前为DeepSeek离线/协议验收配置；服务商额度暂停，自动调度关闭，不批准或执行真实训练。GPU忙时也先为已认可backlog编写带T编号的代码设计和实践步骤，独立高级审阅后以冻结版本入队；不训练。",
+  "agent_id": "27N3HD",
+  "execution_context_id": "your_device_execution_context",
+  "initial_variables": {
+    "decision_backend": "model",
+    "acp_runner": "codex",
+    "expert_files": [
+      "/.agent/root/OctopData/agents/27N3HD/.octop/notes/experiment-playbook.md",
+      "/.agent/root/OctopData/agents/27N3HD/.octop/notes/pccm-experiment-protocol.md",
+      "/.agent/root/OctopData/agents/27N3HD/.octop/notes/env-and-paths.md",
+      "/.agent/root/OctopData/agents/27N3HD/knowledge/3dssg-sgg/README.md",
+      "/.agent/root/OctopData/agents/27N3HD/knowledge/3dssg-sgg/dataset/README.md"
+    ],
+    "validation_only": true
+  },
+  "limits": {
+    "max_steps": 100,
+    "max_seconds": 2592000,
+    "max_parallel": 1
+  },
+  "schedule": {
+    "cron": "*/30 * * * *",
+    "timezone": "",
+    "overlap": "skip",
+    "enabled": false
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "kind": "entry",
+      "label": "1. 开始设计",
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "design",
+      "kind": "agent",
+      "label": "2. 预先设计实验",
+      "position": {
+        "x": 340,
+        "y": 0
+      },
+      "model": "OpenCode Go (Compatible)/deepseek-v4.1-flash",
+      "prompt": "当前所有者只允许DeepSeek流程验收，OpenCode Go额度暂停。不要自称Grok或声称高级审阅完成；不准训练，不改原任务状态，所有测试文件写入/home/wjh/workspace/gpu-innovation/validation/，不得覆盖真实设计。若本节点负责评审，输出pending或approved=false。\n用文件工具读输入expert_files的显式/.agent/专家资料（不能作为设备shell路径）；通过绑定GPU环境读/home/wjh/workspace/OCRL-3DSSG-Codes/agent/TASK_QUEUE.md、MAINTENANCE.md、EXPERIMENT_LOG.md、MECHANISM_LOG.md和WEEKLY_REPORT.md，以最新原表为唯一任务事实源。终止/否决项不可复活，运行中工作只核查不可重复提交。\n本流程只做预先设计，不写实验实现、不启动训练、不修改现有任务状态。先读/home/wjh/workspace/gpu-innovation/gpu-experiment-design-template.md和gpu-experiment-review-template.json，以及执行账本list的全部分页和DESIGNS.md。为全部已认可且尚需设计的backlog写带任务编号和design_revision的完整Markdown；复用已存在合理设计，不等上一实验结束再临时设计。每份要有“代码设计”“实施步骤”“评估验收”“依赖/风险/资源”四个非空章节，明确真实代码文件/接口/数据流、独立版本目录、参数与执行argv、逐步实践与验证、基线协议/指标/阈值、显存/耗时/不挤他人限制、阻塞项、失败诊断和下一版链接。设计具体到DeepSeek能按文档实施；不能用任务代号或一句假设代替。设计纠正必须新版本，旧审阅不得沿用。T007前置冲突、T008旧GPU1安排、T013条件未满足等按最新原表核实；未解决只能设计blocked草案，不准approved。\n在设备写manifest JSON，结构{\"items\":[完整helper proposal字段再加approved布尔、blockers、approval_source]}。proposal含id/hypothesis/rationale/baseline/metric/direction/threshold/candidate_version/argv/cwd/scope/dependencies/previous/design_path/design_revision；design_review_path由下一脚本创建。scope只允许3dssg-existing-approved-backlog。approved请求只能引用原表真实用户认可与满足的依赖；新方向、否决、未核实、不符合资源策略必须false。有依赖的已有前置先登记，禁止引用尚不存在的ID。每个manifest最多10项；可先写全部设计，余下下一批入队。既有已领取/运行/已结束记录不重写，不复跑。完整字段每项<=8192UTF8字节，详细内容在文档。返回JSON{\"manifest_path\":\"设备绝对路径\",\"design_count\":整数,\"blocked\":简短列表}，不在回复复述全部设计。",
+      "inputs": {
+        "expert_files": {
+          "path": "$.vars.expert_files"
+        }
+      },
+      "context": {
+        "before": {
+          "session": "new",
+          "history": "empty"
+        },
+        "after": {
+          "session": "restore",
+          "context": "restore"
+        }
+      },
+      "output_mode": "json",
+      "timeout_seconds": 3600
+    },
+    {
+      "id": "review",
+      "kind": "agent",
+      "label": "3. 高级模型审阅设计",
+      "position": {
+        "x": 680,
+        "y": 0
+      },
+      "model": "OpenCode Go (Compatible)/deepseek-v4.1-flash",
+      "prompt": "当前所有者只允许DeepSeek流程验收，OpenCode Go额度暂停。不要自称Grok或声称高级审阅完成；不准训练，不改原任务状态，所有测试文件写入/home/wjh/workspace/gpu-innovation/validation/，不得覆盖真实设计。若本节点负责评审，输出pending或approved=false。\n用文件工具读输入expert_files的显式/.agent/专家资料（不能作为设备shell路径）；通过绑定GPU环境读/home/wjh/workspace/OCRL-3DSSG-Codes/agent/TASK_QUEUE.md、MAINTENANCE.md、EXPERIMENT_LOG.md、MECHANISM_LOG.md和WEEKLY_REPORT.md，以最新原表为唯一任务事实源。终止/否决项不可复活，运行中工作只核查不可重复提交。\n默认使用本节点Grok 4.7。若decision_backend为acp，必须真实调用指定acp_runner完成高级审阅并保留工具回执；不可用或失败明确报告，不得伪称调用成功。\n你是独立设计审阅者，输入design.manifest_path由上一个节点真实产出。逐项实际读manifest、对应设计文档、原始代码和评估准则，核对任务编号/设计版本/原表授权/前置冲突/科学假设/代码接口/实践步骤/基线口径/资源/退出与报告路径。能纠正的在新设计版本中纠正并更新manifest引用；不得暗改已冻结版本，不得代写实验实现或启动训练。未知和未解决问题给pending/rejected与明确修订点，不能为赶进度批准。必须在设备计算最终设计文件sha256。返回JSON {\"reviews\":[{\"task_id\":\"T...\",\"design_revision\":\"v...\",\"design_sha256\":\"真实SHA256\",\"verdict\":\"approved|pending|rejected\",\"comments\":\"依据和纠正点\"}]}，每项对应manifest的最终设计，不漏项，不虚构路径。真实审阅会话由引擎wrapper的delivery_id/thread_id留证，后续脚本保存证据，不自己伪造模型调用凭证。",
+      "inputs": {
+        "design": {
+          "path": "$.outputs.design.result"
+        },
+        "expert_files": {
+          "path": "$.vars.expert_files"
+        },
+        "decision_backend": {
+          "path": "$.vars.decision_backend"
+        },
+        "acp_runner": {
+          "path": "$.vars.acp_runner"
+        }
+      },
+      "context": {
+        "before": {
+          "session": "new",
+          "history": "empty"
+        },
+        "after": {
+          "session": "restore",
+          "context": "restore"
+        }
+      },
+      "output_mode": "json",
+      "timeout_seconds": 3600
+    },
+    {
+      "id": "register",
+      "kind": "script",
+      "label": "4. 冻结设计并入队",
+      "position": {
+        "x": 1020,
+        "y": 0
+      },
+      "argv": [
+        "python3",
+        "/home/wjh/workspace/gpu-innovation/gpu_innovation_designs.py"
+      ],
+      "cwd": "/home/wjh/workspace",
+      "inputs": {
+        "manifest_path": {
+          "path": "$.outputs.design.result.manifest_path"
+        },
+        "review_output": {
+          "path": "$.outputs.review"
+        },
+        "reviewer_model": {
+          "value": "OpenCode Go (Compatible)/deepseek-v4.1-flash"
+        },
+        "authorized_scopes": {
+          "value": []
+        },
+        "validation_only": {
+          "path": "$.vars.validation_only"
+        }
+      },
+      "output_mode": "json",
+      "env": {
+        "GPU_INNOVATION_QUEUE": "/home/wjh/workspace/gpu-innovation/validation/queue.sqlite3"
+      }
+    },
+    {
+      "id": "end",
+      "kind": "end",
+      "label": "5. 查看设计队列",
+      "position": {
+        "x": 1360,
+        "y": 0
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "start_next_design",
+      "source": "start",
+      "target": "design",
+      "port": "next"
+    },
+    {
+      "id": "design_next_review",
+      "source": "design",
+      "target": "review",
+      "port": "next"
+    },
+    {
+      "id": "review_next_register",
+      "source": "review",
+      "target": "register",
+      "port": "next"
+    },
+    {
+      "id": "register_next_end",
+      "source": "register",
+      "target": "end",
+      "port": "next"
+    }
+  ]
+}

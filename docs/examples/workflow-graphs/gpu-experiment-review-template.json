@@ -1,0 +1,12 @@
+{
+  "task_id": "T018",
+  "design_revision": "v1",
+  "design_sha256": "",
+  "verdict": "pending",
+  "reviewer_model": "",
+  "review_evidence_path": "",
+  "reviewed_at": null,
+  "findings": [],
+  "required_changes": [],
+  "decision_basis": "待核对真实设计文件、原始任务状态和高级模型调用回执；本模板尚未审阅或批准。"
+}

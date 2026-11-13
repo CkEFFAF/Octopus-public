@@ -1,3 +1,7 @@
+import {
+  parseConversationActor,
+  type ConversationActor,
+} from "../api/types/conversation";
 /**
  * Typed parser for harness chat stream chunks.
  *
@@ -157,6 +161,7 @@ export interface RunPhaseChunk {
 }
 
 export interface UserChunk {
+  sender?: ConversationActor;
   type: "user";
   content: string;
   source?: string;
@@ -412,6 +417,7 @@ function projectHarnessChunk(
     case "user":
       return {
         type: "user",
+        sender: parseConversationActor(obj.sender),
         content: typeof obj.content === "string" ? obj.content : "",
         source: typeof obj.source === "string" ? obj.source : undefined,
         snapshot: {

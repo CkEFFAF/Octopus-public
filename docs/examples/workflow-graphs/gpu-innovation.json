@@ -1,0 +1,346 @@
+{
+  "schema_version": 1,
+  "name": "GPU 实验执行与报告",
+  "description": "当前为DeepSeek离线/协议验收配置；服务商额度暂停，自动调度关闭，不批准或执行真实训练。只领取已有预先设计及高级审阅的固定任务版本；DeepSeek按设计实现，高级模型复核后运行并按真实证据归档。",
+  "agent_id": "27N3HD",
+  "execution_context_id": "your_device_execution_context",
+  "initial_variables": {
+    "decision_backend": "model",
+    "acp_runner": "codex",
+    "expert_files": [
+      "/.agent/root/OctopData/agents/27N3HD/.octop/notes/experiment-playbook.md",
+      "/.agent/root/OctopData/agents/27N3HD/.octop/notes/pccm-experiment-protocol.md",
+      "/.agent/root/OctopData/agents/27N3HD/.octop/notes/env-and-paths.md",
+      "/.agent/root/OctopData/agents/27N3HD/knowledge/3dssg-sgg/README.md",
+      "/.agent/root/OctopData/agents/27N3HD/knowledge/3dssg-sgg/dataset/README.md"
+    ],
+    "validation_only": true
+  },
+  "limits": {
+    "max_steps": 100,
+    "max_seconds": 2592000,
+    "max_parallel": 1
+  },
+  "schedule": {
+    "cron": "*/30 * * * *",
+    "timezone": "",
+    "overlap": "skip",
+    "enabled": false
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "kind": "entry",
+      "label": "1. 开始执行",
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "claim",
+      "kind": "script",
+      "label": "2. 检查资源并领取",
+      "position": {
+        "x": 340,
+        "y": 0
+      },
+      "argv": [
+        "python3",
+        "/home/wjh/workspace/gpu-innovation/gpu_innovation_queue.py"
+      ],
+      "cwd": "/home/wjh/workspace",
+      "inputs": {
+        "operation": {
+          "value": "claim"
+        },
+        "validation_only": {
+          "path": "$.vars.validation_only"
+        }
+      },
+      "output_mode": "json",
+      "env": {
+        "GPU_INNOVATION_QUEUE": "/home/wjh/workspace/gpu-innovation/validation/queue.sqlite3"
+      }
+    },
+    {
+      "id": "has_claim",
+      "kind": "condition",
+      "label": "3. 有就绪任务？",
+      "position": {
+        "x": 680,
+        "y": 0
+      },
+      "left": {
+        "path": "$.outputs.claim.result.claimed"
+      },
+      "operator": "eq",
+      "right": {
+        "value": true
+      }
+    },
+    {
+      "id": "implement",
+      "kind": "agent",
+      "label": "4. 按设计实现",
+      "position": {
+        "x": 1020,
+        "y": 0
+      },
+      "model": "OpenCode Go (Compatible)/deepseek-v4.1-flash",
+      "prompt": "当前所有者只允许DeepSeek流程验收，OpenCode Go额度暂停。不要自称Grok或声称高级审阅完成；不准训练，不改原任务状态，所有测试文件写入/home/wjh/workspace/gpu-innovation/validation/，不得覆盖真实设计。若本节点负责评审，输出pending或approved=false。\n你只负责实现已领取任务，不现场发明科学方案。实际读取claim.item.design_path的设计版本与审阅，核对design_revision/已冻结hash。按文档代码设计、真实文件接口和逐条实践步骤，在独立版本副本完成实现与低成本验证。不得改设计、评审、原批准argv/cwd或启动训练；方案有缺口/需偏离则prepared=false说明问题，交后续高级分析/设计流程修订，不能临时改方案跑。不得干扰现有训练。把所有影响本次运行的实现/配置/启动脚本写入设备绝对路径JSON implementation manifest，结构{\"files\":[{\"path\":\"绝对路径\",\"sha256\":\"实际文件SHA256\"}]}，必须包含本次实际改动，不以空清单代替；计算manifest自身真实SHA256。返回JSON{\"prepared\":true或false,\"id\":\"原claim任务ID\",\"revision\":原claim revision整数,\"implementation_manifest_path\":\"绝对路径\",\"implementation_manifest_sha256\":\"真实SHA256\",\"notes\":\"验证结果或阻塞原因\"}。本节点DeepSeek，不代表高级审阅通过。",
+      "inputs": {
+        "claim": {
+          "path": "$.outputs.claim.result"
+        }
+      },
+      "context": {
+        "before": {
+          "session": "new",
+          "history": "empty"
+        },
+        "after": {
+          "session": "restore",
+          "context": "restore"
+        }
+      },
+      "output_mode": "json",
+      "timeout_seconds": 3600
+    },
+    {
+      "id": "code_review",
+      "kind": "agent",
+      "label": "5. 高级模型核对实现",
+      "position": {
+        "x": 1360,
+        "y": 0
+      },
+      "model": "OpenCode Go (Compatible)/deepseek-v4.1-flash",
+      "prompt": "当前所有者只允许DeepSeek流程验收，OpenCode Go额度暂停。不要自称Grok或声称高级审阅完成；不准训练，不改原任务状态，所有测试文件写入/home/wjh/workspace/gpu-innovation/validation/，不得覆盖真实设计。若本节点负责评审，输出pending或approved=false。\n用文件工具读输入expert_files的显式/.agent/专家资料（不能作为设备shell路径）；通过绑定GPU环境读/home/wjh/workspace/OCRL-3DSSG-Codes/agent/TASK_QUEUE.md、MAINTENANCE.md、EXPERIMENT_LOG.md、MECHANISM_LOG.md和WEEKLY_REPORT.md，以最新原表为唯一任务事实源。终止/否决项不可复活，运行中工作只核查不可重复提交。\n默认使用本节点DeepSeek V4.1 Flash。若decision_backend为acp，必须真实调用指定acp_runner完成高级审阅并保留工具回执；不可用或失败明确报告，不得伪称调用成功。\n独立读取claim的已批准设计与代码清单，实际核对文档版本/hash、实现清单本体与所有文件、代码接口/方法/实践步骤/验证结果、批准argv是否确实指向该独立实现，以及当前准则/任务状态。不得修改设计或实现，不运行训练。prepared=false、缺材料、科学方案偏离、原表终止或任何未解决问题都approved=false并给纠正意见；只有真实核对通过才approved=true。返回JSON {\"approved\":布尔,\"task_id\":\"原claim ID\",\"revision\":原claim revision整数,\"design_sha256\":\"已审阅设计真实SHA\",\"implementation_manifest_sha256\":\"核对过的清单SHA\",\"notes\":\"具体检查与纠正意见\"}。不要把字符串false当布尔，不伪造ACP或证据；引擎wrapper会提供真实本次审阅会话ID供脚本存档。",
+      "inputs": {
+        "claim": {
+          "path": "$.outputs.claim.result"
+        },
+        "preparation": {
+          "path": "$.outputs.implement.result"
+        },
+        "expert_files": {
+          "path": "$.vars.expert_files"
+        },
+        "decision_backend": {
+          "path": "$.vars.decision_backend"
+        },
+        "acp_runner": {
+          "path": "$.vars.acp_runner"
+        }
+      },
+      "context": {
+        "before": {
+          "session": "new",
+          "history": "empty"
+        },
+        "after": {
+          "session": "restore",
+          "context": "restore"
+        }
+      },
+      "output_mode": "json",
+      "timeout_seconds": 3600
+    },
+    {
+      "id": "run",
+      "kind": "script",
+      "label": "6. 等待空闲并运行",
+      "position": {
+        "x": 1700,
+        "y": 0
+      },
+      "argv": [
+        "python3",
+        "/home/wjh/workspace/gpu-innovation/gpu_innovation_queue.py"
+      ],
+      "cwd": "/home/wjh/workspace",
+      "inputs": {
+        "operation": {
+          "value": "run_prepared"
+        },
+        "id": {
+          "path": "$.outputs.claim.result.item.id"
+        },
+        "revision": {
+          "path": "$.outputs.claim.result.item.revision"
+        },
+        "claim_token": {
+          "path": "$.outputs.claim.result.claim_token"
+        },
+        "preparation": {
+          "path": "$.outputs.implement.result"
+        },
+        "code_review_output": {
+          "path": "$.outputs.code_review"
+        },
+        "reviewer_model": {
+          "value": "OpenCode Go (Compatible)/deepseek-v4.1-flash"
+        },
+        "wait_for_capacity": {
+          "value": true
+        },
+        "validation_only": {
+          "path": "$.vars.validation_only"
+        }
+      },
+      "output_mode": "json",
+      "env": {
+        "GPU_INNOVATION_QUEUE": "/home/wjh/workspace/gpu-innovation/validation/queue.sqlite3"
+      }
+    },
+    {
+      "id": "analyze",
+      "kind": "agent",
+      "label": "7. 分析与实验报告",
+      "position": {
+        "x": 2040,
+        "y": 0
+      },
+      "model": "OpenCode Go (Compatible)/deepseek-v4.1-flash",
+      "prompt": "当前所有者只允许DeepSeek流程验收，OpenCode Go额度暂停。不要自称Grok或声称高级审阅完成；不准训练，不改原任务状态，所有测试文件写入/home/wjh/workspace/gpu-innovation/validation/，不得覆盖真实设计。若本节点负责评审，输出pending或approved=false。\n用文件工具读输入expert_files的显式/.agent/专家资料（不能作为设备shell路径）；通过绑定GPU环境读/home/wjh/workspace/OCRL-3DSSG-Codes/agent/TASK_QUEUE.md、MAINTENANCE.md、EXPERIMENT_LOG.md、MECHANISM_LOG.md和WEEKLY_REPORT.md，以最新原表为唯一任务事实源。终止/否决项不可复活，运行中工作只核查不可重复提交。\n默认使用本节点DeepSeek V4.1 Flash。若decision_backend为acp，必须真实调用指定acp_runner完成高级审阅并保留工具回执；不可用或失败明确报告，不得伪称调用成功。\n根据run的真实接纳/启动/退出回执、原始日志、代码审阅与设计文档分析，不凭模型口述声称训练已执行。prepared/review拒绝属于尚未训练，launch_error且process_started=false属于启动失败；不得编造returncode或指标。训练退出0也不等于提升，按原手册解析与同预算/同协议baseline的真实metric/protocol/value JSON。完整版本报告包括启发来源、科学假设与预先设计/审阅链接、实践步骤和实际代码/配置版本、问题及解决、现象、评估日志、结果分析、改进建议和前后版本报告位置。按T编号对原TASK_QUEUE/EXPERIMENT_LOG/MECHANISM_LOG/WEEKLY_REPORT增量同步、检查并发，禁止整表覆盖。没有提升或失败时生成明确下一设计需求，留给“设计与审阅”流程先写新版本并审阅，不能直接改代码重跑。只读证据不足明确ready=false，保留待核查，不假装下一轮自动恢复不确定工作。返回JSON{\"ready\":布尔,\"receipt\":\"本次真实回执/日志文件路径\",\"report_path\":\"真实报告绝对路径\",\"metric_path\":\"仅真实成功训练比较所需指标JSON路径\",\"notes\":\"结果与后续设计需求\"}。若run为admission拒绝，receipt用它实际生成的receipt字段；正常训练用execution.log_path。",
+      "inputs": {
+        "claim": {
+          "path": "$.outputs.claim.result"
+        },
+        "preparation": {
+          "path": "$.outputs.implement.result"
+        },
+        "code_review": {
+          "path": "$.outputs.code_review.result"
+        },
+        "run": {
+          "path": "$.outputs.run.result"
+        },
+        "expert_files": {
+          "path": "$.vars.expert_files"
+        },
+        "decision_backend": {
+          "path": "$.vars.decision_backend"
+        },
+        "acp_runner": {
+          "path": "$.vars.acp_runner"
+        }
+      },
+      "context": {
+        "before": {
+          "session": "new",
+          "history": "empty"
+        },
+        "after": {
+          "session": "restore",
+          "context": "restore"
+        }
+      },
+      "output_mode": "json",
+      "timeout_seconds": 3600
+    },
+    {
+      "id": "archive",
+      "kind": "script",
+      "label": "8. 校验并归档",
+      "position": {
+        "x": 2380,
+        "y": 0
+      },
+      "argv": [
+        "python3",
+        "/home/wjh/workspace/gpu-innovation/gpu_innovation_queue.py"
+      ],
+      "cwd": "/home/wjh/workspace",
+      "inputs": {
+        "operation": {
+          "value": "archive"
+        },
+        "claim_token": {
+          "path": "$.outputs.claim.result.claim_token"
+        },
+        "id": {
+          "path": "$.outputs.run.result.id"
+        },
+        "revision": {
+          "path": "$.outputs.run.result.revision"
+        },
+        "analysis": {
+          "path": "$.outputs.analyze.result"
+        }
+      },
+      "output_mode": "json",
+      "env": {
+        "GPU_INNOVATION_QUEUE": "/home/wjh/workspace/gpu-innovation/validation/queue.sqlite3"
+      }
+    },
+    {
+      "id": "end",
+      "kind": "end",
+      "label": "9. 查看结果或待核查项",
+      "position": {
+        "x": 2720,
+        "y": 0
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "start_next_claim",
+      "source": "start",
+      "target": "claim",
+      "port": "next"
+    },
+    {
+      "id": "claim_next_has_claim",
+      "source": "claim",
+      "target": "has_claim",
+      "port": "next"
+    },
+    {
+      "id": "has_claim_true_implement",
+      "source": "has_claim",
+      "target": "implement",
+      "port": "true",
+      "label": "已领取"
+    },
+    {
+      "id": "has_claim_false_end",
+      "source": "has_claim",
+      "target": "end",
+      "port": "false",
+      "label": "忙碌或无就绪任务"
+    },
+    {
+      "id": "implement_next_code_review",
+      "source": "implement",
+      "target": "code_review",
+      "port": "next"
+    },
+    {
+      "id": "code_review_next_run",
+      "source": "code_review",
+      "target": "run",
+      "port": "next"
+    },
+    {
+      "id": "run_next_analyze",
+      "source": "run",
+      "target": "analyze",
+      "port": "next"
+    },
+    {
+      "id": "analyze_next_archive",
+      "source": "analyze",
+      "target": "archive",
+      "port": "next"
+    },
+    {
+      "id": "archive_next_end",
+      "source": "archive",
+      "target": "end",
+      "port": "next"
+    }
+  ]
+}

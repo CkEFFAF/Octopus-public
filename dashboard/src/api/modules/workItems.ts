@@ -47,13 +47,13 @@ export interface WorkItemCreate {
 }
 const taskPath = (id: string) => `/work-items/${encodeURIComponent(id)}`;
 export const workItemsApi = {
-  list: (originThreadId?: string) =>
+  list: (originThreadId?: string, agentId?: string) =>
     request<{ items: WorkItemSummary[]; has_more: boolean }>(
       `/work-items?status_group=all&limit=50${
         originThreadId
           ? `&origin_thread_id=${encodeURIComponent(originThreadId)}`
           : ""
-      }`,
+      }${agentId ? `&agent_id=${encodeURIComponent(agentId)}` : ""}`,
     ),
   detail: (id: string) => request<WorkItemDetail>(taskPath(id)),
   create: (body: WorkItemCreate, commandId: string) =>

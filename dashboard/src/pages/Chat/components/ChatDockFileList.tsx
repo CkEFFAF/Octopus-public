@@ -20,6 +20,7 @@ import styles from "../index.module.less";
 import { useChatFileChanges } from "../ChatFilePreviewContext";
 import { mergeChangedFiles } from "../utils/changedFiles";
 import FileChangesReview from "./FileChangesReview";
+import PinnedFilesPanel from "../../../components/PinnedFilesPanel";
 
 interface ChatDockFileListProps {
   agentId: string;
@@ -306,17 +307,30 @@ export default function ChatDockFileList({
 
   if (review)
     return (
-      <FileChangesReview
-        files={mergeChangedFiles(refs, review.history, review.current, agentId)}
-        current={review.current}
-        threadId={review.threadId}
-        onOpenFile={onOpenFile}
-      />
+      <>
+        <PinnedFilesPanel
+          agentId={agentId}
+          threadId={review.threadId}
+          defaultCollapsed
+        />
+        <FileChangesReview
+          files={mergeChangedFiles(
+            refs,
+            review.history,
+            review.current,
+            agentId,
+          )}
+          current={review.current}
+          threadId={review.threadId}
+          onOpenFile={onOpenFile}
+        />
+      </>
     );
 
   if (refs.length === 0) {
     return (
       <div className={styles.dockFileList}>
+        <PinnedFilesPanel agentId={agentId} />
         {listHint}
         <div className={styles.dockFileListEmpty}>
           <Empty
@@ -335,6 +349,7 @@ export default function ChatDockFileList({
 
   return (
     <div className={styles.dockFileList}>
+      <PinnedFilesPanel agentId={agentId} />
       {listHint}
       <div className={styles.dockFileTreeWrap}>
         <div className={styles.dockFileTreeSummary}>

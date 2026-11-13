@@ -1,3 +1,4 @@
+import { collaborationThreadId } from "../../../pages/Chat/utils/collaborationLink";
 import { useMemo, useState } from "react";
 import { Image, Button } from "antd";
 import { ChevronRight } from "lucide-react";
@@ -58,6 +59,7 @@ export function DefaultToolRenderer({
   agentId = null,
   textFallback,
   data,
+  artifact,
 }: ToolRenderProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -110,6 +112,9 @@ export function DefaultToolRenderer({
   } else if (formattedOutput) {
     formattedOutput = parseKnowledgeCitations(formattedOutput).text;
   }
+
+  const childThreadId =
+    toolName === "acp_runner" ? collaborationThreadId(artifact) : undefined;
 
   const hasMediaPreview =
     structuredOutput.images.length > 0 || structuredOutput.videos.length > 0;
@@ -185,6 +190,17 @@ export function DefaultToolRenderer({
           }`}
         />
       </button>
+
+      {childThreadId && agentId ? (
+        <a
+          style={{ display: "inline-block", margin: "6px 0" }}
+          href={`/chat/${encodeURIComponent(agentId)}/${encodeURIComponent(
+            childThreadId,
+          )}`}
+        >
+          {t("collaboration.viewConversation")}
+        </a>
+      ) : null}
 
       {!hideMediaPreview && structuredOutput.images.length > 0 && (
         <div className={styles.inlineToolMediaPreview}>

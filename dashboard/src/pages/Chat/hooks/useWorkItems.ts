@@ -12,8 +12,9 @@ export function useWorkItems(
   originThreadId: string,
   all: boolean,
   selectedId: string | null,
+  agentId?: string,
 ) {
-  const key = JSON.stringify([originThreadId, all]);
+  const key = JSON.stringify([originThreadId, all, agentId]);
   const currentKey = useRef(key);
   const listRequest = useRef(0);
   currentKey.current = key;
@@ -27,7 +28,10 @@ export function useWorkItems(
   const refresh = useCallback(async () => {
     const requestId = ++listRequest.current;
     try {
-      const data = await workItemsApi.list(all ? undefined : originThreadId);
+      const origin = all ? undefined : originThreadId;
+      const data = agentId
+        ? await workItemsApi.list(origin, agentId)
+        : await workItemsApi.list(origin);
       if (currentKey.current !== key || listRequest.current !== requestId)
         return;
       setList({ key, items: data.items, hasMore: data.has_more });
@@ -36,7 +40,7 @@ export function useWorkItems(
       if (currentKey.current === key && listRequest.current === requestId)
         setError(true);
     }
-  }, [originThreadId, all, key]);
+  }, [originThreadId, all, key, agentId]);
   useEffect(() => {
     currentKey.current = key;
     let active = true;

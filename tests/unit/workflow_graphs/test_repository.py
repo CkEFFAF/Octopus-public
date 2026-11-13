@@ -69,7 +69,7 @@ def test_unknown_and_superseded_submissions_keep_their_capacity_reservation(stor
 def test_migration_is_applied_and_definitions_are_owner_scoped(storage):
     repo, owner, other = storage
     with repo.db.connect() as conn:
-        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 40
+        assert conn.execute("SELECT version FROM _schema_version").fetchone()[0] == 41
         names = {
             row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }

@@ -125,7 +125,8 @@ def test_archive_seed_reads_metadata_and_shares_canonical_message_ids(
 ):
     repos, owner, _ = activity
     store = HistoryStore(tmp_path / "history.db", identity="activity-test")
-    now = time.time()
+    # Keep the seconds/milliseconds round trip exact for this metadata identity test.
+    now = 2_000_000_000.125
     with store.db.connect() as conn:
         conn.execute(
             "INSERT INTO segments(thread_id,agent_id,format,legacy_start,trajectory_start) VALUES ('old','expert','v2',0,0)"

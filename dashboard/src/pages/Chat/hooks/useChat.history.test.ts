@@ -1,8 +1,9 @@
+import { useSessions, resetSessionStoreForTests } from "./useSessions";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { octopThreadsApi } from "../../../api/modules/octopThreads";
 import * as chatStore from "./chatStore";
-import { useChat } from "./useChat";
+import { useChat, convertHistoryMessages } from "./useChat";
 
 const thread = "versioned-history-test";
 
@@ -152,4 +153,64 @@ describe("history failures", () => {
       chatStore.getSnapshot(thread).messages.map((m) => m.content),
     ).toEqual(["older", "latest"]);
   });
+});
+
+it("preserves trusted historical senders for both ACP participants and later human input", () => {
+  const messages = convertHistoryMessages([
+    {
+      id: "prompt",
+      role: "user",
+      content: "implement",
+      sender: { kind: "agent", id: "gpu", name: "GPU专家" },
+    },
+    {
+      id: "reply",
+      role: "assistant",
+      content: "done",
+      sender: { kind: "acp", id: "codex", name: "Codex" },
+    },
+    { id: "human", role: "user", content: "my reply" },
+  ]);
+  expect(messages.map((m) => m.sender?.name)).toEqual([
+    "GPU专家",
+    "Codex",
+    undefined,
+  ]);
+});
+
+it("opens a collaboration deep link in its own category using history metadata", async () => {
+  resetSessionStoreForTests();
+  vi.spyOn(octopThreadsApi, "list").mockResolvedValue([]);
+  vi.spyOn(octopThreadsApi, "history").mockResolvedValue({
+    thread_id: thread,
+    category: "agent_collaboration",
+    actor: { kind: "machine", id: "key", name: "Codex" },
+    collaboration_source: { kind: "work_item", device_id: "gpu" },
+    messages: [
+      {
+        id: "input",
+        role: "user",
+        content: "analyse",
+        sender: { kind: "machine", id: "key", name: "Codex" },
+      },
+    ],
+  });
+  const { result, unmount } = renderHook(() => ({
+    sessions: useSessions("expert", thread),
+    chat: useChat(thread, "expert"),
+  }));
+  await waitFor(() => expect(result.current.sessions.loading).toBe(false));
+  await act(async () => {
+    await result.current.chat.loadHistory(thread);
+  });
+  await waitFor(() =>
+    expect(result.current.sessions.category).toBe("agent_collaboration"),
+  );
+  expect(
+    result.current.sessions.sessions.find((s) => s.id === thread)
+      ?.collaboration_source?.device_id,
+  ).toBe("gpu");
+  expect(result.current.chat.messages[0].sender?.name).toBe("Codex");
+  unmount();
+  resetSessionStoreForTests();
 });

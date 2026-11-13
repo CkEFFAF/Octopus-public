@@ -19,7 +19,7 @@ export interface ScheduleQuery {
   thread_id?: string;
   reminder?: boolean;
   category?: "once" | "repeat" | "ended";
-  lifecycle?: "active" | "completed" | "failed" | "inactive";
+  lifecycle?: "active" | "completed" | "failed" | "inactive" | "archived";
   search?: string;
 }
 export interface SchedulePage {

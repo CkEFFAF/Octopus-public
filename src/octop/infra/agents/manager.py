@@ -475,6 +475,7 @@ class AgentManager:
 
     def set_native_management_context(self, **context: Any) -> None:
         """Wire shared product services before harnesses are built."""
+        self._collaboration_notify = context.pop("collaboration_notify", None)
         self._native_management_context = context
 
     def schedule_reload(self, agent_id: str) -> None:
@@ -2974,6 +2975,7 @@ class AgentManager:
             or (binding.get("root_id") is not None and not isinstance(binding.get("root_id"), str))
         ):
             raise ValueError("invalid expert device binding")
+        from octop.infra.conversations.acp_transcript import ACPTranscript
         from octop.infra.devices.acp_bridge import RequestACPService, bind_remote_acp_service
 
         bind_remote_acp_service(
@@ -2983,6 +2985,11 @@ class AgentManager:
                 devices=self._device_service,
                 owner=row.user_id,
                 agent_id=row.agent_id,
+                transcript=ACPTranscript(
+                    self._repos,
+                    self._native_management_context.get("history_archive"),
+                    getattr(self, "_collaboration_notify", None),
+                ),
             ),
         )
 
@@ -3834,8 +3841,13 @@ class AgentManager:
         ]
         from octop.infra.conversations.middleware import ConversationBriefMiddleware
         from octop.infra.conversations.tools import build_conversation_tools
+        from octop.infra.task_board.awareness import (
+            ExpertTaskAwarenessMiddleware,
+            build_expert_task_tools,
+        )
 
         agent_middleware.insert(4, ConversationBriefMiddleware(self, row.agent_id))
+        agent_middleware.insert(5, ExpertTaskAwarenessMiddleware(self, row.agent_id))
         if self._workflow_graphs is not None:
             from octop.infra.workflow_graphs.middleware import WorkflowContextMiddleware
 
@@ -3877,6 +3889,7 @@ class AgentManager:
 
         merged_tools.extend(build_resource_tools(self, row.agent_id))
         merged_tools.extend(build_conversation_tools(self, row.agent_id))
+        merged_tools.extend(build_expert_task_tools(self, row.agent_id))
         if cron_tools:
             merged_tools.extend(cron_tools)
         merged_tools.extend(knowledge_tools)

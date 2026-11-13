@@ -36,8 +36,19 @@ import { useSchedulePage } from "../hooks/useSchedulePage";
 import { useIsMobile } from "../hooks/useIsMobile";
 import type { OctopCronRow } from "../api/types";
 
-export function useSchedules(agentId: string, threadId?: string) {
-  return useSchedulePage({ agent_id: agentId, thread_id: threadId });
+export function useSchedules(
+  agentId: string,
+  threadId?: string,
+  enabled = true,
+) {
+  return useSchedulePage(
+    {
+      agent_id: agentId,
+      thread_id: threadId,
+      lifecycle: "active",
+    },
+    enabled,
+  );
 }
 
 function time(value: number | null | undefined, timezone?: string) {
@@ -680,7 +691,12 @@ export default function ScheduleBrowser({
     lifecycle:
       lifecycle === "all"
         ? undefined
-        : (lifecycle as "active" | "completed" | "failed" | "inactive"),
+        : (lifecycle as
+            | "active"
+            | "completed"
+            | "failed"
+            | "inactive"
+            | "archived"),
   });
   const [selected, setSelected] = useState("");
   const current = rows.find((i) => `${i.agent_id}:${i.id}` === selected);
@@ -728,16 +744,21 @@ export default function ScheduleBrowser({
             setLifecycle(String(value));
             setSelected("");
           }}
-          options={["active", "completed", "failed", "inactive", "all"].map(
-            (value) => ({
-              value,
-              label: `${t(`taskFilters.${value}`)}${
-                lifecycle_counts?.[value] !== undefined
-                  ? ` ${lifecycle_counts[value]}`
-                  : ""
-              }`,
-            }),
-          )}
+          options={[
+            "active",
+            "completed",
+            "failed",
+            "inactive",
+            "all",
+            "archived",
+          ].map((value) => ({
+            value,
+            label: `${t(`taskFilters.${value}`)}${
+              lifecycle_counts?.[value] !== undefined
+                ? ` ${lifecycle_counts[value]}`
+                : ""
+            }`,
+          }))}
         />
       </div>
       <div className={styles.filters}>

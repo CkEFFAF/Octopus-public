@@ -2,6 +2,21 @@
 
 Navigation guide for AI coding agents working in this repository.
 
+## Project references
+
+- Project repositories: https://github.com/CkEFFAF/Octopus-public and https://github.com/CkEFFAF/octop-harness.
+- Project access dashboard: https://octop.effaf.me/.
+- The owner authorizes connecting to their cloud server to deploy the project when deployment work is requested. Connection details and credentials must be obtained through an available authorized access method.
+- The deployment server runs Linux; after project updates, do not wait for Windows CI to finish before proceeding.
+- The owner prefers direct execution of authorized checks, fixes, configuration and deployments without repeated routine confirmation questions.
+- GPU research uses Grok 4.7 for core design, scientific analysis and important decisions, and DeepSeek for coding and routine work. Existing ACP advanced Agents may also handle decisions when their device permissions allow it.
+- Temporary budget override (2026-11-12): the owner canceled Grok tests and reported the OpenCode Go five-hour quota exhausted. Pause all test requests and retries to that provider, including DeepSeek, and all prompted ACP tests. Continue offline checks and no-prompt ACP protocol verification. Keep innovation schedules and training disabled; pending drafts are not approved experiments. Resume model tests only when the owner restores that scope.
+- The GPU expert may autonomously run approved experiments and derived improvements under the existing experiment and maintenance manuals, provided it does not displace other users' GPU work. Preserve the project's authoritative task queue and evidence in reports.
+- This Git checkout is `D:\Agent_Workspace\octopus1\innovation-work` (based on `develop` at `2aceadb8`). Its parent `D:\Agent_Workspace\octopus1` is an older source snapshot, not a Git repository.
+- Cloud releases live under `/root/octopus-deployments/` and run as `octop-hub`; resolve its active `WorkingDirectory` and `ExecStart` before each deployment. The task-center release directory is `/root/octopus-deployments/task-center-b27-20261113`. Data remains `/root/OctopData`; GPU expert `27N3HD` uses design Graph `gpu-innovation-design-27N3HD` (5 nodes) and execution Graph `gpu-innovation-27N3HD` (9 nodes). Both schedules stay disabled and `validation_only=true` during the budget pause.
+- Preplanned task drafts are linked from the GPU expert pin “任务设计文档与审阅索引”, at `/home/wjh/workspace/OCRL-3DSSG-Codes/agent/designs/CODEX-PENDING-DESIGNS-20261112.md`. All 11 Codex drafts are pending and do not authorize experiments. Original `agent/TASK_QUEUE.md` remains authoritative.
+- Local Agent communication uses scoped `oaa_` machine credentials with server registered names and the Agent collaboration tab, never a user JWT pretending to be Codex. Outbound ACP transcripts retain real runner identity and parent links. No-prompt protocol verification does not prove expert acknowledgement or advanced review.
+
 ## 1. Collaboration principles
 
 > Favor caution over speed; trivial tasks may relax these rules. These principles complement [§10 Change workflow](#10-change-workflow) and [§11 Communication](#11-communication).
@@ -241,9 +256,11 @@ New agents additionally keep system-scoped files under `{workspace}/.octop/` (e.
 
 **Collaboration beta (0031):** The current contract is [0031](docs/specs/0031-collaboration-resources/index.md), with [local verification](docs/specs/0031-collaboration-resources/verification.md). Use canonical Harness dispatch/lifecycle hooks, per-invocation child sessions, `read_attachment`/`publish_artifact`/`deliver_resource`, immutable resource versions and explicit grants; new delegations default to `member_default`. The additive SQLite/PostgreSQL 029 pair introduces the collaboration schema; later features may advance the watermark further (the older example below is historical). Resource bytes follow the configured upload cap; text extraction has a separate 8 MiB bound. `vendor/harness` plus the relative uv source/lock pin the reviewed development wheel; do not remove that override while the app requires the new Harness API.
 
+**Agent conversation provenance (0054):** `docs/specs/0054-agent-collaboration-conversations.md` governs the separate Agent collaboration category. Actor names and sender metadata come from authenticated machine credentials or real ACP sessions; client supplied titles or message fields never establish identity. Preserve human replies as human, revoked credential history, ACP parent links and existing device permissions.
+
 **Database:** SQLite and PostgreSQL share one schema. Add or change tables via a numbered pair
 `infra/db/migrations/00N_description.sql` **and** `00N_description.pg.sql`, then bump the
-version assertion in `tests/unit/db/test_db_pool.py` (currently `v == 26`). Rebuilds that SQLite
+version assertion in `tests/unit/db/test_db_pool.py` (currently `v == 41`). Rebuilds that SQLite
 cannot express as `ALTER` live in `infra/db/migrate.py` helpers and must stay idempotent.
 
 Unreleased schema work on `develop` **folds into the current unreleased `00N`**, not a new
@@ -415,6 +432,7 @@ Boundary rules are in [§5](#5-module-boundaries). Additionally:
 | Pre-commit hooks | `make install-hooks` → `.githooks/pre-commit` (`make all` incl. `format-all` + dashboard build) |
 | What is a Thread? | `infra/gateway/threads.py`, `infra/db/repos/threads.py` |
 | Workspace backend resolution | `infra/backend/resolver.py`, `infra/backend/adapter.py` |
+| Persistent expert and project file pins | `infra/agents/pinned_files.py`, `api/routers/pinned_files.py`; owner scoped metadata with revision checks, project files require an authenticated execution context (0053) |
 | Connectors & OAuth | `infra/connectors/`, `api/routers/connectors.py` |
 | OpenAPI tags and API intro | `api/openapi_meta.py` |
 | Human-readable API reference | `docs/api.md` |
@@ -461,6 +479,10 @@ hotfix/* ──PR──► main (+ tag) and ──PR──► develop
 - Do not pile on unrelated follow-ups; mention out-of-scope issues briefly, do not expand scope unilaterally.
 
 ## Context files
+
+- Task coordination (0055): `/api/task-center` is an account-scoped read projection of work items, ledger tasks, plans and execution receipts. The task board displays execution cards from that projection; never copy them into its revision ledger. Expert task queries bind account/expert identity from runtime context and respect isolated Graph recipes.
+- Task history uses migration 041 logical archive markers tied to source versions. Completion/cancellation archives after 7 days and failures after 30 days; running work, paused recurring schedules and pending deliveries stay current. Operational queries exclude archives before loading payloads; explicit evidence reads remain available. Keep historical pages out of live polling.
+- File review prioritizes diffs: pins start collapsed in the review dock, lists show names, and full paths stay in file details. Use compact columns for expanded pins and switch between changes and full content in narrow panels.
 
 - [src/octop/infra/workflow_graphs/AGENTS.md](src/octop/infra/workflow_graphs/AGENTS.md): Durable Graph execution, context projection and receipt recovery; user guide in `docs/workflow-graphs.md`.
 - [src/octop/infra/plugins/AGENTS.md](src/octop/infra/plugins/AGENTS.md): Dashboard plugin catalog, private account settings and official quota lookup.

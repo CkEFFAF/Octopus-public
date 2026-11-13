@@ -25,6 +25,7 @@ from octop.api.common.workspace import (
     workspace_api_path,
 )
 from octop.api.deps import current_user, get_server
+from octop.api.routers.pinned_files import router as pinned_files_router
 from octop.infra.backend.tree_listing import dedupe_tree_rows
 from octop.infra.backup.workspace_archive import export_workspace_zip, import_workspace_zip
 from octop.infra.errors import ErrorCode, OctopError
@@ -139,6 +140,7 @@ _FROM_WORKSPACE_DESC = (
 
 
 router = APIRouter()
+router.include_router(pinned_files_router)
 
 
 class RestoreGitFileBody(BaseModel):
@@ -259,8 +261,8 @@ async def write_file(
     user: Any = Depends(current_user),
     server: Any = Depends(get_server),
 ) -> dict[str, Any]:
-    """Overwrite ``path`` with ``body.content`` (text)."""
-    ws = await require_running_workspace(
+    """Overwrite text in an owner's workspace, including stopped experts."""
+    ws = await require_agent_workspace(
         agent_id, user=user, as_user=as_user, server=server, owner_only=True
     )
     converter = get_doc_converter(path)

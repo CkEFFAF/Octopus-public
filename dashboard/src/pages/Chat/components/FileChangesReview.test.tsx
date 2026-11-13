@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  within,
+  waitFor,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { request } from "../../../api/request";
 import FileChangesReview from "./FileChangesReview";
@@ -25,9 +32,18 @@ describe("file changes with live contents", () => {
     const a = change("/repo/a.py"),
       b = change("b.py");
     render(<FileChangesReview files={[a, b]} current={[a]} />);
-    expect(screen.getByText("a.py")).toBeVisible();
+    expect(
+      within(screen.getByRole("navigation")).getByText("a.py"),
+    ).toBeVisible();
     expect(screen.getByText("b.py")).toBeVisible();
-    expect(screen.getAllByText("chat.fileReview.currentTurn")).toHaveLength(1);
+    expect(
+      screen.getAllByLabelText("chat.fileReview.currentTurn"),
+    ).toHaveLength(1);
+    expect(screen.queryByText(a.path)).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "chat.fileReview.details" }),
+    );
+    await waitFor(() => expect(screen.getByText(a.path)).toBeVisible());
     expect(screen.getByText("recorded change")).toBeVisible();
     expect(
       await screen.findByText(
@@ -38,6 +54,24 @@ describe("file changes with live contents", () => {
       expect.stringContaining("file%3A%2F%2F%2Frepo%2Fa.py"),
       expect.anything(),
     );
+  });
+  it("switches the narrow review pane while retaining the selected file", async () => {
+    vi.mocked(request).mockResolvedValue({ content: "live content" });
+    const a = change("a.py");
+    render(<FileChangesReview files={[a]} current={[a]} />);
+    await screen.findByText("live content");
+    fireEvent.click(
+      screen.getByRole("tab", { name: "chat.fileReview.fullContent" }),
+    );
+    expect(
+      screen.getByRole("tab", { name: "chat.fileReview.fullContent" }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.getByRole("region", { name: "chat.fileReview.fullContent" }),
+    ).toHaveAttribute("data-active", "true");
+    expect(
+      screen.getByRole("region", { name: "chat.turnChanges.diff" }),
+    ).toHaveAttribute("data-active", "false");
   });
   it("does not mix a late file response into the next selected file", async () => {
     let resolveFirst!: (value: unknown) => void;

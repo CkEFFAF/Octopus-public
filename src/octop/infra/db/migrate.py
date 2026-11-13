@@ -2185,6 +2185,22 @@ def _ensure_thread_activity_schema(db: DatabasePool) -> None:
             conn.executescript(ddl)
 
 
+def _ensure_task_history_archive_schema(db: DatabasePool) -> None:
+    """Reconcile restored development databases that already recorded v41."""
+    with db.connect() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS task_history_archives ("
+            "owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,"
+            "source TEXT NOT NULL,source_id TEXT NOT NULL,"
+            "source_updated_at DOUBLE PRECISION NOT NULL,archived_at DOUBLE PRECISION NOT NULL,"
+            "PRIMARY KEY(owner_user_id,source,source_id))"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_task_history_archives_time "
+            "ON task_history_archives(owner_user_id,archived_at)"
+        )
+
+
 def run_migrations(db: DatabasePool) -> None:
     if db.dialect == "sqlite":
         _repair_legacy_schema(db)
@@ -2280,3 +2296,4 @@ def run_migrations(db: DatabasePool) -> None:
     _ensure_device_update_schema(db)
     _ensure_browser_sessions_schema(db)
     _ensure_thread_activity_schema(db)
+    _ensure_task_history_archive_schema(db)

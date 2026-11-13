@@ -1,5 +1,10 @@
 import type { HitlPendingPayload, HitlSessionPolicy } from "../types/hitl";
 import { request } from "../request";
+import type {
+  ConversationCategory,
+  ConversationOrigin,
+  ConversationActor,
+} from "../types/conversation";
 
 /** Workspace file produced in a thread; ``agent_id`` is the producer. */
 export type ThreadArtifact = {
@@ -55,7 +60,7 @@ export interface ThreadHeat {
   overview_reason?: string;
 }
 
-export interface OctopThread {
+export interface OctopThread extends ConversationOrigin {
   thread_id: string;
   title: string | null;
   title_source?: string;
@@ -130,12 +135,15 @@ export interface SidebarStatus {
       | "created_at"
       | "pinned"
       | "metadata"
+      | "category"
+      | "actor"
+      | "collaboration_source"
     >
   >;
   schedules: SidebarSchedule[];
 }
 
-export interface OctopThreadHistory {
+export interface OctopThreadHistory extends ConversationOrigin {
   thread_id: string;
   messages: Array<{
     role: string;
@@ -148,6 +156,7 @@ export interface OctopThreadHistory {
     error_diagnostic?: Record<string, unknown>;
     agent_id?: string;
     team_wrapup?: boolean;
+    sender?: ConversationActor | null;
   }>;
   pinned?: boolean;
   model_ref?: string | null;
@@ -225,14 +234,18 @@ export interface HistoryMigrationStatus {
 export const CHAT_HISTORY_PAGE_SIZE = 25;
 
 export const octopThreadsApi = {
-  sidebarStatus: (agentId: string) =>
+  sidebarStatus: (agentId: string, category?: ConversationCategory) =>
     request<SidebarStatus>(
-      `/agents/${encodeURIComponent(agentId)}/sidebar-status`,
+      `/agents/${encodeURIComponent(agentId)}/sidebar-status${
+        category ? `?category=${category}` : ""
+      }`,
     ),
 
-  list: (agentId: string, limit = 50) =>
+  list: (agentId: string, limit = 50, category?: ConversationCategory) =>
     request<OctopThread[]>(
-      `/agents/${encodeURIComponent(agentId)}/threads?limit=${limit}`,
+      `/agents/${encodeURIComponent(agentId)}/threads?limit=${limit}${
+        category ? `&category=${category}` : ""
+      }`,
     ),
 
   create: (agentId: string) =>

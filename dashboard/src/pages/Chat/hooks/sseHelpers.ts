@@ -1,3 +1,4 @@
+import type { ConversationActor } from "../../../api/types/conversation";
 /**
  * Chat message and per-session stream state types.
  *
@@ -70,6 +71,7 @@ export interface UserComposerContext {
 }
 
 export interface ChatMessage {
+  sender?: ConversationActor;
   id: string;
   role: "user" | "assistant" | "system" | "tool";
   content: string;

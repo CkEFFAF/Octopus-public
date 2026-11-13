@@ -201,7 +201,11 @@ class RunEventRepo:
             "ELSE 'inactive' END AS lifecycle "
             "FROM run_events r JOIN threads t ON t.thread_id=r.thread_id "
             "AND t.user_id=r.owner_user_id AND t.agent_id=r.agent_id "
-            "WHERE r.owner_user_id=? AND r.agent_id=? AND r.kind='job'"
+            "WHERE r.owner_user_id=? AND r.agent_id=? AND r.kind='job' "
+            "AND "
+            + ("" if lifecycle == "archived" else "NOT ")
+            + "EXISTS (SELECT 1 FROM task_history_archives a WHERE a.owner_user_id=r.owner_user_id "
+            "AND a.source='receipt' AND a.source_id=r.event_id AND a.source_updated_at=r.updated_at)"
         )
         values: list[Any] = [cutoff, owner, agent]
         if thread:
@@ -215,10 +219,14 @@ class RunEventRepo:
                 ).fetchall()
             }
             selected = f"SELECT * FROM ({sql}) jobs"
-            if lifecycle != "all":
+            if lifecycle not in {"all", "archived"}:
                 selected += " WHERE lifecycle=?"
                 values.append(lifecycle)
-            total = sum(counts.values()) if lifecycle == "all" else counts.get(lifecycle, 0)
+            total = (
+                sum(counts.values())
+                if lifecycle in {"all", "archived"}
+                else counts.get(lifecycle, 0)
+            )
             rows = conn.execute(
                 selected + " ORDER BY updated_at DESC,id LIMIT ? OFFSET ?", [*values, limit, offset]
             ).fetchall()
@@ -404,6 +412,7 @@ class RunEventRepo:
         run_id: str | None = None,
         limit: int = 100,
         kind: str | None = None,
+        include_archived: bool = True,
     ) -> builtins.list[dict[str, Any]]:
         with self.db.connect() as conn:
             rows = conn.execute(
@@ -411,6 +420,13 @@ class RunEventRepo:
                 + ("AND id < ? " if before is not None else "")
                 + ("AND run_id = ? " if run_id is not None else "")
                 + ("AND kind = ? " if kind is not None else "")
+                + (
+                    "AND NOT EXISTS (SELECT 1 FROM task_history_archives a WHERE "
+                    "a.owner_user_id=run_events.owner_user_id AND a.source='receipt' "
+                    "AND a.source_id=run_events.event_id AND a.source_updated_at=run_events.updated_at) "
+                    if not include_archived
+                    else ""
+                )
                 + "ORDER BY id DESC LIMIT ?",
                 [
                     owner,

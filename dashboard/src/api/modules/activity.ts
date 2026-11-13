@@ -8,6 +8,7 @@ export interface ActivityNode {
   observed_status?: string;
   outcome?: string;
   declared_status?: string;
+  declared?: boolean;
   reason?: string;
   run_id?: string;
   context_id?: string;

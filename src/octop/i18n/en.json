@@ -1,4 +1,7 @@
 {
+  "pinnedFiles": {
+    "conflict": "Pinned files changed elsewhere. Reload the list before saving."
+  },
   "acp_runtime": {
     "update_client": "Update this device client to use startup checks. Device settings can still be saved and existing ACP calls remain supported.",
     "subscription": "ACP connected, but the external service rejected the request because this model or account has no active subscription. Check the model and subscription on the execution device.",
@@ -735,7 +738,8 @@
     "read_attachment": "Read attachment",
     "publish_artifact": "Publish artifact",
     "deliver_resource": "Deliver resource",
-    "report_task_result": "Report task result"
+    "report_task_result": "Report task result",
+    "list_expert_tasks": "Read expert tasks across conversations"
   },
   "skills": {
     "pdf": "PDF",
@@ -1118,5 +1122,9 @@
     "missing_server": "Set --server or OCTOP_ACP_SERVER.",
     "missing_expert": "Set --expert or OCTOP_ACP_EXPERT.",
     "missing_token_file": "Token file not found: {path}"
+  },
+  "agentCollaboration": {
+    "acp_state": "ACP session state: {state}",
+    "permission_response": "Permission response: {option}"
   }
 }

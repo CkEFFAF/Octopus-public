@@ -70,7 +70,10 @@ def list_schedule_page(
         if agent_id is not None and agent.agent_id != agent_id:
             continue
         for row in manager.list_by_agent(
-            agent.agent_id, user_id=user_id, include_self_reminders=True
+            agent.agent_id,
+            user_id=user_id,
+            include_self_reminders=True,
+            **({"archived": True} if lifecycle == "archived" else {}),
         ):
             value = manager.public_view(row)
             if thread_id is not None and value["thread_id"] != thread_id:
@@ -113,7 +116,7 @@ def list_schedule_page(
         state: sum(schedule_lifecycle(v) == state for v in values)
         for state in ("active", "completed", "failed", "inactive")
     }
-    if lifecycle:
+    if lifecycle and lifecycle != "archived":
         values = [value for value in values if schedule_lifecycle(value) == lifecycle]
     frequencies: dict[str, float] = {}
 

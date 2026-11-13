@@ -23,6 +23,7 @@ SIDEBAR_NAV_KEYS = frozenset(
     {
         "chat",
         "experts",
+        "task-center",
         "tasks",
         "workflow-graphs",
         "token-usage",
