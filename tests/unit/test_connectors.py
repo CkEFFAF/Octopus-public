@@ -801,7 +801,7 @@ def test_gateway_search_news_passes_query(monkeypatch: pytest.MonkeyPatch):
         creds={"api_key": "x"},
     )
     search = next(t for t in tools if t.name.endswith("search_news"))
-    assert "query" in search.args_schema.model_json_schema()["properties"]
+    assert "query" in search.args_schema["properties"]
     search.invoke({"query": "热点", "max_results": 5})
     assert captured["query"] == "热点"
     assert captured["max_results"] == 5
@@ -1069,8 +1069,8 @@ def test_fliggy_exposes_only_nl_search_tools():
         fliggy.call_tool({"api_key": "sk-x"}, "search_flight", {"origin": "北京"})
 
 
-def test_mcp_args_model_drops_nulls_before_validation():
-    from octop_harness.mcp import mcp_args_model
+def test_mcp_args_schema_retains_required_fields_for_server_validation():
+    from octop_harness.mcp import mcp_args_model, prepare_mcp_tool_arguments
 
     model = mcp_args_model(
         "search_place",
@@ -1083,11 +1083,10 @@ def test_mcp_args_model_drops_nulls_before_validation():
             },
         },
     )
-    # Null region is omitted, then required validation fires clearly.
-    with pytest.raises(Exception, match="region"):
-        model.model_validate({"query": "天安门附近停车场", "region": None})
-    ok = model.model_validate({"query": "天安门附近停车场", "region": "北京"})
-    assert ok.model_dump() == {"query": "天安门附近停车场", "region": "北京"}
+    assert model["required"] == ["query", "region"]
+    # Required arguments reach the MCP server unchanged for its own validation.
+    arguments = {"query": "天安门附近停车场", "region": None}
+    assert prepare_mcp_tool_arguments(arguments, model) == arguments
 
 
 def test_new_gateway_probe_rejects_bad_credentials(monkeypatch: pytest.MonkeyPatch):

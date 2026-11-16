@@ -1,0 +1,2129 @@
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -187,6 +187,10 @@
+ 
+ ### Library vs application
+ 
++- Memory capture boundaries belong to private graph state, not OS thread identifiers. Direct hook tests apply returned state updates before the next hook, as LangGraph does.
++- MCP tools retain complete JSON Schema dictionaries. `prepare_mcp_tool_arguments` only omits known optional nonnullable nulls; preserve explicit nullable and unknown values for server validation.
++- Forced compaction clones the middleware and summary helper per invocation, never mutates the compiled graph policy, and holds `_invocation` through durable state updates.
++
+ - **May add:** thin wrappers on deepagents, public APIs, optional backends / tools / skills, serialization.
+ - **Must not add:** HTTP server, local database, cron daemon, vector-memory persistence, UI, login / user management. Those are application concerns.
+ 
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -6,6 +6,18 @@
+ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+ 
+ ## [Unreleased]
++
++- Preserve production transport timeouts and one SDK retry while combining the
++  reviewed reliability fixes in the deployment artifact.
++
++- Isolate memory capture cursors in checkpointed invocation state, clone forced
++  compaction policy per request, retain host context in compaction usage estimates,
++  and defer runtime shutdown while manual compaction is active.
++- Preserve complete MCP JSON Schema and explicit nullable arguments, and assign
++  stable unique tool names after normalization. `mcp_args_model` now returns a
++  schema dictionary for native LangChain binding rather than a Pydantic class.
++- Stop web fetches while their decoded response exceeds the size budget and close
++  redirect bodies without downloading them.
+ 
+ - Add explicit `cancel_tools=True` message insertion, bounded tool-wait cancellation,
+   paired interruption results and late-result suppression; preserve default insertion.
+--- a/README.md
++++ b/README.md
+@@ -10,6 +10,10 @@
+ allow one SDK retry. Session header clients retain finite transport timeouts.
+ These bound network silence, not the total duration of a stream that keeps
+ producing data. Cancelling a model turn does not cancel background execution Jobs.
++
++`web_fetch` bounds response bytes during download and decompression. It requests
++identity, gzip or deflate encoding; unsupported or stacked encodings and trailing
++compressed data return a recoverable error. Redirect bodies are closed unread.
+ 
+ For an active invocation, `HarnessAgentManager.steer_message(..., run_id=..., cancel_tools=True)`
+ interrupts current tool handler waits and inserts the new user instruction. The
+@@ -109,6 +113,8 @@
+ | 🔒 | **Safety built-in** | Tool guardrails, filesystem permissions, and PII redaction |
+ | 💬 | **Teams** | Peer inbox; `peer_invoke_mode` selects sync / async / both |
+ | ⌨️ | **Terminal CLI** | Interactive chat, provider/skill config, and agent management |
++
++MCP tools retain their server's JSON Schema, including nested values, references and nullable fields. `octop_harness.mcp.mcp_args_model` now returns a copied schema dictionary for LangChain's native JSON Schema support, rather than a Pydantic class; validation remains owned by the MCP server. Hosts can use `prepare_mcp_tool_arguments(arguments, input_schema)` (also exported from `octop_harness`) to omit optional nonnullable nulls while preserving valid explicit nulls.
+ 
+ ## Why Octop Harness?
+ 
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -5,7 +5,7 @@
+ [project]
+ name = "octop-harness"
+ # Single source of truth for the package version (runtime reads via importlib.metadata).
+-version = "1.0.2.post4.dev7+transport.1"
++version = "1.0.2.post4.dev9+reliability.2"
+ description = "Production-grade Harness Agent built on top of LangChain Deep Agents."
+ readme = "README.md"
+ license = { text = "MIT" }
+--- a/src/octop_harness/__init__.py
++++ b/src/octop_harness/__init__.py
+@@ -19,6 +19,7 @@
+     from octop_harness.agent import HarnessAgent
+     from octop_harness.init import InitResult, init_workspace
+     from octop_harness.manager import AgentEntry, HarnessAgentManager
++    from octop_harness.mcp import prepare_mcp_tool_arguments
+     from octop_harness.observability.logging import (
+         current_log_file,
+         default_log_dir,
+@@ -52,6 +53,7 @@
+     "AgentEventType": ("octop_harness.protocols.langgraph", "AgentEventType"),
+     "SecurityPolicy": ("octop_harness.security.models", "SecurityPolicy"),
+     "RequestSnapshotCallback": ("octop_harness.observability.request_snapshot", "RequestSnapshotCallback"),
++    "prepare_mcp_tool_arguments": ("octop_harness.mcp", "prepare_mcp_tool_arguments"),
+ }
+ 
+ 
+@@ -89,6 +91,7 @@
+     "current_log_file",
+     "default_log_dir",
+     "init_workspace",
++    "prepare_mcp_tool_arguments",
+     "register_protocol",
+     "resolve_protocol",
+     "setup_logging",
+--- a/src/octop_harness/agent.py
++++ b/src/octop_harness/agent.py
+@@ -906,56 +906,57 @@
+ 
+         if not thread_id:
+             return CompactResult(ok=False, reason="unavailable", error="missing thread_id")
+-        graph = getattr(self, "_graph", None) or getattr(self, "_base_graph", None)
+-        if graph is None:
+-            return CompactResult(ok=False, reason="unavailable", error="graph not ready")
+-
+-        model_ref = (model or "").strip() or None
+-        if model_ref:
+-            try:
+-                chat_model = self._model_factory.get_chat_model(model_ref)
+-            except DEFENSIVE_OP_ERRORS:
++        async with self._invocation():
++            graph = getattr(self, "_graph", None) or getattr(self, "_base_graph", None)
++            if graph is None:
++                return CompactResult(ok=False, reason="unavailable", error="graph not ready")
++
++            model_ref = (model or "").strip() or None
++            if model_ref:
++                try:
++                    chat_model = self._model_factory.get_chat_model(model_ref)
++                except DEFENSIVE_OP_ERRORS:
++                    chat_model = self._build_seed_model()
++            else:
+                 chat_model = self._build_seed_model()
+-        else:
+-            chat_model = self._build_seed_model()
+-
+-        result = await force_compact_thread(
+-            graph=graph,
+-            backend=self._backend,
+-            model=chat_model,
+-            thread_id=thread_id,
+-            model_ref=model_ref,
+-            summarization_middleware=self._summarization_mw,
+-        )
+-        # No model call happened, so ContextUsageMiddleware wrote no new
+-        # snapshot — and its in-process snapshot outranks the message stamp in
+-        # ``aget_context_usage``. Without this the host context ring keeps
+-        # reporting the pre-compaction total until the next turn.
+-        if result.ok and self._context_usage_mw is not None:
+-            self._context_usage_mw.shrink_snapshot(thread_id, removed_tokens=result.removed_tokens)
+-        sink = getattr(self._config, "run_event_sink", None)
+-        if result.ok and sink is not None:
+-            identity = f"compaction:{uuid.uuid4().hex}"
+-            event = {
+-                "event_id": identity,
+-                "thread_id": thread_id,
+-                "run_id": identity,
+-                "kind": "compaction",
+-                "status": "completed",
+-                "created_at": time.time(),
+-                "payload": {
+-                    "file_path": result.display_path,
+-                    "before_estimated_tokens": result.before_estimated_tokens,
+-                    "after_estimated_tokens": result.after_estimated_tokens,
+-                    "summarized_count": result.summarized_count,
+-                    "preserved_count": result.preserved_count,
+-                },
+-            }
+-            try:
+-                await asyncio.to_thread(sink, event)
+-            except Exception:
+-                logger.warning("Compaction receipt could not be persisted for thread %s", thread_id, exc_info=True)
+-        return result
++
++            result = await force_compact_thread(
++                graph=graph,
++                backend=self._backend,
++                model=chat_model,
++                thread_id=thread_id,
++                model_ref=model_ref,
++                summarization_middleware=self._summarization_mw,
++            )
++            # The summary bypasses the graph, so ContextUsageMiddleware wrote no new
++            # snapshot — and its in-process snapshot outranks the message stamp in
++            # ``aget_context_usage``. Without this the host context ring keeps
++            # reporting the pre-compaction total until the next turn.
++            if result.ok and self._context_usage_mw is not None:
++                self._context_usage_mw.shrink_snapshot(thread_id, removed_tokens=result.removed_tokens)
++            sink = getattr(self._config, "run_event_sink", None)
++            if result.ok and sink is not None:
++                identity = f"compaction:{uuid.uuid4().hex}"
++                event = {
++                    "event_id": identity,
++                    "thread_id": thread_id,
++                    "run_id": identity,
++                    "kind": "compaction",
++                    "status": "completed",
++                    "created_at": time.time(),
++                    "payload": {
++                        "file_path": result.display_path,
++                        "before_estimated_tokens": result.before_estimated_tokens,
++                        "after_estimated_tokens": result.after_estimated_tokens,
++                        "summarized_count": result.summarized_count,
++                        "preserved_count": result.preserved_count,
++                    },
++                }
++                try:
++                    await asyncio.to_thread(sink, event)
++                except Exception:
++                    logger.warning("Compaction receipt could not be persisted for thread %s", thread_id, exc_info=True)
++            return result
+ 
+     def _default_max_input_tokens(self) -> int:
+         from octop_harness.context_usage import DEFAULT_MAX_TOKENS
+@@ -1134,7 +1135,7 @@
+         When tearing down inside a running event loop, prefer :meth:`aclose` so
+         ``aiosqlite`` is closed via ``await`` instead of the sync escape hatch.
+ 
+-        While ``call`` / ``stream`` / ``resume_hitl`` is in flight the release is
++        While ``call`` / ``stream`` / ``resume_hitl`` / compaction is in flight the release is
+         deferred and performed once the last one finishes, so a hot-reload
+         cannot pull the checkpointer out from under a running turn.
+         """
+--- a/src/octop_harness/builtin/tools/web_fetch.py
++++ b/src/octop_harness/builtin/tools/web_fetch.py
+@@ -2,6 +2,7 @@
+ 
+ from __future__ import annotations
+ 
++import zlib
+ from urllib.parse import urljoin
+ 
+ import httpx
+@@ -15,20 +16,63 @@
+ _MAX_REDIRECTS = 10
+ 
+ 
++class FetchResponseTooLargeError(ValueError):
++    """The decoded response exceeded the fetch budget."""
++
++
++def _read_limited_body(response: httpx.Response) -> bytes:
++    """Bound decoder output too, rather than allocating a complete gzip member."""
++    encoding = response.headers.get("content-encoding", "identity").strip().lower()
++    if encoding not in {"identity", "gzip", "deflate"}:
++        raise httpx.DecodingError(f"Unsupported content encoding: {encoding}")
++    decoder = zlib.decompressobj(16 + zlib.MAX_WBITS) if encoding == "gzip" else None
++    body = bytearray()
++    prefix = b""
++    try:
++        for raw_chunk in response.iter_raw():
++            chunk = raw_chunk
++            if encoding == "deflate" and decoder is None:
++                prefix += chunk
++                if len(prefix) < 2:
++                    continue
++                # HTTP deflate can contain a zlib wrapper or a raw deflate stream.
++                wrapped = prefix[0] & 15 == 8 and int.from_bytes(prefix[:2], "big") % 31 == 0
++                decoder = zlib.decompressobj(zlib.MAX_WBITS if wrapped else -zlib.MAX_WBITS)
++                chunk = prefix
++            if decoder is not None and decoder.eof:
++                raise httpx.DecodingError("Unexpected data after compressed response")
++            decoded = decoder.decompress(chunk, _MAX_BYTES - len(body) + 1) if decoder else chunk
++            if len(body) + len(decoded) > _MAX_BYTES:
++                raise FetchResponseTooLargeError(f"web_fetch response is exceeding the {_MAX_BYTES}-byte cap.")
++            body.extend(decoded)
++            if decoder is not None and decoder.unused_data:
++                raise httpx.DecodingError("Unexpected data after compressed response")
++        if encoding != "identity" and (decoder is None or not decoder.eof):
++            raise httpx.DecodingError("Incomplete compressed response")
++    except zlib.error as exc:
++        raise httpx.DecodingError(str(exc)) from exc
++    return bytes(body)
++
++
+ def _fetch_public_url(url: str, *, timeout: float) -> httpx.Response:
+     """GET ``url`` while blocking private/LAN targets on every hop."""
+     current = validate_agent_fetch_url(url)
+     with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+         for _ in range(_MAX_REDIRECTS + 1):
+             validate_agent_fetch_url(current)
+-            response = client.get(current)
+-            if 300 <= response.status_code < 400:
+-                location = (response.headers.get("location") or "").strip()
+-                if not location:
+-                    return response
+-                current = urljoin(str(response.request.url), location)
+-                continue
+-            return response
++            with client.stream("GET", current, headers={"Accept-Encoding": "gzip, deflate, identity"}) as response:
++                if 300 <= response.status_code < 400:
++                    location = (response.headers.get("location") or "").strip()
++                    if location:
++                        current = urljoin(str(response.request.url), location)
++                        continue
++                body = _read_limited_body(response) if not response.is_error else b""
++                # The body has already decoded content encodings. A new buffered
++                # response must not decompress those bytes a second time.
++                headers = response.headers.copy()
++                headers.pop("content-encoding", None)
++                headers.pop("content-length", None)
++                return httpx.Response(response.status_code, headers=headers, content=body, request=response.request)
+     raise UnsafeAgentFetchUrlError(f"exceeded {_MAX_REDIRECTS} redirects for {url!r}")
+ 
+ 
+@@ -72,7 +116,7 @@
+ 
+     try:
+         response = _fetch_public_url(url, timeout=request_timeout)
+-    except UnsafeAgentFetchUrlError as exc:
++    except (UnsafeAgentFetchUrlError, FetchResponseTooLargeError) as exc:
+         return f"Error: {exc}"
+     except httpx.HTTPError as exc:
+         # Network-layer issues: DNS lookup, connection refused, timeout,
+--- a/src/octop_harness/compaction.py
++++ b/src/octop_harness/compaction.py
+@@ -16,6 +16,7 @@
+ import uuid
+ from collections.abc import Iterator
+ from contextlib import contextmanager, nullcontext
++from copy import copy
+ from dataclasses import dataclass
+ from typing import Any, cast
+ 
+@@ -27,7 +28,7 @@
+     estimate_tokens,
+     message_content_text,
+ )
+-from octop_harness.middleware.memory_recall import replay_recall_snapshots
++from octop_harness.middleware.memory_recall import replay_context_snapshots, replay_recall_snapshots
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -52,9 +53,9 @@
+     removed_tokens: int = 0
+     """Estimated prompt tokens the offloaded messages occupied, minus the summary.
+ 
+-    Compaction makes no model call, so callers holding a context-usage
+-    snapshot have no fresh provider number to refresh it with; this is the
+-    delta they can subtract instead. Estimate, not a provider count.
++    The summary call bypasses the graph's context-usage middleware, so callers
++    have no fresh conversation request count. This is the delta they can
++    subtract instead. Estimate, not a provider count.
+     """
+     display_path: str | None = None
+     """POSIX workspace-relative path for UI (no host drive / home / backslashes)."""
+@@ -141,7 +142,7 @@
+ 
+ 
+ def _has_reusable_helper(mw: Any) -> bool:
+-    """True when *mw* is a real SummarizationMiddleware we can temporarily retune."""
++    """True when *mw* has a helper whose settings can be copied for one call."""
+     helper = getattr(mw, "_lc_helper", None)
+     keep = getattr(helper, "keep", None)
+     return isinstance(keep, tuple) and len(keep) == 2
+@@ -149,21 +150,16 @@
+ 
+ @contextmanager
+ def _force_policy(mw: Any, model: Any) -> Iterator[Any]:
+-    """Apply force keep + turn summary model on the graph MW; restore after."""
+-    helper = mw._lc_helper
+-    old_keep = helper.keep
+-    old_model = helper.model
+-    old_summary = helper._summary_model
++    """Retune private copies, leaving concurrently used graph policy untouched."""
++    work_mw = copy(mw)
++    helper = copy(mw._lc_helper)
++    work_mw._lc_helper = helper
+     helper.keep = ("messages", FORCE_KEEP_MESSAGES)
+     helper.model = model
++    helper._summary_chat_model = model
+     bind_retry = getattr(model, "with_retry", None)
+     helper._summary_model = bind_retry() if callable(bind_retry) else model
+-    try:
+-        yield mw
+-    finally:
+-        helper.keep = old_keep
+-        helper.model = old_model
+-        helper._summary_model = old_summary
++    yield work_mw
+ 
+ 
+ def _resolve_offload_session_id(mw: Any, values: dict[str, Any]) -> str:
+@@ -241,6 +237,11 @@
+     return file_path, summary
+ 
+ 
++def _conversation_tokens_with_snapshots(messages: list[Any]) -> int:
++    replayed = replay_context_snapshots(replay_recall_snapshots(messages), originals=messages)
++    return conversation_tokens_from_messages(replayed)
++
++
+ async def _persist_compact_event(
+     *,
+     graph: Any,
+@@ -258,7 +259,7 @@
+     summary_msg = work_mw._build_new_messages_with_path(summary, file_path)[0]
+     removed_tokens = max(
+         0,
+-        conversation_tokens_from_messages(replay_recall_snapshots(to_summarize))
++        _conversation_tokens_with_snapshots(to_summarize)
+         - estimate_tokens(message_content_text(getattr(summary_msg, "content", ""))),
+     )
+     new_event = {
+@@ -294,8 +295,8 @@
+         file_path=file_path,
+         display_path=shown,
+         removed_tokens=removed_tokens,
+-        before_estimated_tokens=conversation_tokens_from_messages(replay_recall_snapshots([*to_summarize, *preserved])),
+-        after_estimated_tokens=conversation_tokens_from_messages(replay_recall_snapshots([summary_msg, *preserved])),
++        before_estimated_tokens=_conversation_tokens_with_snapshots([*to_summarize, *preserved]),
++        after_estimated_tokens=_conversation_tokens_with_snapshots([summary_msg, *preserved]),
+     )
+ 
+ 
+@@ -312,8 +313,8 @@
+ 
+     Always uses a force-specific keep policy (last
+     :data:`FORCE_KEEP_MESSAGES` messages) and *model* for summary generation.
+-    Prefers the graph middleware (same backend / session id / apply-event)
+-    and only builds a one-shot instance when that MW is missing.
++    Copies the graph middleware and helper (same backend / session id /
++    apply-event), or builds a one-shot instance when that MW is missing.
+     """
+     config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+     if model_ref:
+--- a/src/octop_harness/mcp.py
++++ b/src/octop_harness/mcp.py
+@@ -8,11 +8,10 @@
+ import logging
+ import re
+ from collections.abc import Callable
++from copy import deepcopy
+ from typing import TYPE_CHECKING, Any
+ 
+ from langchain_mcp_adapters.client import MultiServerMCPClient
+-from pydantic import BaseModel, Field, GetJsonSchemaHandler, create_model, model_validator
+-from pydantic_core import core_schema as pydantic_core_schema
+ 
+ from octop_harness.backends.utils import DEFENSIVE_OP_ERRORS
+ from octop_harness.runtime_env import merge_host_stdio_env
+@@ -24,7 +23,6 @@
+ 
+ _LLM_TOOL_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+ _MCP_SPEC_META_KEYS = frozenset({"allowed_tools", "tool_arg_aliases"})
+-_RESERVED_PYDANTIC_FIELD_NAMES = frozenset(name for name in dir(BaseModel) if not name.startswith("_"))
+ 
+ 
+ def merge_mcp_server_configs(
+@@ -59,117 +57,60 @@
+     return re.sub(r"[^a-zA-Z0-9_-]", "_", name)
+ 
+ 
+-def _pydantic_field_name(key: str, used: set[str]) -> str:
+-    """Map JSON Schema property names to valid Pydantic field identifiers."""
+-    name = key.lstrip("_") or "field"
+-    if name[0].isdigit() or name in _RESERVED_PYDANTIC_FIELD_NAMES:
+-        name = f"arg_{name}"
+-    while name in used or name in _RESERVED_PYDANTIC_FIELD_NAMES:
+-        name = f"{name}_"
+-    used.add(name)
+-    return name
+-
+-
+-def _strip_nullables_from_json_schema(schema: dict[str, Any]) -> None:
+-    """Omit ``null`` from optional property schemas shown to the LLM.
+-
+-    MCP servers (e.g. Notion Zod) reject explicit ``null`` for optional fields —
+-    the key must be omitted. Advertising ``anyOf: [T, null]`` + ``default: null``
+-    pushes models to fill unused keys with null.
+-    """
+-    props = schema.get("properties")
+-    if not isinstance(props, dict):
+-        return
+-    for prop in props.values():
+-        if not isinstance(prop, dict):
+-            continue
+-        for key in ("anyOf", "oneOf"):
+-            variants = prop.get(key)
+-            if not isinstance(variants, list):
+-                continue
+-            non_null = [v for v in variants if not (isinstance(v, dict) and v.get("type") == "null")]
+-            if len(non_null) == 1 and len(variants) >= 2:
+-                kept = dict(non_null[0])
+-                desc = prop.get("description")
+-                title = prop.get("title")
+-                prop.clear()
+-                prop.update(kept)
+-                if desc and "description" not in prop:
+-                    prop["description"] = desc
+-                if title and "title" not in prop:
+-                    prop["title"] = title
+-                break
+-        if prop.get("default") is None:
+-            prop.pop("default", None)
+-
+-
+-class _McpArgsBase(BaseModel):
+-    """MCP arg models strip nullables from the LLM-facing JSON Schema."""
+-
+-    @model_validator(mode="before")
+-    @classmethod
+-    def _drop_null_arguments(cls, data: Any) -> Any:
+-        """Drop explicit ``null`` before validation.
+-
+-        Models often fill unused optional keys with null; required keys may also
+-        arrive as null. Omitting those keys lets optionals use defaults and
+-        surfaces a clear \"field required\" error for missing required args.
+-        """
+-        if not isinstance(data, dict):
+-            return data
+-        return {key: value for key, value in data.items() if value is not None}
+-
+-    @classmethod
+-    def __get_pydantic_json_schema__(
+-        cls,
+-        core_schema: pydantic_core_schema.CoreSchema,
+-        handler: GetJsonSchemaHandler,
+-    ) -> dict[str, Any]:
+-        json_schema = handler(core_schema)
+-        _strip_nullables_from_json_schema(json_schema)
+-        return json_schema
+-
+-
+-def mcp_args_model(tool_name: str, input_schema: dict[str, Any]) -> type[Any]:
+-    """Build a Pydantic args model from an MCP tool ``inputSchema``."""
+-    props = input_schema.get("properties") or {}
+-    if not isinstance(props, dict):
+-        props = {}
+-    required = set(input_schema.get("required") or [])
+-
+-    fields: dict[str, Any] = {}
+-    used_names: set[str] = set()
+-    for key, spec in props.items():
+-        spec_dict: dict[str, Any] = spec if isinstance(spec, dict) else {}
+-        json_type = spec_dict.get("type")
+-        if json_type == "integer":
+-            py_type: Any = int
+-        elif json_type == "number":
+-            py_type = float
+-        elif json_type == "boolean":
+-            py_type = bool
+-        else:
+-            py_type = str
+-        desc = spec_dict.get("description")
+-        field_name = _pydantic_field_name(str(key), used_names)
+-        if field_name != key:
+-            field = Field(description=desc, validation_alias=key, serialization_alias=key)
+-        else:
+-            field = Field(description=desc)
+-        if key in required:
+-            fields[field_name] = (py_type, field)
+-        else:
+-            optional_field = (
+-                Field(default=None, description=desc, validation_alias=key, serialization_alias=key)
+-                if field_name != key
+-                else Field(default=None, description=desc)
+-            )
+-            fields[field_name] = (py_type | None, optional_field)
+-
+-    model_name = re.sub(r"[^A-Za-z0-9_]", "_", tool_name)
+-    if not model_name or model_name[0].isdigit():
+-        model_name = f"Mcp_{model_name}"
+-    return create_model(model_name, __base__=_McpArgsBase, **fields)
++def mcp_args_model(tool_name: str, input_schema: dict[str, Any]) -> dict[str, Any]:
++    """Copy MCP ``inputSchema`` for LangChain's native JSON Schema args support.
++
++    The historical helper name is retained, but the return value is now a schema
++    dictionary, not a Pydantic class. This preserves references, constraints and
++    property names without compiling an incomplete subset of JSON Schema. The
++    MCP server remains responsible for argument validation.
++    """
++    del tool_name
++    return deepcopy(input_schema)
++
++
++def _forbids_null(spec: Any, root: dict[str, Any], refs: frozenset[str] = frozenset()) -> bool:
++    """Recognize nonnullable properties conservatively; unknown schemas stay intact."""
++    if not isinstance(spec, dict):
++        return spec is False
++    kind = spec.get("type")
++    if (
++        (isinstance(kind, str) and kind != "null")
++        or (isinstance(kind, list) and "null" not in kind)
++        or ("enum" in spec and None not in spec["enum"])
++        or ("const" in spec and spec["const"] is not None)
++        or any(_forbids_null(item, root, refs) for item in spec.get("allOf", []))
++    ):
++        return True
++    for key in ("anyOf", "oneOf"):
++        variants = spec.get(key)
++        if isinstance(variants, list) and variants and all(_forbids_null(item, root, refs) for item in variants):
++            return True
++    ref = spec.get("$ref")
++    if isinstance(ref, str) and ref.startswith("#/") and ref not in refs:
++        target: Any = root
++        for part in ref[2:].split("/"):
++            if not isinstance(target, dict) or part.replace("~1", "/").replace("~0", "~") not in target:
++                return False
++            target = target[part.replace("~1", "/").replace("~0", "~")]
++        return _forbids_null(target, root, refs | {ref})
++    return False
++
++
++def prepare_mcp_tool_arguments(arguments: dict[str, Any], input_schema: dict[str, Any] | None) -> dict[str, Any]:
++    """Omit only optional nonnullable nulls; preserve explicit nullable and unknown values.
++
++    Some models fill unused optional fields with null. Keep that compatibility
++    without erasing valid null values or substituting for server validation.
++    """
++    schema = input_schema or {}
++    properties = schema.get("properties") or {}
++    required = schema.get("required") or []
++    return {
++        key: value
++        for key, value in arguments.items()
++        if value is not None or key in required or not _forbids_null(properties.get(key), schema)
++    }
+ 
+ 
+ def _connection_spec_loadable(spec: Any) -> bool:
+@@ -369,58 +310,68 @@
+     tool_arg_aliases: dict[str, dict[str, str]],
+ ) -> None:
+     prefix = f"{server_name}_"
+-    used_names: set[str] = set()
+-    for tool in tools:
+-        name = _tool_name(tool)
+-        aliases: dict[str, str] | None = None
+-        if name.startswith(prefix):
+-            aliases = tool_arg_aliases.get(name.removeprefix(prefix))
+-        # One wrap: optional aliases, then drop None before the MCP call.
+-        _wrap_tool_arguments(tool, aliases=aliases)
+-        _coerce_tool_args_schema(tool)
++    # Reserve valid names first, including suffix-shaped names. Assign invalid
++    # names in sorted order so a server's enumeration order cannot change identity.
++    names = [_tool_name(tool) for tool in tools]
++    used_names = {name for name in names if sanitize_llm_tool_name(name) == name}
++    renamed: dict[str, str] = {}
++    for name in sorted(set(names) - used_names):
+         sanitized = sanitize_llm_tool_name(name)
+-        if sanitized == name:
+-            used_names.add(name)
+-            continue
+         candidate = sanitized
+         suffix = 2
+         while candidate in used_names:
+             candidate = f"{sanitized}_{suffix}"
+             suffix += 1
+         used_names.add(candidate)
+-        tool.name = candidate
++        renamed[name] = candidate
++    for tool in tools:
++        name = _tool_name(tool)
++        aliases: dict[str, str] | None = None
++        if name.startswith(prefix):
++            aliases = tool_arg_aliases.get(name.removeprefix(prefix))
++        schema = getattr(tool, "args_schema", None)
++        if isinstance(schema, dict):
++            tool.args_schema = mcp_args_model(name, schema)
++        # Apply aliases before the schema-aware optional-null compatibility.
++        _wrap_tool_arguments(tool, aliases=aliases)
++        if name in renamed:
++            tool.name = renamed[name]
+ 
+ 
+ def _prepare_tool_arguments(
+     arguments: dict[str, Any],
+     aliases: dict[str, str] | None,
++    schema: dict[str, Any] | None,
+ ) -> dict[str, Any]:
+     prepared = _remap_tool_arguments(arguments, aliases) if aliases else arguments
+-    return {key: value for key, value in prepared.items() if value is not None}
++    return prepare_mcp_tool_arguments(prepared, schema)
+ 
+ 
+ def _wrap_tool_arguments(tool: Any, *, aliases: dict[str, str] | None = None) -> None:
+-    """Remap aliases (if any) and omit ``None`` values before the MCP tool runs."""
++    """Remap aliases and omit only optional nonnullable nulls before MCP calls."""
++    schema = getattr(tool, "args_schema", None)
++    input_schema = schema if isinstance(schema, dict) else None
+     for attr in ("coroutine", "func"):
+         original = getattr(tool, attr, None)
+         if original is None or not callable(original):
+             continue
+-        setattr(tool, attr, _with_prepared_arguments(original, aliases))
++        setattr(tool, attr, _with_prepared_arguments(original, aliases, input_schema))
+ 
+ 
+ def _with_prepared_arguments(
+     original: Callable[..., Any],
+     aliases: dict[str, str] | None,
++    schema: dict[str, Any] | None,
+ ) -> Callable[..., Any]:
+     if inspect.iscoroutinefunction(original):
+ 
+         async def _async_wrapped(**arguments: Any) -> Any:
+-            return await original(**_prepare_tool_arguments(arguments, aliases))
++            return await original(**_prepare_tool_arguments(arguments, aliases, schema))
+ 
+         return _async_wrapped
+ 
+     def _sync_wrapped(**arguments: Any) -> Any:
+-        return original(**_prepare_tool_arguments(arguments, aliases))
++        return original(**_prepare_tool_arguments(arguments, aliases, schema))
+ 
+     return _sync_wrapped
+ 
+@@ -430,28 +381,10 @@
+     for alias, canonical in aliases.items():
+         if alias not in remapped:
+             continue
+-        alias_value = remapped.get(alias)
+-        if alias_value in (None, ""):
+-            continue
+-        if canonical not in remapped or remapped.get(canonical) in (None, ""):
+-            remapped[canonical] = alias_value
++        if canonical not in remapped:
++            remapped[canonical] = remapped[alias]
+         remapped.pop(alias, None)
+     return remapped
+-
+-
+-def _coerce_tool_args_schema(tool: Any) -> None:
+-    """Replace raw JSON Schema dicts with Pydantic models for clearer LLM binding."""
+-    schema = getattr(tool, "args_schema", None)
+-    if schema is None or not isinstance(schema, dict):
+-        return
+-    try:
+-        tool.args_schema = mcp_args_model(_tool_name(tool), schema)
+-    except (NameError, TypeError, ValueError):
+-        logger.debug(
+-            "Keeping raw JSON schema for tool %s",
+-            _tool_name(tool),
+-            exc_info=True,
+-        )
+ 
+ 
+ __all__ = [
+@@ -461,6 +394,7 @@
+     "mcp_args_model",
+     "mcp_tool_names",
+     "merge_mcp_server_configs",
++    "prepare_mcp_tool_arguments",
+     "prioritize_active_mcp_tools",
+     "resolve_active_mcp_servers",
+     "sanitize_llm_tool_name",
+--- a/src/octop_harness/middleware/memory.py
++++ b/src/octop_harness/middleware/memory.py
+@@ -29,9 +29,10 @@
+ from collections.abc import Callable
+ from datetime import datetime
+ from pathlib import Path
+-from typing import TYPE_CHECKING, Any
++from typing import TYPE_CHECKING, Annotated, Any, NotRequired
+ 
+ from langchain.agents.middleware import AgentMiddleware
++from langchain.agents.middleware.types import AgentState, PrivateStateAttr
+ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+ 
+ from octop_harness.middleware.memory_recall import (
+@@ -122,6 +123,12 @@
+         if _BG_POOL is None:
+             _BG_POOL = _BackgroundExecutor()
+         return _BG_POOL
++
++
++class _MemoryState(AgentState[Any]):
++    """Graph-local capture boundary, also retained across model checkpoint resume."""
++
++    _harness_memory_cursor: NotRequired[Annotated[int | None, PrivateStateAttr]]
+ 
+ 
+ class MemoryMiddleware(AgentMiddleware[Any, Any]):
+@@ -163,6 +170,8 @@
+     def name(self) -> str:
+         """Distinct name to avoid collision with deepagents' MemoryMiddleware."""
+         return "HarnessMemoryMiddleware"
++
++    state_schema = _MemoryState
+ 
+     def __init__(
+         self,
+@@ -216,11 +225,6 @@
+         self._maintenance_lock = threading.Lock()
+         self._maintenance_stopped = False
+         self._maintenance_running = threading.Lock()
+-        # Per-thread snapshot of the message count at ``before_model`` time
+-        # so ``after_model`` can record only the messages produced this turn.
+-        # Keyed by thread id rather than ``self`` to stay correct under parallel
+-        # subagents.
+-        self._cursors: dict[int, int] = {}
+         # Track session_id -> set of thread_ids seen, for ``end_session``.
+         # We treat one langgraph thread_id as one logical session for now;
+         # callers wanting cross-thread sessions can pass an explicit one in
+@@ -271,7 +275,7 @@
+         """
+         try:
+             messages = _extract_messages(state)
+-            self._cursors[threading.get_ident()] = len(messages)
++            update: dict[str, Any] = {"_harness_memory_cursor": len(messages)}
+             if (
+                 self._service is not None
+                 and self._recall_inject_enabled
+@@ -280,7 +284,8 @@
+                 and not has_recall_snapshot(messages[-1])
+             ):
+                 stamped = self._prepare_recall(messages[-1], runtime)
+-                return {"messages": [stamped]}
++                update["messages"] = [stamped]
++            return update
+         except Exception:  # pragma: no cover - never raise into the user turn; pylint: disable=broad-except
+             logger.warning("MemoryMiddleware before_model failed", exc_info=True)
+         return None
+@@ -300,7 +305,7 @@
+     ) -> Any:
+         return await handler(request.override(messages=replay_recall_snapshots(request.messages)))
+ 
+-    def after_model(self, state: Any, runtime: Any) -> None:
++    def after_model(self, state: Any, runtime: Any) -> dict[str, Any]:
+         """Persist messages produced this turn to MemoryService and/or JSONL.
+ 
+         With a :class:`MemoryService` bound, we route the user / assistant
+@@ -318,10 +323,12 @@
+         """
+         try:
+             messages = _extract_messages(state)
+-            cursor = self._cursors.pop(threading.get_ident(), 0)
++            cursor = state.get("_harness_memory_cursor")
++            if cursor is None:
++                return {"_harness_memory_cursor": None}
+             new_messages: list[BaseMessage] = list(messages[cursor:]) if cursor <= len(messages) else []
+             if not new_messages:
+-                return
++                return {"_harness_memory_cursor": None}
+ 
+             configurable = _get_configurable(runtime)
+             thread_id = configurable.get("thread_id", "unknown")
+@@ -364,12 +371,13 @@
+                 self._write_jsonl(jsonl_messages, configurable)
+         except Exception:  # pragma: no cover - never raise into the user turn; pylint: disable=broad-except
+             logger.warning("MemoryMiddleware after_model failed", exc_info=True)
++        return {"_harness_memory_cursor": None}
+ 
+     async def abefore_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
+         return self.before_model(state, runtime)
+ 
+-    async def aafter_model(self, state: Any, runtime: Any) -> None:
+-        self.after_model(state, runtime)
++    async def aafter_model(self, state: Any, runtime: Any) -> dict[str, Any]:
++        return self.after_model(state, runtime)
+ 
+     # ------------------------------------------------------------------
+     # Session-end extract trigger
+--- a/tests/test_builtin_tools.py
++++ b/tests/test_builtin_tools.py
+@@ -2,10 +2,11 @@
+ 
+ from __future__ import annotations
+ 
++import importlib
+ import re
+-from unittest.mock import patch
+ 
+ import httpx
++import pytest
+ 
+ from octop_harness.builtin.tools.current_time import CurrentTimeTool, current_time
+ from octop_harness.builtin.tools.web_fetch import web_fetch
+@@ -70,133 +71,43 @@
+ class TestWebFetch:
+     def test_rejects_non_http_url(self) -> None:
+         result = web_fetch.invoke({"url": "ftp://example.com"})
+-        assert isinstance(result, str)
+-        assert result.startswith("Error:")
+-        assert "http" in result
+-        assert "ftp://" in result
++        assert result.startswith("Error:") and "ftp://" in result
+ 
+-    def test_oversized_response_returns_error(self) -> None:
+-        huge = b"x" * (5 * 1024 * 1024 + 1)
++    @pytest.mark.parametrize(
++        ("status", "headers", "body", "expected"),
++        [
++            (200, {}, b"x" * (5 * 1024 * 1024 + 1), "exceeding"),
++            (
++                200,
++                {"content-type": "text/html; charset=utf-8"},
++                b"<h1>Title</h1><p>Hello <b>world</b></p>",
++                "Hello **world**",
++            ),
++            (404, {}, b"not found", "Error: HTTP 404 Not Found for https://example.com/"),
++        ],
++        ids=["oversize", "html", "http_error"],
++    )
++    def test_response(
++        self, monkeypatch: pytest.MonkeyPatch, status: int, headers: dict[str, str], body: bytes, expected: str
++    ) -> None:
++        mod = importlib.import_module("octop_harness.builtin.tools.web_fetch")
++        client_type = httpx.Client
++        transport = httpx.MockTransport(
++            lambda request: httpx.Response(status, headers=headers, stream=httpx.ByteStream(body))
++        )
++        monkeypatch.setattr(mod, "validate_agent_fetch_url", lambda url: url)
++        monkeypatch.setattr(mod.httpx, "Client", lambda **kw: client_type(transport=transport, **kw))
++        assert expected in web_fetch.invoke({"url": "https://example.com/"})
+ 
+-        class FakeResponse:
+-            status_code = 200
+-            is_error = False
+-            content = huge
+-            text = ""
+-            headers = {"content-type": "application/octet-stream"}
+-            request = type("Req", (), {"url": "https://example.com/big"})()
++    def test_network_error_returned_as_string(self, monkeypatch: pytest.MonkeyPatch) -> None:
++        mod = importlib.import_module("octop_harness.builtin.tools.web_fetch")
+ 
+-        class FakeClient:
+-            def __init__(self, *args: object, **kwargs: object) -> None:
+-                pass
++        def fail(request: httpx.Request) -> httpx.Response:
++            raise httpx.ConnectError("Name or service not known", request=request)
+ 
+-            def __enter__(self) -> FakeClient:
+-                return self
+-
+-            def __exit__(self, *args: object) -> None:
+-                return None
+-
+-            def get(self, url: str) -> FakeResponse:
+-                return FakeResponse()
+-
+-        with (
+-            patch(
+-                "octop_harness.builtin.tools.web_fetch.validate_agent_fetch_url",
+-                side_effect=lambda u: u,
+-            ),
+-            patch("octop_harness.builtin.tools.web_fetch.httpx.Client", FakeClient),
+-        ):
+-            result = web_fetch.invoke({"url": "https://example.com/big"})
+-        assert result.startswith("Error:")
+-        assert "exceeding" in result
+-
+-    def test_html_to_markdown(self) -> None:
+-        html = "<html><body><h1>Title</h1><p>Hello <b>world</b></p></body></html>"
+-
+-        class FakeResponse:
+-            status_code = 200
+-            is_error = False
+-            content = html.encode("utf-8")
+-            text = html
+-            headers = {"content-type": "text/html; charset=utf-8"}
+-
+-        class FakeClient:
+-            def __init__(self, *args: object, **kwargs: object) -> None:
+-                pass
+-
+-            def __enter__(self) -> FakeClient:
+-                return self
+-
+-            def __exit__(self, *args: object) -> None:
+-                pass
+-
+-            def get(self, url: str) -> FakeResponse:
+-                """Return canned HTML."""
+-                return FakeResponse()
+-
+-        with patch("octop_harness.builtin.tools.web_fetch.httpx.Client", FakeClient):
+-            md = web_fetch.invoke({"url": "https://example.com"})
+-        # Basic markdown markers we expect from markdownify.
+-        assert "Title" in md
+-        assert "Hello" in md
+-        assert "world" in md
+-
+-    def test_http_error_returned_as_string(self) -> None:
+-        """HTTP 4xx/5xx must surface as a plain ``Error: ...`` string so
+-        the agent's tool loop stays alive and the model can decide how
+-        to recover (try a different URL, switch tools, give up
+-        gracefully). Regression: previously ``raise_for_status`` made
+-        the whole graph terminate."""
+-
+-        class FakeResponse:
+-            status_code = 404
+-            reason_phrase = "Not Found"
+-            is_error = True
+-            content = b"not found"
+-            text = "not found"
+-            headers = {"content-type": "text/plain"}
+-            request = type("Req", (), {"url": "https://example.com/missing"})()
+-
+-        class FakeClient:
+-            def __init__(self, *args: object, **kwargs: object) -> None:
+-                pass
+-
+-            def __enter__(self) -> FakeClient:
+-                return self
+-
+-            def __exit__(self, *args: object) -> None:
+-                pass
+-
+-            def get(self, url: str) -> FakeResponse:
+-                return FakeResponse()
+-
+-        with patch("octop_harness.builtin.tools.web_fetch.httpx.Client", FakeClient):
+-            result = web_fetch.invoke({"url": "https://example.com/missing"})
+-
+-        assert isinstance(result, str)
+-        assert result.startswith("Error: HTTP 404")
+-        assert "Not Found" in result
+-        assert "https://example.com/missing" in result
+-
+-    def test_network_error_returned_as_string(self) -> None:
+-        """DNS / connection failures also turn into a string, not a raise."""
+-
+-        class FakeClient:
+-            def __init__(self, *args: object, **kwargs: object) -> None:
+-                pass
+-
+-            def __enter__(self) -> FakeClient:
+-                return self
+-
+-            def __exit__(self, *args: object) -> None:
+-                pass
+-
+-            def get(self, url: str) -> object:
+-                raise httpx.ConnectError("Name or service not known")
+-
+-        with patch("octop_harness.builtin.tools.web_fetch.httpx.Client", FakeClient):
+-            result = web_fetch.invoke({"url": "https://no-such-host.invalid/"})
+-
+-        assert isinstance(result, str)
+-        assert result.startswith("Error:")
+-        assert "ConnectError" in result or "cannot resolve" in result
++        client_type = httpx.Client
++        transport = httpx.MockTransport(fail)
++        monkeypatch.setattr(mod, "validate_agent_fetch_url", lambda url: url)
++        monkeypatch.setattr(mod.httpx, "Client", lambda **kw: client_type(transport=transport, **kw))
++        result = web_fetch.invoke({"url": "https://no-such-host.invalid/"})
++        assert result.startswith("Error: ConnectError")
+--- a/tests/test_close_lifecycle.py
++++ b/tests/test_close_lifecycle.py
+@@ -256,6 +256,41 @@
+         assert agent._checkpointer_conn is None
+ 
+     @pytest.mark.asyncio
++    @pytest.mark.parametrize("cancel", [False, True])
++    async def test_manual_compaction_holds_the_pin_until_finish_or_cancel(self, tmp_path: Path, cancel: bool) -> None:
++        import asyncio
++
++        from octop_harness.compaction import CompactResult
++
++        agent = _build_agent(_sqlite_agent_cfg(tmp_path))
++        started = asyncio.Event()
++        released = asyncio.Event()
++
++        async def compact(**_kwargs):
++            started.set()
++            await released.wait()
++            assert agent._checkpointer_conn is not None
++            return CompactResult(ok=True)
++
++        with patch("octop_harness.compaction.force_compact_thread", side_effect=compact):
++            task = asyncio.create_task(agent.acompact_conversation("thread", model="p/text"))
++            await asyncio.wait_for(started.wait(), 2)
++            await agent.aclose()
++            retained = agent._checkpointer_conn is not None
++            if cancel:
++                task.cancel()
++                with pytest.raises(asyncio.CancelledError):
++                    await task
++            else:
++                released.set()
++                await task
++
++        assert retained
++        assert agent._checkpointer_conn is None
++        assert agent._in_flight == 0
++        assert agent._close_pending is False
++
++    @pytest.mark.asyncio
+     async def test_stream_holds_the_pin_until_it_finishes(self, tmp_path: Path) -> None:
+         import asyncio
+ 
+--- a/tests/test_compaction.py
++++ b/tests/test_compaction.py
+@@ -2,6 +2,7 @@
+ 
+ from __future__ import annotations
+ 
++import threading
+ from types import SimpleNamespace
+ from unittest.mock import AsyncMock, MagicMock, NonCallableMagicMock, patch
+ 
+@@ -41,6 +42,9 @@
+     agent._backend = MagicMock()
+     agent._summarization_mw = None
+     agent._context_usage_mw = None
++    agent._lifecycle_lock = threading.Lock()
++    agent._in_flight = 0
++    agent._close_pending = False
+     result = CompactResult(
+         ok=True,
+         summarized_count=10,
+@@ -567,14 +571,15 @@
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_force_compact_reuses_graph_mw_and_restores_keep(tmp_path) -> None:
++async def test_force_compact_copies_graph_mw_and_preserves_keep(tmp_path) -> None:
+     from deepagents.middleware.summarization import (
+         SummarizationMiddleware,
+         compute_summarization_defaults,
+     )
+ 
+     backend = _workspace_backend(tmp_path)
+-    model = _summary_model("SUMMARY")
++    model = _summary_model("AUTOMATIC SUMMARY")
++    turn_model = _summary_model("SELECTED SUMMARY")
+     defaults = compute_summarization_defaults(model)
+     graph_mw = SummarizationMiddleware(
+         model=model,
+@@ -592,7 +597,7 @@
+         result = await force_compact_thread(
+             graph=graph,
+             backend=backend,
+-            model=model,
++            model=turn_model,
+             thread_id="thr_real",
+             summarization_middleware=graph_mw,
+         )
+@@ -600,5 +605,8 @@
+     assert result.ok is True
+     build_mw.assert_not_called()
+     assert graph_mw._lc_helper.keep == original_keep
++    assert graph_mw.model is model
++    update = graph.aupdate_state.await_args.args[1]
++    assert "SELECTED SUMMARY" in update["_summarization_event"]["summary_message"].content
+     sid = graph.aupdate_state.await_args.args[1]["_summarization_session_id"]
+     assert result.display_path == f".octop/conversation_history/{sid}.md"
+--- /dev/null
++++ b/tests/test_compaction_isolation.py
+@@ -0,0 +1,142 @@
++"""Forced compaction isolates mutable policy and counts the full request context."""
++
++from __future__ import annotations
++
++import asyncio
++from types import SimpleNamespace
++from unittest.mock import AsyncMock, MagicMock, patch
++
++import pytest
++from deepagents.middleware.summarization import SummarizationMiddleware
++from langchain_core.messages import HumanMessage
++from tests.test_compaction import _long_thread, _summary_model, _workspace_backend
++
++from octop_harness.compaction import FORCE_KEEP_MESSAGES, _persist_compact_event, force_compact_thread
++from octop_harness.context_usage import conversation_tokens_from_messages, estimate_tokens
++from octop_harness.middleware.memory_recall import (
++    replay_context_snapshots,
++    replay_recall_snapshots,
++    stamp_context_snapshot,
++    stamp_recall_snapshot,
++)
++
++
++@pytest.mark.asyncio
++async def test_parallel_force_compactions_keep_models_and_graph_policy_isolated(tmp_path) -> None:
++    backend = _workspace_backend(tmp_path)
++    original_model = _summary_model("original")
++    models = {"A": _summary_model("summary A"), "B": _summary_model("summary B")}
++    graph_mw = SummarizationMiddleware(
++        model=original_model,
++        backend=backend,
++        trigger=("tokens", 100_000),
++        keep=("messages", 20),
++        summary_prompt="custom summary: {messages}",
++        trim_tokens_to_summarize=1234,
++    )
++    helper = graph_mw._lc_helper
++    original_summary_model = helper._summary_model
++    messages = _long_thread(8)
++    graph = MagicMock()
++    graph.aget_state = AsyncMock(
++        side_effect=lambda config: SimpleNamespace(
++            values={
++                "messages": messages,
++                "_summarization_session_id": f"session_{config['configurable']['thread_id']}",
++            }
++        )
++    )
++    graph.aupdate_state = AsyncMock()
++    started = {name: asyncio.Event() for name in models}
++    release = {name: asyncio.Event() for name in models}
++    seen = {}
++    offloads = []
++
++    async def summarize(mw, _messages):
++        name = next(name for name, model in models.items() if mw.model is model)
++        started[name].set()
++        await release[name].wait()
++        seen[name] = (
++            mw.model,
++            mw._lc_helper.keep,
++            mw._lc_helper.summary_prompt,
++            mw._lc_helper.trim_tokens_to_summarize,
++        )
++        return f"summary {name}"
++
++    async def offload(_mw, target, _messages, session_id):
++        offloads.append((target, session_id))
++        return f"/conversation_history/{session_id}.md"
++
++    with (
++        patch.object(SummarizationMiddleware, "_acreate_summary", summarize),
++        patch.object(SummarizationMiddleware, "_aoffload_to_backend", offload),
++    ):
++        tasks = {}
++        try:
++            for name, model in models.items():
++                tasks[name] = asyncio.create_task(
++                    force_compact_thread(
++                        graph=graph,
++                        backend=MagicMock(),
++                        model=model,
++                        thread_id=name,
++                        summarization_middleware=graph_mw,
++                    )
++                )
++                await asyncio.wait_for(started[name].wait(), 2)
++            observed_graph_policy = (helper.model, helper.keep, helper._summary_model)
++            release["A"].set()
++            assert (await tasks["A"]).ok
++            release["B"].set()
++            assert (await tasks["B"]).ok
++        finally:
++            for signal in release.values():
++                signal.set()
++            await asyncio.gather(*tasks.values(), return_exceptions=True)
++
++    assert observed_graph_policy == (original_model, ("messages", 20), original_summary_model)
++    assert helper.model is original_model
++    assert helper.keep == ("messages", 20)
++    assert helper._summary_model is original_summary_model
++    for name, model in models.items():
++        assert seen[name] == (model, ("messages", FORCE_KEEP_MESSAGES), "custom summary: {messages}", 1234)
++    assert offloads == [(backend, "session_A"), (backend, "session_B")]
++
++
++@pytest.mark.asyncio
++async def test_force_compaction_estimates_replay_host_and_recall_snapshots() -> None:
++    removed = stamp_context_snapshot(HumanMessage(content="first", id="a"), "device", "device context " * 500)
++    removed = stamp_recall_snapshot(removed, "remember this " * 500)
++    preserved = stamp_context_snapshot(HumanMessage(content="recent", id="b"), "task", "task context " * 500)
++    summary = HumanMessage(content="summary", additional_kwargs={"lc_source": "summarization"})
++    graph = SimpleNamespace(aupdate_state=AsyncMock())
++    mw = SimpleNamespace(
++        _build_new_messages_with_path=lambda *_: [summary],
++        _compute_state_cutoff=lambda _event, cutoff: cutoff,
++    )
++    result = await _persist_compact_event(
++        graph=graph,
++        config={},
++        work_mw=mw,
++        event=None,
++        cutoff=1,
++        file_path="history.md",
++        summary="summary",
++        session_id="session",
++        to_summarize=[removed],
++        preserved=[preserved],
++        thread_id="thread",
++    )
++
++    def expected(messages):
++        return conversation_tokens_from_messages(
++            replay_context_snapshots(replay_recall_snapshots(messages), originals=messages)
++        )
++
++    assert result.ok
++    assert result.before_estimated_tokens == expected([removed, preserved])
++    assert result.after_estimated_tokens == expected([summary, preserved])
++    assert result.removed_tokens == expected([removed]) - estimate_tokens("summary")
++    assert removed.content == "first"
++    assert preserved.content == "recent"
+--- a/tests/test_mcp.py
++++ b/tests/test_mcp.py
+@@ -9,13 +9,13 @@
+ import pytest
+ from langchain.agents.middleware import ModelRequest, ModelResponse
+ from langchain_core.runnables.config import var_child_runnable_config
+-from pydantic import ValidationError
+ 
+ from octop_harness.mcp import (
+     aload_mcp_tools,
+     filter_tools_for_mcp_servers,
+     mcp_args_model,
+     merge_mcp_server_configs,
++    prepare_mcp_tool_arguments,
+     prioritize_active_mcp_tools,
+     resolve_active_mcp_servers,
+     sanitize_llm_tool_name,
+@@ -173,10 +173,10 @@
+                 },
+             },
+         )
+-        assert "search_key" in model.model_fields
+-        assert model.model_fields["search_key"].is_required()
+-
+-    def test_renames_leading_underscore_properties(self) -> None:
++        assert "search_key" in model["properties"]
++        assert model["required"] == ["search_key"]
++
++    def test_preserves_leading_underscore_properties(self) -> None:
+         model = mcp_args_model(
+             "meeting_list",
+             {
+@@ -188,11 +188,11 @@
+                 },
+             },
+         )
+-        assert "client_info" in model.model_fields
+-        assert model.model_fields["client_info"].is_required()
+-        assert "query" in model.model_fields
+-
+-    def test_renames_reserved_base_model_properties(self) -> None:
++        assert "_client_info" in model["properties"]
++        assert model["required"] == ["_client_info"]
++        assert "query" in model["properties"]
++
++    def test_preserves_reserved_base_model_properties(self) -> None:
+         model = mcp_args_model(
+             "tencent_lexiang_smartsheet_create",
+             {
+@@ -204,13 +204,8 @@
+                 },
+             },
+         )
+-        assert "schema" not in model.model_fields
+-        assert "arg_schema" in model.model_fields
+-        assert model.model_fields["arg_schema"].is_required()
+-        assert model.model_validate({"schema": "cols"}).model_dump(by_alias=True) == {
+-            "schema": "cols",
+-            "title": None,
+-        }
++        assert "schema" in model["properties"]
++        assert model["required"] == ["schema"]
+ 
+     def test_llm_schema_omits_null_for_optionals(self) -> None:
+         model = mcp_args_model(
+@@ -224,12 +219,12 @@
+                 },
+             },
+         )
+-        props = model.model_json_schema()["properties"]
++        props = model["properties"]
+         assert "anyOf" not in props["page_size"]
+         assert "default" not in props["page_size"]
+         assert props["page_size"]["type"] == "number"
+ 
+-    def test_drops_null_arguments_before_validation(self) -> None:
++    def test_omits_only_optional_nonnullable_null_arguments(self) -> None:
+         model = mcp_args_model(
+             "search_flight",
+             {
+@@ -241,14 +236,9 @@
+                 },
+             },
+         )
+-        # Optional null is dropped for validation; Pydantic still applies default=None
+-        # on the model instance. The MCP call path strips None separately.
+-        parsed = model.model_validate({"origin": "北京", "destination": None})
+-        assert parsed.origin == "北京"
+-        assert parsed.destination is None
+-
+-        with pytest.raises(ValidationError, match="origin"):
+-            model.model_validate({"origin": None, "destination": None})
++        assert prepare_mcp_tool_arguments({"origin": "北京", "destination": None}, model) == {"origin": "北京"}
++        # Required arguments stay intact for validation by the MCP server.
++        assert prepare_mcp_tool_arguments({"origin": None, "destination": None}, model) == {"origin": None}
+ 
+     @pytest.mark.asyncio
+     async def test_strips_none_arguments_before_mcp_call(
+@@ -287,7 +277,7 @@
+         assert captured["arguments"] == {"query": "budget"}
+ 
+     @pytest.mark.asyncio
+-    async def test_coerces_remote_tool_json_schema(self, monkeypatch: pytest.MonkeyPatch) -> None:
++    async def test_preserves_remote_tool_json_schema(self, monkeypatch: pytest.MonkeyPatch) -> None:
+         class _Client:
+             def __init__(self, configs: dict[str, object], **kwargs: object) -> None:
+                 del configs, kwargs
+@@ -308,9 +298,9 @@
+         monkeypatch.setattr("octop_harness.mcp.MultiServerMCPClient", _Client)
+         tools = await aload_mcp_tools({"docs": {"transport": "http", "url": "http://docs"}})
+         schema = tools[0].args_schema
+-        assert isinstance(schema, type)
+-        assert "search_key" in schema.model_fields
+-        assert schema.model_fields["search_key"].is_required()
++        assert isinstance(schema, dict)
++        assert schema["properties"]["search_key"] == {"type": "string", "description": "keyword"}
++        assert schema["required"] == ["search_key"]
+ 
+ 
+ class TestMergeMcpServerConfigs:
+--- /dev/null
++++ b/tests/test_mcp_schema_fidelity.py
+@@ -0,0 +1,124 @@
++"""MCP schemas and argument identities survive LangChain's tool boundary."""
++
++from __future__ import annotations
++
++from copy import deepcopy
++from typing import Any
++
++import pytest
++from langchain_core.tools import StructuredTool
++from langchain_core.utils.function_calling import convert_to_openai_tool
++
++from octop_harness.mcp import _postprocess_mcp_tools, mcp_args_model
++
++
++def _schema() -> dict[str, Any]:
++    return {
++        "type": "object",
++        "$defs": {"Row": {"type": "object", "properties": {"id": {"type": "integer", "minimum": 1}}}},
++        "properties": {
++            "_client_info": {"$ref": "#/$defs/Row"},
++            "items": {"type": "array", "items": {"$ref": "#/$defs/Row"}, "minItems": 1},
++            "schema": {"anyOf": [{"type": "string", "enum": ["one", "two"]}, {"type": "null"}]},
++            "optional": {"type": "string"},
++            "nullable": {"type": ["string", "null"]},
++        },
++        "required": ["_client_info", "items", "schema"],
++        "additionalProperties": False,
++    }
++
++
++def _tool(name: str, schema: dict[str, Any]) -> StructuredTool:
++    async def run(**arguments: Any) -> dict[str, Any]:
++        return arguments
++
++    return StructuredTool(name=name, description="Test MCP tool", args_schema=schema, coroutine=run)
++
++
++def test_public_schema_helper_preserves_schema_without_mutating_input() -> None:
++    schema = _schema()
++    preserved = mcp_args_model("svc_complex", schema)
++    assert preserved == schema
++    assert preserved is not schema
++    preserved["properties"]["items"]["minItems"] = 5
++    assert schema["properties"]["items"]["minItems"] == 1
++
++
++def test_public_argument_preparation_retains_unknown_and_nullable_values() -> None:
++    from octop_harness import prepare_mcp_tool_arguments
++
++    schema = {
++        "type": "object",
++        "properties": {
++            "number": {"type": "number"},
++            "optional_nullable": {"anyOf": [{"type": "number"}, {"type": "null"}]},
++            "required_nullable": {"type": ["number", "null"]},
++        },
++        "required": ["required_nullable"],
++    }
++    arguments = {"number": None, "optional_nullable": None, "required_nullable": None, "unknown": None}
++    assert prepare_mcp_tool_arguments(arguments, schema) == {
++        "optional_nullable": None,
++        "required_nullable": None,
++        "unknown": None,
++    }
++    assert arguments["number"] is None
++
++
++@pytest.mark.asyncio
++async def test_remote_tool_preserves_complex_schema_and_explicit_nullable_arguments() -> None:
++    schema = _schema()
++    original = deepcopy(schema)
++    tool = _tool("svc.complex", schema)
++    _postprocess_mcp_tools([tool], server_name="svc", tool_arg_aliases={})
++    assert tool.args_schema == original
++    bound = convert_to_openai_tool(tool)["function"]["parameters"]
++    assert bound["properties"]["items"]["type"] == "array"
++    assert bound["properties"]["_client_info"]["type"] == "object"
++    assert bound["additionalProperties"] is False
++    assert bound["properties"]["schema"]["anyOf"][0]["enum"] == ["one", "two"]
++    arguments = {"_client_info": {"id": 2}, "items": [{"id": 3}], "schema": None, "nullable": None}
++    assert await tool.ainvoke(arguments) == arguments
++    assert await tool.ainvoke({**arguments, "optional": None}) == arguments
++    assert schema == original
++
++
++@pytest.mark.asyncio
++async def test_nullable_reference_and_alias_are_preserved_before_mcp_call() -> None:
++    schema = {
++        "type": "object",
++        "$defs": {"Nullable": {"oneOf": [{"type": "integer"}, {"type": "null"}]}},
++        "properties": {"canonical": {"$ref": "#/$defs/Nullable"}, "optional": {"type": "number"}},
++        "required": ["canonical"],
++    }
++    tool = _tool("svc_write", schema)
++    _postprocess_mcp_tools([tool], server_name="svc", tool_arg_aliases={"write": {"alias": "canonical"}})
++    assert await tool.ainvoke({"alias": None, "optional": None}) == {"canonical": None}
++    assert await tool.ainvoke({"alias": 1}) == {"canonical": 1}
++    assert await tool.ainvoke({"canonical": None, "alias": 2}) == {"canonical": None}
++
++
++@pytest.mark.parametrize("reverse", [False, True])
++def test_name_collision_assignment_is_unique_and_independent_of_input_order(reverse: bool) -> None:
++    names = ["svc.a", "svc_a", "svc a", "svc_a_2"]
++    tools = [_tool(name, {"type": "object", "properties": {}}) for name in reversed(names) if reverse]
++    if not reverse:
++        tools = [_tool(name, {"type": "object", "properties": {}}) for name in names]
++    original_names = [tool.name for tool in tools]
++    _postprocess_mcp_tools(tools, server_name="svc", tool_arg_aliases={})
++    assigned = dict(zip(original_names, [tool.name for tool in tools], strict=True))
++    assert len(set(assigned.values())) == len(names)
++    assert assigned == {"svc.a": "svc_a_4", "svc_a": "svc_a", "svc a": "svc_a_3", "svc_a_2": "svc_a_2"}
++
++
++@pytest.mark.asyncio
++async def test_sanitized_names_keep_the_original_tool_callable() -> None:
++    def tool(name: str) -> StructuredTool:
++        async def run(**_: Any) -> str:
++            return name
++
++        return StructuredTool(name=name, description="MCP", args_schema={"type": "object"}, coroutine=run)
++
++    tools = [tool("svc.a"), tool("svc_a")]
++    _postprocess_mcp_tools(tools, server_name="svc", tool_arg_aliases={})
++    assert {item.name: await item.ainvoke({}) for item in tools} == {"svc_a_2": "svc.a", "svc_a": "svc_a"}
+--- /dev/null
++++ b/tests/test_memory_capture_isolation.py
+@@ -0,0 +1,168 @@
++"""Memory capture follows graph state across concurrent and resumed calls."""
++
++from __future__ import annotations
++
++import asyncio
++import operator
++from typing import Annotated, Any, TypedDict
++from unittest.mock import MagicMock
++
++import pytest
++from langchain.agents import create_agent
++from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
++from langchain_core.messages import AIMessage, HumanMessage
++from langchain_core.outputs import ChatGeneration, ChatResult
++from langgraph.checkpoint.memory import InMemorySaver
++from langgraph.graph import END, START, StateGraph
++
++from octop_harness.middleware.memory import MemoryMiddleware
++
++
++class GatedModel(FakeMessagesListChatModel):
++    entered: dict[str, Any] = {}
++    released: dict[str, Any] = {}
++
++    async def _agenerate(self, messages: Any, **kwargs: Any) -> ChatResult:
++        prompt = str(messages[-1].content)
++        self.entered[prompt].set()
++        await self.released[prompt].wait()
++        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=f"reply to {prompt}"))])
++
++
++def _model(*prompts: str) -> GatedModel:
++    return GatedModel(
++        responses=[],
++        entered={prompt: asyncio.Event() for prompt in prompts},
++        released={prompt: asyncio.Event() for prompt in prompts},
++    )
++
++
++def _middleware() -> tuple[MemoryMiddleware, MagicMock]:
++    mw = MemoryMiddleware(service=MagicMock(), recall_inject_enabled=False, jsonl_enabled=False)
++    capture = MagicMock()
++    mw._submit_capture = capture
++    return mw, capture
++
++
++async def _entered(model: GatedModel, *prompts: str) -> None:
++    await asyncio.wait_for(asyncio.gather(*(model.entered[prompt].wait() for prompt in prompts)), 2)
++
++
++@pytest.mark.asyncio
++async def test_parallel_threads_capture_only_each_new_exchange() -> None:
++    mw, capture = _middleware()
++    model = _model("A", "B")
++    graph = create_agent(model, middleware=[mw], checkpointer=InMemorySaver())
++    a = asyncio.create_task(graph.ainvoke({"messages": [HumanMessage("A")]}, {"configurable": {"thread_id": "a"}}))
++    b = asyncio.create_task(
++        graph.ainvoke(
++            {"messages": [HumanMessage("old"), AIMessage("old reply"), HumanMessage("B")]},
++            {"configurable": {"thread_id": "b"}},
++        )
++    )
++    try:
++        await _entered(model, "A", "B")
++        model.released["A"].set()
++        result = await a
++        assert "_harness_memory_cursor" not in result
++        assert (await graph.aget_state({"configurable": {"thread_id": "a"}})).values["_harness_memory_cursor"] is None
++        model.released["B"].set()
++        await b
++    finally:
++        a.cancel()
++        b.cancel()
++        await asyncio.gather(a, b, return_exceptions=True)
++    assert [(call.args[0][0].content, call.args[0][-1].content) for call in capture.call_args_list] == [
++        ("A", "reply to A"),
++        ("B", "reply to B"),
++    ]
++
++
++class ParentState(TypedDict):
++    replies: Annotated[list[str], operator.add]
++
++
++@pytest.mark.asyncio
++async def test_parallel_subgraphs_share_middleware_without_sharing_cursor() -> None:
++    mw, capture = _middleware()
++    model = _model("A", "B")
++    child = create_agent(model, middleware=[mw])
++    a_finished = asyncio.Event()
++
++    async def branch_a(state: ParentState) -> ParentState:
++        result = await child.ainvoke({"messages": [HumanMessage("A")]})
++        a_finished.set()
++        return {"replies": [result["messages"][-1].content]}
++
++    async def branch_b(state: ParentState) -> ParentState:
++        result = await child.ainvoke({"messages": [HumanMessage("old"), AIMessage("old reply"), HumanMessage("B")]})
++        return {"replies": [result["messages"][-1].content]}
++
++    builder = StateGraph(ParentState)
++    builder.add_node("a", branch_a)
++    builder.add_node("b", branch_b)
++    builder.add_edge(START, "a")
++    builder.add_edge(START, "b")
++    builder.add_edge("a", END)
++    builder.add_edge("b", END)
++    graph = builder.compile(checkpointer=InMemorySaver())
++    task = asyncio.create_task(graph.ainvoke({"replies": []}, {"configurable": {"thread_id": "parent"}}))
++    try:
++        await _entered(model, "A", "B")
++        model.released["A"].set()
++        await asyncio.wait_for(a_finished.wait(), 2)
++        model.released["B"].set()
++        assert set((await task)["replies"]) == {"reply to A", "reply to B"}
++    finally:
++        task.cancel()
++        await asyncio.gather(task, return_exceptions=True)
++    assert sorted((call.args[0][0].content, call.args[0][-1].content) for call in capture.call_args_list) == [
++        ("A", "reply to A"),
++        ("B", "reply to B"),
++    ]
++
++
++@pytest.mark.asyncio
++async def test_cancelled_model_resumes_capture_in_fresh_middleware() -> None:
++    saver = InMemorySaver()
++    mw, cancelled_capture = _middleware()
++    model = _model("retry")
++    graph = create_agent(model, middleware=[mw], checkpointer=saver)
++    config = {"configurable": {"thread_id": "cancelled"}}
++    task = asyncio.create_task(
++        graph.ainvoke({"messages": [HumanMessage("old"), AIMessage("old reply"), HumanMessage("retry")]}, config)
++    )
++    try:
++        await _entered(model, "retry")
++    finally:
++        task.cancel()
++        with pytest.raises(asyncio.CancelledError):
++            await task
++    cancelled_capture.assert_not_called()
++    resumed_mw, resumed_capture = _middleware()
++    resumed_model = _model("retry")
++    resumed_model.released["retry"].set()
++    restarted = create_agent(resumed_model, middleware=[resumed_mw], checkpointer=saver)
++    await restarted.ainvoke(None, config)
++    resumed_capture.assert_called_once()
++    assert [message.content for message in resumed_capture.call_args.args[0]] == ["retry", "reply to retry"]
++
++
++@pytest.mark.asyncio
++async def test_recall_failure_preserves_capture_boundary_in_real_graph() -> None:
++    service = MagicMock()
++    service.recall.side_effect = RuntimeError("recall storage unavailable")
++    mw = MemoryMiddleware(service=service, jsonl_enabled=False)
++    capture = MagicMock()
++    mw._submit_capture = capture
++    model = _model("current")
++    model.released["current"].set()
++    graph = create_agent(model, middleware=[mw], checkpointer=InMemorySaver())
++    result = await graph.ainvoke(
++        {"messages": [HumanMessage("old"), AIMessage("old reply"), HumanMessage("current")]},
++        {"configurable": {"thread_id": "recall-failed"}},
++    )
++    service.recall.assert_called_once()
++    assert result["messages"][-1].content == "reply to current"
++    capture.assert_called_once()
++    assert [message.content for message in capture.call_args.args[0]] == ["current", "reply to current"]
+--- a/tests/test_memory_middleware.py
++++ b/tests/test_memory_middleware.py
+@@ -64,6 +64,12 @@
+     return runtime
+ 
+ 
++def _model_step(mw: MemoryMiddleware, before: list[Any], after: list[Any], runtime: Any) -> None:
++    """Apply hook state updates as the graph does between model nodes."""
++    update = mw.before_model(_make_state(before), runtime) or {}
++    mw.after_model({**update, "messages": after}, runtime)
++
++
+ class TestMemoryMiddleware:
+     def test_after_model_captures_visible_turn(self, mw: MemoryMiddleware, service: _SpyService) -> None:
+         from langchain_core.messages import AIMessage, HumanMessage
+@@ -72,8 +78,7 @@
+         ai_msg = AIMessage(content="Memory is a system for storing information.")
+         runtime = _make_runtime()
+ 
+-        mw.before_model(_make_state([user_msg]), runtime)
+-        mw.after_model(_make_state([user_msg, ai_msg]), runtime)
++        _model_step(mw, [user_msg], [user_msg, ai_msg], runtime)
+ 
+         assert service.wait_for_capture()
+         assert service.capture_calls == [
+@@ -93,8 +98,7 @@
+         ai_msg = AIMessage(content="Hi!")
+         runtime = _make_runtime()
+ 
+-        mw.before_model(_make_state([user_msg]), runtime)
+-        mw.after_model(_make_state([user_msg, ai_msg]), runtime)
++        _model_step(mw, [user_msg], [user_msg, ai_msg], runtime)
+ 
+         log_dir = tmp_path / "logs"
+         jsonl_files = list(log_dir.glob("*.jsonl"))
+@@ -108,8 +112,7 @@
+         ai_msg = AIMessage(content="Hello")
+         runtime = _make_runtime()
+ 
+-        mw.before_model(_make_state([user_msg]), runtime)
+-        mw.after_model(_make_state([user_msg, ai_msg]), runtime)
++        _model_step(mw, [user_msg], [user_msg, ai_msg], runtime)
+ 
+         assert service.wait_for_capture()
+         assert service.capture_calls[0]["user"] == "Hi"
+@@ -123,17 +126,14 @@
+         ai_msg = AIMessage(content="Hello")
+         runtime = _make_runtime()
+ 
+-        mw.before_model(_make_state([user_msg]), runtime)
+-        mw.after_model(_make_state([user_msg, ai_msg]), runtime)
++        _model_step(mw, [user_msg], [user_msg, ai_msg], runtime)
+ 
+         assert list((tmp_path / "logs").glob("*.jsonl"))
+ 
+     def test_no_messages_no_capture(self, mw: MemoryMiddleware, service: _SpyService) -> None:
+-        state = _make_state([])
+         runtime = _make_runtime()
+ 
+-        mw.before_model(state, runtime)
+-        mw.after_model(state, runtime)
++        _model_step(mw, [], [], runtime)
+ 
+         time.sleep(0.05)
+         assert service.capture_calls == []
+@@ -155,8 +155,7 @@
+         final_ai = AIMessage(content="Beijing is sunny, 22°C.")
+         runtime = _make_runtime(thread_id="weather-thread")
+ 
+-        mw.before_model(_make_state([user]), runtime)
+-        mw.after_model(_make_state([user, intermediate_ai, tool_result, final_ai]), runtime)
++        _model_step(mw, [user], [user, intermediate_ai, tool_result, final_ai], runtime)
+ 
+         assert service.wait_for_capture()
+         call = service.capture_calls[0]
+@@ -176,8 +175,7 @@
+         a = AIMessage(content="Combined reply")
+         runtime = _make_runtime(thread_id="multi-human")
+ 
+-        mw.before_model(_make_state([u1]), runtime)
+-        mw.after_model(_make_state([u1, u2, a]), runtime)
++        _model_step(mw, [u1], [u1, u2, a], runtime)
+ 
+         assert service.wait_for_capture()
+         call = service.capture_calls[0]
+@@ -199,8 +197,7 @@
+         tool_msg = ToolMessage(content="result", tool_call_id="c1")
+         runtime = _make_runtime(thread_id="tool-only")
+ 
+-        mw.before_model(_make_state([prior_user]), runtime)
+-        mw.after_model(_make_state([prior_user, ai_with_call, tool_msg]), runtime)
++        _model_step(mw, [prior_user], [prior_user, ai_with_call, tool_msg], runtime)
+ 
+         time.sleep(0.05)
+         assert service.capture_calls == []
+@@ -227,14 +224,12 @@
+         runtime = _make_runtime(thread_id="tool-turn")
+ 
+         # Step 1: prompt in, model only emits tool_calls -> nothing captured yet.
+-        mw.before_model(_make_state([user]), runtime)
+-        mw.after_model(_make_state([user, ai_call, tool]), runtime)
++        _model_step(mw, [user], [user, ai_call, tool], runtime)
+         time.sleep(0.05)
+         assert service.capture_calls == []
+ 
+         # Step 2: tool result is at cursor-1, final reply arrives.
+-        mw.before_model(_make_state([user, ai_call, tool]), runtime)
+-        mw.after_model(_make_state([user, ai_call, tool, final]), runtime)
++        _model_step(mw, [user, ai_call, tool], [user, ai_call, tool, final], runtime)
+ 
+         assert service.wait_for_capture()
+         assert len(service.capture_calls) == 1
+@@ -255,9 +250,9 @@
+ 
+         history = [user]
+         for produced in ([c1, t1], [c2, t2], [final]):
+-            mw.before_model(_make_state(list(history)), runtime)
++            update = mw.before_model(_make_state(list(history)), runtime) or {}
+             history.extend(produced)
+-            mw.after_model(_make_state(list(history)), runtime)
++            mw.after_model({**update, "messages": list(history)}, runtime)
+ 
+         assert service.wait_for_capture()
+         assert len(service.capture_calls) == 1, "prompt must be captured exactly once"
+@@ -273,8 +268,7 @@
+         new_reply = AIMessage(content="没有新提问的回复")
+         runtime = _make_runtime(thread_id="no-prompt")
+ 
+-        mw.before_model(_make_state([prev_user, prev_reply]), runtime)
+-        mw.after_model(_make_state([prev_user, prev_reply, new_reply]), runtime)
++        _model_step(mw, [prev_user, prev_reply], [prev_user, prev_reply, new_reply], runtime)
+ 
+         assert service.wait_for_capture()
+         assert len(service.capture_calls) == 1
+@@ -292,10 +286,8 @@
+         final = AIMessage(content="部署好了")
+         runtime = _make_runtime(thread_id="jsonl-dup")
+ 
+-        mw.before_model(_make_state([user]), runtime)
+-        mw.after_model(_make_state([user, ai_call, tool]), runtime)
+-        mw.before_model(_make_state([user, ai_call, tool]), runtime)
+-        mw.after_model(_make_state([user, ai_call, tool, final]), runtime)
++        _model_step(mw, [user], [user, ai_call, tool], runtime)
++        _model_step(mw, [user, ai_call, tool], [user, ai_call, tool, final], runtime)
+ 
+         lines = [
+             json.loads(line)
+@@ -324,11 +316,7 @@
+             # Two sessions become "tracked" via after_model captures.
+             for tid in ("s-a", "s-b"):
+                 rt = _make_runtime(thread_id=tid)
+-                mw.before_model(_make_state([HumanMessage(content="hi")]), rt)
+-                mw.after_model(
+-                    _make_state([HumanMessage(content="hi"), AIMessage(content="yo")]),
+-                    rt,
+-                )
++                _model_step(mw, [HumanMessage(content="hi")], [HumanMessage(content="hi"), AIMessage(content="yo")], rt)
+                 assert service.wait_for_capture()
+ 
+             # Wait for at least one sweep to fire + background extract to run.
+@@ -560,8 +548,7 @@
+ 
+         user_msg = HumanMessage(content="hi")
+         ai_msg = AIMessage(content="hello")
+-        mw.before_model(_make_state([user_msg]), runtime)
+-        mw.after_model(_make_state([user_msg, ai_msg]), runtime)
++        _model_step(mw, [user_msg], [user_msg, ai_msg], runtime)
+ 
+         assert seen == ["dashscope/qwen"]
+ 
+--- a/tests/test_memory_recall_replay.py
++++ b/tests/test_memory_recall_replay.py
+@@ -55,7 +55,7 @@
+ 
+ def prepare(mw: MemoryMiddleware, messages: list[Any]) -> list[Any]:
+     update = mw.before_model({"messages": messages}, None)
+-    return add_messages(messages, update["messages"]) if update else messages
++    return add_messages(messages, update.get("messages", [])) if update else messages
+ 
+ 
+ def send(mw: MemoryMiddleware, messages: list[Any], system: SystemMessage | None = None) -> ModelRequest:
+--- a/tests/test_memory_service_integration.py
++++ b/tests/test_memory_service_integration.py
+@@ -473,8 +473,8 @@
+ 
+         u = HumanMessage(content="What's the plan?")
+         a = AIMessage(content="Ship by Friday.")
+-        mw.before_model({"messages": [u]}, runtime)
+-        mw.after_model({"messages": [u, a]}, runtime)
++        update = mw.before_model({"messages": [u]}, runtime) or {}
++        mw.after_model({**update, "messages": [u, a]}, runtime)
+ 
+         assert spy.wait_for_capture(timeout=2.0)
+         assert len(spy.capture_calls) == 1
+@@ -557,8 +557,8 @@
+ 
+         u = HumanMessage(content="hi")
+         a = AIMessage(content="hello")
+-        mw.before_model({"messages": [u]}, runtime)
+-        mw.after_model({"messages": [u, a]}, runtime)
++        update = mw.before_model({"messages": [u]}, runtime) or {}
++        mw.after_model({**update, "messages": [u, a]}, runtime)
+ 
+         # Give any rogue background task a chance to fire.
+         time.sleep(0.05)
+--- a/tests/test_ssrf_web_fetch.py
++++ b/tests/test_ssrf_web_fetch.py
+@@ -5,6 +5,7 @@
+ import importlib
+ from unittest.mock import patch
+ 
++import httpx
+ import pytest
+ 
+ from octop_harness.builtin.tools.web_fetch import web_fetch
+@@ -63,30 +64,17 @@
+ 
+     monkeypatch.setattr(_web_fetch_mod, "validate_agent_fetch_url", guard)
+ 
+-    class RedirectResponse:
+-        status_code = 302
+-        is_error = False
+-        headers = {"location": "http://10.0.0.1/secret"}
+-        content = b""
+-        text = ""
+-        request = type("Req", (), {"url": "https://example.com/go"})()
++    requests = []
+ 
+-    class FakeClient:
+-        def __init__(self, *args: object, **kwargs: object) -> None:
+-            pass
++    def redirect(request: httpx.Request) -> httpx.Response:
++        requests.append(str(request.url))
++        return httpx.Response(302, headers={"location": "http://10.0.0.1/secret"})
+ 
+-        def __enter__(self) -> FakeClient:
+-            return self
+-
+-        def __exit__(self, *args: object) -> None:
+-            pass
+-
+-        def get(self, url: str) -> RedirectResponse:
+-            assert url.startswith("https://example.com")
+-            return RedirectResponse()
+-
+-    with patch.object(_web_fetch_mod.httpx, "Client", FakeClient):
+-        result = web_fetch.invoke({"url": "https://example.com/go"})
++    client_type = httpx.Client
++    transport = httpx.MockTransport(redirect)
++    monkeypatch.setattr(_web_fetch_mod.httpx, "Client", lambda **kw: client_type(transport=transport, **kw))
++    result = web_fetch.invoke({"url": "https://example.com/go"})
++    assert requests == ["https://example.com/go"]
+ 
+     assert result.startswith("Error:")
+     assert "private or local" in result
+@@ -96,27 +84,12 @@
+     monkeypatch.setattr(_web_fetch_mod, "validate_agent_fetch_url", lambda u: u)
+     html = "<html><body><h1>Title</h1></body></html>"
+ 
+-    class FakeResponse:
+-        status_code = 200
+-        is_error = False
+-        content = html.encode("utf-8")
+-        text = html
+-        headers = {"content-type": "text/html; charset=utf-8"}
+-        request = type("Req", (), {"url": "https://example.com"})()
+-
+-    class FakeClient:
+-        def __init__(self, *args: object, **kwargs: object) -> None:
+-            assert kwargs.get("follow_redirects") is False
+-
+-        def __enter__(self) -> FakeClient:
+-            return self
+-
+-        def __exit__(self, *args: object) -> None:
+-            pass
+-
+-        def get(self, url: str) -> FakeResponse:
+-            return FakeResponse()
+-
+-    with patch.object(_web_fetch_mod.httpx, "Client", FakeClient):
+-        md = web_fetch.invoke({"url": "https://example.com"})
++    client_type = httpx.Client
++    transport = httpx.MockTransport(
++        lambda request: httpx.Response(
++            200, headers={"content-type": "text/html; charset=utf-8"}, stream=httpx.ByteStream(html.encode())
++        )
++    )
++    monkeypatch.setattr(_web_fetch_mod.httpx, "Client", lambda **kw: client_type(transport=transport, **kw))
++    md = web_fetch.invoke({"url": "https://example.com"})
+     assert "Title" in md
+--- /dev/null
++++ b/tests/test_web_fetch_stream_limits.py
+@@ -0,0 +1,134 @@
++"""Fetch limits apply while reading decoded streams, including redirects."""
++
++from __future__ import annotations
++
++import gzip
++import importlib
++import tracemalloc
++import zlib
++from collections.abc import Iterator
++
++import httpx
++import pytest
++
++fetch = importlib.import_module("octop_harness.builtin.tools.web_fetch")
++
++
++class Body(httpx.SyncByteStream):
++    def __init__(self, chunks: list[bytes]) -> None:
++        self.chunks = chunks
++        self.read = 0
++        self.closed = False
++
++    def __iter__(self) -> Iterator[bytes]:
++        for chunk in self.chunks:
++            self.read += 1
++            yield chunk
++
++    def close(self) -> None:
++        self.closed = True
++
++
++@pytest.mark.parametrize("compressed", [False, True])
++def test_fetch_stops_on_decoded_body_limit(monkeypatch: pytest.MonkeyPatch, compressed: bool) -> None:
++    limit = 1024
++    monkeypatch.setattr(fetch, "_MAX_BYTES", limit)
++    monkeypatch.setattr(fetch, "validate_agent_fetch_url", lambda url: url)
++    first = gzip.compress(b"x" * (limit + 1)) if compressed else b"x" * (limit + 1)
++    body = Body([first, b"must not be read"])
++    headers = {"content-encoding": "gzip"} if compressed else {}
++    transport = httpx.MockTransport(lambda request: httpx.Response(200, headers=headers, stream=body))
++    client_type = httpx.Client
++    monkeypatch.setattr(fetch.httpx, "Client", lambda **kw: client_type(transport=transport, **kw))
++    result = fetch.web_fetch.invoke({"url": "https://example.test"})
++    assert result.startswith("Error:") and "exceeding" in result
++    assert body.read == 1
++    assert body.closed
++
++
++def test_redirect_body_is_closed_without_reading(monkeypatch: pytest.MonkeyPatch) -> None:
++    monkeypatch.setattr(fetch, "validate_agent_fetch_url", lambda url: url)
++    redirect_body = Body([b"never read"])
++    success_body = Body([b"done"])
++
++    def response(request: httpx.Request) -> httpx.Response:
++        if request.url.path == "/first":
++            return httpx.Response(302, headers={"location": "/last"}, stream=redirect_body)
++        return httpx.Response(200, stream=success_body)
++
++    client_type = httpx.Client
++    transport = httpx.MockTransport(response)
++    monkeypatch.setattr(fetch.httpx, "Client", lambda **kw: client_type(transport=transport, **kw))
++    assert fetch.web_fetch.invoke({"url": "https://example.test/first"}) == "done"
++    assert redirect_body.read == 0
++    assert redirect_body.closed and success_body.closed
++
++
++def test_compressed_body_at_limit_is_decoded_once(monkeypatch: pytest.MonkeyPatch) -> None:
++    content = "你好".encode()
++    monkeypatch.setattr(fetch, "_MAX_BYTES", len(content))
++    monkeypatch.setattr(fetch, "validate_agent_fetch_url", lambda url: url)
++    body = Body([gzip.compress(content)])
++    transport = httpx.MockTransport(
++        lambda request: httpx.Response(
++            200,
++            headers={"content-encoding": "gzip", "content-type": "text/plain; charset=utf-8"},
++            stream=body,
++        )
++    )
++    client_type = httpx.Client
++    monkeypatch.setattr(fetch.httpx, "Client", lambda **kw: client_type(transport=transport, **kw))
++    assert fetch.web_fetch.invoke({"url": "https://example.test"}) == "你好"
++    assert body.closed
++
++
++def test_single_gzip_chunk_cannot_allocate_the_full_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
++    monkeypatch.setattr(fetch, "_MAX_BYTES", 1024)
++    body = Body([gzip.compress(b"x" * (24 * 1024 * 1024))])
++    response = httpx.Response(200, headers={"content-encoding": "gzip"}, stream=body)
++    tracemalloc.start()
++    try:
++        with pytest.raises(fetch.FetchResponseTooLargeError):
++            fetch._read_limited_body(response)
++        _, peak = tracemalloc.get_traced_memory()
++    finally:
++        tracemalloc.stop()
++        response.close()
++    assert peak < 4 * 1024 * 1024
++
++
++@pytest.mark.parametrize("raw", [True, False])
++def test_deflate_decodes_across_header_chunks(monkeypatch: pytest.MonkeyPatch, raw: bool) -> None:
++    monkeypatch.setattr(fetch, "_MAX_BYTES", 32)
++    encoder = zlib.compressobj(wbits=-zlib.MAX_WBITS if raw else zlib.MAX_WBITS)
++    payload = encoder.compress(b"hello") + encoder.flush()
++    body = Body([bytes([byte]) for byte in payload])
++    response = httpx.Response(200, headers={"content-encoding": "deflate"}, stream=body)
++    try:
++        assert fetch._read_limited_body(response) == b"hello"
++    finally:
++        response.close()
++
++
++@pytest.mark.parametrize("encoding,payload", [("gzip", b"bad"), ("deflate", b"x"), ("br", b"unknown")])
++def test_invalid_or_unsupported_encoding_is_recoverable(encoding: str, payload: bytes) -> None:
++    response = httpx.Response(200, headers={"content-encoding": encoding}, stream=Body([payload]))
++    try:
++        with pytest.raises(httpx.DecodingError):
++            fetch._read_limited_body(response)
++    finally:
++        response.close()
++
++
++@pytest.mark.parametrize("same_chunk", [True, False])
++def test_compressed_trailing_data_cannot_accumulate(same_chunk: bool) -> None:
++    compressed = gzip.compress(b"hello")
++    chunks = [compressed + b"junk"] if same_chunk else [compressed, b"junk", b"not read"]
++    body = Body(chunks)
++    response = httpx.Response(200, headers={"content-encoding": "gzip"}, stream=body)
++    try:
++        with pytest.raises(httpx.DecodingError, match="Unexpected data"):
++            fetch._read_limited_body(response)
++        assert body.read <= 2
++    finally:
++        response.close()
+--- a/uv.lock
++++ b/uv.lock
+@@ -1950,7 +1950,7 @@
+ 
+ [[package]]
+ name = "octop-harness"
+-version = "1.0.2.post3"
++version = "1.0.2.post4.dev9+reliability.2"
+ source = { editable = "." }
+ dependencies = [
+     { name = "deepagents" },
