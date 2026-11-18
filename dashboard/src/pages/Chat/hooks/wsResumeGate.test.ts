@@ -3,7 +3,6 @@ import {
   MAX_STREAM_RESUME_ATTEMPTS,
   STREAM_STALE_WITHOUT_SOCKET_MS,
   shouldBlockHistoryRefresh,
-  shouldEmitStreamResumeNotice,
   shouldForceSealStream,
   shouldProbeActiveTurn,
   shouldResumeStreamAfterClose,
@@ -205,20 +204,6 @@ describe("shouldForceSealStream", () => {
         now,
         sessionFocused: false,
       }),
-    ).toBe(false);
-  });
-});
-
-describe("shouldEmitStreamResumeNotice", () => {
-  it("emits only after a reattach attempt with an active turn", () => {
-    expect(
-      shouldEmitStreamResumeNotice({ resumeAttempt: 1, turnActive: true }),
-    ).toBe(true);
-    expect(
-      shouldEmitStreamResumeNotice({ resumeAttempt: 0, turnActive: true }),
-    ).toBe(false);
-    expect(
-      shouldEmitStreamResumeNotice({ resumeAttempt: 2, turnActive: false }),
     ).toBe(false);
   });
 });

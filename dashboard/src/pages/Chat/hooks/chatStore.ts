@@ -60,7 +60,6 @@ import { frameBelongsToThread } from "./frameThread";
 import {
   MAX_STREAM_RESUME_ATTEMPTS,
   STREAM_STALE_WITHOUT_SOCKET_MS,
-  shouldEmitStreamResumeNotice,
   shouldForceSealStream,
   shouldResumeStreamAfterClose,
 } from "./wsResumeGate";
@@ -2677,6 +2676,7 @@ export async function attachThread(
   const previousController = state.abortController;
   state.abortController = controller;
 
+  let resumeNoticePending = opts?.afterUnexpectedDrop === true;
   let finished = false;
   let finishedRunId: string | undefined;
   const finish = (mode: "all" | "host" = "all") => {
@@ -2743,6 +2743,10 @@ export async function attachThread(
 
         if (data.type === "run_phase") live.inputControls = true;
         if (data.type === "turn_status") {
+          // Only the first status confirms the rebind. Later status checks on
+          // this socket can also report an active turn.
+          const notifyResume = resumeNoticePending;
+          resumeNoticePending = false;
           live.inputControls = data.input_controls === true;
           if (turnStatusAction(Boolean(data.active)) === "expect_stream") {
             if (!state.isStreaming) {
@@ -2754,15 +2758,7 @@ export async function attachThread(
             } else {
               touchStreamActivity(sessionId);
             }
-            if (
-              shouldEmitStreamResumeNotice({
-                resumeAttempt:
-                  opts?.afterUnexpectedDrop && resumeAttempt === 0
-                    ? 1
-                    : resumeAttempt,
-                turnActive: true,
-              })
-            ) {
+            if (notifyResume) {
               emitStreamEvent({ kind: "streamResume", sessionId });
             }
           } else if (state.isStreaming) {
@@ -2827,7 +2823,6 @@ export async function attachThread(
             threadId,
             onStreamEnd,
             resumeAttempt: resumeAttempt + 1,
-            opts: opts ?? { afterUnexpectedDrop: true },
           });
         }
         return;
@@ -2856,7 +2851,7 @@ export async function attachThread(
               threadId,
               onStreamEnd,
               resumeAttempt + 1,
-              opts,
+              { afterUnexpectedDrop: stillStreaming },
             );
           },
           Math.min(400 * 2 ** resumeAttempt, 15000),
@@ -2873,7 +2868,7 @@ export async function attachThread(
           threadId,
           onStreamEnd,
           resumeAttempt: resumeAttempt + 1,
-          opts,
+          opts: { afterUnexpectedDrop: stillStreaming },
         });
         clearStreamWatchdog(sessionId);
       } else if (!wasIntentional && stillStreaming) {
