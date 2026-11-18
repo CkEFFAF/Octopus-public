@@ -391,7 +391,11 @@ function enrichAttachmentPreviewUrls(
   });
 }
 
-function convertCallEntries(entries: CallEntry[]): ChatMessage[] {
+type HistoryCallEntry = CallEntry & {
+  historyDetail?: ChatMessage["historyDetail"];
+};
+
+function convertCallEntries(entries: HistoryCallEntry[]): ChatMessage[] {
   const raw: InternalChatMessage[] = entries.map((entry, index) => {
     const tool = extractToolData(entry.content);
     const toolFeedback = parseToolExecutionFeedback(tool?.data.output);
@@ -423,6 +427,7 @@ function convertCallEntries(entries: CallEntry[]): ChatMessage[] {
 
     return {
       id: entry.message_id || entry.entry_index || `call-${index}`,
+      ...(entry.historyDetail ? { historyDetail: entry.historyDetail } : {}),
       role:
         entry.role === "user"
           ? "user"
@@ -693,10 +698,12 @@ export function convertHistoryMessages(
     agent_id?: string;
     team_wrapup?: boolean;
     edited_files?: string[];
+    detail_cursor?: string;
   }>,
   agentId?: string,
+  threadId?: string,
 ): ChatMessage[] {
-  const entries: CallEntry[] = messages.map((message, index) => {
+  const entries: HistoryCallEntry[] = messages.map((message, index) => {
     const meta: Record<string, unknown> = {};
     if (message.composer_context) {
       meta.composer_context = message.composer_context;
@@ -706,9 +713,13 @@ export function convertHistoryMessages(
     }
     return {
       message_id: message.id,
-      entry_index: `hist-${index}`,
+      entry_index: `hist-${message.detail_cursor ?? index}`,
       role: message.role,
       content: toHistoryContentBlocks(message.content),
+      historyDetail:
+        agentId && threadId && message.detail_cursor
+          ? { agentId, threadId, cursor: message.detail_cursor }
+          : undefined,
       usage: normalizeTokenUsage(message.usage ?? undefined),
       timestamp:
         typeof message.timestamp === "number" ? message.timestamp : undefined,
@@ -791,6 +802,7 @@ async function loadThreadHistory(
     limit,
     offset,
     cursor: params.cursor,
+    preview: true,
     onEtag: (value: string) => {
       etag = value;
     },
@@ -823,6 +835,7 @@ async function loadThreadHistory(
           message.role === "tool",
       ),
       agentId,
+      threadId,
     ),
     history.hitl_pending,
   );

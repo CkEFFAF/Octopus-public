@@ -148,6 +148,7 @@ export interface OctopThreadHistory {
     error_diagnostic?: Record<string, unknown>;
     agent_id?: string;
     team_wrapup?: boolean;
+    detail_cursor?: string;
   }>;
   pinned?: boolean;
   model_ref?: string | null;
@@ -160,6 +161,8 @@ export interface OctopThreadHistory {
   limit?: number;
   offset?: number;
   next_cursor?: string | null;
+  /** Returned for a full message after the server verifies its saved body. */
+  detail_cursor?: string;
   /** Legacy checkpoint is being projected by the bounded background worker. */
   history_loading?: boolean;
   history_status?: "pending" | "queued" | "running" | "ready" | "failed";
@@ -229,6 +232,8 @@ type HistoryPageParams = {
   offset?: number;
   cursor?: string | null;
   onEtag?: (etag: string) => void;
+  preview?: boolean;
+  signal?: AbortSignal;
 };
 function fetchThreadHistory(
   agentId: string,
@@ -254,10 +259,11 @@ function fetchThreadHistory(
       threadId,
     )}/history?limit=${limit}&offset=${offset}${
       params.cursor ? `&cursor=${encodeURIComponent(params.cursor)}` : ""
-    }`,
+    }${params.preview ? "&preview=true" : ""}`,
     {
       cache: "no-store",
       headers: ifNoneMatch ? { "If-None-Match": ifNoneMatch } : undefined,
+      signal: params.signal,
     },
     {
       onEtag: params.onEtag,

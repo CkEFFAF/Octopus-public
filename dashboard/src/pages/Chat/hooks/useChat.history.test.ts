@@ -22,6 +22,7 @@ describe("history failures", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       if (!String(input).includes("/history?"))
         throw new Error("unexpected URL");
+      expect(String(input)).toContain("&preview=true");
       const previous = new Headers(init?.headers).get("If-None-Match");
       if (previous === '"first"' && !changed)
         return new Response(null, { status: 304 });
@@ -57,6 +58,33 @@ describe("history failures", () => {
     });
     expect(result.current.messages[0].content).toBe("updated");
     expect(result.current.messages).not.toBe(initial);
+  });
+
+  it("keeps the stored detail location on a restored long response", async () => {
+    vi.spyOn(octopThreadsApi, "history").mockResolvedValue({
+      thread_id: thread,
+      messages: [
+        {
+          id: "long-answer",
+          role: "assistant",
+          content: [{ type: "text", text: "A shorter preview…" }],
+          detail_cursor: "saved-position",
+        },
+      ],
+    });
+    const { result } = renderHook(() => useChat(thread, "agent"));
+    await act(async () => {
+      await result.current.loadHistory(thread);
+    });
+    expect(result.current.messages[0]).toMatchObject({
+      id: "long-answer",
+      content: "A shorter preview…",
+      historyDetail: {
+        agentId: "agent",
+        threadId: thread,
+        cursor: "saved-position",
+      },
+    });
   });
 
   it("reconciles cached history after returning online without dropping loaded older pages", async () => {

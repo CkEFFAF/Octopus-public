@@ -222,6 +222,7 @@ class HistoryArchive:
         cursor: str | None,
         legacy_reader: LegacyReader,
         offset: int = 0,
+        include_message_cursors: bool = False,
     ) -> dict[str, Any]:
         segments = await asyncio.to_thread(self.store.segments, thread_id)
         boundary = None
@@ -268,15 +269,24 @@ class HistoryArchive:
         selected = selected[skip:]
         has_more = len(selected) > limit
         selected = selected[:limit]
+
+        def cursor_at(segment_id: int, before: int) -> str:
+            return base64.urlsafe_b64encode(
+                dumps({"thread": thread_id, "segment": segment_id, "before": before}).encode()
+            ).decode()
+
         next_cursor = None
         if has_more:
             segment_id, seq, _ = selected[-1]
-            next_cursor = base64.urlsafe_b64encode(
-                dumps({"thread": thread_id, "segment": segment_id, "before": seq}).encode()
-            ).decode()
-        return {
+            next_cursor = cursor_at(segment_id, seq)
+        page = {
             "messages": [wire for _, _, wire in reversed(selected)],
             "has_more": has_more,
             "next_cursor": next_cursor,
             "history_status": "ready",
         }
+        if include_message_cursors:
+            page["message_cursors"] = [
+                cursor_at(segment_id, seq + 1) for segment_id, seq, _ in reversed(selected)
+            ]
+        return page

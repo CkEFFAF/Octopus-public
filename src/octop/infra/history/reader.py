@@ -12,6 +12,36 @@ from octop.infra.history.legacy import checkpoint_snapshot, checkpoint_wires
 from octop.infra.history.service import HistoryArchive
 
 
+def legacy_history_cursor(
+    thread_id: str,
+    source: str,
+    before: int,
+    checkpoint_id: str | None = None,
+) -> str:
+    value: dict[str, Any] = {"thread": thread_id, "source": source, "before": before}
+    if checkpoint_id is not None:
+        value["checkpoint_id"] = checkpoint_id
+    return "legacy:" + base64.urlsafe_b64encode(json.dumps(value).encode()).decode()
+
+
+def decode_legacy_history_cursor(cursor: str, thread_id: str) -> dict[str, Any]:
+    try:
+        if not cursor.startswith("legacy:"):
+            raise ValueError("Invalid legacy cursor prefix")
+        boundary = json.loads(base64.urlsafe_b64decode(cursor[7:]))
+        if (
+            not isinstance(boundary, dict)
+            or boundary.get("thread") != thread_id
+            or type(boundary.get("before")) is not int
+            or not 0 <= boundary["before"] < 2**63
+            or boundary.get("source") not in ("projection", "checkpoint")
+        ):
+            raise ValueError("Invalid legacy cursor boundary")
+    except (ValueError, TypeError) as exc:
+        raise ValueError("Invalid legacy cursor") from exc
+    return boundary
+
+
 async def read_page(
     archive: HistoryArchive | None,
     registry: Any,
@@ -22,6 +52,7 @@ async def read_page(
     offset: int = 0,
     cursor: str | None = None,
     messages: ThreadMessageRepo | None = None,
+    include_message_cursors: bool = False,
 ) -> dict[str, Any]:
     message_repo = archive.messages if archive is not None else messages
     if message_repo is None:
@@ -30,20 +61,20 @@ async def read_page(
     async def legacy(anchor: dict[str, Any]) -> list[Any]:
         return await checkpoint_wires(registry.get_agent(agent_id), thread_id, anchor)
 
-    boundary = None
-    if cursor and cursor.startswith("legacy:"):
-        try:
-            boundary = json.loads(base64.urlsafe_b64decode(cursor[7:]))
-            if boundary["thread"] != thread_id or not isinstance(boundary["before"], int):
-                raise ValueError("Invalid legacy cursor")
-            if boundary["source"] not in ("projection", "checkpoint"):
-                raise ValueError("Invalid legacy source")
-        except (ValueError, TypeError, KeyError) as exc:
-            raise ValueError("Invalid legacy cursor") from exc
+    boundary = (
+        decode_legacy_history_cursor(cursor, thread_id)
+        if cursor and cursor.startswith("legacy:")
+        else None
+    )
     segments = await asyncio.to_thread(archive.store.segments, thread_id) if archive else []
     if boundary is None and segments and archive is not None:
         return await archive.page(
-            thread_id, limit=limit, cursor=cursor, offset=offset, legacy_reader=legacy
+            thread_id,
+            limit=limit,
+            cursor=cursor,
+            offset=offset,
+            legacy_reader=legacy,
+            include_message_cursors=include_message_cursors,
         )
     if cursor and boundary is None:
         raise ValueError("History cursor has no corresponding segment")
@@ -57,6 +88,7 @@ async def read_page(
         )
     )
     anchor = None
+    checkpoint_id = None
     if source == "projection":
         if boundary:
             descending = await asyncio.to_thread(
@@ -69,6 +101,7 @@ async def read_page(
             )
         wires = [json.loads(row.message_json) for row in rows]
         before = rows[0].seq if rows else 0
+        positions = [row.seq for row in rows] if include_message_cursors else []
     else:
         if boundary:
             # Never trust a cursor to select a different thread's checkpoint.
@@ -91,13 +124,22 @@ async def read_page(
         checkpoint_id = (config or {}).get("configurable", {}).get("checkpoint_id")
         if has_more and not checkpoint_id:
             raise ValueError("Cannot pin the legacy history page")
-    next_cursor = None
-    if has_more:
-        value = {"thread": thread_id, "source": source, "before": before}
-        if source == "checkpoint":
-            value["checkpoint_id"] = checkpoint_id
-        next_cursor = "legacy:" + base64.urlsafe_b64encode(json.dumps(value).encode()).decode()
-    return {"messages": wires, "has_more": has_more, "next_cursor": next_cursor}
+        positions = list(range(start, stop)) if include_message_cursors else []
+    page = {
+        "messages": wires,
+        "has_more": has_more,
+        "next_cursor": legacy_history_cursor(thread_id, source, before, checkpoint_id)
+        if has_more
+        else None,
+    }
+    if include_message_cursors:
+        page["message_cursors"] = [
+            legacy_history_cursor(thread_id, source, position + 1, checkpoint_id)
+            if source == "projection" or checkpoint_id
+            else None
+            for position in positions
+        ]
+    return page
 
 
 async def export_messages(

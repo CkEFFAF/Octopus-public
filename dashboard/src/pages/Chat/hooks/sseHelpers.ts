@@ -76,6 +76,8 @@ export interface ChatMessage {
   type?: string;
   /** Structured content blocks for multi-part messages (thinking + text). */
   contentBlocks?: ContentBlockItem[];
+  /** Location of the full stored body when history returned a preview. */
+  historyDetail?: { agentId: string; threadId: string; cursor: string };
   attachments?: ChatAttachment[];
   composerContext?: UserComposerContext;
   toolData?: ToolCallData;

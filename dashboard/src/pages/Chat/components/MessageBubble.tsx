@@ -280,7 +280,7 @@ function FileAttachmentList({
   );
 }
 
-function CopyButton({ text }: { text: string }) {
+function CopyButton({ text, label }: { text: string; label?: string }) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
 
@@ -300,9 +300,9 @@ function CopyButton({ text }: { text: string }) {
     <button
       className={styles.msgCopyBtn}
       onClick={handleCopy}
-      title={t("common.copy", "复制")}
+      title={label ?? t("common.copy", "复制")}
       type="button"
-      aria-label={t("common.copy", "复制")}
+      aria-label={label ?? t("common.copy", "复制")}
     >
       {copied ? <Check size={14} /> : <Copy size={14} />}
     </button>
@@ -977,7 +977,14 @@ function MessageBubble({
                   {formatMessageTime(message.timestamp, serverTimezone)}
                   {!isUser && !isStreaming && speechText && (
                     <>
-                      <CopyButton text={textContent} />
+                      <CopyButton
+                        text={textContent}
+                        label={
+                          message.historyDetail
+                            ? t("chat.historyCopyPreview")
+                            : undefined
+                        }
+                      />
                       <button
                         className={`${styles.msgActionBtn} ${
                           speakingId === message.id
@@ -988,7 +995,11 @@ function MessageBubble({
                           e.stopPropagation();
                           speak(message.id, textContent);
                         }}
-                        title={t("voice.readAloud", "朗读")}
+                        title={
+                          message.historyDetail
+                            ? t("chat.historyReadPreview")
+                            : t("voice.readAloud", "朗读")
+                        }
                         type="button"
                       >
                         <Volume2 size={13} />
