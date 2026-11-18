@@ -17,6 +17,7 @@ from octop_harness import HarnessAgent
 from octop.config import OctopConfig
 from octop.infra.agents.manager import AgentManager
 from octop.infra.agents.response_recovery import (
+    RECOVERY_INVOCATION_ID,
     ResponseRecovery,
     ResumeModelProtocol,
     recovery_request,
@@ -158,11 +159,56 @@ def scenario(tmp_path):
 async def fail_turn(value):
     with pytest.raises(ConnectionError) as failure:
         await value.graph.ainvoke(
-            {"messages": [value.human]}, {"configurable": {"thread_id": "thread"}}
+            {"messages": [value.human]},
+            {
+                "configurable": {"thread_id": "thread"},
+                "metadata": value.request.get("metadata") or {},
+            },
         )
     recovery = await value.service.record("agent", value.request, failure.value)
     assert recovery
     return recovery
+
+
+@pytest.mark.asyncio
+async def test_failure_before_new_checkpoint_cannot_claim_previous_turn(scenario):
+    scenario.request["metadata"] = {RECOVERY_INVOCATION_ID: "original"}
+    recovery = await fail_turn(scenario)
+    before = scenario.repos.run_event_repo.get(1, recovery["response_id"])
+    later = {**scenario.request, "metadata": {RECOVERY_INVOCATION_ID: "later"}}
+    new_record = await scenario.service.record(
+        "agent", later, ConnectionError("failed before input")
+    )
+    assert new_record is None
+    assert scenario.repos.run_event_repo.get(1, recovery["response_id"]) == before
+
+
+@pytest.mark.asyncio
+async def test_dashboard_runtime_failure_records_the_checkpoint_for_its_invocation(scenario):
+    async def harness_stream(_agent, request):
+        messages, config, _protocol = scenario.harness._prepare_call(request, None)
+        await scenario.graph.ainvoke({"messages": messages}, config)
+        yield {"type": "done"}
+
+    manager = scenario.manager
+    manager._harness_manager = SimpleNamespace(stream=harness_stream)
+    manager._active_model_refs = {}
+    manager._apply_pending_bootstrap_graph_refresh = lambda _agent: None
+    manager._route_stream_request = lambda _agent, request: request
+    with pytest.raises(ConnectionError) as failure:
+        _ = [chunk async for chunk in AgentManager.stream(manager, "agent", scenario.request)]
+
+    recovery = failure.value.octop_response_recovery
+    assert recovery["action"] == "retry"
+    scenario.counts["fail"] = False
+    chunks = [
+        chunk
+        async for chunk in scenario.service.stream(
+            1, "agent", "thread", recovery["response_id"], "from-dashboard"
+        )
+    ]
+    assert any(c.get("phase") == "completed" for c in chunks)
+    assert scenario.counts["tool"] == 1
 
 
 @pytest.mark.asyncio
@@ -305,6 +351,50 @@ async def test_disconnect_after_ack_finalizes_retry_without_replaying(scenario):
     ]
     assert replay[0]["status"] == "unknown"
     assert scenario.counts == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored_status", ["accepted", "running"])
+async def test_abandoned_command_receipt_allows_a_new_explicit_retry(scenario, stored_status):
+    recovery = await fail_turn(scenario)
+    response_id = recovery["response_id"]
+    event_id = "chat-retry:1:abandoned"
+    receipts = scenario.repos.run_event_repo
+    receipts.save(
+        event_id=event_id,
+        owner=1,
+        agent_id="agent",
+        thread_id="thread",
+        run_id=event_id,
+        context_id=None,
+        kind="chat_retry",
+        status=stored_status,
+        payload={"response_id": response_id, "model": None},
+    )
+
+    async def replay():
+        return [
+            chunk
+            async for chunk in scenario.service.stream(
+                1, "agent", "thread", response_id, "abandoned"
+            )
+        ]
+
+    before = dict(scenario.counts)
+    async with scenario.lock:
+        assert (await replay())[0]["status"] == "running"
+    assert receipts.get(1, event_id)["status"] == stored_status
+    assert (await replay())[0]["status"] == "unknown"
+    assert receipts.get(1, event_id)["status"] == "unknown"
+    assert scenario.counts == before
+
+    scenario.counts["fail"] = False
+    chunks = [
+        chunk
+        async for chunk in scenario.service.stream(1, "agent", "thread", response_id, "try-again")
+    ]
+    assert any(c.get("phase") == "completed" for c in chunks)
+    assert scenario.counts["tool"] == 1
 
 
 @pytest.mark.asyncio

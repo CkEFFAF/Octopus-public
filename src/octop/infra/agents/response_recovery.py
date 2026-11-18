@@ -25,6 +25,8 @@ from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.utils.model_diagnostics import safe_diagnostics
 
 logger = logging.getLogger(__name__)
+RECOVERY_INVOCATION_ID = "octop_response_attempt"
+_PENDING_RECEIPT_STATUSES = frozenset({"accepted", "running"})
 
 
 def checkpoint_id(state: Any) -> str:
@@ -157,6 +159,15 @@ class ResponseRecovery:
             return None
         harness = self.manager.get_agent(agent)
         state = await harness.graph.aget_state({"configurable": {"thread_id": thread}})
+        invocation_id = (request.get("metadata") or {}).get(RECOVERY_INVOCATION_ID)
+        if (
+            invocation_id
+            and (getattr(state, "metadata", None) or {}).get(RECOVERY_INVOCATION_ID)
+            != invocation_id
+        ):
+            # An invocation can fail before it commits any input. The latest
+            # checkpoint then belongs to a different turn.
+            return None
         current = checkpoint_id(state)
         if not current:
             return None
@@ -253,10 +264,12 @@ class ResponseRecovery:
         await asyncio.to_thread(self.authorize, owner, agent, thread)
         receipts = self.repos.run_event_repo
         event_id = f"chat-retry:{owner}:{command_id}"
+        lock = self.manager._thread_execution_lock(agent, thread)
         prior = await asyncio.to_thread(receipts.get, owner, event_id)
         if prior is not None:
             if (
-                prior["thread_id"] != thread
+                prior["kind"] != "chat_retry"
+                or prior["thread_id"] != thread
                 or prior["agent_id"] != agent
                 or prior["payload"].get("response_id") != response_id
                 or prior["payload"].get("model") != model
@@ -264,9 +277,28 @@ class ResponseRecovery:
                 raise OctopError(
                     ErrorCode.RESPONSE_RECOVERY_CONFLICT, "RESPONSE_RECOVERY_COMMAND_CONFLICT"
                 )
-            yield {"type": "recovery_ack", "status": prior["status"], "response_id": response_id}
+            status = prior["status"]
+            if status in _PENDING_RECEIPT_STATUSES and not lock.locked():
+                async with lock:
+                    # An idle thread cannot still own this execution. Keep
+                    # the command's identity so a replay never runs it again.
+                    updated = await asyncio.to_thread(
+                        receipts.compare_payload,
+                        owner,
+                        event_id,
+                        prior["payload"],
+                        prior["payload"],
+                        "unknown",
+                        expected_status=status,
+                    )
+                    current = (
+                        None if updated else await asyncio.to_thread(receipts.get, owner, event_id)
+                    )
+                    status = current["status"] if current else "unknown"
+            if status in _PENDING_RECEIPT_STATUSES:
+                status = "running"
+            yield {"type": "recovery_ack", "status": status, "response_id": response_id}
             return
-        lock = self.manager._thread_execution_lock(agent, thread)
         if lock.locked():
             raise OctopError(ErrorCode.RESPONSE_RECOVERY_CONFLICT, "RESPONSE_RECOVERY_BUSY")
         async with lock, self.manager._track_invocation(agent):
@@ -373,6 +405,7 @@ class ResponseRecovery:
                     reservation,
                     {**reservation, "claimed": True},
                     "running",
+                    expected_status="accepted",
                 )
             if not claimed:
                 yield {"type": "recovery_ack", "status": "running", "response_id": response_id}

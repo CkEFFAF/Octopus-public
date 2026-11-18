@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+from uuid import uuid4
 
 from octop_harness import HarnessAgent, HarnessAgentConfig
 from octop_harness.registry import AgentEntry
@@ -1374,9 +1375,17 @@ class AgentManager:
             )
             req = await asyncio.to_thread(self._route_stream_request, agent_id, req)
             with hitl_thread_scope(thread_id_from_request(req)):
-                from octop.infra.agents.response_recovery import ResponseRecovery
+                from octop.infra.agents.response_recovery import (
+                    RECOVERY_INVOCATION_ID,
+                    ResponseRecovery,
+                )
 
                 recovery = ResponseRecovery(self)
+                if str(req.get("source") or "").startswith("dashboard"):
+                    req["metadata"] = {
+                        **(req.get("metadata") or {}),
+                        RECOVERY_INVOCATION_ID: uuid4().hex,
+                    }
                 model_ref = req.get("model")
                 if isinstance(model_ref, str) and model_ref:
                     self._active_model_refs[(agent_id, thread_id)] = model_ref

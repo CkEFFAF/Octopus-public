@@ -7,6 +7,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { savedResponseRetry } from "../../../api/modules/responseRecovery";
 import type { ChatMessage } from "../hooks/useChat";
 import { classifyChatStreamError } from "../../../utils/chatStreamError";
 import styles from "./ChatResponseNotice.module.less";
@@ -46,14 +47,12 @@ export default function ChatResponseNotice({
   const diagnostic = message.errorInfo?.diagnostic as
     | Record<string, unknown>
     | undefined;
-  const recovery = diagnostic?.response_recovery as
-    | { retry_at?: number }
-    | undefined;
+  const recovery = savedResponseRetry(diagnostic);
   const hint =
     typeof diagnostic?.retry_after_seconds === "number"
       ? diagnostic.retry_after_seconds
       : 0;
-  const retryAt = recovery?.retry_at || message.timestamp / 1000 + hint;
+  const retryAt = recovery?.retry_at ?? message.timestamp / 1000 + hint;
   const remainingNow = () =>
     Math.max(0, Math.ceil(retryAt - Date.now() / 1000));
   const [remaining, setRemaining] = useState(remainingNow);
@@ -70,7 +69,7 @@ export default function ChatResponseNotice({
     return () => clearInterval(timer);
   }, [retryAt]);
   const retry = async () => {
-    if (!onRetry || remaining || pendingRef.current) return;
+    if (!onRetry || !recovery || remaining || pendingRef.current) return;
     pendingRef.current = true;
     setPending(true);
     try {
@@ -99,31 +98,42 @@ export default function ChatResponseNotice({
         <strong>
           {t(limited ? "chat.recovery.busyTitle" : "chat.recovery.title")}
         </strong>
-        <p>{limited ? t("chat.recovery.rateHint") : summary}</p>
+        <p>{limited && recovery ? t("chat.recovery.rateHint") : summary}</p>
         {!permanent && (
-          <span className={styles.retained}>{t("chat.recovery.retained")}</span>
+          <span className={styles.retained}>
+            {t(
+              recovery
+                ? "chat.recovery.retained"
+                : message.errorInfo?.code === "DEVICE_OFFLINE"
+                ? "chat.recovery.deviceInterrupted"
+                : "chat.recovery.noCheckpoint",
+            )}
+          </span>
         )}
         {children}
         <div className={styles.actions}>
-          {onRetry && !permanent && message.errorInfo?.retryable !== false && (
-            <button
-              type="button"
-              onClick={() => void retry()}
-              disabled={pending || remaining > 0}
-              aria-busy={pending}
-            >
-              {pending ? (
-                <Loader2 size={14} className={styles.spin} aria-hidden />
-              ) : (
-                <RotateCcw size={14} aria-hidden />
-              )}
-              {pending
-                ? t("chat.recovery.resuming")
-                : remaining
-                ? t("chat.recovery.retryIn", { seconds: remaining })
-                : t("chat.retry")}
-            </button>
-          )}
+          {onRetry &&
+            recovery &&
+            !permanent &&
+            message.errorInfo?.retryable !== false && (
+              <button
+                type="button"
+                onClick={() => void retry()}
+                disabled={pending || remaining > 0}
+                aria-busy={pending}
+              >
+                {pending ? (
+                  <Loader2 size={14} className={styles.spin} aria-hidden />
+                ) : (
+                  <RotateCcw size={14} aria-hidden />
+                )}
+                {pending
+                  ? t("chat.recovery.resuming")
+                  : remaining
+                  ? t("chat.recovery.retryIn", { seconds: remaining })
+                  : t("chat.retry")}
+              </button>
+            )}
           {onConfigure && (
             <button type="button" onClick={onConfigure}>
               <Settings size={14} aria-hidden />

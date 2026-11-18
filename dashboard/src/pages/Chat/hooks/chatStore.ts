@@ -3246,6 +3246,15 @@ export async function sendTurn(
   }
 }
 
+type RecoveryOutcome =
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "paused"
+  | "running"
+  | "interrupted"
+  | "unknown";
+
 /** Recover a response using its existing model checkpoint, never a user_turn. */
 export async function recoverResponse(
   sessionId: string,
@@ -3253,7 +3262,7 @@ export async function recoverResponse(
   responseId: string,
   commandId: string,
   modelRef?: string | null,
-): Promise<"completed" | "failed" | "cancelled" | "unknown"> {
+): Promise<RecoveryOutcome> {
   const state = getOrCreate(sessionId);
   if (state.isStreaming) throw new Error(i18n.t("chat.recovery.busy"));
   const predecessorRunId = activeRunIds.get(state);
@@ -3262,7 +3271,9 @@ export async function recoverResponse(
   beginStream(state, sessionId);
   notify(state);
   let finished = false;
-  let outcome: "completed" | "failed" | "cancelled" | "unknown" = "unknown";
+  let outcome: RecoveryOutcome = "unknown";
+  let accepted = false;
+  let rejection: Error | undefined;
   const finish = () => {
     if (finished) return;
     finished = true;
@@ -3297,7 +3308,14 @@ export async function recoverResponse(
         signal: controller.signal,
       },
     );
-    if (!res.ok) throw new Error(i18n.t("chat.recovery.unavailable"));
+    if (!res.ok) {
+      const contentType = res.headers.get("Content-Type");
+      throw new Error(
+        contentType?.includes("json")
+          ? await res.text()
+          : i18n.t("chat.recovery.unavailable"),
+      );
+    }
     await consumeSseResponse(
       state,
       sessionId,
@@ -3307,8 +3325,17 @@ export async function recoverResponse(
       undefined,
       predecessorRunId,
       (chunk) => {
-        if (chunk.type === "error") outcome = "failed";
-        else if (chunk.type === "run_phase" && chunk.phase === "cancelled")
+        if (chunk.type === "error") {
+          if (!accepted) {
+            rejection = new Error(
+              JSON.stringify({
+                error: { code: chunk.error_code, message: chunk.message },
+              }),
+            );
+            return false;
+          }
+          outcome = "failed";
+        } else if (chunk.type === "run_phase" && chunk.phase === "cancelled")
           outcome = "cancelled";
         else if (chunk.type === "run_phase" && chunk.phase === "completed")
           outcome = "completed";
@@ -3318,14 +3345,27 @@ export async function recoverResponse(
           typeof chunk.data === "object"
         ) {
           const data = chunk.data as Record<string, unknown>;
-          if (
-            data.type === "recovery_ack" &&
-            ["completed", "failed", "cancelled"].includes(String(data.status))
-          )
-            outcome = data.status as typeof outcome;
+          if (data.type === "recovery_ack") {
+            if (data.response_id !== responseId) return false;
+            const status = data.status;
+            if (status === "accepted") accepted = true;
+            else if (status === "unknown") outcome = "interrupted";
+            else if (
+              status === "completed" ||
+              status === "failed" ||
+              status === "cancelled" ||
+              status === "paused" ||
+              status === "running"
+            )
+              outcome = status;
+            return false;
+          }
+        } else if (chunk.type === "hitl_required") {
+          outcome = "paused";
         }
       },
     );
+    if (rejection) throw rejection;
   } catch (error) {
     if ((error as Error).name !== "AbortError") throw error;
   } finally {
@@ -3342,7 +3382,7 @@ async function consumeSseResponse(
   finish: () => void,
   onRunId?: (runId: string) => void,
   predecessorRunId?: string,
-  onChunk?: (chunk: HarnessChunk) => void,
+  onChunk?: (chunk: HarnessChunk) => boolean | void,
 ): Promise<void> {
   const reader = res.body?.getReader();
   if (!reader) {
@@ -3356,7 +3396,6 @@ async function consumeSseResponse(
   let obsolete = false;
 
   const observe = (chunk: HarnessChunk) => {
-    onChunk?.(chunk);
     const firstPhase = chunk.type === "run_phase" && !streamRunId;
     if (chunk.type === "run_phase" && firstPhase) {
       streamRunId = chunk.run_id;
@@ -3373,6 +3412,7 @@ async function consumeSseResponse(
         !firstPhase)
     )
       return;
+    if (onChunk?.(chunk) === false) return;
     handleHarnessChunk(state, chunk, sessionId);
   };
 

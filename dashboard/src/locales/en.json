@@ -2800,6 +2800,8 @@
       "busy": "This answer is still running. Wait or stop it before trying again.",
       "unavailable": "This answer cannot be safely resumed yet. Refresh for the latest status; old messages will not be resent.",
       "deviceInterrupted": "The device disconnected and this answer has no available recovery point. Once the device reconnects, send a new message in this chat to continue.",
+      "noCheckpoint": "This answer has no available recovery point. You can continue by sending a new message in this chat.",
+      "interrupted": "The previous recovery was interrupted. If the answer can still be resumed, try again.",
       "latestOnly": "Only the latest answer can be resumed. Fork an earlier answer to continue it."
     },
     "toolFeedback": {
