@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from typing import Any
 
+from anyio import CancelScope
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.types import Send
 
 from octop.api.common.agent import assert_agent_access
 from octop.api.deps import current_user, get_server
@@ -17,6 +21,21 @@ from octop.infra.gateway.process.response_recovery import iter_response_recovery
 from octop.infra.utils.locale import resolve_request_locale
 
 router = APIRouter()
+
+
+class _RecoveryStreamingResponse(StreamingResponse):
+    """Close recovery ownership even when transport cancellation happens during send."""
+
+    def __init__(self, events: AsyncGenerator[str, None], **kwargs: Any) -> None:
+        self._events = events
+        super().__init__(events, **kwargs)
+
+    async def stream_response(self, send: Send) -> None:
+        try:
+            await super().stream_response(send)
+        finally:
+            with CancelScope(shield=True):
+                await self._events.aclose()
 
 
 class ResponseRecoveryBody(BaseModel):
@@ -77,21 +96,24 @@ async def recover_response(
     await asyncio.to_thread(ResponseRecovery(manager).authorize, int(user.id), agent_id, thread_id)
     locale = resolve_request_locale(request)
 
-    async def events() -> Any:
-        async for frame in iter_response_recovery(
-            manager=manager,
-            processor=server.app_runtime.gateway.processor,
-            owner=int(user.id),
-            agent=agent_id,
-            thread=thread_id,
-            response_id=body.response_id,
-            command_id=body.command_id,
-            locale=locale,
-            model=body.model,
-        ):
-            yield format_sse("message", frame)
+    async def events() -> AsyncGenerator[str, None]:
+        async with aclosing(
+            iter_response_recovery(
+                manager=manager,
+                processor=server.app_runtime.gateway.processor,
+                owner=int(user.id),
+                agent=agent_id,
+                thread=thread_id,
+                response_id=body.response_id,
+                command_id=body.command_id,
+                locale=locale,
+                model=body.model,
+            )
+        ) as frames:
+            async for frame in frames:
+                yield format_sse("message", frame)
 
-    return StreamingResponse(
+    return _RecoveryStreamingResponse(
         events(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

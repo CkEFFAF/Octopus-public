@@ -250,9 +250,10 @@ Self-reminders expose `resume_mode` (`observe` or `continue`) and
 `capabilities.set_resume_mode`. Owners can change an available reminder's mode
 with a PATCH body containing only `resume_mode`. `observe` performs a read-only
 check; `continue` retains the original conversation's work mode and execution
-target, subject to current permissions. New `schedule_self_check` reminders
-default to `continue`; Job completion reminders default to `observe` and accept
-an explicit `resume_mode` when starting the Job. Existing reminders without a
+target, subject to current permissions. New `schedule_self_check` reminders, Job completion
+reminders, and wake callbacks with a bound execution source default to `continue`.
+Set `resume_mode` to `observe` for a status report. Callbacks without an
+execution source default to `observe`. Existing reminders without a
 snapshot remain in `observe` until their owner explicitly binds a valid original
 conversation target when choosing `continue`.
 

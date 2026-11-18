@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from typing import Any
@@ -80,12 +81,14 @@ class ContextInsightsService:
                     "segments": breakdown["segments"],
                 }
 
-        if "stats" in wanted or "meters" in wanted:
+        if "stats" in wanted:
             events = self._repos.trajectory_event_repo.list_before(
                 thread_id, before_seq=None, limit=2000, kinds=None
             )
             metrics = aggregate_metrics(events)
-            model_requests = self._count_model_requests(owner, agent_id, thread_id)
+            model_requests = await asyncio.to_thread(
+                self._count_model_requests, owner, agent_id, thread_id
+            )
             human_turns = sum(1 for e in events if e.kind == "user")
             trajectory_events = len(events)
             tool_counts = self._tool_count_fields(events)
@@ -112,8 +115,7 @@ class ContextInsightsService:
             if breakdown is not None:
                 stats["used_tokens"] = breakdown["used_tokens"]
                 stats["max_tokens"] = breakdown["max_tokens"]
-            if "stats" in wanted:
-                out["stats"] = stats
+            out["stats"] = stats
 
         if "meters" in wanted or "stats" in wanted:
             out["meters"] = self._meters(
@@ -362,7 +364,9 @@ class ContextInsightsService:
 
         effective = self._effective_binding(owner, snap)
         turn_id = snap.get("turn_id")
-        turn_steps = self._turn_steps(owner, agent_id, thread_id, turn_id, request_id)
+        turn_steps = await asyncio.to_thread(
+            self._turn_steps, owner, agent_id, thread_id, turn_id, request_id
+        )
 
         composition = dict(snap.get("estimated_tokens_by_kind") or {})
         if not composition:
@@ -678,16 +682,7 @@ class ContextInsightsService:
 
     def _trajectory_coverage(self, thread_id: str) -> dict[str, Any]:
         repo = self._repos.trajectory_event_repo
-        head_rows = repo.list_before(thread_id, before_seq=None, limit=1, kinds=None)
-        observed_head = head_rows[-1].seq if head_rows else None
-        # Earliest retained
-        earliest = None
-        try:
-            for event in repo.iter_for_export(thread_id):
-                earliest = event.seq
-                break
-        except Exception:
-            earliest = None
+        earliest, observed_head = repo.sequence_bounds(thread_id)
         reason_codes: list[str] = []
         missing_ranges: list[dict[str, Any]] = []
         level: str = "unavailable"
@@ -721,8 +716,9 @@ class ContextInsightsService:
 
     def _count_model_requests(self, owner: int, agent_id: str, thread_id: str) -> int | None:
         try:
-            rows = RequestSnapshotRepo_list(self._repos, owner, agent_id, thread_id)
-            return len(rows)
+            return int(
+                self._repos.request_snapshot_repo.count(owner, agent_id, thread_id, limit=2000)
+            )
         except Exception:
             return None
 

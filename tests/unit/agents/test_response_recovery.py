@@ -11,10 +11,13 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.types import Send
 from octop_harness import HarnessAgent
 
 from octop.config import OctopConfig
+from octop.infra.agents.manager import AgentManager
 from octop.infra.agents.response_recovery import (
+    RECOVERY_INVOCATION_ID,
     ResponseRecovery,
     ResumeModelProtocol,
     recovery_request,
@@ -56,12 +59,15 @@ def scenario(tmp_path):
         counts["model"] += 1
         contexts.append([message.id for message in state["messages"]])
         if isinstance(state["messages"][-1], HumanMessage):
+            calls = [{"id": "call", "name": "write", "args": {}}]
+            if counts.get("parallel"):
+                calls.append({"id": "other-call", "name": "write", "args": {}})
             return {
                 "messages": [
                     AIMessage(
                         content="",
                         id="tool-call",
-                        tool_calls=[{"id": "call", "name": "write", "args": {}}],
+                        tool_calls=calls,
                     )
                 ]
             }
@@ -79,6 +85,8 @@ def scenario(tmp_path):
 
     async def tools(state):
         counts["tool"] += 1
+        if counts.get("tool_fail"):
+            raise ConnectionError("device disconnected after submission")
         return {
             "messages": [
                 ToolMessage(content="already written", tool_call_id="call", id="tool-result")
@@ -89,9 +97,12 @@ def scenario(tmp_path):
     builder.add_node("model", model)
     builder.add_node("tools", tools)
     builder.add_edge(START, "model")
-    builder.add_conditional_edges(
-        "model", lambda state: "tools" if state["messages"][-1].tool_calls else END
-    )
+
+    def next_nodes(state):
+        calls = getattr(state["messages"][-1], "tool_calls", ())
+        return [Send("tools", state) for _ in calls] or END
+
+    builder.add_conditional_edges("model", next_nodes)
     builder.add_edge("tools", "model")
     graph = builder.compile(checkpointer=InMemorySaver())
     harness = SimpleNamespace(
@@ -99,20 +110,20 @@ def scenario(tmp_path):
     )
     harness._iter_until_cancelled = MethodType(HarnessAgent._iter_until_cancelled, harness)
     harness._stream_with_steering = MethodType(HarnessAgent._stream_with_steering, harness)
-    harness._prepare_call = lambda request, _: (
-        [],
-        {"configurable": {**request.get("configurable", {}), "thread_id": "thread"}},
-        None,
-    )
+    harness._get_protocol = lambda _: ResumeModelProtocol(graph=graph)
+    harness._prepare_call = MethodType(HarnessAgent._prepare_call, harness)
     lock = asyncio.Lock()
     manager = SimpleNamespace(
         _repos=repos,
         get_agent=lambda _: harness,
         _thread_execution_lock=lambda *args: lock,
         _track_invocation=invocation,
-        _prepare_stream_request=lambda agent, request: request,
+        _device_service=None,
+        get_config=lambda _: {},
+        providers_for_agent=lambda _: SimpleNamespace(is_model_ref_usable=lambda ref: True),
         get_row=repos.agent_repo.get,
     )
+    manager._prepare_stream_request = MethodType(AgentManager._prepare_stream_request, manager)
     service = ResponseRecovery(manager)
     human = HumanMessage(
         content=[
@@ -148,11 +159,106 @@ def scenario(tmp_path):
 async def fail_turn(value):
     with pytest.raises(ConnectionError) as failure:
         await value.graph.ainvoke(
-            {"messages": [value.human]}, {"configurable": {"thread_id": "thread"}}
+            {"messages": [value.human]},
+            {
+                "configurable": {"thread_id": "thread"},
+                "metadata": value.request.get("metadata") or {},
+            },
         )
     recovery = await value.service.record("agent", value.request, failure.value)
     assert recovery
     return recovery
+
+
+@pytest.mark.asyncio
+async def test_failure_before_new_checkpoint_cannot_claim_previous_turn(scenario):
+    scenario.request["metadata"] = {RECOVERY_INVOCATION_ID: "original"}
+    recovery = await fail_turn(scenario)
+    before = scenario.repos.run_event_repo.get(1, recovery["response_id"])
+    later = {**scenario.request, "metadata": {RECOVERY_INVOCATION_ID: "later"}}
+    new_record = await scenario.service.record(
+        "agent", later, ConnectionError("failed before input")
+    )
+    assert new_record is None
+    assert scenario.repos.run_event_repo.get(1, recovery["response_id"]) == before
+
+
+@pytest.mark.asyncio
+async def test_dashboard_runtime_failure_records_the_checkpoint_for_its_invocation(scenario):
+    async def harness_stream(_agent, request):
+        messages, config, _protocol = scenario.harness._prepare_call(request, None)
+        await scenario.graph.ainvoke({"messages": messages}, config)
+        yield {"type": "done"}
+
+    manager = scenario.manager
+    manager._harness_manager = SimpleNamespace(stream=harness_stream)
+    manager._active_model_refs = {}
+    manager._apply_pending_bootstrap_graph_refresh = lambda _agent: None
+    manager._route_stream_request = lambda _agent, request: request
+    with pytest.raises(ConnectionError) as failure:
+        _ = [chunk async for chunk in AgentManager.stream(manager, "agent", scenario.request)]
+
+    recovery = failure.value.octop_response_recovery
+    assert recovery["action"] == "retry"
+    scenario.counts["fail"] = False
+    chunks = [
+        chunk
+        async for chunk in scenario.service.stream(
+            1, "agent", "thread", recovery["response_id"], "from-dashboard"
+        )
+    ]
+    assert any(c.get("phase") == "completed" for c in chunks)
+    assert scenario.counts["tool"] == 1
+
+
+@pytest.mark.asyncio
+async def test_continue_after_failed_tool_reports_unknown_result_without_replaying_it(scenario):
+    scenario.counts.update(tool_fail=True, fail=False)
+    recovery = await fail_turn(scenario)
+    assert recovery["action"] == "retry"
+    chunks = [
+        chunk
+        async for chunk in scenario.service.stream(
+            1, "agent", "thread", recovery["response_id"], "continue-tool"
+        )
+    ]
+    assert any(c.get("phase") == "completed" for c in chunks)
+    state = await scenario.graph.aget_state({"configurable": {"thread_id": "thread"}})
+    messages = state.values["messages"]
+    assert [m.type for m in messages] == ["human", "ai", "tool", "ai"]
+    assert messages[2].status == "error" and messages[2].tool_call_id == "call"
+    assert messages[-1].content == "恢复后的答案"
+    assert scenario.counts["tool"] == 1
+
+
+@pytest.mark.asyncio
+async def test_parallel_failed_tool_tasks_do_not_offer_unsafe_recovery(scenario):
+    scenario.counts.update(tool_fail=True, parallel=True)
+    with pytest.raises(ConnectionError) as failure:
+        await scenario.graph.ainvoke(
+            {"messages": [scenario.human]}, {"configurable": {"thread_id": "thread"}}
+        )
+    assert await scenario.service.record("agent", scenario.request, failure.value) is None
+
+
+@pytest.mark.asyncio
+async def test_revoked_model_prevents_tool_recovery_before_checkpoint_change(scenario):
+    scenario.counts.update(tool_fail=True)
+    recovery = await fail_turn(scenario)
+    config = {"configurable": {"thread_id": "thread"}}
+    before = await scenario.graph.aget_state(config)
+    scenario.manager.providers_for_agent = lambda _: SimpleNamespace(
+        is_model_ref_usable=lambda _: False
+    )
+    with pytest.raises(OctopError):
+        _ = [
+            chunk
+            async for chunk in scenario.service.stream(
+                1, "agent", "thread", recovery["response_id"], "revoked-tool"
+            )
+        ]
+    after = await scenario.graph.aget_state(config)
+    assert before.config == after.config and scenario.counts["tool"] == 1
 
 
 @pytest.mark.asyncio
@@ -225,6 +331,161 @@ async def test_busy_thread_is_not_interrupted_or_queued_by_retry(scenario):
                     1, "agent", "thread", recovery["response_id"], "busy"
                 )
             ]
+
+
+@pytest.mark.asyncio
+async def test_disconnect_after_ack_finalizes_retry_without_replaying(scenario):
+    recovery = await fail_turn(scenario)
+    before = dict(scenario.counts)
+    stream = scenario.service.stream(1, "agent", "thread", recovery["response_id"], "disconnect")
+    assert (await anext(stream))["status"] == "accepted"
+    await stream.aclose()
+    receipt = scenario.repos.run_event_repo.get(1, "chat-retry:1:disconnect")
+    assert receipt["status"] == "unknown"
+    assert not scenario.lock.locked()
+    replay = [
+        chunk
+        async for chunk in scenario.service.stream(
+            1, "agent", "thread", recovery["response_id"], "disconnect"
+        )
+    ]
+    assert replay[0]["status"] == "unknown"
+    assert scenario.counts == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored_status", ["accepted", "running"])
+async def test_abandoned_command_receipt_allows_a_new_explicit_retry(scenario, stored_status):
+    recovery = await fail_turn(scenario)
+    response_id = recovery["response_id"]
+    event_id = "chat-retry:1:abandoned"
+    receipts = scenario.repos.run_event_repo
+    receipts.save(
+        event_id=event_id,
+        owner=1,
+        agent_id="agent",
+        thread_id="thread",
+        run_id=event_id,
+        context_id=None,
+        kind="chat_retry",
+        status=stored_status,
+        payload={"response_id": response_id, "model": None},
+    )
+
+    async def replay():
+        return [
+            chunk
+            async for chunk in scenario.service.stream(
+                1, "agent", "thread", response_id, "abandoned"
+            )
+        ]
+
+    before = dict(scenario.counts)
+    async with scenario.lock:
+        assert (await replay())[0]["status"] == "running"
+    assert receipts.get(1, event_id)["status"] == stored_status
+    assert (await replay())[0]["status"] == "unknown"
+    assert receipts.get(1, event_id)["status"] == "unknown"
+    assert scenario.counts == before
+
+    scenario.counts["fail"] = False
+    chunks = [
+        chunk
+        async for chunk in scenario.service.stream(1, "agent", "thread", response_id, "try-again")
+    ]
+    assert any(c.get("phase") == "completed" for c in chunks)
+    assert scenario.counts["tool"] == 1
+
+
+@pytest.mark.asyncio
+async def test_gateway_disconnect_closes_recovery_before_returning(scenario):
+    from octop.infra.gateway.process.response_recovery import iter_response_recovery
+
+    recovery = await fail_turn(scenario)
+    processor = MagicMock()
+    processor._agent_trajectory_enabled.return_value = False
+    processor._begin_history = AsyncMock(return_value=None)
+    stream = iter_response_recovery(
+        manager=scenario.manager,
+        processor=processor,
+        owner=1,
+        agent="agent",
+        thread="thread",
+        response_id=recovery["response_id"],
+        command_id="gateway-disconnect",
+        locale="en",
+    )
+    assert (await anext(stream))["status"] == "accepted"
+    await stream.aclose()
+    receipt = scenario.repos.run_event_repo.get(1, "chat-retry:1:gateway-disconnect")
+    assert receipt["status"] == "unknown" and not scenario.lock.locked()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boundary", [b"accepted", b"run_phase"])
+async def test_asgi_disconnect_while_sending_event_closes_recovery(scenario, monkeypatch, boundary):
+    from starlette.requests import Request
+
+    from octop.api.routers.chat import response_recovery as api
+
+    recovery = await fail_turn(scenario)
+    before = dict(scenario.counts)
+    processor = MagicMock()
+    processor._agent_trajectory_enabled.return_value = False
+    processor._begin_history = AsyncMock(return_value=None)
+    server = MagicMock()
+    server.app_runtime.agent_registry = scenario.manager
+    server.app_runtime.gateway.processor = processor
+    monkeypatch.setattr(api, "assert_agent_access", lambda *_: None)
+    scope = {
+        "type": "http",
+        "asgi": {"spec_version": "2.3"},
+        "method": "POST",
+        "headers": [],
+        "state": {},
+    }
+    sending_event = asyncio.Event()
+
+    async def receive():
+        await sending_event.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        if message["type"] == "http.response.body" and boundary in message["body"]:
+            sending_event.set()
+            await asyncio.Event().wait()
+
+    response = await api.recover_response(
+        "agent",
+        "thread",
+        api.ResponseRecoveryBody(response_id=recovery["response_id"], command_id="asgi-disconnect"),
+        Request(scope),
+        user=SimpleNamespace(id=1),
+        server=server,
+    )
+    try:
+        await asyncio.wait_for(response(scope, receive, send), 5)
+        assert sending_event.is_set()
+        receipt = scenario.repos.run_event_repo.get(1, "chat-retry:1:asgi-disconnect")
+        assert receipt["status"] == "unknown" and not scenario.lock.locked()
+        assert not scenario.harness._steering_runs and not scenario.harness._cancel_events
+        assert scenario.counts == before
+    finally:
+        await response.body_iterator.aclose()
+
+
+def test_recovery_freezes_absent_execution_target(scenario):
+    class NoExecutionSelection:
+        @property
+        def repos(self):
+            raise AssertionError("Recovery must not consult a later execution selection")
+
+    original = {"thread_id": "thread", "user": "1", "agent_id": "agent", "messages": []}
+    saved = recovery_request(original)
+    scenario.manager._device_service = NoExecutionSelection()
+    prepared = scenario.manager._prepare_stream_request("agent", saved)
+    assert prepared["configurable"]["octop_recovery_without_target"] is True
+    assert not prepared["configurable"].get("octop_execution_context")
 
 
 @pytest.mark.asyncio

@@ -500,7 +500,7 @@ class ExecutionService:
             )
         if row is not None:
             self.devices.check_job_environment(row.device_id, action, params)
-        if action == "jobs.start" and params.get("resume_mode", "observe") not in (
+        if action == "jobs.start" and params.get("resume_mode", "continue") not in (
             "observe",
             "continue",
         ):
@@ -638,7 +638,7 @@ class ExecutionService:
                 result = {
                     **result,
                     "notify_on_exit": prepared["notify_on_exit"],
-                    "resume_mode": prepared.get("resume_mode", "observe"),
+                    "resume_mode": prepared.get("resume_mode", "continue"),
                 }
             if action == "jobs.start" and isinstance(prepared.get("title"), str):
                 result = {**result, "title": prepared["title"].strip()[:120]}

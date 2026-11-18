@@ -119,6 +119,10 @@ import MemoryMaintenanceBanner from "./components/MemoryMaintenanceBanner";
 import { useHistoryMigration } from "./hooks/useHistoryMigration";
 import HistoryMigrationBanner from "./components/HistoryMigrationBanner";
 import { apiErrorMessage } from "../../utils/apiError";
+import {
+  responseRecoveryApi,
+  savedResponseRetry,
+} from "../../api/modules/responseRecovery";
 import PwaInstallPrompt from "../../components/PwaInstallPrompt";
 import { promptNeedsUserInput } from "../../utils/quickInputPrefill";
 import { OPEN_NAV_RECORDS_EVENT } from "../../layouts/chatHistoryRail";
@@ -1117,28 +1121,36 @@ function ChatPageInner() {
         antMessage.info(t("chat.recovery.latestOnly"));
         return;
       }
+      const original = messages[idx];
+      const saved = savedResponseRetry(original.errorInfo?.diagnostic);
+      const failed = original.status === "error" || Boolean(original.errorInfo);
+      if (failed && !saved) {
+        antMessage.info(
+          t(
+            original.errorInfo?.code === "DEVICE_OFFLINE"
+              ? "chat.recovery.deviceInterrupted"
+              : "chat.recovery.noCheckpoint",
+          ),
+        );
+        return;
+      }
       try {
-        const { responseRecoveryApi } = await import(
-          "../../api/modules/responseRecovery"
-        );
-        const recovery = await responseRecoveryApi.latest(
-          resolvedAgentId,
-          activeThreadId,
-        );
-        const original = messages[idx].errorInfo?.diagnostic as
-          | Record<string, unknown>
-          | undefined;
-        const expected = original?.response_recovery as
-          | { response_id?: string }
-          | undefined;
-        if (
-          expected?.response_id &&
-          expected.response_id !== recovery.response_id
-        ) {
-          antMessage.info(t("chat.recovery.latestOnly"));
-          return;
+        // A saved failure already names the exact response. The server checks
+        // its command receipt before checking the latest checkpoint. This
+        // also lets a disconnected client discover a completed retry.
+        let responseId = saved?.response_id;
+        if (!responseId) {
+          const latest = await responseRecoveryApi.latest(
+            resolvedAgentId,
+            activeThreadId,
+          );
+          if (latest.action !== "regenerate") {
+            antMessage.info(t("chat.recovery.latestOnly"));
+            return;
+          }
+          responseId = latest.response_id;
         }
-        const recoveryKey = `${recovery.response_id}:${selectedModel || ""}`;
+        const recoveryKey = `${responseId}:${selectedModel || ""}`;
         let command = recoveryCommands.current.get(recoveryKey);
         if (!command) {
           command = crypto.randomUUID();
@@ -1147,14 +1159,20 @@ function ChatPageInner() {
         const outcome = await chatStore.recoverResponse(
           activeThreadId,
           resolvedAgentId,
-          recovery.response_id,
+          responseId,
           command,
           selectedModel,
         );
-        if (outcome !== "unknown") recoveryCommands.current.delete(recoveryKey);
+        if (outcome !== "unknown" && outcome !== "running")
+          recoveryCommands.current.delete(recoveryKey);
         await refreshHistory(activeThreadId);
-      } catch {
-        antMessage.info(t("chat.recovery.unavailable"));
+        if (outcome === "running") antMessage.info(t("chat.recovery.busy"));
+        if (outcome === "interrupted")
+          antMessage.info(t("chat.recovery.interrupted"));
+      } catch (error) {
+        antMessage.info(
+          apiErrorMessage(error, t("chat.recovery.unavailable"), t),
+        );
       }
     },
     [

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -63,7 +64,7 @@ def _repos_with_thread() -> MagicMock:
     repo = MagicMock()
     repo.thread_repo.get.return_value = _thread_row()
     repo.trajectory_event_repo.list_before.return_value = []
-    repo.trajectory_event_repo.iter_for_export.return_value = iter([])
+    repo.trajectory_event_repo.sequence_bounds.return_value = (None, None)
     repo.usage_repo = MagicMock()
     repo.usage_repo.thread_totals.return_value = {
         "input_tokens": 10,
@@ -95,14 +96,13 @@ async def test_inspect_breakdown_uses_compute_context_breakdown(
         compute,
     )
     repo = _repos_with_thread()
+    repo.request_snapshot_repo.count.return_value = 37
     repo.trajectory_event_repo.list_before.return_value = [
         _event(seq=1, payload={"input_tokens": 40}),
         _event(event_id="e2", seq=2, kind="compacted", payload={"input_tokens": 30}),
         _event(event_id="e3", seq=3, payload={"input_tokens": 50}),
     ]
-    repo.trajectory_event_repo.iter_for_export.return_value = iter(
-        repo.trajectory_event_repo.list_before.return_value
-    )
+    repo.trajectory_event_repo.sequence_bounds.return_value = (1, 3)
     registry = MagicMock()
     registry.resolve_context_max_tokens.return_value = 1000
     service = ContextInsightsService(registry, repo)
@@ -120,11 +120,19 @@ async def test_inspect_breakdown_uses_compute_context_breakdown(
     assert "scissors" in result["trend"][1]["kind_marks"]
     assert result["breakdown"]["used_tokens"] == expected.used_tokens
     assert result["stats"]["human_turns"] == 0
+    assert result["stats"]["model_requests"] == 37
+    repo.request_snapshot_repo.count.assert_called_once_with(1, "a1", "t1", limit=2000)
     assert result["stats"]["trajectory_events"] == 3
     assert "legacy_alias" in result["stats"]
     assert result["meters"]["cumulative"]["total_tokens"] == 12
     assert result["coverage"]["coverage"] in {"complete", "partial", "unavailable"}
     assert result["resolved_scope"]["subject"]["owner_user_id"] == 1
+
+    repo.reset_mock()
+    meters = await service.inspect(owner=1, agent_id="a1", thread_id="t1", include=["meters"])
+    assert meters["meters"] == result["meters"]
+    repo.request_snapshot_repo.count.assert_not_called()
+    repo.trajectory_event_repo.list_before.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -234,7 +242,7 @@ async def test_coverage_marks_retention_gap_when_seq_starts_above_one(
     repo = _repos_with_thread()
     events = [_event(event_id="e9", seq=9, kind="user", summary="late")]
     repo.trajectory_event_repo.list_before.return_value = events
-    repo.trajectory_event_repo.iter_for_export.return_value = iter(events)
+    repo.trajectory_event_repo.sequence_bounds.return_value = (9, 9)
     registry = MagicMock()
     registry.resolve_context_max_tokens.return_value = 128_000
     monkeypatch.setattr(
@@ -250,6 +258,8 @@ async def test_coverage_marks_retention_gap_when_seq_starts_above_one(
     service = ContextInsightsService(registry, repo)
     result = await service.inspect(owner=1, agent_id="a1", thread_id="t1", include=["stats"])
     assert result["coverage"]["coverage"] == "partial"
+    repo.trajectory_event_repo.sequence_bounds.assert_called_once_with("t1")
+    repo.trajectory_event_repo.iter_for_export.assert_not_called()
     assert "retention_gap" in result["coverage"]["reason_codes"]
     assert result["coverage"]["missing_ranges"]
 
@@ -259,6 +269,7 @@ async def test_request_pages_components_without_fabricating(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo = _repos_with_thread()
+    request_thread = threading.get_ident()
 
     class FakeInspection:
         def __init__(self, _repos: object) -> None:
@@ -297,6 +308,7 @@ async def test_request_pages_components_without_fabricating(
             }
 
         def list(self, *_a: object, **_k: object) -> dict:
+            assert threading.get_ident() != request_thread
             return {
                 "requests": [
                     {"request_id": "r0", "seq": 1, "turn_id": "turn-1", "status": "completed"},
@@ -392,7 +404,7 @@ async def test_tool_counts_schema_call_attempt_split(
         ),
     ]
     repo.trajectory_event_repo.list_before.return_value = events
-    repo.trajectory_event_repo.iter_for_export.return_value = iter(events)
+    repo.trajectory_event_repo.sequence_bounds.return_value = (1, 3)
     registry = MagicMock()
     registry.resolve_context_max_tokens.return_value = 128_000
     monkeypatch.setattr(

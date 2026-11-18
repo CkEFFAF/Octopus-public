@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi.responses import JSONResponse
 
 from octop.api.common.agent import require_agent_row, user_owns_agent
 from octop.api.common.agent_workspace import resolve_agent_workspace_dir
@@ -22,7 +24,9 @@ from octop.api.routers.chat.serialize import (
     HISTORY_DEFAULT_LIMIT,
     _backfill_thread_projection,
     _clamp_history_limit,
+    _history_message_digest,
     _load_projected_thread_messages,
+    _serialize_archive_history,
 )
 from octop.infra.agents.security.hitl_session import parse_hitl_session_policy
 from octop.infra.agents.threads.artifact import thread_artifacts_payload
@@ -34,6 +38,7 @@ from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.gateway.hitl.coordinator import pending_hitl_payload
 from octop.infra.gateway.sidebar import sidebar_status
 from octop.infra.gateway.threads import ThreadRegistry, thread_row_has_messages
+from octop.infra.history.reader import decode_legacy_history_cursor, read_page
 from octop.infra.history.service import HistoryArchive
 from octop.infra.history.trajectory.service import TrajectoryService
 from octop.infra.utils.locale import resolve_request_locale
@@ -401,7 +406,6 @@ async def get_thread_context_usage(
     }
 
 
-@router.get("/agents/{agent_id}/threads/{thread_id}/history", summary="Thread history")
 async def get_thread_history(
     agent_id: str,
     thread_id: str,
@@ -411,6 +415,7 @@ async def get_thread_history(
     as_user: int | None = None,
     user: Any = Depends(current_user),
     server: Any = Depends(get_server),
+    preview: bool = False,
 ) -> dict[str, Any]:
     """Return recent messages for a thread, including tool calls and thinking blocks.
 
@@ -421,14 +426,12 @@ async def get_thread_history(
     row = _require_thread(server, agent_id, thread_id, user, as_user)
     page_limit = _clamp_history_limit(limit)
     page_offset = max(0, offset)
-    from langchain_core.messages import messages_from_dict  # noqa: PLC0415
-
-    from octop.api.routers.chat.serialize import (  # noqa: PLC0415
-        _enrich_history_tool_media,
-        _serialize_history_message,
-    )
-    from octop.infra.history.reader import read_page  # noqa: PLC0415
-
+    detail_ref = cursor if cursor and cursor.startswith("detail:") else None
+    expected_digest = None
+    if detail_ref:
+        expected_digest, _, cursor = detail_ref[7:].partition(":")
+        if len(expected_digest) != 64 or not cursor or page_limit != 1 or preview:
+            raise OctopError(ErrorCode.SLASH_BAD_ARGS, "Invalid history detail cursor")
     archive = getattr(server.app_runtime, "history_archive", None)
     next_cursor = None
     if isinstance(archive, HistoryArchive):
@@ -440,15 +443,12 @@ async def get_thread_history(
             limit=page_limit,
             offset=page_offset,
             cursor=cursor,
+            include_message_cursors=preview,
         )
         has_more, next_cursor = page["has_more"], page["next_cursor"]
-        messages = []
-        for message in messages_from_dict(page["messages"]):
-            item = _serialize_history_message(message, user=user)
-            if item is None:
-                raise ValueError("An archived history message could not be rendered")
-            messages.append(item)
-        messages = _enrich_history_tool_media(messages, agent_id=agent_id)
+        messages = await asyncio.to_thread(
+            _serialize_archive_history, page, agent_id=agent_id, user=user
+        )
         history_loading = False
         projection_status = "ready"
     else:
@@ -482,14 +482,35 @@ async def get_thread_history(
                 else "pending"
             )
         else:
-            messages, has_more = _load_projected_thread_messages(
+            before = None
+            if cursor:
+                try:
+                    boundary = decode_legacy_history_cursor(cursor, thread_id)
+                    if boundary["source"] != "projection":
+                        raise ValueError("Cursor does not refer to projected history")
+                    before = boundary["before"]
+                except ValueError as exc:
+                    raise OctopError(ErrorCode.SLASH_BAD_ARGS, "Invalid history cursor") from exc
+            messages, has_more = await asyncio.to_thread(
+                _load_projected_thread_messages,
                 server,
                 agent_id,
                 thread_id,
                 page_limit,
                 offset=page_offset,
                 user=user,
+                before=before,
+                preview=preview,
             )
+    verified_detail: dict[str, str] = {}
+    if detail_ref:
+        if (
+            len(messages) == 1
+            and await asyncio.to_thread(_history_message_digest, messages[0]) == expected_digest
+        ):
+            verified_detail["detail_cursor"] = detail_ref
+        else:
+            messages = []
     effective_uid = as_user if as_user is not None else user.id
     hitl_pending = pending_hitl_payload(
         server.app_runtime.gateway.processor.hitl_coordinator.store,
@@ -501,6 +522,7 @@ async def get_thread_history(
     return {
         "thread_id": thread_id,
         "messages": messages,
+        **verified_detail,
         "has_more": has_more,
         "limit": page_limit,
         "offset": page_offset,
@@ -519,6 +541,38 @@ async def get_thread_history(
         "pending_plan_path": row.pending_plan_path,
         "hitl_policy": _hitl_policy_payload(row),
     }
+
+
+def _validated_history_response(page: dict[str, Any], if_none_match: str) -> Response:
+    response = JSONResponse(page)
+    # Weak validation also covers the compressed representation at the proxy.
+    digest = hashlib.sha256(response.body).hexdigest()
+    tag = f'"{digest}"'
+    headers = {"ETag": f"W/{tag}", "Cache-Control": "private, no-store"}
+    if any(value.strip().removeprefix("W/") in (tag, "*") for value in if_none_match.split(",")):
+        return Response(status_code=304, headers=headers)
+    response.headers.update(headers)
+    return response
+
+
+@router.get(
+    "/agents/{agent_id}/threads/{thread_id}/history",
+    summary="Thread history",
+    description=(
+        "If-None-Match revalidates the authorized page, including pending approvals. "
+        "Use preview=true to shorten long assistant messages. Each shortened message has "
+        "a detail_cursor you can pass as cursor with limit=1 to read the full message."
+    ),
+    response_model=dict[str, Any],
+    responses={304: {"description": "The requested history page is unchanged."}},
+)
+async def thread_history_response(
+    request: Request,
+    page: dict[str, Any] = Depends(get_thread_history),
+) -> Response:
+    return await asyncio.to_thread(
+        _validated_history_response, page, request.headers.get("if-none-match", "")
+    )
 
 
 @router.post(

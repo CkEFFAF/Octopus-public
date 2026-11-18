@@ -190,7 +190,15 @@ Frontend talks to Octop **only** via `/api` HTTP — never import or assume Pyth
 
 Performance invariants: `history/stream_buffer.py` may combine only already received same-source text before durable forwarding; control events remain barriers. Job observations bypass the device mutation journal, while starts/cancels retain durable idempotency. Cached connector schemas never replace live authorization or credential rotation checks. Chat snapshots remain immutable through copy on write.
 
+Harness maintenance uses the wheel and matching source archive identified in `vendor/harness/README.md` and the current manifest; a companion source checkout may be newer than the application's pinned contract. Keep source, regression tests, readable patch, member hashes and the relative uv lock together.
+
+MCP tools preserve complete JSON Schema dictionaries. The gateway shares `prepare_mcp_tool_arguments` with Harness; only known optional nonnullable nulls are omitted, while explicit nullable and unknown values reach the server for validation.
+
 Performance inspection: `/api/admin/performance` exposes fixed-label process-local duration windows and cache counters. Manifest reuse requires an authoritative local file version; other backends reread. Custom HTTP MCP parallelism requires explicit `max_concurrent_calls` (1..8); all cached generations share admission state and retain current access checks. Streaming grouping hints retain bounded numeric ancestry, never historical message arrays.
+
+Completion Hook discovery joins deduplicated owner/Job references instead of rescanning account receipts for every Job. Context coverage uses `trajectory_event_repo.sequence_bounds`, never a full trajectory export.
+
+New Job completion reminders and wake callbacks with a frozen execution source default to `continue`; explicit `observe`, original Ask/Plan limits and existing callback retry identities remain intact. Response recovery builds runnable configuration without normalizing an empty new turn; a single failed tool can be closed with an unconfirmed outcome before resuming, without replaying it. Verification: `docs/reviews/2026-11-18-performance-and-continuation.md`.
 
 Chat file review shares `FileChangesReview` between the dock and turn entries. Keep recorded turn edits separate from current file reads, preserve expert/device provenance, and use a device file's original execution context for relative paths. Builtin expert identities retain `/expert-animations/<character>.webp`; playback uses the eight GIF clips and static fallbacks under `expert-animations/v2/`, with fourteen clay characters plus the reference blush bunny. `scripts/encode_expert_gifs.py` encodes 4 by 8 imagegen sheets. Sidebar expert order and pins are account-scoped browser preferences shared by both navigation layouts.
 

@@ -612,6 +612,28 @@ async def test_cursor_issued_before_first_switch_survives_new_turns(archive):
 
 
 @pytest.mark.asyncio
+async def test_detail_cursor_reads_the_same_archived_message_after_append(archive):
+    from unittest.mock import MagicMock
+
+    from octop.infra.history.reader import read_page
+
+    turn = archive.begin("a", "t")
+    expected = message_to_dict(AIMessage(content="long saved reply " * 2500, id="reply"))
+    archive.save_messages(
+        turn, [message_to_dict(HumanMessage(content="question", id="user")), expected]
+    )
+    registry = MagicMock()
+    page = await read_page(archive, registry, "a", "t", limit=2, include_message_cursors=True)
+    archive.save_message_updates(
+        turn, [(2, message_to_dict(HumanMessage(content="new input", id="another-user")))]
+    )
+    detail = await read_page(
+        archive, registry, "a", "t", limit=1, cursor=page["message_cursors"][-1]
+    )
+    assert detail["messages"] == [expected]
+
+
+@pytest.mark.asyncio
 async def test_checkpoint_cursor_pins_old_snapshot_without_copying(archive):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock

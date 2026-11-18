@@ -1,4 +1,35 @@
-## Current cache context artifact
+## Current deployment reliability artifact
+
+The application pins `1.0.2.post4.dev9+reliability.2`. Deployment inspection found
+the active server already uses `dev7+transport.1`; the new artifact retains its
+exact finite-timeout/retry modules and tests, then adds the six reviewed
+reliability modules below. `reliability2-source.zip`, its manifest and
+`reliability2-fixes.patch` record the matching source and delta from verified
+server dev7. The dev7 baseline is retained for independent comparison.
+
+Do not replace this artifact with the earlier dev8 local candidate when deploying
+over a server that relies on the dev7 transport policy.
+
+## Previous local reliability artifact
+
+The application pins `1.0.2.post4.dev8+reliability.1`, based only on the reviewed
+`dev6+cache.1` artifact. It does not include the companion checkout's transport
+revision. `reliability-source.zip`, `reliability-source-manifest.json` and
+`reliability-fixes.patch` retain matching source, regression tests, member hashes
+and the complete baseline delta. The earlier source archives remain unchanged.
+
+This revision isolates memory capture in private checkpoint state, clones manual
+compaction policy per call, protects its lifecycle, accounts for host context
+snapshots, preserves MCP JSON Schema and explicit nullable arguments, resolves
+normalized tool-name collisions, and bounds fetch decoding. `mcp_args_model`
+returns a schema dictionary; the application gateway uses the same public
+`prepare_mcp_tool_arguments` null policy. The model-facing schema stays complete;
+the MCP server owns argument validation.
+
+Validation is recorded in `docs/reviews/2026-11-16-harness-fixes-validation.md`.
+This is a local integration artifact, not a production deployment or publication.
+
+## Previous cache context artifact
 
 The application pins `1.0.2.post4.dev6+cache.1`. `cache-source-manifest.json` records the wheel and its complete matching `harness-source.zip`. `cache-context.patch` shows the changes from media.1. Host context snapshots remain reference only checkpoint metadata, are replayed on model request copies, and are included alongside memory recall in compaction token counts and request source attribution. The previous media source is retained as `media-source.zip` and identified by its existing manifest.
 

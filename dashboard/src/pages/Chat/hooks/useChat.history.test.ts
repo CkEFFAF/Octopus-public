@@ -7,11 +7,86 @@ import { useChat } from "./useChat";
 const thread = "versioned-history-test";
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
   chatStore.removeSession(thread);
 });
 
 describe("history failures", () => {
+  it("revalidates an unchanged idle page without replacing messages and applies later changes", async () => {
+    const page = {
+      thread_id: thread,
+      messages: [{ id: "one", role: "user", content: "one" }],
+      has_more: false,
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (!String(input).includes("/history?"))
+        throw new Error("unexpected URL");
+      expect(String(input)).toContain("&preview=true");
+      const previous = new Headers(init?.headers).get("If-None-Match");
+      if (previous === '"first"' && !changed)
+        return new Response(null, { status: 304 });
+      return Response.json(
+        changed
+          ? { ...page, messages: [{ ...page.messages[0], content: "updated" }] }
+          : page,
+        {
+          headers: { ETag: changed ? '"second"' : '"first"' },
+        },
+      );
+    });
+    const attach = vi
+      .spyOn(chatStore, "attachThread")
+      .mockResolvedValue(undefined);
+    let changed = false;
+    vi.stubGlobal("BASE_URL", "");
+    const { result } = renderHook(() => useChat(thread, "agent"));
+    await act(async () => {
+      await result.current.loadHistory(thread);
+    });
+    const initial = result.current.messages;
+    expect(initial[0].content).toBe("one");
+    attach.mockClear();
+    await act(async () => {
+      await result.current.refreshHistory();
+    });
+    expect(result.current.messages).toBe(initial);
+    expect(attach).toHaveBeenCalledOnce();
+    changed = true;
+    await act(async () => {
+      await result.current.refreshHistory();
+    });
+    expect(result.current.messages[0].content).toBe("updated");
+    expect(result.current.messages).not.toBe(initial);
+  });
+
+  it("keeps the stored detail location on a restored long response", async () => {
+    vi.spyOn(octopThreadsApi, "history").mockResolvedValue({
+      thread_id: thread,
+      messages: [
+        {
+          id: "long-answer",
+          role: "assistant",
+          content: [{ type: "text", text: "A shorter preview…" }],
+          detail_cursor: "saved-position",
+        },
+      ],
+    });
+    const { result } = renderHook(() => useChat(thread, "agent"));
+    await act(async () => {
+      await result.current.loadHistory(thread);
+    });
+    expect(result.current.messages[0]).toMatchObject({
+      id: "long-answer",
+      content: "A shorter preview…",
+      historyDetail: {
+        agentId: "agent",
+        threadId: thread,
+        cursor: "saved-position",
+      },
+    });
+  });
+
   it("reconciles cached history after returning online without dropping loaded older pages", async () => {
     chatStore.setHistoryPage(
       thread,

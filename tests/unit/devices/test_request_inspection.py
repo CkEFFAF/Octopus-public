@@ -136,6 +136,15 @@ def test_requests_persist_updates_page_and_ownership() -> None:
         )
         bounded = restored.list(owner, "expert", "thread", before=None, limit=1)["requests"][0]
         assert bounded["composition"] == {"user": 70, "tool_schema": 30}
+        projected = restored.snapshots.list(owner, "expert", "thread", for_summary=True)
+        assert "components" not in projected[0]
+        assert projected[1]["components"] == event["components"]
+        assert restored.snapshots.list(owner, "expert", "thread", limit=1)[0]["components"]
+        assert restored.snapshots.count(owner, "expert", "thread", limit=2) == 2
+        assert restored.snapshots.count(owner, "expert", "thread", limit=2000) == 3
+        assert restored.snapshots.count(other, "expert", "thread", limit=2000) == 0
+        assert restored.snapshots.count(owner, "other", "thread", limit=2000) == 0
+        assert restored.snapshots.count(owner, "expert", "other", limit=2000) == 0
         response = RequestSnapshotOut.model_validate(bounded)
         assert response.component_count == 5002
         assert response.components_truncated and response.metadata_truncated

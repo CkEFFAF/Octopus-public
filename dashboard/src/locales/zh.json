@@ -2563,6 +2563,12 @@
     "loadEarlierMessages": "加载更早的消息",
     "historyLoadFailed": "历史记录加载失败，已显示的消息仍然保留。请重试。",
     "historyRetry": "重试",
+    "historyFullMessage": "查看完整消息",
+    "historyFullMessageFailed": "完整消息加载失败。",
+    "historyAnswerText": "回答正文",
+    "historyReasoningText": "推理内容",
+    "historyCopyPreview": "复制消息预览",
+    "historyReadPreview": "朗读预览",
     "creatingSession": "正在创建会话，请稍候",
     "resizePopup": "调整窗口大小",
     "unreadMessages": "未读消息",
@@ -2793,6 +2799,9 @@
       "retrying": "正在重新连接模型（第 {{attempt}} / {{max}} 次）",
       "busy": "当前回答仍在进行，请等待或停止后再尝试。",
       "unavailable": "这条回答暂时无法安全恢复。请刷新查看最新状态；旧记录不会被重复发送。",
+      "deviceInterrupted": "设备连接中断，这条回答没有可用的恢复点。设备重新连接后，可以在本会话发送新消息继续。",
+      "noCheckpoint": "这条回答没有可用的恢复点。可以在当前会话发送新消息继续。",
+      "interrupted": "上一次续接已中断。如果仍可恢复，可以再次点击「继续原回答」。",
       "latestOnly": "只能恢复最新一轮回答。较早的回答可以分支后继续。"
     },
     "toolFeedback": {

@@ -183,6 +183,18 @@ class TrajectoryEventRepo:
             )
         return int(cursor.rowcount or 0)
 
+    def sequence_bounds(self, thread_id: str) -> tuple[int | None, int | None]:
+        """Read coverage using the sequence index, without loading event bodies."""
+        with self._db.connect() as conn:
+            row = conn.execute(
+                "SELECT (SELECT seq FROM trajectory_events WHERE thread_id = ? "
+                "ORDER BY seq ASC LIMIT 1) AS first_seq, "
+                "(SELECT seq FROM trajectory_events WHERE thread_id = ? "
+                "ORDER BY seq DESC LIMIT 1) AS last_seq",
+                (thread_id, thread_id),
+            ).fetchone()
+        return row["first_seq"], row["last_seq"]
+
     def iter_for_export(self, thread_id: str) -> Iterator[TrajectoryEvent]:
         with self._db.connect() as conn:
             rows = conn.execute(

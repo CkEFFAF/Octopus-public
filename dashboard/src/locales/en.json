@@ -2563,6 +2563,12 @@
     "loadEarlierMessages": "Load earlier messages",
     "historyLoadFailed": "History could not be loaded. Existing messages have been kept. Please retry.",
     "historyRetry": "Retry",
+    "historyFullMessage": "View full message",
+    "historyFullMessageFailed": "The full message could not be loaded.",
+    "historyAnswerText": "Answer text",
+    "historyReasoningText": "Reasoning",
+    "historyCopyPreview": "Copy message preview",
+    "historyReadPreview": "Read preview aloud",
     "creatingSession": "Creating session…",
     "resizePopup": "Resize window",
     "unreadMessages": "Unread messages",
@@ -2793,6 +2799,9 @@
       "retrying": "Reconnecting to the model ({{attempt}} / {{max}})",
       "busy": "This answer is still running. Wait or stop it before trying again.",
       "unavailable": "This answer cannot be safely resumed yet. Refresh for the latest status; old messages will not be resent.",
+      "deviceInterrupted": "The device disconnected and this answer has no available recovery point. Once the device reconnects, send a new message in this chat to continue.",
+      "noCheckpoint": "This answer has no available recovery point. You can continue by sending a new message in this chat.",
+      "interrupted": "The previous recovery was interrupted. If the answer can still be resumed, try again.",
       "latestOnly": "Only the latest answer can be resumed. Fork an earlier answer to continue it."
     },
     "toolFeedback": {

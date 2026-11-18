@@ -148,6 +148,77 @@ it("posts a recovery identity without sending another user message or attachment
   expect(getSnapshot(session).isStreaming).toBe(false);
 });
 
+it.each([
+  ["unknown", "interrupted"],
+  ["running", "running"],
+  ["accepted", "unknown"],
+] as const)(
+  "distinguishes a %s receipt from a lost stream",
+  async (status, outcome) => {
+    const frame = { type: "recovery_ack", status, response_id: "response" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(`data: ${JSON.stringify(frame)}\n\n`)),
+    );
+    expect(await recoverResponse(session, "agent", "response", "command")).toBe(
+      outcome,
+    );
+    expect(getSnapshot(session).isStreaming).toBe(false);
+  },
+);
+
+it("keeps the original retryable error when the server rejects a command before acceptance", async () => {
+  ingestHarnessChunk(session, {
+    type: "error",
+    message: "Original interruption",
+    diagnostic: {
+      response_recovery: { response_id: "response", action: "retry" },
+    },
+  });
+  const before = getSnapshot(session).messages;
+  const rejection = {
+    type: "error",
+    message: "The turn is currently busy",
+    error_code: "RESPONSE_RECOVERY_CONFLICT",
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(`data: ${JSON.stringify(rejection)}\n\n`)),
+  );
+  await expect(
+    recoverResponse(session, "agent", "response", "command"),
+  ).rejects.toThrow("The turn is currently busy");
+  expect(getSnapshot(session).messages).toEqual(before);
+  expect(getSnapshot(session).isStreaming).toBe(false);
+});
+
+it("retains a new recovery identity when an accepted attempt fails", async () => {
+  const reply = { response_id: "later-response", action: "retry" };
+  const frames = [
+    { type: "recovery_ack", status: "accepted", response_id: "response" },
+    {
+      type: "error",
+      message: "Model disconnected",
+      diagnostic: { response_recovery: reply },
+    },
+  ];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(
+          frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join(""),
+        ),
+    ),
+  );
+  expect(await recoverResponse(session, "agent", "response", "command")).toBe(
+    "failed",
+  );
+  expect(getSnapshot(session).messages.at(-1)?.errorInfo?.diagnostic).toEqual({
+    response_recovery: reply,
+  });
+});
+
 it("replaces an uncommitted model attempt while retaining the original question", () => {
   appendUserMessage(session, {
     id: "user",

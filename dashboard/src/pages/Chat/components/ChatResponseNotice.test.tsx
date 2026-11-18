@@ -16,6 +16,11 @@ const message: ChatMessage = {
   content: "HTTP 429",
   status: "error",
   timestamp: Date.now(),
+  errorInfo: {
+    diagnostic: {
+      response_recovery: { response_id: "saved", action: "retry" },
+    },
+  },
 };
 
 it("uses the provider's cooldown and enables the original-answer action afterwards", () => {
@@ -27,7 +32,12 @@ it("uses the provider's cooldown and enables the original-answer action afterwar
       message={{
         ...message,
         timestamp: Date.now(),
-        errorInfo: { diagnostic: { retry_after_seconds: 2 } },
+        errorInfo: {
+          diagnostic: {
+            ...message.errorInfo?.diagnostic,
+            retry_after_seconds: 2,
+          },
+        },
       }}
       errorKey="HTTP 429"
       summary="limited"
@@ -79,4 +89,19 @@ it("does not offer repeated retries for an exhausted quota returned as HTTP 429"
   expect(screen.queryByRole("button")).toBeNull();
   expect(screen.getByText("Add credits")).toBeInTheDocument();
   expect(screen.queryByText("chat.recovery.busyTitle")).toBeNull();
+});
+
+it("does not offer recovery for an error without an identity for that answer", () => {
+  render(
+    <ChatResponseNotice
+      message={{ ...message, errorInfo: { code: "DEVICE_OFFLINE" } }}
+      errorKey="DEVICE_OFFLINE"
+      summary="Device disconnected"
+      onRetry={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole("button", { name: "chat.retry" })).toBeNull();
+  expect(
+    screen.getByText("chat.recovery.deviceInterrupted"),
+  ).toBeInTheDocument();
 });

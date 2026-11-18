@@ -60,7 +60,6 @@ import { frameBelongsToThread } from "./frameThread";
 import {
   MAX_STREAM_RESUME_ATTEMPTS,
   STREAM_STALE_WITHOUT_SOCKET_MS,
-  shouldEmitStreamResumeNotice,
   shouldForceSealStream,
   shouldResumeStreamAfterClose,
 } from "./wsResumeGate";
@@ -2677,6 +2676,7 @@ export async function attachThread(
   const previousController = state.abortController;
   state.abortController = controller;
 
+  let resumeNoticePending = opts?.afterUnexpectedDrop === true;
   let finished = false;
   let finishedRunId: string | undefined;
   const finish = (mode: "all" | "host" = "all") => {
@@ -2743,6 +2743,10 @@ export async function attachThread(
 
         if (data.type === "run_phase") live.inputControls = true;
         if (data.type === "turn_status") {
+          // Only the first status confirms the rebind. Later status checks on
+          // this socket can also report an active turn.
+          const notifyResume = resumeNoticePending;
+          resumeNoticePending = false;
           live.inputControls = data.input_controls === true;
           if (turnStatusAction(Boolean(data.active)) === "expect_stream") {
             if (!state.isStreaming) {
@@ -2754,15 +2758,7 @@ export async function attachThread(
             } else {
               touchStreamActivity(sessionId);
             }
-            if (
-              shouldEmitStreamResumeNotice({
-                resumeAttempt:
-                  opts?.afterUnexpectedDrop && resumeAttempt === 0
-                    ? 1
-                    : resumeAttempt,
-                turnActive: true,
-              })
-            ) {
+            if (notifyResume) {
               emitStreamEvent({ kind: "streamResume", sessionId });
             }
           } else if (state.isStreaming) {
@@ -2827,7 +2823,6 @@ export async function attachThread(
             threadId,
             onStreamEnd,
             resumeAttempt: resumeAttempt + 1,
-            opts: opts ?? { afterUnexpectedDrop: true },
           });
         }
         return;
@@ -2856,7 +2851,7 @@ export async function attachThread(
               threadId,
               onStreamEnd,
               resumeAttempt + 1,
-              opts,
+              { afterUnexpectedDrop: stillStreaming },
             );
           },
           Math.min(400 * 2 ** resumeAttempt, 15000),
@@ -2873,7 +2868,7 @@ export async function attachThread(
           threadId,
           onStreamEnd,
           resumeAttempt: resumeAttempt + 1,
-          opts,
+          opts: { afterUnexpectedDrop: stillStreaming },
         });
         clearStreamWatchdog(sessionId);
       } else if (!wasIntentional && stillStreaming) {
@@ -3246,6 +3241,15 @@ export async function sendTurn(
   }
 }
 
+type RecoveryOutcome =
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "paused"
+  | "running"
+  | "interrupted"
+  | "unknown";
+
 /** Recover a response using its existing model checkpoint, never a user_turn. */
 export async function recoverResponse(
   sessionId: string,
@@ -3253,7 +3257,7 @@ export async function recoverResponse(
   responseId: string,
   commandId: string,
   modelRef?: string | null,
-): Promise<"completed" | "failed" | "cancelled" | "unknown"> {
+): Promise<RecoveryOutcome> {
   const state = getOrCreate(sessionId);
   if (state.isStreaming) throw new Error(i18n.t("chat.recovery.busy"));
   const predecessorRunId = activeRunIds.get(state);
@@ -3262,7 +3266,9 @@ export async function recoverResponse(
   beginStream(state, sessionId);
   notify(state);
   let finished = false;
-  let outcome: "completed" | "failed" | "cancelled" | "unknown" = "unknown";
+  let outcome: RecoveryOutcome = "unknown";
+  let accepted = false;
+  let rejection: Error | undefined;
   const finish = () => {
     if (finished) return;
     finished = true;
@@ -3297,7 +3303,14 @@ export async function recoverResponse(
         signal: controller.signal,
       },
     );
-    if (!res.ok) throw new Error(i18n.t("chat.recovery.unavailable"));
+    if (!res.ok) {
+      const contentType = res.headers.get("Content-Type");
+      throw new Error(
+        contentType?.includes("json")
+          ? await res.text()
+          : i18n.t("chat.recovery.unavailable"),
+      );
+    }
     await consumeSseResponse(
       state,
       sessionId,
@@ -3307,8 +3320,17 @@ export async function recoverResponse(
       undefined,
       predecessorRunId,
       (chunk) => {
-        if (chunk.type === "error") outcome = "failed";
-        else if (chunk.type === "run_phase" && chunk.phase === "cancelled")
+        if (chunk.type === "error") {
+          if (!accepted) {
+            rejection = new Error(
+              JSON.stringify({
+                error: { code: chunk.error_code, message: chunk.message },
+              }),
+            );
+            return false;
+          }
+          outcome = "failed";
+        } else if (chunk.type === "run_phase" && chunk.phase === "cancelled")
           outcome = "cancelled";
         else if (chunk.type === "run_phase" && chunk.phase === "completed")
           outcome = "completed";
@@ -3318,14 +3340,27 @@ export async function recoverResponse(
           typeof chunk.data === "object"
         ) {
           const data = chunk.data as Record<string, unknown>;
-          if (
-            data.type === "recovery_ack" &&
-            ["completed", "failed", "cancelled"].includes(String(data.status))
-          )
-            outcome = data.status as typeof outcome;
+          if (data.type === "recovery_ack") {
+            if (data.response_id !== responseId) return false;
+            const status = data.status;
+            if (status === "accepted") accepted = true;
+            else if (status === "unknown") outcome = "interrupted";
+            else if (
+              status === "completed" ||
+              status === "failed" ||
+              status === "cancelled" ||
+              status === "paused" ||
+              status === "running"
+            )
+              outcome = status;
+            return false;
+          }
+        } else if (chunk.type === "hitl_required") {
+          outcome = "paused";
         }
       },
     );
+    if (rejection) throw rejection;
   } catch (error) {
     if ((error as Error).name !== "AbortError") throw error;
   } finally {
@@ -3342,7 +3377,7 @@ async function consumeSseResponse(
   finish: () => void,
   onRunId?: (runId: string) => void,
   predecessorRunId?: string,
-  onChunk?: (chunk: HarnessChunk) => void,
+  onChunk?: (chunk: HarnessChunk) => boolean | void,
 ): Promise<void> {
   const reader = res.body?.getReader();
   if (!reader) {
@@ -3356,7 +3391,6 @@ async function consumeSseResponse(
   let obsolete = false;
 
   const observe = (chunk: HarnessChunk) => {
-    onChunk?.(chunk);
     const firstPhase = chunk.type === "run_phase" && !streamRunId;
     if (chunk.type === "run_phase" && firstPhase) {
       streamRunId = chunk.run_id;
@@ -3373,6 +3407,7 @@ async function consumeSseResponse(
         !firstPhase)
     )
       return;
+    if (onChunk?.(chunk) === false) return;
     handleHarnessChunk(state, chunk, sessionId);
   };
 

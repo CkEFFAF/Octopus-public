@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+import json
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,7 +11,7 @@ from typing import Any
 from unittest.mock import MagicMock, call
 
 import pytest
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, message_to_dict
 
 from octop.api.routers.chat import history as history_mod
 from octop.api.routers.chat.serialize import (
@@ -21,11 +23,63 @@ from octop.api.routers.chat.serialize import (
     _slice_message_page,
 )
 from octop.infra.db.repos.thread_messages import (
+    ThreadMessageRow,
     ThreadProjectionCandidate,
     ThreadProjectionSummary,
 )
 from octop.infra.db.repos.threads import ThreadRow
 from octop.infra.gateway.threads import thread_row_has_messages
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"messages": [{"content": "new output"}]},
+        {"turn_active": True},
+        {"hitl_pending": {"pending_id": "approval"}},
+        {"artifacts": [{"name": "result.txt"}]},
+        {"conversation_mode": "ask"},
+        {"next_cursor": "older"},
+    ],
+)
+def test_history_validation_covers_complete_page(change: dict[str, Any]) -> None:
+    page = {"thread_id": "thread", "messages": [], "turn_active": False, "hitl_pending": None}
+    first = history_mod._validated_history_response(page, "")
+    validator = first.headers["etag"]
+    assert first.status_code == 200
+    assert "private" in first.headers["cache-control"]
+    unchanged = history_mod._validated_history_response(copy.deepcopy(page), validator)
+    assert unchanged.status_code == 304 and unchanged.body == b""
+    changed = history_mod._validated_history_response({**page, **change}, validator)
+    assert changed.status_code == 200 and changed.headers["etag"] != validator
+
+
+@pytest.mark.asyncio
+async def test_conditional_history_resolves_authorized_dependency_before_304() -> None:
+    import httpx
+    from fastapi import FastAPI, HTTPException
+
+    app = FastAPI()
+    app.include_router(history_mod.router)
+    permitted = True
+
+    async def authorized_page() -> dict[str, Any]:
+        if not permitted:
+            raise HTTPException(status_code=403)
+        return {"thread_id": "thread", "messages": []}
+
+    app.dependency_overrides[history_mod.get_thread_history] = authorized_page
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        first = await client.get("/agents/expert/threads/thread/history")
+        assert first.status_code == 200
+        headers = {"If-None-Match": first.headers["etag"]}
+        unchanged = await client.get("/agents/expert/threads/thread/history", headers=headers)
+        assert unchanged.status_code == 304 and unchanged.content == b""
+        permitted = False
+        rejected = await client.get("/agents/expert/threads/thread/history", headers=headers)
+        assert rejected.status_code == 403
 
 
 def test_clamp_history_limit() -> None:
@@ -254,6 +308,73 @@ async def test_get_thread_history_returns_has_more(monkeypatch: pytest.MonkeyPat
     assert out["offset"] == 0
     assert out["messages"][0]["role"] == "user"
     assert out["history_loading"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("message_id", ["old-answer", None])
+async def test_projected_history_preview_keeps_full_message_addressable(
+    message_id: str | None,
+) -> None:
+    server = MagicMock()
+    thread_id = "thr_1"
+    row = MagicMock(agent_id="agt_1", user_id=1, artifacts=())
+    server.app_runtime.gateway.thread_registry.get_thread.return_value = row
+    repo = server.services.thread_message_repo
+    repo.projection_status.return_value = "ready"
+    user = MagicMock(id=1)
+    original = AIMessage(
+        id=message_id,
+        content="这是一段历史正文。" * 6000,
+        additional_kwargs={"reasoning_content": "这是一段推理。" * 6000},
+    )
+    message_row = ThreadMessageRow(
+        seq=9,
+        message_id=original.id,
+        role="assistant",
+        message_json=json.dumps(message_to_dict(original)),
+        created_at=1,
+    )
+    repo.page.return_value = ([message_row], True)
+    full = await history_mod.get_thread_history("agt_1", thread_id, user=user, server=server)
+    preview = await history_mod.get_thread_history(
+        "agt_1", thread_id, user=user, server=server, preview=True
+    )
+    message = preview["messages"][0]
+    assert preview["has_more"] and preview["next_cursor"] == full["next_cursor"]
+    assert message.get("id") == original.id
+    assert len(json.dumps(message)) < len(json.dumps(full["messages"][0])) / 4
+    assert full["messages"][0]["content"][1]["text"] == original.content
+    assert (
+        full["messages"][0]["content"][0]["thinking"]
+        == original.additional_kwargs["reasoning_content"]
+    )
+
+    # The newest row has moved. The detail request must use the old sequence,
+    # without re-reading the moving offset or clipping the full body.
+    repo.page.reset_mock()
+    repo.page.side_effect = AssertionError("detail must use the fixed history position")
+    repo.range_page.return_value = [message_row]
+    result = await history_mod.get_thread_history(
+        "agt_1", thread_id, limit=1, cursor=message["detail_cursor"], user=user, server=server
+    )
+    assert result["messages"] == full["messages"]
+    assert result["detail_cursor"] == message["detail_cursor"]
+    repo.page.assert_not_called()
+    repo.range_page.assert_called_once_with(thread_id, 0, 9, 2)
+
+    repo.range_page.return_value = [
+        ThreadMessageRow(
+            seq=8,
+            message_id=None,
+            role="assistant",
+            message_json=json.dumps(message_to_dict(AIMessage(content="a different message"))),
+            created_at=1,
+        )
+    ]
+    stale = await history_mod.get_thread_history(
+        "agt_1", thread_id, limit=1, cursor=message["detail_cursor"], user=user, server=server
+    )
+    assert stale["messages"] == [] and "detail_cursor" not in stale
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import {
   attachThread,
   getSnapshot,
+  onStreamEvent,
   removeSession,
   setFocusedChatSession,
 } from "./chatStore";
@@ -11,6 +12,7 @@ vi.mock("../../../api/modules/wsChat", () => ({
 }));
 const sockets: Socket[] = [];
 const frames: Record<string, unknown>[] = [];
+let turnActive = false;
 class Socket {
   static OPEN = 1;
   static CONNECTING = 0;
@@ -32,7 +34,7 @@ class Socket {
           this.onmessage?.({
             data: JSON.stringify({
               type: "turn_status",
-              active: false,
+              active: turnActive,
               input_controls: true,
             }),
           }),
@@ -48,6 +50,7 @@ afterEach(() => {
   setFocusedChatSession(null);
   sockets.length = 0;
   frames.length = 0;
+  turnActive = false;
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -83,3 +86,83 @@ it("requests a fresh authoritative status on an existing idle subscription", asy
   expect(sockets).toHaveLength(1);
   expect(frames.map((frame) => frame.type)).toEqual(["subscribe", "subscribe"]);
 });
+
+it("emits one recovery notice when periodic status checks reuse a resumed socket", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("WebSocket", Socket);
+  setFocusedChatSession("idle-reconnect");
+  turnActive = true;
+  const listener = vi.fn();
+  const unsubscribe = onStreamEvent(listener);
+
+  try {
+    await attachThread("idle-reconnect", "agent", "idle-reconnect");
+    sockets[0].close();
+    await vi.advanceTimersByTimeAsync(450);
+    expect(sockets).toHaveLength(2);
+    expect(getSnapshot("idle-reconnect").isStreaming).toBe(true);
+
+    for (let index = 0; index < 3; index += 1) {
+      await attachThread(
+        "idle-reconnect",
+        "agent",
+        "idle-reconnect",
+        undefined,
+        0,
+        {
+          refreshStatus: true,
+        },
+      );
+    }
+
+    expect(sockets).toHaveLength(2);
+    expect(
+      listener.mock.calls.filter(([event]) => event.kind === "streamResume"),
+    ).toHaveLength(1);
+    expect(frames.every((frame) => frame.type === "subscribe")).toBe(true);
+  } finally {
+    unsubscribe();
+  }
+});
+
+it.each([false, true])(
+  "does not report a later turn after an idle status on reconnect (previously active: %s)",
+  async (wasActive) => {
+    vi.useFakeTimers();
+    vi.stubGlobal("WebSocket", Socket);
+    setFocusedChatSession("idle-reconnect");
+    turnActive = wasActive;
+    const listener = vi.fn();
+    const unsubscribe = onStreamEvent(listener);
+
+    try {
+      await attachThread("idle-reconnect", "agent", "idle-reconnect");
+      expect(getSnapshot("idle-reconnect").isStreaming).toBe(wasActive);
+      sockets[0].close();
+      turnActive = false;
+      await vi.advanceTimersByTimeAsync(450);
+      expect(sockets).toHaveLength(2);
+      expect(getSnapshot("idle-reconnect").isStreaming).toBe(false);
+
+      turnActive = true;
+      await attachThread(
+        "idle-reconnect",
+        "agent",
+        "idle-reconnect",
+        undefined,
+        0,
+        {
+          refreshStatus: true,
+        },
+      );
+
+      expect(getSnapshot("idle-reconnect").isStreaming).toBe(true);
+      expect(listener).not.toHaveBeenCalledWith({
+        kind: "streamResume",
+        sessionId: "idle-reconnect",
+      });
+    } finally {
+      unsubscribe();
+    }
+  },
+);

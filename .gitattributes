@@ -14,3 +14,7 @@ dashboard/**/*.md text eol=lf
 
 # Unified diff context includes a single space on empty lines.
 vendor/harness/*.patch -whitespace
+
+# Keep hash-covered provenance byte-identical across Windows and Linux.
+vendor/harness/reliability-fixes.patch -text
+vendor/harness/reliability2-fixes.patch -text

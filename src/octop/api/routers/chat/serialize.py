@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -25,6 +26,7 @@ from octop.infra.gateway.process.message_keys import (
     STREAM_ERROR_FLAG,
     parse_checkpoint_ts_ms,
 )
+from octop.infra.history.reader import legacy_history_cursor
 from octop.infra.utils.llm_text import strip_thinking as _strip_thinking
 from octop.infra.utils.locale import normalize_locale
 
@@ -52,6 +54,8 @@ _OFFLOAD_PLACEHOLDER_RE = re.compile(
 
 HISTORY_DEFAULT_LIMIT = 25
 HISTORY_MAX_LIMIT = 200
+_HISTORY_PREVIEW_THRESHOLD = 16_384
+_HISTORY_PREVIEW_CHARS = {"text": 4_096, "thinking": 2_048}
 
 
 def _clamp_history_limit(limit: int) -> int:
@@ -449,13 +453,16 @@ def _load_projected_thread_messages(
     *,
     user: Any,
     offset: int = 0,
+    before: int | None = None,
+    preview: bool = False,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Read one page without touching the agent checkpoint database."""
-    rows, has_more = server.services.thread_message_repo.page(
-        thread_id,
-        limit=limit,
-        offset=offset,
-    )
+    repo = server.services.thread_message_repo
+    if before is None:
+        rows, has_more = repo.page(thread_id, limit=limit, offset=offset)
+    else:
+        descending = repo.range_page(thread_id, 0, before - 1, limit + 1)
+        rows, has_more = list(reversed(descending[:limit])), len(descending) > limit
     out: list[dict[str, Any]] = []
     for row in rows:
         try:
@@ -475,8 +482,70 @@ def _load_projected_thread_messages(
             fallback_created_at=row.created_at,
         )
         if entry is not None:
+            if preview:
+                entry = _preview_history_message(
+                    entry, legacy_history_cursor(thread_id, "projection", row.seq + 1)
+                )
             out.append(entry)
     return _enrich_history_tool_media(out, agent_id=agent_id), has_more
+
+
+def _history_message_digest(entry: dict[str, Any]) -> str:
+    body = json.dumps(entry, ensure_ascii=False, separators=(",", ":")).encode()
+    return hashlib.sha256(body).hexdigest()
+
+
+def _preview_history_message(entry: dict[str, Any], cursor: str | None) -> dict[str, Any]:
+    """Bound long assistant text while retaining tool, media, and error metadata."""
+    if not cursor or entry["role"] != "assistant":
+        return entry
+    blocks = entry["content"]
+    if (
+        sum(
+            len(block[field])
+            for block in blocks
+            for field in _HISTORY_PREVIEW_CHARS
+            if block.get("type") == field and isinstance(block.get(field), str)
+        )
+        <= _HISTORY_PREVIEW_THRESHOLD
+    ):
+        return entry
+    remaining = _HISTORY_PREVIEW_CHARS.copy()
+    preview = []
+    for block in blocks:
+        field = block.get("type")
+        if (
+            not isinstance(field, str)
+            or field not in remaining
+            or not isinstance(block.get(field), str)
+        ):
+            preview.append(block)
+            continue
+        value = block[field]
+        budget = remaining[field]
+        if budget:
+            preview.append(
+                {**block, field: value[:budget].rstrip() + "…"} if len(value) > budget else block
+            )
+            remaining[field] = max(0, budget - len(value))
+    return {
+        **entry,
+        "content": preview,
+        "detail_cursor": f"detail:{_history_message_digest(entry)}:{cursor}",
+    }
+
+
+def _serialize_archive_history(
+    page: dict[str, Any], *, agent_id: str, user: Any
+) -> list[dict[str, Any]]:
+    messages = []
+    cursors = page.get("message_cursors")
+    for index, message in enumerate(messages_from_dict(page["messages"])):
+        item = _serialize_history_message(message, user=user)
+        if item is None:
+            raise ValueError("An archived history message could not be rendered")
+        messages.append(_preview_history_message(item, cursors[index]) if cursors else item)
+    return _enrich_history_tool_media(messages, agent_id=agent_id)
 
 
 async def _backfill_thread_projection(

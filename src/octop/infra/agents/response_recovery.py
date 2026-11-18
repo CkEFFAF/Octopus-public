@@ -7,18 +7,26 @@ import copy
 import hashlib
 import logging
 import time
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from typing import Any
+from uuid import uuid4
 
+from anyio import CancelScope
+from langchain_core.messages import AIMessage, ToolMessage
 from octop_harness.protocols.langgraph import LangGraphProtocol
 from octop_harness.protocols.think_splitter import ThinkSplitter
+from octop_harness.request import ChatRequest
 
+from octop.i18n import tr
 from octop.i18n.domains.stream import classify_model_error
 from octop.infra.agents.security.hitl_session import hitl_thread_scope
 from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.utils.model_diagnostics import safe_diagnostics
 
 logger = logging.getLogger(__name__)
+RECOVERY_INVOCATION_ID = "octop_response_attempt"
+_PENDING_RECEIPT_STATUSES = frozenset({"accepted", "running"})
 
 
 def checkpoint_id(state: Any) -> str:
@@ -33,6 +41,20 @@ def model_boundary(state: Any) -> bool:
         getattr(task, "name", "") == "model" and not getattr(task, "interrupts", ())
         for task in getattr(state, "tasks", ())
     )
+
+
+def _failed_tool_call_id(state: Any) -> str | None:
+    tasks: tuple[Any, ...] = getattr(state, "tasks", ())
+    if tuple(getattr(state, "next", ())) != ("tools",) or len(tasks) != 1:
+        return None
+    task = tasks[0]
+    if task.name != "tools" or not task.error or task.interrupts or task.result is not None:
+        return None
+    messages = (state.values or {}).get("messages") or []
+    if not messages or not isinstance(messages[-1], AIMessage):
+        return None
+    calls = messages[-1].tool_calls
+    return calls[0].get("id") if len(calls) == 1 else None
 
 
 def recovery_request(request: dict[str, Any]) -> dict[str, Any]:
@@ -70,6 +92,8 @@ def recovery_request(request: dict[str, Any]) -> dict[str, Any]:
     context = original.get("octop_execution_context")
     if isinstance(context, dict) and context.get("context_id"):
         config["octop_execution_context"] = {"context_id": context["context_id"]}
+    else:
+        config["octop_recovery_without_target"] = True
     result["configurable"] = config
     result["messages"] = []
     return result
@@ -135,10 +159,20 @@ class ResponseRecovery:
             return None
         harness = self.manager.get_agent(agent)
         state = await harness.graph.aget_state({"configurable": {"thread_id": thread}})
+        invocation_id = (request.get("metadata") or {}).get(RECOVERY_INVOCATION_ID)
+        if (
+            invocation_id
+            and (getattr(state, "metadata", None) or {}).get(RECOVERY_INVOCATION_ID)
+            != invocation_id
+        ):
+            # An invocation can fail before it commits any input. The latest
+            # checkpoint then belongs to a different turn.
+            return None
         current = checkpoint_id(state)
         if not current:
             return None
-        boundary = state if exc is not None and model_boundary(state) else None
+        failed_call = _failed_tool_call_id(state) if exc is not None else None
+        boundary = state if exc is not None and (model_boundary(state) or failed_call) else None
         if exc is None and not getattr(state, "next", ()):
             final = list((getattr(state, "values", None) or {}).get("messages") or [])
             # Regenerate only the final model call. All completed tools and
@@ -178,6 +212,7 @@ class ResponseRecovery:
             "resume_checkpoint_id": checkpoint_id(boundary),
             "request": recovery_request(request),
             "action": "retry" if exc else "regenerate",
+            **({"failed_tool_call_id": failed_call} if failed_call else {}),
             "retry_at": time.time() + float(diagnostic.get("retry_after_seconds") or 0),
         }
         await asyncio.to_thread(
@@ -225,14 +260,16 @@ class ResponseRecovery:
         response_id: str,
         command_id: str,
         model: str | None = None,
-    ) -> AsyncIterator[dict[str, Any]]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         await asyncio.to_thread(self.authorize, owner, agent, thread)
         receipts = self.repos.run_event_repo
         event_id = f"chat-retry:{owner}:{command_id}"
+        lock = self.manager._thread_execution_lock(agent, thread)
         prior = await asyncio.to_thread(receipts.get, owner, event_id)
         if prior is not None:
             if (
-                prior["thread_id"] != thread
+                prior["kind"] != "chat_retry"
+                or prior["thread_id"] != thread
                 or prior["agent_id"] != agent
                 or prior["payload"].get("response_id") != response_id
                 or prior["payload"].get("model") != model
@@ -240,9 +277,28 @@ class ResponseRecovery:
                 raise OctopError(
                     ErrorCode.RESPONSE_RECOVERY_CONFLICT, "RESPONSE_RECOVERY_COMMAND_CONFLICT"
                 )
-            yield {"type": "recovery_ack", "status": prior["status"], "response_id": response_id}
+            status = prior["status"]
+            if status in _PENDING_RECEIPT_STATUSES and not lock.locked():
+                async with lock:
+                    # An idle thread cannot still own this execution. Keep
+                    # the command's identity so a replay never runs it again.
+                    updated = await asyncio.to_thread(
+                        receipts.compare_payload,
+                        owner,
+                        event_id,
+                        prior["payload"],
+                        prior["payload"],
+                        "unknown",
+                        expected_status=status,
+                    )
+                    current = (
+                        None if updated else await asyncio.to_thread(receipts.get, owner, event_id)
+                    )
+                    status = current["status"] if current else "unknown"
+            if status in _PENDING_RECEIPT_STATUSES:
+                status = "running"
+            yield {"type": "recovery_ack", "status": status, "response_id": response_id}
             return
-        lock = self.manager._thread_execution_lock(agent, thread)
         if lock.locked():
             raise OctopError(ErrorCode.RESPONSE_RECOVERY_CONFLICT, "RESPONSE_RECOVERY_BUSY")
         async with lock, self.manager._track_invocation(agent):
@@ -270,7 +326,12 @@ class ResponseRecovery:
                     }
                 }
             )
-            if not model_boundary(checkpoint):
+            failed_call = payload.get("failed_tool_call_id")
+            if failed_call and _failed_tool_call_id(checkpoint) != failed_call:
+                raise OctopError(
+                    ErrorCode.RESPONSE_RECOVERY_CONFLICT, "RESPONSE_RECOVERY_UNAVAILABLE"
+                )
+            if not failed_call and not model_boundary(checkpoint):
                 raise OctopError(
                     ErrorCode.RESPONSE_RECOVERY_CONFLICT, "RESPONSE_RECOVERY_UNAVAILABLE"
                 )
@@ -301,39 +362,19 @@ class ResponseRecovery:
                 if set(selected) - {row.id for row in bases}:
                     raise OctopError(ErrorCode.FORBIDDEN, "Knowledge access changed")
                 values["knowledge_base_catalog"] = catalog_for_selected_bases(bases, selected)
+            saved_context = values.get("octop_execution_context")
+            if not isinstance(saved_context, dict) or not saved_context.get("context_id"):
+                values["octop_recovery_without_target"] = True
             request = await asyncio.to_thread(
                 self.manager._prepare_stream_request, agent, original_request
             )
-            reservation = {"response_id": response_id, "model": model}
-            await asyncio.to_thread(
-                receipts.save,
-                event_id=event_id,
-                owner=owner,
-                agent_id=agent,
-                thread_id=thread,
-                run_id=event_id,
-                context_id=None,
-                kind="chat_retry",
-                status="accepted",
-                payload=reservation,
-                replace=False,
-            )
-            claimed = await asyncio.to_thread(
-                receipts.compare_payload,
-                owner,
-                event_id,
-                reservation,
-                {**reservation, "claimed": True},
-                "running",
-            )
-            if not claimed:
-                yield {"type": "recovery_ack", "status": "running", "response_id": response_id}
-                return
-            baseline = {
-                str(getattr(m, "id", ""))
-                for m in (getattr(checkpoint, "values", None) or {}).get("messages", [])
+            # A continuation has no new user messages. HarnessAgent._prepare_call
+            # normalizes a new turn and rejects its empty message list.
+            config = ChatRequest.coerce(request).to_runnable_config()
+            config["metadata"] = {
+                **config.get("metadata", {}),
+                "harness_invocation_id": uuid4().hex,
             }
-            _, config, _ = harness._prepare_call(request, "langgraph")
             config.setdefault("configurable", {}).update(
                 {
                     "checkpoint_id": payload["resume_checkpoint_id"],
@@ -342,26 +383,83 @@ class ResponseRecovery:
                     .get("checkpoint_ns", ""),
                 }
             )
+            reservation = {"response_id": response_id, "model": model}
+            with CancelScope(shield=True):
+                await asyncio.to_thread(
+                    receipts.save,
+                    event_id=event_id,
+                    owner=owner,
+                    agent_id=agent,
+                    thread_id=thread,
+                    run_id=event_id,
+                    context_id=None,
+                    kind="chat_retry",
+                    status="accepted",
+                    payload=reservation,
+                    replace=False,
+                )
+                claimed = await asyncio.to_thread(
+                    receipts.compare_payload,
+                    owner,
+                    event_id,
+                    reservation,
+                    {**reservation, "claimed": True},
+                    "running",
+                    expected_status="accepted",
+                )
+            if not claimed:
+                yield {"type": "recovery_ack", "status": "running", "response_id": response_id}
+                return
+            baseline = {
+                str(getattr(m, "id", ""))
+                for m in (getattr(checkpoint, "values", None) or {}).get("messages", [])
+            }
             status = "unknown"
-            yield {"type": "recovery_ack", "status": "accepted", "response_id": response_id}
             model_refs = getattr(self.manager, "_active_model_refs", None)
-            if isinstance(model_refs, dict) and request.get("model"):
-                model_refs[(agent, thread)] = request["model"]
             route = (request.get("configurable") or {}).get("octop_model_route")
             try:
+                yield {"type": "recovery_ack", "status": "accepted", "response_id": response_id}
+                if isinstance(model_refs, dict) and request.get("model"):
+                    model_refs[(agent, thread)] = request["model"]
+                if failed_call:
+                    # Account for the failed call before resuming. Invoking the
+                    # tools checkpoint itself could repeat external side effects.
+                    updated = await harness.graph.aupdate_state(
+                        config,
+                        {
+                            "messages": [
+                                ToolMessage(
+                                    tr(
+                                        "execution.interruptedTool",
+                                        str(values.get("locale") or "en"),
+                                    ),
+                                    tool_call_id=failed_call,
+                                    status="error",
+                                )
+                            ]
+                        },
+                        as_node="tools",
+                        task_id=checkpoint.tasks[0].id,
+                    )
+                    config["configurable"]["checkpoint_id"] = updated["configurable"][
+                        "checkpoint_id"
+                    ]
                 if isinstance(route, dict):
                     yield {**route, "type": "model_route"}
                 with hitl_thread_scope(thread):
                     async with harness._invocation():
-                        async for chunk in self._resume_chunks(harness, config, thread, baseline):
-                            if chunk.get("type") == "hitl_required":
-                                status = "paused"
-                            if (
-                                chunk.get("type") == "run_phase"
-                                and chunk.get("phase") == "cancelled"
-                            ):
-                                status = "cancelled"
-                            yield chunk
+                        async with aclosing(
+                            self._resume_chunks(harness, config, thread, baseline)
+                        ) as chunks:
+                            async for chunk in chunks:
+                                if chunk.get("type") == "hitl_required":
+                                    status = "paused"
+                                if (
+                                    chunk.get("type") == "run_phase"
+                                    and chunk.get("phase") == "cancelled"
+                                ):
+                                    status = "cancelled"
+                                yield chunk
                 if status not in {"cancelled", "paused"}:
                     status = "completed"
                 try:
@@ -380,34 +478,38 @@ class ResponseRecovery:
             finally:
                 if isinstance(model_refs, dict):
                     model_refs.pop((agent, thread), None)
-                await asyncio.to_thread(
-                    receipts.save,
-                    event_id=event_id,
-                    owner=owner,
-                    agent_id=agent,
-                    thread_id=thread,
-                    run_id=event_id,
-                    context_id=None,
-                    kind="chat_retry",
-                    status=status,
-                    payload={"response_id": response_id, "model": model, "claimed": True},
-                )
+                with CancelScope(shield=True):
+                    await asyncio.to_thread(
+                        receipts.save,
+                        event_id=event_id,
+                        owner=owner,
+                        agent_id=agent,
+                        thread_id=thread,
+                        run_id=event_id,
+                        context_id=None,
+                        kind="chat_retry",
+                        status=status,
+                        payload={"response_id": response_id, "model": model, "claimed": True},
+                    )
 
     @staticmethod
     async def _resume_chunks(
         harness: Any, config: dict[str, Any], thread: str, baseline: set[str]
-    ) -> AsyncIterator[dict[str, Any]]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         # Keep the original message/tool prefix out of the new archive attempt.
-        async for chunk in harness._stream_with_steering(
-            ResumeModelProtocol(graph=harness.graph), [], config, thread
-        ):
-            if chunk.get("type") in {"state_snapshot", "state_update"} and isinstance(
-                chunk.get("data"), dict
-            ):
-                data = dict(chunk["data"])
-                if isinstance(data.get("messages"), list):
-                    data["messages"] = [
-                        m for m in data["messages"] if str(getattr(m, "id", "")) not in baseline
-                    ]
-                chunk = {**chunk, "data": data}
-            yield chunk
+        async with aclosing(
+            harness._stream_with_steering(
+                ResumeModelProtocol(graph=harness.graph), [], config, thread
+            )
+        ) as chunks:
+            async for chunk in chunks:
+                if chunk.get("type") in {"state_snapshot", "state_update"} and isinstance(
+                    chunk.get("data"), dict
+                ):
+                    data = dict(chunk["data"])
+                    if isinstance(data.get("messages"), list):
+                        data["messages"] = [
+                            m for m in data["messages"] if str(getattr(m, "id", "")) not in baseline
+                        ]
+                    chunk = {**chunk, "data": data}
+                yield chunk

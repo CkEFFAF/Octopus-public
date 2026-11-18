@@ -37,15 +37,33 @@ class RequestSnapshotRepo:
         *,
         before: int | None = None,
         limit: int = 100,
+        for_summary: bool = False,
     ) -> list[dict[str, Any]]:
+        payload = "payload_json"
+        if for_summary and self.db.dialect == "sqlite":
+            # Historical snapshots without totals still need their components for aggregation.
+            payload = (
+                "CASE WHEN json_extract(payload_json, '$.estimated_tokens_by_kind') <> '{}' "
+                "THEN json_remove(payload_json, '$.components') ELSE payload_json END"
+            )
         with self.db.connect() as conn:
             rows = conn.execute(
-                "SELECT id, payload_json FROM request_snapshots WHERE owner_user_id = ? AND agent_id = ? AND thread_id = ? "
+                f"SELECT id, {payload} AS payload_json FROM request_snapshots "
+                "WHERE owner_user_id = ? AND agent_id = ? AND thread_id = ? "
                 + ("AND id < ? " if before is not None else "")
                 + "ORDER BY id DESC LIMIT ?",
                 [owner, agent_id, thread_id, *([before] if before is not None else []), limit],
             ).fetchall()
         return [{**json.loads(row["payload_json"]), "seq": row["id"]} for row in rows]
+
+    def count(self, owner: int, agent_id: str, thread_id: str, *, limit: int) -> int:
+        with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM (SELECT 1 FROM request_snapshots "
+                "WHERE owner_user_id = ? AND agent_id = ? AND thread_id = ? LIMIT ?) AS retained",
+                (owner, agent_id, thread_id, limit),
+            ).fetchone()
+        return int(row["n"])
 
     def get(
         self, owner: int, agent_id: str, thread_id: str, request_id: str

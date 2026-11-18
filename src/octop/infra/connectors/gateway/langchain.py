@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from octop_harness.mcp import mcp_args_model
+from octop_harness.mcp import mcp_args_model, prepare_mcp_tool_arguments
 
 from octop.infra.agents.plugins.plugin_tool_names import sanitize_plugin_tool_name
 from octop.infra.connectors.catalog import ConnectorCatalogEntry, is_inprocess_gateway
@@ -29,10 +29,9 @@ def build_gateway_langchain_tools(
     out: list[Any] = []
     used_names: set[str] = set()
 
-    def _tool_fn(kind: str, tool_name: str) -> Any:
+    def _tool_fn(kind: str, tool_name: str, input_schema: dict[str, Any]) -> Any:
         def _run(**kwargs: Any) -> str:
-            # Null stripping for args_schema happens in harness mcp_args_model.
-            cleaned = {k: v for k, v in kwargs.items() if v is not None}
+            cleaned = prepare_mcp_tool_arguments(kwargs, input_schema)
             resp = handle_mcp_request(
                 kind=kind,
                 creds=creds,
@@ -71,7 +70,7 @@ def build_gateway_langchain_tools(
         lc_name = sanitize_plugin_tool_name(f"{mcp_server_name}_{name}", used=used_names)
         out.append(
             StructuredTool.from_function(
-                func=_tool_fn(entry.kind, name),
+                func=_tool_fn(entry.kind, name, input_schema),
                 name=lc_name,
                 description=str(tool_def.get("description") or name),
                 args_schema=mcp_args_model(lc_name, input_schema),

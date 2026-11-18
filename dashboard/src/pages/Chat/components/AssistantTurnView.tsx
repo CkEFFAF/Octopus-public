@@ -18,6 +18,7 @@ import {
   isWriteTodosToolName,
 } from "../../../utils/parseWriteTodos";
 import MessageBubble from "./MessageBubble";
+import { HistoryMessageDetails } from "./HistoryMessageDetails";
 import { ToolMediaStrip } from "./ToolMediaStrip";
 import {
   TurnProcessBlocks,
@@ -285,6 +286,17 @@ function AssistantTurnView({
           />
         </div>
       ) : null}
+      {messages.map((message) => {
+        const detail = message.historyDetail;
+        return detail ? (
+          <div
+            className={styles.turnInset}
+            key={`${detail.cursor}:${message.id}`}
+          >
+            <HistoryMessageDetails detail={detail} />
+          </div>
+        ) : null;
+      })}
       {hasToolMedia && (
         <div className={styles.turnInset}>
           <ToolMediaStrip

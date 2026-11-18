@@ -90,11 +90,3 @@ export function shouldForceSealStream(opts: {
   if (opts.lastActivityAt == null) return true;
   return opts.now - opts.lastActivityAt >= grace;
 }
-
-/** Toast once after a non-zero resume attach rebinds a live turn. */
-export function shouldEmitStreamResumeNotice(opts: {
-  resumeAttempt: number;
-  turnActive: boolean;
-}): boolean {
-  return opts.resumeAttempt > 0 && opts.turnActive;
-}
