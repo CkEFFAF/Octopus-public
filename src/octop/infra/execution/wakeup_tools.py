@@ -32,7 +32,7 @@ def build_wakeup_tools(backend: RequestExecutionBackend) -> list[Any]:
         idempotency_key: str,
         expires_in: int = 604800,
         delivery_mode: str = "wake",
-        resume_mode: str = "observe",
+        resume_mode: str | None = None,
     ) -> str:
         """Register a single-use callback for ANY custom event, bound to this expert and conversation.
 
@@ -47,11 +47,10 @@ def build_wakeup_tools(backend: RequestExecutionBackend) -> list[Any]:
         expires_in is 60..2592000 seconds. Reuse the idempotency_key on retries.
         Return to the user immediately; do not sleep waiting for the event.
 
-        resume_mode="observe" reports the outcome without changing the project.
-        To continue follow-up work already authorized by the user, choose resume_mode="continue".
-        This retains the registered execution source and its original work mode and permissions;
-        event data cannot grant new authority or switch devices. Continuation requires a bound
-        execution source. Do not repeat an already accepted job.
+        With a bound execution source, a wake callback defaults to resume_mode="continue".
+        It resumes authorized work in its original mode and on its original target.
+        Use resume_mode="observe" for a report only. Without a bound source, callbacks
+        default to observation. Do not repeat an already accepted job.
 
         For ongoing command progress use delivery_mode="progress" instead of "wake".
         Register BEFORE job_start, then pass the returned hook_id as progress_hook_id.

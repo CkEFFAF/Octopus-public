@@ -62,7 +62,7 @@ class WakeupHookService:
         job_event_id: str | None = None,
         include_token: bool = True,
         delivery_mode: str = "wake",
-        resume_mode: str = "observe",
+        resume_mode: str | None = None,
     ) -> dict[str, Any]:
         context = self.execution.get(owner, context_id) if context_id else None
         if context and (context.agent_id, context.thread_id) != (agent, thread_id):
@@ -72,7 +72,8 @@ class WakeupHookService:
         self._scope({"owner_user_id": owner, "agent_id": agent, "thread_id": thread_id})
         if delivery_mode not in {"wake", "progress", "signal"}:
             raise ValueError("delivery_mode must be wake, progress or signal")
-        if resume_mode not in {"observe", "continue"}:
+        default_mode = "continue" if context and delivery_mode == "wake" else "observe"
+        if resume_mode is not None and resume_mode not in {"observe", "continue"}:
             raise ValueError("resume_mode must be observe or continue")
         if resume_mode == "continue" and (context is None or delivery_mode != "wake"):
             raise ValueError("continuation requires a bound execution source and wake delivery")
@@ -101,7 +102,7 @@ class WakeupHookService:
             "purpose": purpose.strip(),
             "job_event_id": job_event_id,
             "delivery_mode": delivery_mode,
-            "resume_mode": resume_mode,
+            "resume_mode": resume_mode or default_mode,
             "origin_work_mode": context.work_mode if context else None,
         }
         fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
@@ -126,7 +127,14 @@ class WakeupHookService:
             row = self.events.wakeup_hook(identity)
         assert row is not None
         self._scope(row)
-        if row["payload"].get("fingerprint") != fingerprint:
+        stored_fingerprint = row["payload"].get("fingerprint")
+        if resume_mode is None and stored_fingerprint != fingerprint:
+            # A retry may refer to a hook created when the omitted mode meant observe.
+            previous_default = {**payload, "resume_mode": "observe"}
+            fingerprint = hashlib.sha256(
+                json.dumps(previous_default, sort_keys=True).encode()
+            ).hexdigest()
+        if stored_fingerprint != fingerprint:
             raise ValueError("wakeup idempotency key reused with different event settings")
         result = self.public(row)
         if include_token:

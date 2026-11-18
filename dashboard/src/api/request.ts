@@ -366,6 +366,7 @@ async function throwIfUnauthorized(
 export async function request<T = unknown>(
   path: string,
   options: RequestInit = {},
+  validation?: { onEtag?: (etag: string) => void; onNotModified?: () => T },
 ): Promise<T> {
   assertNotSetupLocked(path);
 
@@ -386,6 +387,8 @@ export async function request<T = unknown>(
 
   await throwIfUnauthorized(path, response, requestToken);
   applyRenewedAccessToken(response, requestToken);
+  if (response.status === 304 && validation?.onNotModified)
+    return validation.onNotModified();
 
   if (!response.ok) {
     if (response.status === 403 && isAgentScopedPath(path)) {
@@ -401,6 +404,10 @@ export async function request<T = unknown>(
     );
   }
 
+  if (validation?.onEtag) {
+    const etag = response.headers.get("ETag");
+    if (etag) validation.onEtag(etag);
+  }
   if (response.status === 204) {
     return undefined as T;
   }

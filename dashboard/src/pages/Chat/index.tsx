@@ -118,7 +118,7 @@ import { useMemoryMaintenance } from "./hooks/useMemoryMaintenance";
 import MemoryMaintenanceBanner from "./components/MemoryMaintenanceBanner";
 import { useHistoryMigration } from "./hooks/useHistoryMigration";
 import HistoryMigrationBanner from "./components/HistoryMigrationBanner";
-import { apiErrorMessage } from "../../utils/apiError";
+import { apiErrorMessage, parseApiError } from "../../utils/apiError";
 import PwaInstallPrompt from "../../components/PwaInstallPrompt";
 import { promptNeedsUserInput } from "../../utils/quickInputPrefill";
 import { OPEN_NAV_RECORDS_EVENT } from "../../layouts/chatHistoryRail";
@@ -1153,8 +1153,17 @@ function ChatPageInner() {
         );
         if (outcome !== "unknown") recoveryCommands.current.delete(recoveryKey);
         await refreshHistory(activeThreadId);
-      } catch {
-        antMessage.info(t("chat.recovery.unavailable"));
+      } catch (error) {
+        const offlineCheckpoint =
+          messages[idx].errorInfo?.code === "DEVICE_OFFLINE" &&
+          parseApiError(error)?.code === "RESPONSE_RECOVERY_CONFLICT";
+        antMessage.info(
+          t(
+            offlineCheckpoint
+              ? "chat.recovery.deviceInterrupted"
+              : "chat.recovery.unavailable",
+          ),
+        );
       }
     },
     [

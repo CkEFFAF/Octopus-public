@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from typing import Any
 
 from octop.i18n.domains.stream import classify_model_error, format_stream_error
@@ -33,7 +34,7 @@ async def iter_response_recovery(
     command_id: str,
     locale: str,
     model: str | None = None,
-) -> AsyncIterator[dict[str, Any]]:
+) -> AsyncGenerator[dict[str, Any], None]:
     tracker = None
     completed = False
     paused = False
@@ -45,63 +46,64 @@ async def iter_response_recovery(
     emitted_media_ids: set[str] = set()
     emitted_attachment_keys: set[str] = set()
     try:
-        async for chunk in ResponseRecovery(manager).stream(
-            owner, agent, thread, response_id, command_id, model
-        ):
-            if chunk.get("type") == "recovery_ack":
-                if chunk.get("status") == "accepted":
-                    tracker = await processor._begin_history(agent, thread, {})
-                yield chunk
-                continue
-            usage.observe(chunk)
-            processor._observe_trajectory(
-                agent_id=agent, thread_id=thread, chunk=chunk, enabled=trajectory
-            )
-            if chunk.get("type") == "hitl_required" and isinstance(chunk.get("request"), dict):
-                request = normalize_hitl_request(chunk["request"])
-                row = manager._repos.thread_repo.get(thread)
-                pending = processor._hitl.register_from_request(
-                    request,
-                    ctx=HitlStreamContext(
-                        thread_id=thread,
-                        agent_id=agent,
-                        user_id=owner,
-                        session_key=row.session_key,
-                        channel_type="dashboard",
-                    ),
+        async with aclosing(
+            ResponseRecovery(manager).stream(owner, agent, thread, response_id, command_id, model)
+        ) as recovery_stream:
+            async for chunk in recovery_stream:
+                if chunk.get("type") == "recovery_ack":
+                    if chunk.get("status") == "accepted":
+                        tracker = await processor._begin_history(agent, thread, {})
+                    yield chunk
+                    continue
+                usage.observe(chunk)
+                processor._observe_trajectory(
+                    agent_id=agent, thread_id=thread, chunk=chunk, enabled=trajectory
                 )
-                request["pending_id"] = pending.pending_id
-                chunk = {**chunk, "request": request, "pending_id": pending.pending_id}
-                paused = True
-            if tracker is not None:
-                tracker.observe(chunk)
-                await flush_tracker(tracker)
-            if chunk.get("type") == "tool_call_chunk":
-                saw_tool_call = True
-            if chunk.get("type") == "tool_result":
-                if workspace is not None:
-                    chunk = await enrich_tool_result_with_backend(
-                        chunk, agent_id=agent, workspace=workspace
+                if chunk.get("type") == "hitl_required" and isinstance(chunk.get("request"), dict):
+                    request = normalize_hitl_request(chunk["request"])
+                    row = manager._repos.thread_repo.get(thread)
+                    pending = processor._hitl.register_from_request(
+                        request,
+                        ctx=HitlStreamContext(
+                            thread_id=thread,
+                            agent_id=agent,
+                            user_id=owner,
+                            session_key=row.session_key,
+                            channel_type="dashboard",
+                        ),
                     )
-                    async for attachment in iter_dashboard_attachment_frames(
-                        chunk,
-                        agent_id=agent,
-                        workspace=workspace,
-                        saw_tool_call=saw_tool_call,
-                        emitted_media_ids=emitted_media_ids,
-                        emitted_attachment_keys=emitted_attachment_keys,
-                    ):
-                        yield attachment
-                else:
-                    chunk = enrich_tool_result_for_dashboard(chunk, agent_id=agent)
-            chunk = enrich_tool_stream_chunk(
-                chunk, locale, agent_manager=manager, agent_id=agent, user_id=owner
-            )
-            if chunk.get("type") == "run_phase" and chunk.get("phase") == "cancelled":
-                cancelled = True
+                    request["pending_id"] = pending.pending_id
+                    chunk = {**chunk, "request": request, "pending_id": pending.pending_id}
+                    paused = True
+                if tracker is not None:
+                    tracker.observe(chunk)
+                    await flush_tracker(tracker)
+                if chunk.get("type") == "tool_call_chunk":
+                    saw_tool_call = True
+                if chunk.get("type") == "tool_result":
+                    if workspace is not None:
+                        chunk = await enrich_tool_result_with_backend(
+                            chunk, agent_id=agent, workspace=workspace
+                        )
+                        async for attachment in iter_dashboard_attachment_frames(
+                            chunk,
+                            agent_id=agent,
+                            workspace=workspace,
+                            saw_tool_call=saw_tool_call,
+                            emitted_media_ids=emitted_media_ids,
+                            emitted_attachment_keys=emitted_attachment_keys,
+                        ):
+                            yield attachment
+                    else:
+                        chunk = enrich_tool_result_for_dashboard(chunk, agent_id=agent)
+                chunk = enrich_tool_stream_chunk(
+                    chunk, locale, agent_manager=manager, agent_id=agent, user_id=owner
+                )
+                if chunk.get("type") == "run_phase" and chunk.get("phase") == "cancelled":
+                    cancelled = True
+                    yield chunk
+                    return
                 yield chunk
-                return
-            yield chunk
         completed = not paused
     except Exception as exc:
         code = (

@@ -224,6 +224,48 @@ export interface HistoryMigrationStatus {
 
 export const CHAT_HISTORY_PAGE_SIZE = 25;
 
+type HistoryPageParams = {
+  limit?: number;
+  offset?: number;
+  cursor?: string | null;
+  onEtag?: (etag: string) => void;
+};
+function fetchThreadHistory(
+  agentId: string,
+  threadId: string,
+  params?: HistoryPageParams,
+): Promise<OctopThreadHistory>;
+function fetchThreadHistory(
+  agentId: string,
+  threadId: string,
+  params: HistoryPageParams,
+  ifNoneMatch: string,
+): Promise<OctopThreadHistory | null>;
+function fetchThreadHistory(
+  agentId: string,
+  threadId: string,
+  params: HistoryPageParams = {},
+  ifNoneMatch?: string,
+): Promise<OctopThreadHistory | null> {
+  const limit = params.limit ?? CHAT_HISTORY_PAGE_SIZE;
+  const offset = params.offset ?? 0;
+  return request<OctopThreadHistory | null>(
+    `/agents/${encodeURIComponent(agentId)}/threads/${encodeURIComponent(
+      threadId,
+    )}/history?limit=${limit}&offset=${offset}${
+      params.cursor ? `&cursor=${encodeURIComponent(params.cursor)}` : ""
+    }`,
+    {
+      cache: "no-store",
+      headers: ifNoneMatch ? { "If-None-Match": ifNoneMatch } : undefined,
+    },
+    {
+      onEtag: params.onEtag,
+      onNotModified: ifNoneMatch ? () => null : undefined,
+    },
+  );
+}
+
 export const octopThreadsApi = {
   sidebarStatus: (agentId: string) =>
     request<SidebarStatus>(
@@ -252,21 +294,7 @@ export const octopThreadsApi = {
       { method: "POST" },
     ),
 
-  history: (
-    agentId: string,
-    threadId: string,
-    params: { limit?: number; offset?: number; cursor?: string | null } = {},
-  ) => {
-    const limit = params.limit ?? CHAT_HISTORY_PAGE_SIZE;
-    const offset = params.offset ?? 0;
-    return request<OctopThreadHistory>(
-      `/agents/${encodeURIComponent(agentId)}/threads/${encodeURIComponent(
-        threadId,
-      )}/history?limit=${limit}&offset=${offset}${
-        params.cursor ? `&cursor=${encodeURIComponent(params.cursor)}` : ""
-      }`,
-    );
-  },
+  history: fetchThreadHistory,
 
   contextUsage: (
     agentId: string,

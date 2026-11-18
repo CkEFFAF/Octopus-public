@@ -20,7 +20,7 @@ from octop.infra.db.migrate import run_migrations
 from octop.infra.db.pool import SqlitePool
 from octop.infra.db.services import RepoBundle
 from octop.infra.devices.service import DeviceService
-from octop.infra.errors import OctopError
+from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.execution.backend import RequestExecutionBackend
 from octop.infra.execution.events import RunInspectionService
 from octop.infra.execution.foreground_policy import foreground_wait_error, job_label_data
@@ -251,6 +251,28 @@ def test_legacy_shell_job_labels_use_real_script_or_log_names() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("name", "arguments"),
+    [("job_status", {}), ("job_status", {"job_id": "job"}), ("job_logs", {"job_id": "job"})],
+)
+async def test_offline_job_read_returns_tool_error_for_the_same_turn(
+    hooks: Any, name: str, arguments: dict[str, str]
+) -> None:
+    service, _, _, _ = hooks
+    backend = RequestExecutionBackend(service.execution, "expert")
+    offline = OctopError(ErrorCode.DEVICE_OFFLINE, "device offline")
+    backend.call_operation = AsyncMock(side_effect=offline)
+    operation = next(item for item in build_job_tools(backend) if item.name == name)
+    result = await operation.ainvoke(
+        {"type": "tool_call", "name": name, "id": "original-call", "args": arguments},
+        config={"configurable": {"locale": "zh"}},
+    )
+    assert result.tool_call_id == "original-call"
+    assert result.status == "error"
+    assert result.content == offline.localized_message("zh")
+    backend.call_operation.assert_awaited_once()
+
+
 async def test_job_tool_requires_a_meaningful_name_and_returns_acceptance(hooks: Any) -> None:
     service, owner, _, _ = hooks
     backend = RequestExecutionBackend(service.execution, "expert")
@@ -265,6 +287,7 @@ async def test_job_tool_requires_a_meaningful_name_and_returns_acceptance(hooks:
         )
         assert json.loads(result)["job_id"] == "accepted"
         assert backend.call_operation.call_args.args[1]["title"] == "生成月度报告"
+        assert backend.call_operation.call_args.args[1]["resume_mode"] == "continue"
         backend.call_operation.reset_mock()
         assert "bash" in await start.ainvoke(
             {"argv": ["bash"], "idempotency_key": "bad", "title": "bash"}
@@ -536,6 +559,7 @@ async def test_accepted_job_survives_temporary_completion_registration_failure(
         actor_agent_id="expert",
     )
     assert receipt["result"]["completion_hook_status"] == "pending"
+    assert receipt["result"]["resume_mode"] == "continue"
     monkeypatch.setattr(WakeupHookService, "register", original)
     await service.tick(fake_cron())
     assert service.events.jobs_without_completion_hook() == []
@@ -645,7 +669,7 @@ async def test_callback_request_preserves_original_context_in_ask_mode(hooks: An
     context = service.execution.resolve(
         owner, target_kind="local", agent_id="expert", thread_id="origin", working_dir=str(root)
     )
-    hook = register(service, owner, context_id=context.context_id)
+    hook = register(service, owner, context_id=context.context_id, resume_mode="observe")
     service.fire(hook["hook_id"], hook["token"], hook["event_type"], {})
     manager = MagicMock()
     manager.get_row.return_value = service.repos.agent_repo.get("expert")
@@ -688,7 +712,7 @@ async def test_callback_request_preserves_original_context_in_ask_mode(hooks: An
 
 
 @pytest.mark.parametrize("mode", ["ask", "plan", "agentic", "debug"])
-async def test_explicit_continuation_keeps_original_mode_and_target(
+async def test_default_continuation_keeps_original_mode_and_target(
     hooks: Any, monkeypatch: Any, mode: str
 ) -> None:
     from octop.infra.agents.manager import AgentManager
@@ -711,7 +735,7 @@ async def test_explicit_continuation_keeps_original_mode_and_target(
     context = service.execution.resolve(
         owner, device_id=ids[0], agent_id="expert", thread_id="origin", work_mode=mode
     )
-    hook = register(service, owner, context_id=context.context_id, resume_mode="continue")
+    hook = register(service, owner, context_id=context.context_id)
     # External data cannot promote an Ask source or select the later device.
     service.fire(
         hook["hook_id"],
@@ -784,8 +808,9 @@ async def test_contextless_and_progress_callbacks_cannot_request_continuation(ho
             delivery_mode="progress",
             resume_mode="continue",
         )
-    hook = register(service, owner, context_id=context.context_id)
+    hook = register(service, owner, context_id=context.context_id, resume_mode="observe")
     assert hook["resume_mode"] == "observe"
+    assert register(service, owner, context_id=context.context_id)["resume_mode"] == "observe"
     with pytest.raises(ValueError, match="different event settings"):
         register(service, owner, context_id=context.context_id, resume_mode="continue")
 
@@ -793,6 +818,7 @@ async def test_contextless_and_progress_callbacks_cannot_request_continuation(ho
 @pytest.mark.parametrize(
     ("source_mode", "resume", "expected"),
     [
+        ("agentic", None, "agentic"),
         ("agentic", "continue", "agentic"),
         ("agentic", "observe", "ask"),
         ("ask", "continue", "ask"),
@@ -803,7 +829,7 @@ async def test_timer_mode_freezes_authorized_target_and_write_access(
     hooks: Any,
     monkeypatch: Any,
     source_mode: str,
-    resume: str,
+    resume: str | None,
     expected: str,
 ) -> None:
     from octop.infra.agents.manager import AgentManager
@@ -856,7 +882,11 @@ async def test_timer_mode_freezes_authorized_target_and_write_access(
     )
     try:
         scheduled = await build_self_reminder_tools(cron)[0].ainvoke(
-            {"in_minutes": 10, "purpose": "follow up", "resume_mode": resume}
+            {
+                "in_minutes": 10,
+                "purpose": "follow up",
+                **({"resume_mode": resume} if resume else {}),
+            }
         )
     finally:
         var_child_runnable_config.reset(token)
@@ -872,7 +902,7 @@ async def test_timer_mode_freezes_authorized_target_and_write_access(
         },
     )
     view = cron.public_view(row)
-    assert (view["thread_id"], view["resume_mode"]) == ("origin", resume)
+    assert (view["thread_id"], view["resume_mode"]) == ("origin", resume or "continue")
     from octop.infra.cron.origin_target import resolve_delivery_session
 
     command = command_from_row(row)
@@ -974,7 +1004,7 @@ async def test_scheduled_completion_mode_can_change_before_dispatch(hooks: Any) 
     context = service.execution.resolve(
         owner, target_kind="local", agent_id="expert", thread_id="origin", working_dir=str(root)
     )
-    hook = register(service, owner, context_id=context.context_id)
+    hook = register(service, owner, context_id=context.context_id, resume_mode="observe")
     service.fire(hook["hook_id"], hook["token"], hook["event_type"], {})
     manager = MagicMock()
     manager.get_row.return_value = service.repos.agent_repo.get("expert")

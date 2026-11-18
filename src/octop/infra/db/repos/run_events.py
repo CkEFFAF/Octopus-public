@@ -311,7 +311,13 @@ class RunEventRepo:
             mode = "json_extract(h.payload_json,'$.delivery_mode')"
         with self.db.connect() as conn:
             rows = conn.execute(
-                f"SELECT j.* FROM run_events j WHERE j.kind='job' AND j.agent_id IS NOT NULL AND j.thread_id IS NOT NULL AND j.context_id IS NOT NULL AND {opted} AND NOT EXISTS(SELECT 1 FROM run_events h WHERE h.kind='hook' AND h.owner_user_id=j.owner_user_id AND ({reference})=j.event_id AND COALESCE({mode},'wake')='wake') ORDER BY j.id LIMIT ?",
+                f"SELECT j.* FROM run_events j LEFT JOIN "
+                f"(SELECT DISTINCT h.owner_user_id,({reference}) AS job_event_id "
+                f"FROM run_events h WHERE h.kind='hook' AND COALESCE({mode},'wake')='wake') covered "
+                "ON covered.owner_user_id=j.owner_user_id AND covered.job_event_id=j.event_id "
+                "WHERE j.kind='job' AND j.agent_id IS NOT NULL AND j.thread_id IS NOT NULL "
+                f"AND j.context_id IS NOT NULL AND {opted} AND covered.job_event_id IS NULL "
+                "ORDER BY j.id LIMIT ?",
                 (limit,),
             ).fetchall()
         return [{**self._public(row), "owner_user_id": row["owner_user_id"]} for row in rows]

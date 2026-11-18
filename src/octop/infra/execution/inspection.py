@@ -35,7 +35,9 @@ class RequestInspectionService:
         self, owner: int, agent_id: str, thread_id: str, *, before: int | None, limit: int
     ) -> dict[str, Any]:
         self._thread(owner, agent_id, thread_id)
-        rows = self.snapshots.list(owner, agent_id, thread_id, before=before, limit=limit + 1)
+        rows = self.snapshots.list(
+            owner, agent_id, thread_id, before=before, limit=limit + 1, for_summary=True
+        )
         page = rows[:limit]
         items = [{key: value for key, value in row.items() if key != "components"} for row in page]
         for item, row in zip(items, page, strict=True):

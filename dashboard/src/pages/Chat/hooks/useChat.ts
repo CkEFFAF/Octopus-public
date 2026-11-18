@@ -744,11 +744,12 @@ export function convertHistoryMessages(
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-async function loadThreadHistory(
-  agentId: string,
-  threadId: string,
-  params: { limit?: number; offset?: number; cursor?: string | null } = {},
-): Promise<{
+type HistoryParams = {
+  limit?: number;
+  offset?: number;
+  cursor?: string | null;
+};
+interface LoadedHistoryPage {
   messages: ChatMessage[];
   hasMore: boolean;
   nextOffset: number;
@@ -757,7 +758,25 @@ async function loadThreadHistory(
   artifacts: ThreadArtifact[];
   projectionLoading: boolean;
   retryAfterMs: number;
-}> {
+  etag: string | null;
+}
+function loadThreadHistory(
+  agentId: string,
+  threadId: string,
+  params: HistoryParams,
+): Promise<LoadedHistoryPage>;
+function loadThreadHistory(
+  agentId: string,
+  threadId: string,
+  params: HistoryParams,
+  ifNoneMatch: string | null,
+): Promise<LoadedHistoryPage | null>;
+async function loadThreadHistory(
+  agentId: string,
+  threadId: string,
+  params: HistoryParams,
+  ifNoneMatch?: string | null,
+): Promise<LoadedHistoryPage | null> {
   const { octopThreadsApi, CHAT_HISTORY_PAGE_SIZE, normalizeThreadArtifacts } =
     await import("../../../api/modules/octopThreads");
   const {
@@ -767,11 +786,19 @@ async function loadThreadHistory(
   } = await import("./useSessions");
   const limit = params.limit ?? CHAT_HISTORY_PAGE_SIZE;
   const offset = params.offset ?? 0;
-  const history = await octopThreadsApi.history(agentId, threadId, {
+  let etag: string | null = null;
+  const page = {
     limit,
     offset,
     cursor: params.cursor,
-  });
+    onEtag: (value: string) => {
+      etag = value;
+    },
+  };
+  const history = ifNoneMatch
+    ? await octopThreadsApi.history(agentId, threadId, page, ifNoneMatch)
+    : await octopThreadsApi.history(agentId, threadId, page);
+  if (!history) return null;
   const artifacts = normalizeThreadArtifacts(
     history.artifacts,
     agentId,
@@ -800,6 +827,7 @@ async function loadThreadHistory(
     history.hitl_pending,
   );
   return {
+    etag,
     messages,
     hasMore: Boolean(history.has_more),
     nextOffset: offset + limit,
@@ -879,6 +907,14 @@ export function useChat(
   const loadGenRef = useRef(0);
   const loadMoreInFlightRef = useRef(false);
   const refreshInFlightRef = useRef(false);
+  // Validate only the local page that was actually applied. Streaming and
+  // pagination can replace the message array between reconciliation requests.
+  const validatedPage = useRef<{
+    agentId: string;
+    threadId: string;
+    messages: ChatMessage[];
+    etag: string | null;
+  } | null>(null);
 
   const attachAfterHistory = useCallback(
     (key: string, targetThreadId: string, refreshStatus = false) => {
@@ -1017,6 +1053,12 @@ export function useChat(
           attachAfterHistory(key, targetThreadId);
           return;
         }
+        validatedPage.current = {
+          agentId,
+          threadId: key,
+          messages: loaded.messages,
+          etag: loaded.etag,
+        };
         chatStore.setHistoryPage(key, loaded.messages, {
           hasMore: loaded.hasMore,
           nextOffset: loaded.nextOffset,
@@ -1116,15 +1158,33 @@ export function useChat(
       setHistoryRefreshing(true);
 
       try {
+        const previous = validatedPage.current;
+        const etag =
+          previous?.agentId === agentId &&
+          previous.threadId === key &&
+          previous.messages === snap.messages &&
+          !chatStore.isHistoryStale(key)
+            ? previous.etag
+            : null;
+        const loaded = await loadThreadHistory(
+          agentId,
+          key,
+          { offset: 0 },
+          etag,
+        );
+        if (loadGenRef.current !== gen) return;
+        if (!loaded) {
+          setHistoryError(false);
+          attachAfterHistory(key, key);
+          return;
+        }
         const {
           messages: latest,
           hasMore,
           nextOffset,
           nextCursor,
           projectionLoading,
-        } = await loadThreadHistory(agentId, key, { offset: 0 });
-        // Stale after a concurrent loadHistory / newer refresh — drop apply only.
-        if (loadGenRef.current !== gen) return;
+        } = loaded;
         // An arriving token/new user input owns the newer snapshot. A slow
         // reconciliation request must never replace live output or a draft turn.
         const current = chatStore.getSnapshot(key);
@@ -1143,7 +1203,14 @@ export function useChat(
         );
         const olderPrefix =
           firstOverlap > 0 ? snap.messages.slice(0, firstOverlap) : [];
-        chatStore.setHistoryPage(key, [...olderPrefix, ...latest], {
+        const merged = [...olderPrefix, ...latest];
+        validatedPage.current = {
+          agentId,
+          threadId: key,
+          messages: merged,
+          etag: loaded.etag,
+        };
+        chatStore.setHistoryPage(key, merged, {
           hasMore: olderPrefix.length > 0 ? snap.historyHasMore : hasMore,
           nextOffset:
             olderPrefix.length > 0 ? snap.historyNextOffset : nextOffset,

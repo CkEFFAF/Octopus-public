@@ -11,10 +11,21 @@ from langgraph.config import get_config
 from pydantic import StringConstraints
 
 from octop.i18n import tr
+from octop.infra.errors import ErrorCode, OctopError
 from octop.infra.execution.backend import RequestExecutionBackend
 
 
 def build_job_tools(backend: RequestExecutionBackend) -> list[Any]:
+    async def read_job(operation: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return await backend.call_operation(operation, arguments)
+        except OctopError as exc:
+            if exc.code != ErrorCode.DEVICE_OFFLINE:
+                raise
+            cfg = get_config().get("configurable") or {}
+            locale = str(cfg.get("locale") or cfg.get("language") or "en")
+            raise ToolException(exc.localized_message(locale)) from exc
+
     @tool
     async def job_start(
         argv: list[str],
@@ -28,7 +39,7 @@ def build_job_tools(backend: RequestExecutionBackend) -> list[Any]:
         cwd: str | None = None,
         notify_on_exit: bool = True,
         progress_hook_id: str | None = None,
-        resume_mode: Literal["observe", "continue"] = "observe",
+        resume_mode: Literal["observe", "continue"] = "continue",
     ) -> str:
         """Start a persistent Job on the selected device, independent of chat and connection lifetime.
 
@@ -37,10 +48,10 @@ def build_job_tools(backend: RequestExecutionBackend) -> list[Any]:
         not experiment completion. Use job_status and job_logs to observe it.
         title is a short, meaningful task name in the user's language (for example,
         "CPS validation probes"), never a shell name such as bash. Return to the user
-        after acceptance. By default one read-only follow-up is scheduled in this
-        original conversation when a real terminal receipt arrives; do not sleep
-        or repeatedly poll. Use resume_mode="continue" for follow-up work already authorized
-        in the original work mode. Set notify_on_exit=False only when no follow-up is wanted.
+        after acceptance. A real terminal receipt resumes authorized follow-up work in
+        the original conversation and work mode by default. Do not sleep or repeatedly
+        poll. Use resume_mode="observe" to report the outcome only, or set
+        notify_on_exit=False when no follow-up is wanted.
         To show real progress, first register_wakeup_hook(delivery_mode="progress"),
         instrument the script with its callback, and pass its hook_id as progress_hook_id.
         Ordinary stdout does not imply a percentage. Do not invent progress estimates.
@@ -82,7 +93,7 @@ def build_job_tools(backend: RequestExecutionBackend) -> list[Any]:
         use next_offset to continue a listing.
         """
         return json.dumps(
-            await backend.call_operation(
+            await read_job(
                 "jobs.status" if job_id else "jobs.list", {"job_id": job_id, "offset": offset}
             ),
             ensure_ascii=False,
@@ -95,9 +106,7 @@ def build_job_tools(backend: RequestExecutionBackend) -> list[Any]:
         Output beyond the retained log budget is marked truncated; do not put
         all training logs into the model context.
         """
-        result = await backend.call_operation(
-            "jobs.logs", {"job_id": job_id, "offset": offset, "length": length}
-        )
+        result = await read_job("jobs.logs", {"job_id": job_id, "offset": offset, "length": length})
         data = result.pop("data_b64")
         return json.dumps(
             {**result, "text": base64.b64decode(data).decode("utf-8", errors="replace")},
@@ -112,6 +121,8 @@ def build_job_tools(backend: RequestExecutionBackend) -> list[Any]:
         )
 
     job_start.handle_tool_error = True
+    job_status.handle_tool_error = True
+    job_logs.handle_tool_error = True
     from octop.infra.execution.wakeup_tools import build_wakeup_tools
 
     return [job_start, job_status, job_logs, job_cancel, *build_wakeup_tools(backend)]

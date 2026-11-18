@@ -90,7 +90,6 @@ export function useChatNavigation({
         busy = false;
       });
     };
-    refreshBadges();
     const intervalId = window.setInterval(refreshBadges, 10_000);
     const onVisibility = () => {
       if (document.visibilityState === "visible") refreshBadges();

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi.responses import JSONResponse
 
 from octop.api.common.agent import require_agent_row, user_owns_agent
 from octop.api.common.agent_workspace import resolve_agent_workspace_dir
@@ -401,7 +403,6 @@ async def get_thread_context_usage(
     }
 
 
-@router.get("/agents/{agent_id}/threads/{thread_id}/history", summary="Thread history")
 async def get_thread_history(
     agent_id: str,
     thread_id: str,
@@ -519,6 +520,34 @@ async def get_thread_history(
         "pending_plan_path": row.pending_plan_path,
         "hitl_policy": _hitl_policy_payload(row),
     }
+
+
+def _validated_history_response(page: dict[str, Any], if_none_match: str) -> Response:
+    response = JSONResponse(page)
+    # Weak validation also covers the compressed representation at the proxy.
+    digest = hashlib.sha256(response.body).hexdigest()
+    tag = f'"{digest}"'
+    headers = {"ETag": f"W/{tag}", "Cache-Control": "private, no-store"}
+    if any(value.strip().removeprefix("W/") in (tag, "*") for value in if_none_match.split(",")):
+        return Response(status_code=304, headers=headers)
+    response.headers.update(headers)
+    return response
+
+
+@router.get(
+    "/agents/{agent_id}/threads/{thread_id}/history",
+    summary="Thread history",
+    description="If-None-Match revalidates the complete authorized page, including pending approvals.",
+    response_model=dict[str, Any],
+    responses={304: {"description": "The requested history page is unchanged."}},
+)
+async def thread_history_response(
+    request: Request,
+    page: dict[str, Any] = Depends(get_thread_history),
+) -> Response:
+    return await asyncio.to_thread(
+        _validated_history_response, page, request.headers.get("if-none-match", "")
+    )
 
 
 @router.post(

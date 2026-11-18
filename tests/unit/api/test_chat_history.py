@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,6 +27,57 @@ from octop.infra.db.repos.thread_messages import (
 )
 from octop.infra.db.repos.threads import ThreadRow
 from octop.infra.gateway.threads import thread_row_has_messages
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"messages": [{"content": "new output"}]},
+        {"turn_active": True},
+        {"hitl_pending": {"pending_id": "approval"}},
+        {"artifacts": [{"name": "result.txt"}]},
+        {"conversation_mode": "ask"},
+        {"next_cursor": "older"},
+    ],
+)
+def test_history_validation_covers_complete_page(change: dict[str, Any]) -> None:
+    page = {"thread_id": "thread", "messages": [], "turn_active": False, "hitl_pending": None}
+    first = history_mod._validated_history_response(page, "")
+    validator = first.headers["etag"]
+    assert first.status_code == 200
+    assert "private" in first.headers["cache-control"]
+    unchanged = history_mod._validated_history_response(copy.deepcopy(page), validator)
+    assert unchanged.status_code == 304 and unchanged.body == b""
+    changed = history_mod._validated_history_response({**page, **change}, validator)
+    assert changed.status_code == 200 and changed.headers["etag"] != validator
+
+
+@pytest.mark.asyncio
+async def test_conditional_history_resolves_authorized_dependency_before_304() -> None:
+    import httpx
+    from fastapi import FastAPI, HTTPException
+
+    app = FastAPI()
+    app.include_router(history_mod.router)
+    permitted = True
+
+    async def authorized_page() -> dict[str, Any]:
+        if not permitted:
+            raise HTTPException(status_code=403)
+        return {"thread_id": "thread", "messages": []}
+
+    app.dependency_overrides[history_mod.get_thread_history] = authorized_page
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        first = await client.get("/agents/expert/threads/thread/history")
+        assert first.status_code == 200
+        headers = {"If-None-Match": first.headers["etag"]}
+        unchanged = await client.get("/agents/expert/threads/thread/history", headers=headers)
+        assert unchanged.status_code == 304 and unchanged.content == b""
+        permitted = False
+        rejected = await client.get("/agents/expert/threads/thread/history", headers=headers)
+        assert rejected.status_code == 403
 
 
 def test_clamp_history_limit() -> None:

@@ -234,6 +234,12 @@ describe("useChatNavigation proactive session events", () => {
     );
   }
 
+  it("leaves initial thread listing to the session store", () => {
+    const fetchSessions = vi.fn().mockResolvedValue([]);
+    renderWithMocks(vi.fn().mockResolvedValue(undefined), fetchSessions);
+    expect(fetchSessions).not.toHaveBeenCalled();
+  });
+
   it("reloads history when the open thread changed server-side", async () => {
     const loadHistory = vi.fn().mockResolvedValue(undefined);
     const fetchSessions = vi.fn().mockResolvedValue([session("thr_open")]);

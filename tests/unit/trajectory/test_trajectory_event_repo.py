@@ -63,6 +63,23 @@ def _repo(tmp_path: Path) -> TrajectoryEventRepo:
     return TrajectoryEventRepo(db)
 
 
+def test_sequence_bounds_excludes_other_threads_and_does_not_decode_payloads(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    assert repo.sequence_bounds("T1") == (None, None)
+    repo.append(_event(event_id="e9", seq=9))
+    repo.append(_event(event_id="e20", seq=20))
+    repo.append(_event(event_id="other", seq=99, thread_id="T2"))
+    # Coverage is sequence metadata, independent of retained body decoding.
+    with repo._db.transaction() as conn:
+        conn.execute(
+            "UPDATE trajectory_events SET payload_json='invalid body' WHERE thread_id=?", ("T1",)
+        )
+    assert repo.sequence_bounds("T1") == (9, 20)
+    assert repo.sequence_bounds("T2") == (99, 99)
+
+
 def test_append_pages_before_seq_and_rejects_duplicate_event_id(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     first = _event(event_id="e1", seq=1, kind="user", summary="hi")

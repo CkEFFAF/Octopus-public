@@ -60,6 +60,18 @@ async def client(tmp_path: Path):
     await srv.stop()
 
 
+async def test_cross_origin_clients_can_read_history_validators(client) -> None:
+    _c, srv, _home = client
+    srv.services.config.cors_origins.append("https://dashboard.example")
+    app = build_app(srv)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as browser:
+        response = await browser.get("/api/health", headers={"Origin": "https://dashboard.example"})
+    exposed = response.headers["access-control-expose-headers"].lower()
+    assert "etag" in exposed and ACCESS_TOKEN_RESPONSE_HEADER.lower() in exposed
+
+
 async def test_middleware_blocks_unauthenticated_api(client) -> None:
     c, _srv, home = client
     await bootstrap_admin(c, home)
