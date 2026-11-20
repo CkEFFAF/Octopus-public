@@ -68,12 +68,6 @@ function labelEntries(skills: readonly SkillTokenRef[]): Array<{
   return [...byToken.values()].sort((a, b) => b.token.length - a.token.length);
 }
 
-function textHasSlashSlug(text: string, slug: string): boolean {
-  const token = `/${normSlug(slug)}`;
-  const re = new RegExp(`(?:^|[\\s])${escapeRegExp(token)}(?=\\s|$)`, "i");
-  return re.test(text);
-}
-
 function textHasToken(text: string, token: string): boolean {
   const re = new RegExp(`(?:^|[\\s])${escapeRegExp(token)}(?=\\s|$)`, "i");
   return re.test(text);
@@ -84,6 +78,10 @@ export function parseSkillSlugsInText(
   text: string,
   skills: readonly SkillTokenRef[] = [],
 ): string[] {
+  text = text
+    .split("\n")
+    .filter((line) => !/^\s*>/.test(line))
+    .join("\n");
   const out: string[] = [];
   const seen = new Set<string>();
 
@@ -127,7 +125,7 @@ export function insertSkillSlash(
   if (!slug) return text;
 
   const token = skillComposerToken(ref);
-  if (textHasSlashSlug(text, slug)) return text;
+  if (parseSkillSlugsInText(text).includes(slug)) return text;
   if (parseSkillSlugsInText(text, [ref]).includes(slug)) return text;
 
   const pad = text.length > 0 && !/\s$/.test(text) ? " " : "";
@@ -142,12 +140,22 @@ export function materializeSkillSlashes(
   text: string,
   skills: readonly SkillTokenRef[],
 ): string {
-  let next = text;
-  for (const { token, slug } of labelEntries(skills)) {
-    const re = new RegExp(`(^|[\\s])(${escapeRegExp(token)})(?=\\s|$)`, "gi");
-    next = next.replace(re, (_full, lead: string) => `${lead}/${slug}`);
-  }
-  return next;
+  const entries = labelEntries(skills);
+  return text
+    .split("\n")
+    .map((line) => {
+      if (/^\s*>/.test(line)) return line;
+      let next = line;
+      for (const { token, slug } of entries) {
+        const re = new RegExp(
+          `(^|[\\s])(${escapeRegExp(token)})(?=\\s|$)`,
+          "gi",
+        );
+        next = next.replace(re, (_full, lead: string) => `${lead}/${slug}`);
+      }
+      return next;
+    })
+    .join("\n");
 }
 
 /**

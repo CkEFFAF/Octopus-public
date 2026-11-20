@@ -456,6 +456,8 @@ async def test_fork_thread_from_assistant_message(env: Any) -> None:
             ToolMessage(content="tool-out", id="t1", tool_call_id="c1"),
             HumanMessage(content="second question", id="h2"),
             AIMessage(content="second answer", id="a2"),
+            # Hidden by history serialization, so the UI's suffix count differs.
+            AIMessage(content="", id="hidden-empty"),
         ],
     )
 

@@ -8,6 +8,22 @@ import {
   skillComposerToken,
 } from "./skillSlash";
 
+it("keeps quoted skills as context without selecting or rewriting them", () => {
+  const skills = [{ slug: "pdf", label: "PDF tools", emoji: "✦" }];
+  const text = "> Reply\n> /pdf ✦ PDF tools\n\nExplain using /web-search";
+  expect(parseSkillSlugsInText(text, skills)).toEqual(["web-search"]);
+  expect(materializeSkillSlashes(text, skills)).toBe(text);
+  expect(insertSkillSlash("> /pdf\n\nExplain", "pdf")).toBe(
+    "> /pdf\n\nExplain /pdf ",
+  );
+  expect(
+    materializeSkillSlashes(
+      "> ✦ PDF tools\n\n✦ PDF tools process this",
+      skills,
+    ),
+  ).toBe("> ✦ PDF tools\n\n/pdf process this");
+});
+
 describe("skillComposerToken", () => {
   it("prefixes emoji before the friendly label", () => {
     expect(

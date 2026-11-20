@@ -38,6 +38,7 @@ import {
 import * as chatStore from "../hooks/chatStore";
 import { shouldBlockHistoryRefresh } from "../hooks/wsResumeGate";
 import styles from "../index.module.less";
+import type { MessageQuoteHandler } from "../utils/messageQuote";
 import {
   findScheduleMessage,
   type ScheduleMessageAnchor,
@@ -116,6 +117,7 @@ interface MessageListProps {
   onRegenerate?: (messageId: string) => void;
   onEditUserMessage?: (messageId: string, newText: string) => void;
   onForkAssistantMessage?: (messageId: string) => void;
+  onQuoteMessage?: MessageQuoteHandler;
   forkDisabled?: boolean;
   forkDisabledHint?: string;
   onAcpPermissionSelect?: (message: string) => void;
@@ -143,6 +145,7 @@ interface GroupRenderContext {
   onRegenerate?: (messageId: string) => void;
   onEditUserMessage?: (messageId: string, newText: string) => void;
   onForkAssistantMessage?: (messageId: string) => void;
+  onQuoteMessage?: MessageQuoteHandler;
   forkDisabled?: boolean;
   forkDisabledHint?: string;
   onAcpPermissionSelect?: (message: string) => void;
@@ -205,6 +208,7 @@ function renderMessageGroup(
             onRegenerate={ctx.onRegenerate}
             onEditUserMessage={ctx.onEditUserMessage}
             onForkAssistantMessage={ctx.onForkAssistantMessage}
+            onQuoteMessage={ctx.onQuoteMessage}
             forkDisabled={ctx.forkDisabled}
             forkDisabledHint={ctx.forkDisabledHint}
             onAcpPermissionSelect={ctx.onAcpPermissionSelect}
@@ -231,6 +235,7 @@ function renderMessageGroup(
           message={msg}
           agentId={ctx.agentId}
           composerLookups={ctx.composerLookups}
+          onQuoteMessage={ctx.onQuoteMessage}
           onRegenerate={ctx.onRegenerate}
           onEditUserMessage={ctx.onEditUserMessage}
         />
@@ -259,6 +264,7 @@ function renderMessageGroup(
         onRegenerate={ctx.onRegenerate}
         onEditUserMessage={ctx.onEditUserMessage}
         onForkAssistantMessage={ctx.onForkAssistantMessage}
+        onQuoteMessage={ctx.onQuoteMessage}
         forkDisabled={ctx.forkDisabled}
         forkDisabledHint={ctx.forkDisabledHint}
         onAcpPermissionSelect={ctx.onAcpPermissionSelect}
@@ -293,6 +299,7 @@ export default function MessageList(props: MessageListProps) {
     onRegenerate,
     onEditUserMessage,
     onForkAssistantMessage,
+    onQuoteMessage,
     forkDisabled,
     forkDisabledHint,
     onAcpPermissionSelect,
@@ -843,6 +850,7 @@ export default function MessageList(props: MessageListProps) {
       onRegenerate,
       onEditUserMessage,
       onForkAssistantMessage,
+      onQuoteMessage,
       forkDisabled,
       forkDisabledHint,
       onAcpPermissionSelect,
@@ -868,6 +876,7 @@ export default function MessageList(props: MessageListProps) {
       onRegenerate,
       onEditUserMessage,
       onForkAssistantMessage,
+      onQuoteMessage,
       forkDisabled,
       forkDisabledHint,
       onAcpPermissionSelect,

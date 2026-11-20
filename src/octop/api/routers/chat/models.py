@@ -235,7 +235,7 @@ class ForkThreadBody(BaseModel):
     assistant_turns_from_end: int | None = Field(
         default=None,
         ge=1,
-        description="1 = latest assistant answer, 2 = second-to-last, … (preferred locator).",
+        description="1 = latest assistant answer, 2 = second-to-last, … (fallback when id and unique text do not match).",
     )
 
 

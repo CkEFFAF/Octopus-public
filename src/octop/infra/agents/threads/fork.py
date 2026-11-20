@@ -8,6 +8,7 @@ forked thread without prefilling the previous user question.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
 
@@ -100,9 +101,9 @@ def find_assistant_fork_index(
 ) -> int:
     """Return the index of the selected assistant answer in *messages*.
 
-    Prefers a suffix count of answer turns (stable across client-generated UI
-    ids). When that locator is present it is authoritative — content/id are
-    only used as fallbacks when the suffix count is absent or out of range.
+    Prefer the persisted message id, then unique exact text. A suffix count
+    remains a fallback for client-generated ids and repeated text, but can drift
+    when the UI hides messages or the source receives another reply.
     """
     answers = _assistant_answer_indices(messages)
     if not answers:
@@ -111,6 +112,19 @@ def find_assistant_fork_index(
     wanted_id = (message_id or "").strip()
     wanted_text = (content or "").strip()
 
+    if wanted_id:
+        for i, msg in enumerate(messages):
+            if _is_assistant_message(msg) and _msg_id(msg) == wanted_id:
+                return i
+
+    matches = (
+        [idx for idx in answers if _message_text(messages[idx]) == wanted_text]
+        if wanted_text
+        else []
+    )
+    if len(matches) == 1:
+        return matches[0]
+
     if (
         assistant_turns_from_end is not None
         and assistant_turns_from_end >= 1
@@ -118,19 +132,8 @@ def find_assistant_fork_index(
     ):
         return answers[-assistant_turns_from_end]
 
-    if wanted_id:
-        for idx in answers:
-            if _msg_id(messages[idx]) == wanted_id:
-                return idx
-        # Client id may point at a non-answer AIMessage; still allow exact id match.
-        for i, msg in enumerate(messages):
-            if _is_assistant_message(msg) and _msg_id(msg) == wanted_id:
-                return i
-
-    if wanted_text:
-        matches = [idx for idx in answers if _message_text(messages[idx]) == wanted_text]
-        if matches:
-            return matches[-1]
+    if matches:
+        return matches[-1]
 
     raise OctopError(ErrorCode.NOT_FOUND, "assistant message not found in thread")
 
@@ -205,12 +208,28 @@ async def fork_dashboard_thread(
         if archive is not None
         else []
     )
+    read_projection = False
     if archive is not None and segments:
 
         async def read_legacy(anchor: dict[str, Any]) -> list[Any]:
             return await checkpoint_wires(harness, source.thread_id, anchor)
 
         messages = messages_from_dict(await archive.all_messages(source.thread_id, read_legacy))
+    elif (
+        thread_message_repo is not None
+        and await asyncio.to_thread(thread_message_repo.projection_status, source.thread_id)
+        == "ready"
+    ):
+        # The ready history preserves earlier turns after checkpoint compaction.
+        # Use the same transcript the dashboard reads, not the model's trimmed state.
+        head = await asyncio.to_thread(thread_message_repo.head, source.thread_id)
+        rows = await asyncio.to_thread(thread_message_repo.range_rows, source.thread_id, 0, head)
+        read_projection = bool(rows)
+        messages = (
+            messages_from_dict([json.loads(row.message_json) for row in rows])
+            if rows
+            else await load_checkpoint_messages(harness, source.thread_id)
+        )
     else:
         messages = await load_checkpoint_messages(harness, source.thread_id)
     idx = find_assistant_fork_index(
@@ -231,7 +250,7 @@ async def fork_dashboard_thread(
         prefix_projection_inputs = message_inputs(prefix)
         # A fork already paid the explicit full-history read cost. Reuse it to
         # heal an empty read model instead of decoding the source again later.
-        if not versioned:
+        if not versioned and not read_projection:
             thread_message_repo.append_if_ready(source.thread_id, projection_inputs)
 
     session_key = ThreadRegistry.dashboard_key(agent_id=source.agent_id, user_id=user_id)

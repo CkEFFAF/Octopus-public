@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { octopThreadsApi } from "../../../api/modules/octopThreads";
+import { assistantTurnsFromEnd } from "../utils/chatMessages";
 import * as chatStore from "./chatStore";
 import { useChat } from "./useChat";
 
@@ -13,6 +14,33 @@ afterEach(() => {
 });
 
 describe("history failures", () => {
+  it("preserves the selected fork message ID when empty replies change the visible suffix count", async () => {
+    vi.spyOn(octopThreadsApi, "history").mockResolvedValue({
+      thread_id: thread,
+      messages: [
+        { id: "question", role: "user", content: "first question" },
+        { id: "selected", role: "assistant", content: "first answer" },
+        { id: "next-question", role: "user", content: "next question" },
+        { id: "empty", role: "assistant", content: "" },
+        { id: "latest", role: "assistant", content: "latest answer" },
+      ],
+      has_more: false,
+    });
+    const { result } = renderHook(() => useChat(thread, "agent"));
+    await act(async () => {
+      await result.current.loadHistory(thread);
+    });
+
+    expect(result.current.messages.map((message) => message.id)).toEqual([
+      "question",
+      "selected",
+      "next-question",
+      "latest",
+    ]);
+    expect(result.current.messages[1].content).toBe("first answer");
+    expect(assistantTurnsFromEnd(result.current.messages, "selected")).toBe(2);
+  });
+
   it("revalidates an unchanged idle page without replacing messages and applies later changes", async () => {
     const page = {
       thread_id: thread,

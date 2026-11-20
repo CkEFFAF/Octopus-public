@@ -36,10 +36,17 @@ export function expertMentionPattern(name: string): RegExp {
   return new RegExp(`(^|\\s)${escapeRegExp(token)}(?=\\s|$)`);
 }
 
+function unquotedText(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => (/^\s*>/.test(line) ? " ".repeat(line.length) : line))
+    .join("\n");
+}
+
 export function textHasExpertMention(text: string, name: string): boolean {
   const token = expertMentionToken(name);
   if (!token) return false;
-  return expertMentionPattern(name).test(text);
+  return expertMentionPattern(name).test(unquotedText(text));
 }
 
 export function mentionedExpertIds(
@@ -92,14 +99,17 @@ export function toggleExpertMention(
   if (!token) return { text, cursor: text.length };
 
   const pattern = expertMentionPattern(name);
-  const match = pattern.exec(text);
+  const match = pattern.exec(unquotedText(text));
   if (match) {
     const prefix = match[1] ?? "";
     const start = match.index + prefix.length;
     const end = start + token.length;
     const after = text.slice(end);
     const eatenAfter = after.startsWith(" ") ? after.slice(1) : after;
-    const next = `${text.slice(0, start)}${eatenAfter}`.replace(/ {2,}/g, " ");
+    const next = `${text.slice(0, start)}${eatenAfter}`
+      .split("\n")
+      .map((line) => (/^\s*>/.test(line) ? line : line.replace(/ {2,}/g, " ")))
+      .join("\n");
     const trimmed = next.replace(/^\s+/, "");
     return { text: trimmed, cursor: Math.min(start, trimmed.length) };
   }

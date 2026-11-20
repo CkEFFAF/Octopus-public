@@ -32,6 +32,14 @@ describe("withExpertMention", () => {
 });
 
 describe("toggleExpertMention", () => {
+  it("keeps quoted mentions unchanged when toggling the expert for the question", () => {
+    const quote = "> Assistant reply\n> @分析师  original spacing\n\nQuestion";
+    expect(textHasExpertMention(quote, "分析师")).toBe(false);
+    const inserted = toggleExpertMention(quote, "分析师").text;
+    expect(inserted).toBe(`${quote} @分析师 `);
+    expect(toggleExpertMention(inserted, "分析师").text.trimEnd()).toBe(quote);
+  });
+
   it("inserts @Name into an empty composer with a trailing space", () => {
     expect(toggleExpertMention("", "分析师")).toEqual({
       text: "@分析师 ",

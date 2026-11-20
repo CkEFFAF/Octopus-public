@@ -62,6 +62,10 @@ import { isFileToolName } from "./constants";
 import { browserApi } from "../../api/modules/browser";
 import { octopThreadsApi } from "../../api/modules/octopThreads";
 import type { ChatAttachment } from "./hooks/useChat";
+import {
+  resolveMessageQuote,
+  type MessageQuoteHandler,
+} from "./utils/messageQuote";
 import MessageList from "./components/MessageList";
 import type { ScheduleMessageAnchor } from "./utils/scheduleMessage";
 import ChatInput, { type ChatInputHandle } from "./components/ChatInput";
@@ -1201,6 +1205,25 @@ function ChatPageInner() {
   );
 
   const [forking, setForking] = useState(false);
+  const quoteScopeRef = useRef("");
+  quoteScopeRef.current = `${resolvedAgentId ?? ""}:${activeThreadId ?? ""}`;
+  const handleQuoteMessage = useCallback<MessageQuoteHandler>(
+    async (message, sourceMessages) => {
+      const scope = quoteScopeRef.current;
+      try {
+        const content = await resolveMessageQuote(message, sourceMessages);
+        if (scope !== quoteScopeRef.current) return;
+        chatInputRef.current?.quoteMessage(
+          content,
+          t(message.role === "user" ? "chat.quoteUser" : "chat.quoteAssistant"),
+        );
+      } catch {
+        if (scope === quoteScopeRef.current)
+          antMessage.error(t("chat.quoteFailed"));
+      }
+    },
+    [t],
+  );
   const forkDisabled = forking || isStreaming || hasPendingHitlPause;
   const forkDisabledHint =
     !forking && (isStreaming || hasPendingHitlPause)
@@ -1776,6 +1799,7 @@ function ChatPageInner() {
                       onRegenerate={handleRegenerate}
                       onEditUserMessage={handleEditUserMessage}
                       onForkAssistantMessage={handleForkAssistantMessage}
+                      onQuoteMessage={handleQuoteMessage}
                       forkDisabled={forkDisabled}
                       forkDisabledHint={forkDisabledHint}
                       onAcpPermissionSelect={handleAcpPermissionSelect}

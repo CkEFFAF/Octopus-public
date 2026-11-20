@@ -13,6 +13,7 @@ import {
   Pencil,
   Volume2,
   GitFork,
+  Quote,
   PanelRight,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -60,6 +61,7 @@ import {
   type HitlDecisionHandler,
 } from "../../../api/types/hitl";
 import styles from "../index.module.less";
+import type { MessageQuoteHandler } from "../utils/messageQuote";
 import {
   DefaultToolRenderer,
   builtinPluginHost,
@@ -86,6 +88,7 @@ interface MessageBubbleProps {
   onRegenerate?: (messageId: string) => void;
   onEditUserMessage?: (messageId: string, newText: string) => void;
   onForkAssistantMessage?: (messageId: string) => void;
+  onQuoteMessage?: MessageQuoteHandler;
   forkDisabled?: boolean;
   forkDisabledHint?: string;
   onHitlDecision?: HitlDecisionHandler;
@@ -508,6 +511,7 @@ function MessageBubble({
   onRegenerate,
   onEditUserMessage,
   onForkAssistantMessage,
+  onQuoteMessage,
   forkDisabled,
   forkDisabledHint,
   onHitlDecision,
@@ -936,6 +940,7 @@ function MessageBubble({
         {isLastInGroup &&
           !hasToolData &&
           (message.timestamp > 0 ||
+            (onQuoteMessage && !isStreaming && Boolean(textContent.trim())) ||
             usageParts.length > 0 ||
             (isUser &&
               !isEditing &&
@@ -951,6 +956,17 @@ function MessageBubble({
                   <div className={styles.userMsgActions} role="group">
                     {message.content ? (
                       <CopyButton text={message.content} />
+                    ) : null}
+                    {onQuoteMessage && textContent.trim() ? (
+                      <button
+                        className={styles.msgActionBtn}
+                        onClick={() => onQuoteMessage(message)}
+                        title={t("chat.quote")}
+                        aria-label={t("chat.quote")}
+                        type="button"
+                      >
+                        <Quote size={14} />
+                      </button>
                     ) : null}
                     {onEditUserMessage ? (
                       <button
@@ -1034,6 +1050,22 @@ function MessageBubble({
                   )}
                 </div>
               )}
+              {!isUser &&
+              !isStreaming &&
+              onQuoteMessage &&
+              textContent.trim() ? (
+                <button
+                  className={styles.msgActionBtn}
+                  onClick={() =>
+                    onQuoteMessage({ ...message, content: textContent })
+                  }
+                  title={t("chat.quote")}
+                  aria-label={t("chat.quote")}
+                  type="button"
+                >
+                  <Quote size={13} />
+                </button>
+              ) : null}
               {usageParts.length > 0 && (
                 <Tooltip title={usageParts.join(" / ")}>
                   <button

@@ -71,6 +71,7 @@ import type {
 import type { HitlSessionPolicy } from "../utils/hitlSessionPolicy";
 import { useComposerResize } from "../hooks/useComposerResize";
 import styles from "../index.module.less";
+import { prependMessageQuote } from "../utils/messageQuote";
 import {
   saveWithdrawnDraft,
   readWithdrawnDraft,
@@ -80,6 +81,7 @@ import {
 
 /** Imperative handle exposed via ref for programmatic text injection. */
 export interface ChatInputHandle {
+  quoteMessage: (content: string, label: string) => void;
   setPrefillText: (text: string) => void;
   setPrefillComposer: (text: string, attachments?: ChatAttachment[]) => void;
   focusComposer: () => void;
@@ -333,6 +335,16 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     useImperativeHandle(
       ref,
       () => ({
+        quoteMessage: (content: string, label: string) => {
+          if (reclaimPending.current || !content.trim()) return;
+          userHasEditedRef.current = true;
+          setText((previous) => prependMessageQuote(previous, content, label));
+          requestAnimationFrame(() => {
+            const el = textareaRef.current;
+            el?.focus();
+            el?.setSelectionRange(el.value.length, el.value.length);
+          });
+        },
         attachFiles: (files: File[]) => {
           if (reclaimPending.current) return;
           void processFiles(files);

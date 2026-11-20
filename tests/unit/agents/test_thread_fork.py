@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -81,6 +82,65 @@ def test_find_assistant_fork_index_by_content_fallback() -> None:
         AIMessage(content="reply-b", id="a2"),
     ]
     assert find_assistant_fork_index(messages, message_id="missing", content="reply-b") == 3
+
+
+@pytest.mark.parametrize("suffix", [1, 2])
+def test_find_assistant_fork_index_preserves_exact_id_when_ui_count_drifts(suffix: int) -> None:
+    messages = [
+        HumanMessage(content="first question", id="h1"),
+        AIMessage(content="same answer", id="a1"),
+        HumanMessage(content="second question", id="h2"),
+        AIMessage(content="same answer", id="a2"),
+        AIMessage(content="", id="hidden-empty"),
+    ]
+    # Empty checkpoint messages are hidden in the UI. New source replies can
+    # also arrive after the client counted the visible answers.
+    assert (
+        find_assistant_fork_index(
+            messages,
+            message_id="a1",
+            content="same answer",
+            assistant_turns_from_end=suffix,
+        )
+        == 1
+    )
+
+
+def test_find_assistant_fork_index_matches_live_text_when_ui_count_drifts() -> None:
+    messages = [
+        HumanMessage(content="question", id="h1"),
+        AIMessage(content="selected answer", id="a1"),
+        AIMessage(content="", id="hidden-empty"),
+        HumanMessage(content="later question", id="h2"),
+        AIMessage(content="later answer", id="a2"),
+    ]
+    assert (
+        find_assistant_fork_index(
+            messages,
+            message_id="client-uuid",
+            content="selected answer",
+            assistant_turns_from_end=2,
+        )
+        == 1
+    )
+
+
+def test_find_assistant_fork_index_uses_count_to_disambiguate_repeated_live_text() -> None:
+    messages = [
+        HumanMessage(content="first question", id="h1"),
+        AIMessage(content="same answer", id="a1"),
+        HumanMessage(content="second question", id="h2"),
+        AIMessage(content="same answer", id="a2"),
+    ]
+    assert (
+        find_assistant_fork_index(
+            messages,
+            message_id="client-uuid",
+            content="same answer",
+            assistant_turns_from_end=2,
+        )
+        == 1
+    )
 
 
 def test_find_assistant_fork_index_missing_raises() -> None:
@@ -257,3 +317,126 @@ async def test_fork_dashboard_thread_deletes_row_when_write_fails() -> None:
         )
 
     registry.delete_thread.assert_called_once_with("thr_fork")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("archive_enabled", [None, False, True])
+@pytest.mark.parametrize("answer_index", [1, 5])
+@pytest.mark.parametrize("with_ids", [False, True])
+async def test_fork_preserves_ready_history_after_checkpoint_compaction(
+    tmp_path: Path, archive_enabled: bool | None, answer_index: int, with_ids: bool
+) -> None:
+    from langchain_core.messages import messages_from_dict
+
+    from octop.infra.db.migrate import run_migrations
+    from octop.infra.db.pool import SqlitePool
+    from octop.infra.db.services import RepoBundle
+    from octop.infra.history.projection import message_inputs
+    from octop.infra.history.reader import read_page
+    from octop.infra.history.service import HistoryArchive
+    from octop.infra.history.store import HistoryStore
+
+    pool = SqlitePool(tmp_path / "state.db")
+    run_migrations(pool)
+    repos = RepoBundle.from_pool(pool)
+    owner = repos.user_repo.create(username="owner", role="admin")
+    repos.agent_repo.create(agent_id="agent", user_id=owner, name="Agent")
+    registry = ThreadRegistry(session_repo=repos.session_repo, thread_repo=repos.thread_repo)
+    source_id = registry.create_thread(
+        agent_id="agent",
+        user_id=owner,
+        channel_type="dashboard",
+        session_key=ThreadRegistry.dashboard_key(agent_id="agent", user_id=owner),
+    )
+    source = registry.get_thread(source_id)
+    assert source is not None
+    messages = [
+        HumanMessage(content="first question", id="h1" if with_ids else None),
+        AIMessage(content="first answer", id="a1" if with_ids else None),
+        HumanMessage(content="second question", id="h2" if with_ids else None),
+        AIMessage(content="second answer", id="a2" if with_ids else None),
+        HumanMessage(content="third question", id="h3" if with_ids else None),
+        AIMessage(content="third answer", id="a3" if with_ids else None),
+    ]
+    repos.thread_message_repo.replace_all(source_id, message_inputs(messages))
+    graph = SimpleNamespace(
+        aget_state=AsyncMock(return_value=SimpleNamespace(values={"messages": messages[-2:]})),
+        aupdate_state=AsyncMock(),
+    )
+    harness = SimpleNamespace(graph=graph)
+    store = (
+        HistoryStore(tmp_path / "archive.db", identity="fork-test")
+        if archive_enabled is not None
+        else None
+    )
+    archive = (
+        HistoryArchive(
+            store,
+            repos.thread_message_repo,
+            repos.trajectory_event_repo,
+            enabled=bool(archive_enabled),
+        )
+        if store is not None
+        else None
+    )
+    try:
+        selected = messages[answer_index]
+        out = await fork_dashboard_thread(
+            thread_registry=registry,
+            harness=harness,
+            source=source,
+            user_id=owner,
+            message_id=selected.id,
+            assistant_turns_from_end=(len(messages) - answer_index + 1) // 2,
+            thread_message_repo=repos.thread_message_repo,
+            history_archive=archive,
+        )
+        expected = messages[: answer_index + 1]
+        assert out["copied_messages"] == len(expected)
+        written = graph.aupdate_state.call_args.args[1]["messages"]
+        assert written == expected
+        page = await read_page(
+            archive,
+            SimpleNamespace(get_agent=lambda _: harness),
+            "agent",
+            out["thread_id"],
+            limit=100,
+            messages=repos.thread_message_repo,
+        )
+        assert messages_from_dict(page["messages"]) == expected
+        assert repos.thread_message_repo.head(source_id) == len(messages)
+        graph.aget_state.assert_not_awaited()
+    finally:
+        if store is not None:
+            store.close()
+        pool.close()
+
+
+@pytest.mark.asyncio
+async def test_fork_uses_checkpoint_when_ready_projection_is_empty() -> None:
+    from octop.infra.db.repos.thread_messages import ThreadMessageRepo
+
+    messages = [HumanMessage(content="question", id="h1"), AIMessage(content="answer", id="a1")]
+    graph = SimpleNamespace(
+        aget_state=AsyncMock(return_value=SimpleNamespace(values={"messages": messages})),
+        aupdate_state=AsyncMock(),
+    )
+    projection = MagicMock(spec=ThreadMessageRepo)
+    projection.projection_status.return_value = "ready"
+    projection.head.return_value = 0
+    projection.range_rows.return_value = []
+    registry = MagicMock()
+    registry.create_thread.return_value = "thr_fork"
+    registry.rebind = AsyncMock()
+    out = await fork_dashboard_thread(
+        thread_registry=registry,
+        harness=SimpleNamespace(graph=graph),
+        source=MagicMock(thread_id="source", agent_id="agent", title="Title"),
+        user_id=1,
+        assistant_turns_from_end=1,
+        thread_message_repo=projection,
+    )
+    assert out["copied_messages"] == 2
+    assert graph.aupdate_state.call_args.args[1]["messages"] == messages
+    graph.aget_state.assert_awaited_once()
+    assert projection.append_if_ready.call_args_list[0].args[0] == "source"

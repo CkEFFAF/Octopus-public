@@ -189,6 +189,77 @@ beforeEach(() => {
 });
 
 describe("ChatInput prefill clear-on-send", () => {
+  it("sends a quoted message with the existing question and attachments intact", () => {
+    const onSend = vi.fn();
+    const inputRef = createRef<ChatInputHandle>();
+    const attachment = {
+      path: "inbound/question.pdf",
+      filename: "question.pdf",
+      type: "file" as const,
+    };
+    attachmentSpies.items = [attachment];
+    render(
+      <ChatInput
+        ref={inputRef}
+        onSend={onSend}
+        onCancel={vi.fn()}
+        onNewChat={vi.fn()}
+        isStreaming={false}
+        agentId="quote-agent"
+        threadId="quote-thread"
+        initialText="Explain this part"
+      />,
+    );
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Explain the second line specifically" },
+    });
+
+    act(() => {
+      inputRef.current?.quoteMessage(
+        "First line\nSecond line",
+        "Assistant reply",
+      );
+    });
+
+    const expected =
+      "> Assistant reply\n> First line\n> Second line\n\nExplain the second line specifically";
+    expect(screen.getByRole("textbox")).toHaveValue(expected);
+    expect(attachmentSpies.restore).not.toHaveBeenCalled();
+    expect(attachmentSpies.consume).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "send" }));
+    expect(onSend).toHaveBeenCalledWith(expected, [attachment]);
+    expect(screen.getByRole("textbox")).toHaveValue("");
+  });
+
+  it("retains both quotes and the draft across a stale prefill update", () => {
+    const inputRef = createRef<ChatInputHandle>();
+    const onSend = vi.fn();
+    const props = {
+      ref: inputRef,
+      onSend,
+      onCancel: vi.fn(),
+      onNewChat: vi.fn(),
+      isStreaming: false,
+      agentId: "quote-agent",
+      threadId: "quote-thread",
+    };
+    const view = render(
+      <ChatInput {...props} initialText="My current question" />,
+    );
+
+    act(() => {
+      inputRef.current?.quoteMessage("The first message", "User message");
+      inputRef.current?.quoteMessage("The second message", "Assistant reply");
+    });
+    view.rerender(<ChatInput {...props} initialText="Stale router prefill" />);
+
+    const expected =
+      "> Assistant reply\n> The second message\n\n> User message\n> The first message\n\nMy current question";
+    expect(screen.getByRole("textbox")).toHaveValue(expected);
+    fireEvent.click(screen.getByRole("button", { name: "send" }));
+    expect(onSend).toHaveBeenCalledWith(expected, undefined);
+  });
+
   it.each([false, true])(
     "keeps the complete draft until uploads finish (streaming=%s)",
     async (isStreaming) => {

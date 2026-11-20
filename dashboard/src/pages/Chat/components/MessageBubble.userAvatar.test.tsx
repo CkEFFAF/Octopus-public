@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import MessageBubble from "./MessageBubble";
 import type { ChatMessage } from "../hooks/useChat";
@@ -59,6 +59,74 @@ function userMessage(extra: Partial<ChatMessage> = {}): ChatMessage {
 }
 
 describe("MessageBubble user avatar", () => {
+  it.each([
+    ["user", 0],
+    ["user", 1000],
+    ["assistant", 0],
+    ["assistant", 1000],
+  ] as const)(
+    "quotes a completed %s message with timestamp %s",
+    (role, timestamp) => {
+      const onQuote = vi.fn();
+      const message = userMessage({
+        role,
+        timestamp,
+        content: "A previous message\nwith a second line",
+      });
+      render(<MessageBubble message={message} onQuoteMessage={onQuote} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "chat.quote" }));
+
+      expect(onQuote).toHaveBeenCalledOnce();
+      expect(onQuote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: message.id,
+          role,
+          content: "A previous message\nwith a second line",
+        }),
+      );
+    },
+  );
+
+  it("quotes the visible answer without the hidden thinking text", () => {
+    const onQuote = vi.fn();
+    render(
+      <MessageBubble
+        message={userMessage({
+          role: "assistant",
+          content: "<think>Private reasoning</think>\nThe visible answer",
+        })}
+        onQuoteMessage={onQuote}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "chat.quote" }));
+
+    expect(onQuote).toHaveBeenCalledWith(
+      expect.objectContaining({ content: "The visible answer" }),
+    );
+  });
+
+  it.each([
+    { status: "streaming" as const },
+    { content: "" },
+    { toolData: { name: "search", output: "tool output" } },
+  ])(
+    "does not offer a quote for unfinished or non-answer content %j",
+    (extra) => {
+      render(
+        <MessageBubble
+          message={userMessage({ role: "assistant", ...extra })}
+          onQuoteMessage={vi.fn()}
+        />,
+      );
+
+      expect(
+        screen.queryByRole("button", { name: "chat.quote" }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
   it("localizes the preview mask for direct image attachments", () => {
     render(
       <MessageBubble

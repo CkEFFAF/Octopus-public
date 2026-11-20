@@ -30,6 +30,7 @@ import { collectTurnKnowledgeCitations } from "../../../utils/collectTurnKnowled
 import { KnowledgeCitationsStrip } from "./KnowledgeCitationsStrip";
 import { messageSpeakerId } from "../utils/messageGrouping";
 import styles from "../index.module.less";
+import type { MessageQuoteHandler } from "../utils/messageQuote";
 const TurnFileChangesModal = lazy(() => import("./TurnFileChangesModal"));
 
 interface AssistantTurnViewProps {
@@ -47,6 +48,7 @@ interface AssistantTurnViewProps {
   onRegenerate?: (messageId: string) => void;
   onEditUserMessage?: (messageId: string, newText: string) => void;
   onForkAssistantMessage?: (messageId: string) => void;
+  onQuoteMessage?: MessageQuoteHandler;
   forkDisabled?: boolean;
   forkDisabledHint?: string;
   onAcpPermissionSelect?: (message: string) => void;
@@ -87,6 +89,7 @@ function AssistantTurnView({
   onRegenerate,
   onEditUserMessage,
   onForkAssistantMessage,
+  onQuoteMessage,
   forkDisabled,
   forkDisabledHint,
   onAcpPermissionSelect,
@@ -277,6 +280,12 @@ function AssistantTurnView({
             onRegenerate={onRegenerate}
             onEditUserMessage={onEditUserMessage}
             onForkAssistantMessage={onForkAssistantMessage}
+            onQuoteMessage={
+              onQuoteMessage
+                ? (message) =>
+                    onQuoteMessage(message, hitlLayout.trailingMessages)
+                : undefined
+            }
             forkDisabled={forkDisabled}
             forkDisabledHint={forkDisabledHint}
             groupPosition="only"
